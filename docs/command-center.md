@@ -172,14 +172,15 @@ for 51 rows to know whether an older page exists.
   row comes before its deployment exists). A `release` row has no deployment either. It belongs
   to the active deployment running the image in its `RELEASE_IMAGE` reason (the check `promote`
   makes), or to the candidate that ran that image on the same page. Otherwise it says "not
-  recorded".
+  recorded". A known agent's name links to its detail (`#/agents/NAME`); a candidate's row links
+  to the agent it belongs to.
 - **Mode and reasons**: each row's enforcement mode and reason codes. A release row also shows
   its eval run (`Evals 12/12, run ID`) and, when its agent is known, the report file `release`
   wrote, as a path relative to the project (`deploy/NAME.eval-RUN.json`, the default output).
   The console does not open the report yet; that is the next slice.
 - **Production**: an agent with a ready local production deployment links to Try it and shows
   its endpoint as text, once, on that agent's newest row on the page. The link is today's
-  deployment, not the one running at the row's time. Candidates are never linked.
+  deployment, not the one running at the row's time. Candidates never link to Try it.
 - **Paging**: focus moves to the page's status line, which says which page is shown, that it is
   loading, or that it could not be read (with Retry). Newest and Newer stay available after a
   failure.

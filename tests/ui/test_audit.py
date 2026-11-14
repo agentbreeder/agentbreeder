@@ -97,6 +97,8 @@ def test_rows_name_agent_mode_reasons_and_release_evidence(page, console):
     # Newest first: seq 4 (production deploy), 3 (release), 2 (candidate), 1 (attempt_started).
     production, released, candidate, started = (rows.nth(i) for i in range(4))
     expect(production.locator("td").nth(1)).to_contain_text("support")
+    detail = production.get_by_role("link", name="support", exact=True)
+    expect(detail).to_have_attribute("href", "#/agents/support")
     link = production.get_by_role("link", name="Try support in production")
     expect(link).to_have_attribute("href", "#/agents/support/try")
     expect(production).to_contain_text("http://127.0.0.1:9001")
@@ -106,9 +108,21 @@ def test_rows_name_agent_mode_reasons_and_release_evidence(page, console):
     expect(released).to_contain_text(f"Evals 12/12, run {RUN}")
     expect(released).to_contain_text(f"Report deploy/support.eval-{RUN}.json")
     expect(candidate.locator("td").nth(1)).to_contain_text("support candidate")
-    expect(candidate.get_by_role("link")).to_have_count(0)  # a candidate is never tried
+    # A candidate's row opens the agent it belongs to and is never tried.
+    expect(candidate.get_by_role("link")).to_have_count(1)
+    parent = candidate.get_by_role("link", name="support", exact=True)
+    expect(parent).to_have_attribute("href", "#/agents/support")
     expect(candidate).to_contain_text("IDENTITY_CONFIRMED")
     expect(started.locator("td").nth(1)).to_contain_text("support candidate")
+
+
+def test_agent_name_opens_the_agent_detail(page, console):
+    console.scenario(audit_rows=release_story(), deployments=PRODUCTION)
+    open_audit(page, console)
+    rows = page.get_by_role("table", name="Audit rows, newest first").locator("tbody tr")
+    rows.nth(0).get_by_role("link", name="support", exact=True).click()
+    expect(page).to_have_url(re.compile(r"#/agents/support$"))
+    expect(page.get_by_role("heading", level=1)).to_contain_text("support")
 
 
 def test_a_row_without_an_agent_says_so(page, console):

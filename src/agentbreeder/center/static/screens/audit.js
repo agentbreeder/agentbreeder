@@ -1,7 +1,8 @@
 // Governance ▸ Audit: the deploy audit chain in words, and its rows, 50 to a page, newest first.
 // Each row names its agent (a candidate is marked), its enforcement mode and reason codes; an
 // agent with a ready local production deployment links to Try it and shows its endpoint, and a
-// release row shows its eval run and the report file `release` wrote (#824).
+// release row shows its eval run and the report file `release` wrote (#824). The agent's name
+// opens its detail (#823); a candidate's row opens the agent it belongs to.
 
 import { pageLabel, production, releaseEval, rowAgents } from "../lib/audit.js";
 import { auditTime, incompleteSentence, reasonCodes, verifySentence } from "../lib/format.js";
@@ -15,7 +16,7 @@ function AgentCell({ agent, deployments, newest }) {
   if (!agent) return html`<span class="muted">not recorded</span>`;
   // Today's production, not the row's time: shown once, on the agent's newest row on this page.
   const live = agent.candidate || !newest ? null : production(deployments, agent.name);
-  return html`<${Text} value=${agent.name} />
+  return html`<a href=${href("/agents/:name", { name: agent.name })}><${Text} value=${agent.name} /></a>
     ${agent.candidate ? html` <span class="badge candidate" title="Removed when its release ends">candidate</span>` : null}
     ${live
       ? html`<div class="small"><a href=${href("/agents/:name/try", { name: agent.name })} aria-label=${`Try ${visible(agent.name)} in production`}>Production</a> <code><${Text} value=${live.endpoint} /></code></div>`
