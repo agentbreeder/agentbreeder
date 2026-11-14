@@ -10,19 +10,32 @@ The key value goes only into the deployment's private secret file; the audit rec
 
 from __future__ import annotations
 
+import http.client
 import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import ProxyHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from agentbreeder.operator_config import Gateway, OperatorConfig, resolve_credential
 
 PREFIX = "agentbreeder-"
 TIMEOUT = 15
-_OPENER = build_opener(ProxyHandler({}))  # never route the master key through a proxy
+SPEND_PAGE_LIMIT = 32 * 1024 * 1024  # bytes per /spend/logs/v2 page (1000 rows with metadata)
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    """The master key goes only to the configured URL: a redirect is an error, never followed
+    (urllib would resend the Authorization header to the new location)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+# Never route the master key through a proxy, and never follow a redirect with it.
+_OPENER = build_opener(ProxyHandler({}), _NoRedirect())
 
 
 class GatewayError(RuntimeError):
@@ -40,7 +53,14 @@ class LiteLLM:
     url: str
     master_key: str
 
-    def _call(self, method: str, path: str, body: dict | None = None, query: dict | None = None):
+    def _call(
+        self,
+        method: str,
+        path: str,
+        body: dict | None = None,
+        query: dict | None = None,
+        limit: int | None = None,
+    ):
         target = self.url.rstrip("/") + path + (("?" + urlencode(query)) if query else "")
         request = Request(
             target,
@@ -53,17 +73,23 @@ class LiteLLM:
         )
         try:
             with _OPENER.open(request, timeout=TIMEOUT) as response:
-                return json.load(response)
+                data = response.read(limit + 1) if limit else response.read()
         except HTTPError as error:
             if error.code == 404:
                 return None
             raise GatewayError(
                 "GATEWAY_ERROR", f"LiteLLM {path} returned HTTP {error.code}"
             ) from None
-        except (URLError, TimeoutError, OSError, ValueError) as error:
+        except (URLError, TimeoutError, OSError, ValueError, http.client.HTTPException) as error:
             raise GatewayError(
                 "GATEWAY_UNREACHABLE", f"LiteLLM at {self.url} is unreachable"
             ) from error
+        if limit and len(data) > limit:
+            raise GatewayError("GATEWAY_ERROR", f"LiteLLM {path} answered more than {limit} bytes")
+        try:
+            return json.loads(data)
+        except (ValueError, RecursionError):
+            raise GatewayError("GATEWAY_ERROR", f"LiteLLM {path} did not return JSON") from None
 
     def mint(
         self,
@@ -115,6 +141,34 @@ class LiteLLM:
             "blocked": bool(key.get("blocked")),
         }
 
+    def spend_logs(self, start: str, end: str, pages: int = 50) -> tuple[list[dict], bool]:
+        """Spend log rows between `start` and `end` ("YYYY-MM-DD HH:MM:SS", UTC), newest first,
+        from LiteLLM's `/spend/logs/v2` (#906): one row per model call, kept after a key is
+        deleted. Returns (rows, truncated): truncated when more than `pages` pages exist or
+        LiteLLM capped its count."""
+        found: list[dict] = []
+        page, truncated = 1, False
+        while True:
+            result = self._call(
+                "GET",
+                "/spend/logs/v2",
+                query={"start_date": start, "end_date": end, "page": page, "page_size": 1000},
+                limit=SPEND_PAGE_LIMIT,
+            )
+            if not isinstance(result, dict) or not isinstance(result.get("data"), list):
+                raise GatewayError("GATEWAY_ERROR", "LiteLLM returned no spend logs")
+            found += [_slim(row) for row in result["data"] if isinstance(row, dict)]
+            truncated = truncated or bool(result.get("total_is_capped"))
+            try:
+                total_pages = int(result.get("total_pages") or 1)
+            except (TypeError, ValueError, OverflowError):
+                total_pages = 1
+            if page >= total_pages:
+                return found, truncated
+            if page >= pages:
+                return found, True
+            page += 1
+
     def aliases(self) -> list[str]:
         found, page = [], 1
         while page <= 50:
@@ -131,6 +185,37 @@ class LiteLLM:
                 break
             page += 1
         return found
+
+
+_SPEND_FIELDS = (
+    "request_id",
+    "spend",
+    "model",
+    "model_group",
+    "status",
+    "prompt_tokens",
+    "completion_tokens",
+)
+
+
+_SLIM_TEXT = 512  # a caller can choose a model name: long strings are cut as they are read
+
+
+def _slim_value(value):
+    if isinstance(value, str):
+        return value[:_SLIM_TEXT]
+    return value if isinstance(value, (int, float)) else None  # bool is an int: llmcost drops it
+
+
+def _slim(row: dict) -> dict:
+    """Keep only what cost reads, cut short: a row's metadata can hold the whole proxied
+    request, so 50 pages of whole rows could hold gigabytes."""
+    metadata = row.get("metadata")
+    alias = metadata.get("user_api_key_alias") if isinstance(metadata, dict) else None
+    return {
+        **{key: _slim_value(row[key]) for key in _SPEND_FIELDS if key in row},
+        "metadata": {"user_api_key_alias": _slim_value(alias)},
+    }
 
 
 def client(operator: OperatorConfig, name: str) -> LiteLLM | None:

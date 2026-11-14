@@ -355,6 +355,17 @@ class Store:
             )
         ]
 
+    def summaries(self) -> list[dict]:
+        """Every deployment, removed ones included: id, name, state, environment, target."""
+        return [
+            dict(row)
+            for row in self.db.execute(
+                "SELECT id, name, state, environment, "
+                "COALESCE(json_extract(manifest,'$.target'),'local') AS target "
+                "FROM deployments ORDER BY created"
+            )
+        ]
+
     def active_for_principal(self, principal_key: str, environment: str) -> list[dict]:
         return [
             dict(row)
