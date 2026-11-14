@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  MAX_MESSAGE, MAX_TURNS, addPending, canTry, customerProblem, emptyConversation, failureText, latencyText,
+  MAX_MESSAGE, MAX_TURNS, addPending, canTry, costText, customerProblem, emptyConversation, failureText, latencyText,
   messageProblem, namesText, pending, productionRow, settle, thrownEnvelope, tokensText, unavailable,
 } from "../../src/agentbreeder/center/static/lib/tryit.js";
 
@@ -90,6 +90,16 @@ test("the inspector's words", () => {
   assert.equal(tokensText({ prompt: null, output: 3 }), "? in, 3 out");
   assert.equal(tokensText({ prompt: null, output: null }), "not reported");
   assert.equal(tokensText(undefined), "not reported");
+  assert.equal(costText(0.000444), "$0.000444");
+  assert.equal(costText(0.0444), "$0.0444");
+  assert.equal(costText(1.5), "$1.5000");
+  assert.equal(costText(0), "$0");
+  assert.equal(costText(0.0000001), "under $0.000001");
+  assert.equal(costText(0.000000999), "under $0.000001");
+  assert.equal(costText(0.000001), "$0.000001");
+  assert.equal(costText(0.0099999), "$0.010000");
+  assert.equal(costText(0.01), "$0.0100");
+  for (const odd of [null, undefined, -1, Number.NaN, Infinity, "0.1", {}]) assert.equal(costText(odd), null);
   assert.equal(namesText(["orders", "kb"]), "orders, kb");
   assert.equal(namesText([]), "none");
 });
