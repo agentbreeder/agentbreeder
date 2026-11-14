@@ -31,4 +31,6 @@ A package is a record, not a credential, and is not signed. Deploy refuses a pac
 
 `--json` prints `{"code", "error"}` for these; a `--stack DIR` that cannot be resolved fails before deploy runs and prints `{"schema_version": 1, "error": {"code", "message"}}` instead (see docs/services.md). Each refusal except `AUDIT_CORRUPT` is recorded in the audit log as a `deploy` deny with the ref and code only; the gate's own deny and abort events name the package too. If a deployment of that name is running with a different spec, deploy refuses as for a manifest (remove it, or `release --rollback`); with the same spec it is reused, and a link to another package is kept with a warning. To roll production back to an earlier package: `remove ID`, then `deploy agent/NAME@<previous> --local`.
 
+When Docker cannot bind a host port during a local deploy, the deployment fails with the error `[PORT_BUSY] port N is already in use on this machine; stop what uses it, then run the command again` (in `status` and the `--json` result's `error`) instead of Docker's generic refusal. Local deploys publish an ephemeral loopback port, so this is rare (on `main`, not in a published preview).
+
 Flags: `agentbreeder deploy --help`.
