@@ -101,7 +101,7 @@ def _now() -> str:
 
 
 def _clean(text: object, limit: int) -> str:
-    """One line, control and bidi characters removed, at most `limit` characters."""
+    """One line, control, bidi and invisible characters removed, at most `limit` characters."""
     return _CONTROL.sub("", str(text))[:limit].strip()
 
 

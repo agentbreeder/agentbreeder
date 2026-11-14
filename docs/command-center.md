@@ -143,10 +143,11 @@ fork are later milestones.
   search roots are listed in resolve order.
 - **Detail** (`#/registry/prompts/NAME`): the version timeline, newest first, with root, verify
   status and use per version; one version's description, version hash, path, manifest and files
-  (`registry show --json`: text files capped, binary files not shown, removed control or bidi
-  characters noted); the diff between any two versions (`registry diff --json`, the same hunks as
-  `diff -u` of the files, with the reason a changed file has no text hunks); and used-by among the
-  projects registered in the console for the same environment (`registry used-by --json`):
+  (`registry show --json`: text files capped, binary files not shown, removed control, bidi or
+  invisible characters noted); the diff between any two versions (`registry diff --json`, the
+  same hunks as `diff -u` of the files, with the reason a changed file has no text hunks); and
+  used-by among the projects registered in the console for the same environment
+  (`registry used-by --json`):
   declared, locked and deployed separately. Deployed is recorded local state, not a live check.
 - **How it reads**: the list, the roots and the declared and locked columns are in-process reads
   cached by what they read. `registry show` and `registry diff` open and hash every file of a
