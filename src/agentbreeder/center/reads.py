@@ -37,6 +37,8 @@ from agentbreeder import agentfile, lock, registry
 MAX_TREE_ENTRIES = 20000  # registry directories signed per request; larger is not cached
 MAX_CACHED = 256  # answers kept (distinct used-by refs grow it)
 VERIFY_TIMEOUT = 300
+CHILD_TIMEOUT = 60  # `registry show` and `registry diff` (both capped in size and work)
+CHILD_TTL = 60.0  # their cached answers are read again at least this often
 VERIFY_TTL = 60.0  # verify reruns at least this often: the listing signature does not see
 # edits inside a version, which only verify (hashing every file) does
 
@@ -244,6 +246,80 @@ class Reads:
                 return envelope(None, _problem(error))
 
         return self._cached(("used-by", project, str(parsed)), signature, compute)
+
+    def roots(self, project: str) -> list[dict]:
+        """The search roots in resolve order, each with where it comes from (`registry
+        show`'s `root_kind`: project, path or builtin) and whether it exists."""
+        directory = Path(project)
+        return [
+            {
+                "path": str(root),
+                "kind": registry.root_kind(root, directory),
+                "present": root.is_dir(),
+            }
+            for root in registry.roots(directory)
+        ]
+
+    def in_use(self, project: str) -> dict:
+        """Every listed version this project declares or locks, as {ref: {declared: [file],
+        locked: [file]}}: `registry.usage` per version (the same answer as `used-by`'s files
+        part), read once per change of the project's files or registries."""
+        directory = Path(project)
+        search = registry.roots(directory)
+        tree = _registry_signature(search)
+        names = ("agent.yaml", "stack.yaml", "agent.lock", "stack.lock")
+        files = _file_signature([directory / name for name in names])
+        signature = None if tree is None else (tree, files)
+
+        def compute() -> dict:
+            used: dict[str, dict] = {}
+            problems: list[dict] = []
+            try:
+                refs = sorted({row["ref"] for row in registry.listing(search)})
+                for text in refs:
+                    row = registry.usage(registry.Ref.parse(text), directory)
+                    if row["errors"] and not problems:
+                        problems = row["errors"]
+                    declared = sorted({entry["file"] for entry in row["declared"]})
+                    locked = sorted({entry["file"] for entry in row["locked"]})
+                    if declared or locked:
+                        used[text] = {"declared": declared, "locked": locked}
+            except (registry.RegistryError, OSError, RecursionError) as error:
+                return envelope(None, _problem(error))
+            return envelope({"refs": used, "errors": problems})
+
+        return self._cached(("in-use", project), signature, compute)
+
+    # -- show and diff: CLI children, cached until the registries change -------------------------
+
+    def show(self, project: str, ref: registry.Ref) -> dict:
+        """`registry show REF --project PROJECT --json`. A child, not in process: it opens and
+        hashes every file of the version. Cached by the registry listing's signature, for at
+        most CHILD_TTL seconds (an edit inside a version changes no listing), and dropped when a
+        job ends."""
+        argv = ["registry", "show", str(ref), "--project", project, "--json"]
+        return self._child(("show", project, str(ref)), project, argv)
+
+    def diff(self, project: str, first: registry.Ref, second: registry.Ref) -> dict:
+        """`registry diff FROM TO --project PROJECT --json`, as `show`."""
+        argv = ["registry", "diff", str(first), str(second), "--project", project, "--json"]
+        return self._child(("diff", project, str(first), str(second)), project, argv)
+
+    def _child(self, key: tuple, project: str, argv: list[str]) -> dict:
+        # The listing signature does not see an edit inside a version, which only verify finds;
+        # the time window makes a cached answer read again at least every CHILD_TTL seconds.
+        tree = _registry_signature(registry.roots(Path(project)))
+        window = int(time.monotonic() // CHILD_TTL)
+        signature = None if tree is None else (tree, window)
+
+        def compute() -> dict:
+            if self.run_cli is None:
+                return envelope(None, {"code": "READ_UNAVAILABLE", "message": "No CLI"})
+            # Uncached in the runner: a failed read must not come back as another version's
+            # last good answer; this layer keeps only successful answers.
+            return self.run_cli(argv, timeout=CHILD_TIMEOUT, cache=False)
+
+        return self._cached(key, signature, compute)
 
     # -- verify: a CLI child off the request thread ----------------------------------------------
 

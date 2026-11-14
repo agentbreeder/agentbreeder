@@ -119,10 +119,16 @@ def test_opening_an_agent_from_all_projects_switches_the_scope(page, console):
     page.get_by_label("Project scope").select_option("")
     page.get_by_role("link", name="demo", exact=True).click()
     page.wait_for_url("**/#/agents/demo")
-    expect(page.locator("main h1")).to_contain_text("Agent")
+    expect(page.locator("main h1")).to_contain_text("Agent demo")
+    expect(page).to_have_title("Agent demo · AgentBreeder console")
     expect(page.locator("main h1 .scope-chip")).to_contain_text("demo")
     expect(page.locator("main h1")).to_be_focused()
-    # The sidebar keeps Agents current on the detail (navAs) once the shell honours it (#915).
+    # The sidebar keeps Agents current on the detail (navAs).
+    expect(
+        page.get_by_role("navigation", name="Console").get_by_role(
+            "link", name="Agents", exact=True
+        )
+    ).to_have_attribute("aria-current", "page")
 
 
 def test_the_gate_strip_and_identity_strip(page, console):

@@ -2992,6 +2992,109 @@ def test_a_cached_answer_for_another_project_is_never_served_as_stale(
     assert "/elsewhere" not in json.dumps(data)
 
 
+# -- the registry browser (#824) ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "registry/show?ref=nope",
+        "registry/show",
+        "registry/diff?from=prompt/a@1.0.0&to=bad",
+        "registry/used-by?ref=tool%2Fx%40latest",
+    ],
+)
+def test_registry_routes_refuse_a_bad_ref(center, cookie, project, path):
+    status, data, _ = api(center, "GET", f"/api/projects/{project['id']}/{path}", cookie=cookie)
+    assert status == 400 and data["error"]["code"] == "REF_INVALID"
+    assert not data["error"]["message"].startswith("[")
+
+
+def test_registry_show_and_diff_pass_canonical_refs(center, cookie, project, monkeypatch):
+    calls = []
+
+    def run_cli(argv, **options):
+        calls.append(argv)
+        return {"data": {"argv": argv}, "error": None, "stale": False}
+
+    monkeypatch.setattr(center.reads, "run_cli", run_cli)
+    base = f"/api/projects/{project['id']}/registry"
+    status, data, _ = api(center, "GET", base + "/show?ref=prompt%2Fp%401.0.0", cookie=cookie)
+    assert status == 200
+    assert data["data"]["argv"] == [
+        "registry",
+        "show",
+        "prompt/p@1.0.0",
+        "--project",
+        project["path"],
+        "--json",
+    ]
+    path = base + "/diff?from=prompt/p@1.0.0&to=prompt/p@1.0.1"
+    status, data, _ = api(center, "GET", path, cookie=cookie)
+    assert status == 200 and data["data"]["argv"][:4] == [
+        "registry",
+        "diff",
+        "prompt/p@1.0.0",
+        "prompt/p@1.0.1",
+    ]
+    # Two names: the CLI's own refusal comes back as the envelope's error.
+    monkeypatch.setattr(
+        center.reads,
+        "run_cli",
+        lambda argv, **options: {
+            "data": None,
+            "error": {"code": "REF_INVALID", "message": "m"},
+            "stale": False,
+        },
+    )
+    path = base + "/diff?from=prompt/p@1.0.0&to=prompt/q@1.0.1"
+    status, data, _ = api(center, "GET", path, cookie=cookie)
+    assert status == 200 and data["error"]["code"] == "REF_INVALID"
+
+
+def test_registry_used_by_reads_every_registered_project_of_the_environment(
+    center, cookie, project, tmp_path, monkeypatch
+):
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "agent.yaml").write_text("kind: agent\n")
+    (other / "stack.yaml").write_text("kind: stack\n")
+    status, _, _ = api(center, "POST", "/api/projects", {"path": str(other)}, cookie)
+    assert status == 200
+    calls = []
+    real = center.runner.read
+
+    def read(argv, **options):
+        calls.append((argv, options))
+        return real(argv, **options)
+
+    monkeypatch.setattr(center.runner, "read", read)
+    path = f"/api/projects/{project['id']}/registry/used-by?ref=tool/orders@1.0.0"
+    status, data, _ = api(center, "GET", path, cookie=cookie)
+    assert status == 200 and data["error"] is None
+    assert data["data"]["ref"] == "tool/orders@1.0.0"
+    argv, options = calls[-1]
+    assert argv == [
+        "registry",
+        "used-by",
+        "tool/orders@1.0.0",
+        "--project",
+        project["path"],
+        "--project",
+        str(other.resolve()),
+        "--json",
+    ]
+    assert options == {"ok_codes": (0, 2)}
+
+
+def test_the_registry_view_carries_roots_and_in_use(center, cookie, project):
+    status, data, _ = api(center, "GET", f"/api/projects/{project['id']}/registry", cookie=cookie)
+    assert status == 200
+    view = data["data"]
+    assert view["roots"][0]["kind"] == "project" and view["roots"][-1]["kind"] == "builtin"
+    assert view["in_use"]["error"] is None and isinstance(view["in_use"]["data"]["refs"], dict)
+
+
 # -- logs (#821, M5 console half): one snapshot read per request, never cached -------------------
 
 DEPLOYMENT_ID = "0123456789abcdef0123456789abcdef"

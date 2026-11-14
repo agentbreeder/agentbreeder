@@ -57,6 +57,10 @@ DEFAULT = {
     "guide": "services",
     # `new agent`: null writes the demo project into --dir; a {code, message} refuses.
     "new_error": None,
+    # `registry used-by`: the deployments shown for a project that uses the ref.
+    "used_by_deployed": [],
+    # `registry verify`: the problem rows ({ref, path, error}); it exits 2 when there are any.
+    "registry_problems": [],
     # `services logs DIR NAME` / `logs ID`, by NAME or ID: {"lines", "levels", "format",
     # "truncated", "pod_reason"} replaces the generated answer; {"error": {code, message}} fails
     # it. Without an entry, `generated_lines` lines are made (every 100th an ERROR).
@@ -132,6 +136,31 @@ def job(name: str, data: dict) -> int:
     return int(data["job_exit"].get(name, 0))
 
 
+def real(argv: list[str]) -> int:
+    """`registry show` and `registry diff` read only registry files: the real commands."""
+    from agentbreeder import cli
+
+    return cli.main(argv)
+
+
+def used_by(argv: list[str], data: dict) -> int:
+    """`registry used-by`: the real declared and locked parts (`registry.usage`); deployed is
+    the scenario's `used_by_deployed` for every project that declares or locks the ref."""
+    from agentbreeder import registry
+
+    ref = registry.Ref.parse(argv[2])
+    projects = [Path(argv[i + 1]) for i, arg in enumerate(argv) if arg == "--project"]
+    rows = []
+    for project in projects:
+        row = registry.usage(ref, project)
+        used = row["declared"] or row["locked"]
+        row["deployed"] = data["used_by_deployed"] if used else []
+        row["recorded_not_running"], row["deployed_undetermined"] = [], []
+        rows.append(row)
+    print(json.dumps({"ref": str(ref), "projects": rows}))
+    return 0
+
+
 def logs(argv: list[str], data: dict) -> int:
     service = argv[:2] == ["services", "logs"]
     name = argv[3] if service else argv[1]
@@ -182,6 +211,13 @@ def main(argv: list[str]) -> int:
         return job("services-up", data)
     elif head == ["services", "down"]:
         return job("services-down", data)
+    elif head in (["registry", "show"], ["registry", "diff"]):
+        return real(argv)
+    elif head == ["registry", "used-by"]:
+        return used_by(argv, data)
+    elif head == ["registry", "verify"]:
+        print(json.dumps(data["registry_problems"]))
+        return 2 if data["registry_problems"] else 0
     elif argv and argv[0] == "registry":
         print("[]")
     elif argv[:2] == ["list", "--all"]:

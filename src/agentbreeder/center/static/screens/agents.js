@@ -253,8 +253,8 @@ function AgentScreen({ project, params }) {
 }
 
 /** The routes, for screens/index.js. Tabs share one section: switching tabs keeps focus. The
- * title names the agent once #915's `routeTitle` (a title computed from the parameters) lands. */
-const DETAIL = { title: "Agent", section: "/agents/:name", navAs: "/agents", scoped: true, screen: AgentScreen };
+ * title names the agent (`routeTitle` calls it with the route parameters). */
+const DETAIL = { title: (params) => `Agent ${params.name}`, section: "/agents/:name", navAs: "/agents", scoped: true, screen: AgentScreen };
 export const AGENT_ROUTES = [
   { pattern: "/agents", title: "Agents", nav: "Agents", screen: Agents },
   { pattern: "/agents/:name", ...DETAIL },

@@ -20,7 +20,7 @@ full teardown. It has not been run on Linux.
 |---|---|---|
 | Agent definition | `agent.yaml`, `agent.lock` | yours (about 35 lines of YAML) |
 | Prompt, knowledge, tools, eval set | `registry/<kind>/<name>/<version>/` | registry entries. The tools are small Python packages: that is where custom logic lives |
-| Runtime (ADK, memory, RAG, server) | `runtime/adk@1.0.6`, shipped with AgentBreeder | AgentBreeder |
+| Runtime (ADK, memory, RAG, server) | `runtime/adk@1.2.0`, shipped with AgentBreeder (the 61/61 runs above were on `1.0.6`; a run on `1.2.0` is pending) | AgentBreeder |
 | Backing services | `stack.yaml`, `stack.lock` | built-in `postgres-pgvector`, `litellm` and `phoenix`, plus this example's `northwind-proxy` and `northwind-ops` (`registry/service/`, built from source) |
 | Schema, seed data, grants and gateway models | `stack/db/commerce.sql`, `stack/litellm/config.yaml` | example data |
 

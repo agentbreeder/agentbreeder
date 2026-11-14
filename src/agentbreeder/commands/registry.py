@@ -19,7 +19,7 @@ def register(commands) -> None:
     reg = commands.add_parser("registry", help="Author and inspect registry versions")
     reg_commands = reg.add_subparsers(dest="registry_command", required=True)
     reg_new = reg_commands.add_parser("new", help="Scaffold a version directory to edit")
-    reg_new.add_argument("kind", choices=sorted(registry.SCAFFOLD))
+    reg_new.add_argument("kind", type=_scaffold_kind, choices=sorted(registry.SCAFFOLD))
     reg_new.add_argument("name")
     reg_new.add_argument("--dir", type=Path, default=Path("."))
     reg_publish = reg_commands.add_parser("publish", help="Publish an immutable version")
@@ -355,6 +355,16 @@ def _used_by_text(result: dict) -> str:
 _BUCKETS = ("declared", "locked", "deployed", "recorded_not_running", "deployed_undetermined")
 
 
+def _scaffold_kind(text: str) -> str:
+    # Before argparse's `choices` check, so `registry new agent` names the reason, not only
+    # "invalid choice".
+    if text == registry.PACKAGE_KIND:
+        raise argparse.ArgumentTypeError(
+            f"[{registry.PACKAGE_RELEASE_ONLY}] agent/ versions are written by release"
+        )
+    return text
+
+
 def _context(text: str) -> int:
     try:
         value = int(text)
@@ -394,7 +404,35 @@ def _show_text(view: dict) -> str:
             lines.append(f"  {entry['path']}/")
         else:
             lines.append(f"  {entry['path']}  {entry['size']} B{_file_note(entry)}")
+    if "package" in view:
+        lines += _package_text(view)
     for entry in view["files"]:
         if entry["type"] == "file" and entry["text"] is not None:
             lines += ["", f"--- {entry['path']} ---", entry["text"].rstrip("\n")]
     return "\n".join(lines)
+
+
+def _package_text(view: dict) -> list[str]:
+    """An `agent/` package's record for a terminal (values cleaned by registry.show)."""
+    if view["package"] is None:
+        return [f"Package: not valid: {view['package_error']}"]
+    record = view["package"]
+
+    def one(value) -> str:
+        return registry.clean(str(value), name=True)[0]
+
+    evals, deploy = record["evals"], record["deploy"]
+    lines = [
+        "Package:",
+        f"  Runtime: {one(record['agent']['runtime'])}",
+        f"  Image: {one(record['image']['id'])} ({one(record['image']['platform'])})",
+        f"  Evals: {one(evals['ref'])} passed {evals['passed']}/{evals['cases']} "
+        f"(threshold {evals['threshold']}, {one(evals['environment'])}, "
+        f"run {one(evals['run_id'])})",
+        f"  Released: {one(record['released']['at'])} by AgentBreeder "
+        f"{one(record['released']['agentbreeder'])}",
+        f"  Models: {', '.join(one(alias) for alias in deploy['aliases'])}",
+    ]
+    if deploy["mcp_access"]:
+        lines.append(f"  MCP: {', '.join(one(entry['ref']) for entry in deploy['mcp_access'])}")
+    return lines

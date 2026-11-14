@@ -482,6 +482,8 @@ ROUTES = [
     "/agents/demo/logs",
     "/targets/kubernetes",
     "/audit",
+    "/registry/services",
+    "/registry/runtimes/adk",
 ]
 
 

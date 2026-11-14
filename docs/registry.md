@@ -395,9 +395,26 @@ version is first locked; they don't vouch for that first lock.
 ## Agent packages (in progress, on `main`, not in a published preview)
 
 M13 (#763) adds an `agent` registry kind: a released agent kept as an immutable version at
-`./registry/agent/<name>/<X.Y.Z>/`. Only the package format and a deterministic packer exist so
-far. **No command writes, lists or deploys a package yet**, and `agent/…` refs do not parse.
-The design is in `docs/superpowers/specs/2026-11-13-agent-package-design.md`.
+`./registry/agent/<name>/<X.Y.Z>/`. So far there are the package format, a deterministic packer
+and read-only views. **No command writes or deploys a package yet**: `release` will write them
+in a later slice. The design is in `docs/superpowers/specs/2026-11-13-agent-package-design.md`.
+
+- `agent/<name>@X.Y.Z` refs parse, but no `agent.yaml` or `stack.yaml` field takes one, a lock
+  cannot hold one, and `build` never copies one into an image.
+- Only `release` writes `agent/` versions. `registry publish`, `import`, `fork`, `edit` and
+  `registry new agent` refuse with `[PACKAGE_RELEASE_ONLY] agent/ versions are written by
+  release`. A copy made by hand (`cp`) is still possible; deploy will check it against the
+  release record.
+- `registry list` shows `agent/` rows. `registry verify` also checks that each one is a valid
+  package: exactly the four files below, a strict `package.json` naming that version, and an
+  `agent.yaml` whose hash matches the one in `package.json`.
+- `registry show agent/<name>@X.Y.Z` adds a `Package:` summary (runtime, image, evals, release
+  time, models, MCP servers); `--json` adds `package` (the `package.json` fields, cleaned) and
+  `package_error` (null, or why the version is not a valid package). An invalid package is
+  shown, not refused, with the reason.
+- `registry diff` compares two versions of one package like any other version.
+- `registry used-by agent/…` lists no deployments yet: deployments are linked to packages when
+  deploy by ref arrives.
 
 A package holds exactly four files:
 

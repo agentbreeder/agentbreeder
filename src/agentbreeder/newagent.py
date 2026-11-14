@@ -3,7 +3,8 @@ guided §9.2 #8; providers #905).
 
 The starter is based on the one walked by hand on 3.0.0a2
 (`website/content/docs/your-own-agent.mdx`): a help-desk prompt and the two eval cases that were
-run, a stack with Postgres and LiteLLM, and an `agent.yaml` on `runtime/adk@1.0.6`. Its prompt
+run, a stack with Postgres and LiteLLM, and an `agent.yaml` (on `runtime/adk@1.2.0` since #828;
+the hand walk was on 1.0.6). Its prompt
 and evals are published as `prompt/NAME-prompt@0.1.0` and `eval/NAME-evals@0.1.0` into the
 project's own `registry/` (release refuses path prompts, and evals have no path form), and
 `agent.lock` is written, so `build --locked` passes on the new project. `src/prompt/` and
@@ -46,7 +47,7 @@ from pathlib import Path
 
 from agentbreeder import example, registry
 
-RUNTIME = "runtime/adk@1.0.6"
+RUNTIME = "runtime/adk@1.2.0"
 VERSION = "0.1.0"
 REVIEW_DAYS = 180
 SUMMARY_VERSION = 1  # the `--json` shape (and its `error` form) in docs/commands/new.md

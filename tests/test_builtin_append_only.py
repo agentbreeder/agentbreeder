@@ -1,6 +1,6 @@
 """Built-in registry versions are append-only across releases (spec criterion 6).
 
-Locks such as Northwind's `runtime/adk@1.0.6` pin a built-in version by hash, so a release that
+Locks such as Northwind's `runtime/adk@1.2.0` pin a built-in version by hash, so a release that
 changes any existing version's bytes or exec bits breaks every project locked to it. New versions
 may be added: record them in tests/fixtures/builtin_hashes.json in the same change.
 """

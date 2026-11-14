@@ -274,6 +274,10 @@ def deployed(ref: Ref, row: dict, project: Path, directories: list[Path]) -> dic
     agent = row.get("agent")
     if not agent or ref.kind == "service":
         return row  # a service ref is used by the stack, never by an agent image (#854)
+    if ref.kind == "agent":
+        # A package is deployed by ref, never built into an image; the deployment-to-package
+        # link (store v4, M13 spec §7.3) comes with deploy by ref, so nothing links one yet.
+        return row
     record, problem = _record(project, agent, row)
     candidate = f"{agent}-candidate"
     for directory in directories:
