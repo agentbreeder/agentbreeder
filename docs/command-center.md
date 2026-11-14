@@ -73,6 +73,7 @@ agentbreeder cluster down --stack DIR
 On `main` the walkthrough column is replaced by a console shell (Preact + htm, no build step):
 
 - **Sidebar** with one entry per screen that works: Home, Services, Build and release, Deployments,
+  Registry ▸ Prompts, Eval sets, Tools, Knowledge, MCP servers, Service definitions and Runtimes,
   Targets ▸ Kubernetes, Governance ▸ Audit. Each screen has its own address (`#/deployments`), page
   title and `h1`. Changing screen moves focus to that `h1`, and a skip link goes straight to it.
 - **Top bar**: a scope switcher ("All projects" or one project; a project screen under "All
@@ -127,6 +128,37 @@ wheel built from `main` in a clean sandbox on macOS (2026-11-13), Northwind pass
 Docker and on `kind` through the console's API, every screen was opened in Chrome, and the teardown
 ran from the UI (three leftover Docker objects of the stack were then removed by hand). Onboarding,
 the grant review, a full release and the cluster connect and deploy were not clicked in the browser.
+
+### The registry browser (#824): on `main`, not in a published preview
+
+Registry ▸ one page per kind (prompt, eval set, tool, knowledge, MCP server, service definition,
+runtime) for the project in scope. Read-only: editing, import and fork are later milestones.
+
+- **List**: one row per name with its latest version, how many versions there are, the root the
+  latest resolves from (project, shared path from `AGENTBREEDER_REGISTRY_PATH`, or built-in), its
+  verify status as an icon and a word, and which versions this project declares (`agent.yaml`,
+  `stack.yaml`) or locks (`agent.lock`, `stack.lock`). A version that also exists in a later root
+  is resolved from the first one, as `build` does; the later copies are counted as shadowed. The
+  search roots are listed in resolve order.
+- **Detail** (`#/registry/prompts/NAME`): the version timeline, newest first, with root, verify
+  status and use per version; one version's description, version hash, path, manifest and files
+  (`registry show --json`: text files capped, binary files not shown, removed control or bidi
+  characters noted); the diff between any two versions (`registry diff --json`, the same hunks as
+  `diff -u` of the files, with the reason a changed file has no text hunks); and used-by among the
+  projects registered in the console for the same environment (`registry used-by --json`):
+  declared, locked and deployed separately. Deployed is recorded local state, not a live check.
+- **How it reads**: the list, the roots and the declared and locked columns are in-process reads
+  cached by what they read. `registry show` and `registry diff` open and hash every file of a
+  version, so they run as CLI children (60-second timeout), and only a successful answer is cached:
+  for at most a minute, and less when the registries change or a job ends. `registry verify` stays a background child; the pages
+  say "Verifying…" until it answers, then show the last answer while a new run goes.
+
+Tested with Playwright (in CI against the built wheel) over a copy of Northwind, with the real `registry
+show` and `registry diff` and a fake for the deployed part of `used-by`: every kind lists
+Northwind's versions and the built-ins, the `prompt/northwind-support` 1.0.0 → 1.0.1 diff matches
+Python's `difflib.unified_diff` of the files, `tool/orders@1.0.0` shows Northwind as declared, locked and
+deployed, a failed verification shows on the list and the version, and axe passes in light and dark.
+Not yet run against a real deployment: that is the M8 console verification.
 
 ### The guided path and Create starter (#820): on `main`, not in a published preview
 

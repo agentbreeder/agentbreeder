@@ -12,6 +12,14 @@ On main, not in a published preview.
 
 ### Added
 
+- Console registry browser (#824, M8 console half), on `main`, not in a published preview:
+  Registry ▸ Prompts, Eval sets, Tools, Knowledge, MCP servers, Service definitions and Runtimes
+  list every name with latest version, version count, root, verify status and this project's use;
+  a name's page has the version timeline, one version's manifest and files (`registry show`), the
+  diff between any two versions (`registry diff`) and used-by across the registered projects of
+  the environment (`registry used-by`: declared, locked and deployed). Read-only. See
+  `docs/command-center.md`.
+
 - Console guided path and Create starter (#820, M4), on `main`, not in a published preview: Home
   shows the project's `next --json` checklist (state as icon and word, reason, the current step's
   button, command and note), the top bar a "Next" pill, finished jobs a result row, and empty Home

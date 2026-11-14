@@ -321,6 +321,8 @@ class Center:
                 {
                     "versions": self.reads.registry_versions(path),
                     "problems": self.reads.registry_problems(path),
+                    "roots": self.reads.roots(path),
+                    "in_use": self.reads.in_use(path),
                 }
             )
         if view == "agent":
@@ -481,6 +483,43 @@ def _used_by(request: Request) -> dict:
     return envelope({"files": files["data"], "deployments": deployed})
 
 
+def _query_ref(request: Request, name: str) -> registry.Ref:
+    try:
+        return registry.Ref.parse(request.query.get(name, [""])[0])
+    except registry.RegistryError as problem:
+        raise BadRequest(str(problem).removeprefix(f"[{problem.code}] "), problem.code) from None
+
+
+def _registry_show(request: Request) -> dict:
+    """One version (`registry show --json`): a CLI child, cached until the registries change."""
+    project = request.project()
+    return request.center.reads.show(project["path"], _query_ref(request, "ref"))
+
+
+def _registry_diff(request: Request) -> dict:
+    """What changed between two versions of one name (`registry diff --json`)."""
+    project = request.project()
+    first, second = _query_ref(request, "from"), _query_ref(request, "to")
+    return request.center.reads.diff(project["path"], first, second)
+
+
+def _registry_used_by(request: Request) -> dict:
+    """Which registered projects (of this environment) declare, lock and run REF: one
+    `registry used-by --json` child over all of them (console spec §8.4, "among registered
+    projects"). It exits 2 when a project file has an error but still prints its answer."""
+    project = request.project()
+    ref = _query_ref(request, "ref")
+    paths = [project["path"]] + sorted(
+        p["path"]
+        for p in request.center.state.projects()
+        if p["environment"] == project["environment"] and p["id"] != project["id"]
+    )
+    argv = ["registry", "used-by", str(ref)]
+    for path in paths:
+        argv += ["--project", path]
+    return request.center.runner.read([*argv, "--json"], ok_codes=(0, 2))
+
+
 def _job(request: Request) -> dict:
     after = request.query.get("after", ["0"])[0]
     job = request.center.state.job(
@@ -547,6 +586,24 @@ ROUTES: tuple[Route, ...] = (
         rf"/api/projects/{PROJECT_ID}/used-by",
         _used_by,
         "/api/projects/0123456789ab/used-by",
+    ),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/registry/show",
+        _registry_show,
+        "/api/projects/0123456789ab/registry/show",
+    ),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/registry/diff",
+        _registry_diff,
+        "/api/projects/0123456789ab/registry/diff",
+    ),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/registry/used-by",
+        _registry_used_by,
+        "/api/projects/0123456789ab/registry/used-by",
     ),
     Route("GET", rf"/api/jobs/{JOB_ID}", _job, "/api/jobs/" + "0" * 32, poll=True),
     Route("POST", r"/api/session", _session, "/api/session", session=False),

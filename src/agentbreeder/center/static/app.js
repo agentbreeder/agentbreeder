@@ -232,7 +232,7 @@ function App({ initial }) {
 
   const match = router.match(path);
   useEffect(() => {
-    document.title = phase.name === "ready" ? titleFor(match && match.route) : titleFor(null);
+    document.title = phase.name === "ready" ? titleFor(match && match.route, match ? match.params : {}) : titleFor(null);
   }, [path, phase.name]);
 
   if (phase.name === "loading") return html`<main id="main" class="center-page" aria-busy="true"><p class="muted">Loading the console…</p></main>`;

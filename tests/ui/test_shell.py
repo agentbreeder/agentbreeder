@@ -464,7 +464,16 @@ def test_unreachable_is_not_session_ended(page, console):
     expect(page.get_by_role("heading", level=1)).to_contain_text("Deployments")
 
 
-ROUTES = ["/", "/services", "/release", "/deployments", "/targets/kubernetes", "/audit"]
+ROUTES = [
+    "/",
+    "/services",
+    "/release",
+    "/deployments",
+    "/targets/kubernetes",
+    "/audit",
+    "/registry/services",
+    "/registry/runtimes/adk",
+]
 
 
 def test_every_screen_has_zero_csp_violations(page, console, violations):

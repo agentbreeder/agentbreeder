@@ -463,3 +463,105 @@ def test_no_tracked_read_starts_once_the_console_is_stopping(tmp_path):
     runner.shutdown(grace=0)
     assert runner.read(["x"], track=True)["error"]["code"] == "STOPPING"
     assert runner.children == set()
+
+
+# -- the registry browser (#824) ------------------------------------------------------------------
+
+
+def _version(project: Path, kind: str, name: str, version: str, body: str = "x\n") -> Path:
+    path = project / "registry" / kind / name / version
+    path.mkdir(parents=True)
+    (path / "manifest.yaml").write_text(f"kind: {kind}\nname: {name}\nversion: {version}\n")
+    (path / "prompt.md").write_text(body)
+    return path
+
+
+def test_roots_name_where_each_comes_from(project):
+    _version(project, "prompt", "p", "1.0.0")
+    roots = Reads().roots(str(project))
+    assert roots[0] == {"path": str(project / "registry"), "kind": "project", "present": True}
+    assert roots[-1]["kind"] == "builtin" and roots[-1]["present"]
+
+
+def test_in_use_matches_used_by_for_every_version(project):
+    _version(project, "prompt", "p", "1.0.0")
+    _version(project, "prompt", "p", "1.0.1")
+    (project / "agent.yaml").write_text(
+        AGENT.replace("{path: prompts/dev.md}", "{ref: prompt/p@1.0.1}")
+    )
+    layer = Reads()
+    answer = layer.in_use(str(project))
+    assert answer["error"] is None
+    refs = answer["data"]["refs"]
+    assert refs["prompt/p@1.0.1"] == {"declared": ["agent.yaml"], "locked": []}
+    assert "runtime/adk@1.0.0" not in refs  # not a listed version: only listed ones are rows
+    assert "prompt/p@1.0.0" not in refs
+    for ref, use in refs.items():
+        cli = _cli("registry", "used-by", ref, "--project", str(project), "--json")["projects"][0]
+        assert sorted({d["file"] for d in cli["declared"]}) == use["declared"], ref
+    assert layer.in_use(str(project)) is answer  # cached until a file changes
+    (project / "agent.yaml").write_text(AGENT)
+    assert "prompt/p@1.0.1" not in layer.in_use(str(project))["data"]["refs"]
+
+
+def test_in_use_reports_a_broken_project_file(project):
+    (project / "agent.yaml").write_text("kind: agent\nname: [unclosed\n")
+    _version(project, "prompt", "p", "1.0.0")
+    answer = Reads().in_use(str(project))
+    assert answer["error"] is None
+    assert answer["data"]["errors"][0]["file"] == "agent.yaml"
+
+
+def test_show_and_diff_run_the_cli_and_cache_only_good_answers(project):
+    _version(project, "prompt", "p", "1.0.0")
+    calls = []
+    answers = [{"data": None, "error": {"code": "TIMEOUT", "message": "t"}, "stale": False}]
+
+    def run_cli(argv, **options):
+        calls.append((argv, options))
+        return (
+            answers.pop(0)
+            if answers
+            else {"data": {"ok": len(calls)}, "error": None, "stale": False}
+        )
+
+    layer = Reads(run_cli=run_cli)
+    ref = reads.registry.Ref.parse("prompt/p@1.0.0")
+    assert layer.show(str(project), ref)["error"]["code"] == "TIMEOUT"
+    good = layer.show(str(project), ref)
+    assert good["data"] == {"ok": 2}
+    assert layer.show(str(project), ref) is good  # cached
+    argv, options = calls[0]
+    assert argv == ["registry", "show", "prompt/p@1.0.0", "--project", str(project), "--json"]
+    assert options == {"timeout": reads.CHILD_TIMEOUT, "cache": False}
+    second = reads.registry.Ref.parse("prompt/p@1.0.1")
+    layer.diff(str(project), ref, second)
+    assert calls[-1][0][:4] == ["registry", "diff", "prompt/p@1.0.0", "prompt/p@1.0.1"]
+    # A new version changes the listing signature: the cached answer is read again.
+    _version(project, "prompt", "p", "1.0.1")
+    assert layer.show(str(project), ref)["data"] == {"ok": 4}
+    layer.invalidate()
+    assert layer.show(str(project), ref)["data"] == {"ok": 5}
+
+
+def test_show_without_a_cli_says_so(project):
+    ref = reads.registry.Ref.parse("prompt/p@1.0.0")
+    assert Reads().show(str(project), ref)["error"]["code"] == "READ_UNAVAILABLE"
+
+
+def test_show_is_read_again_after_its_time_window(project, monkeypatch):
+    _version(project, "prompt", "p", "1.0.0")
+    calls = []
+
+    def run_cli(argv, **options):
+        calls.append(argv)
+        return {"data": len(calls), "error": None, "stale": False}
+
+    now = [1000.0]
+    monkeypatch.setattr(reads.time, "monotonic", lambda: now[0])
+    layer = Reads(run_cli=run_cli)
+    ref = reads.registry.Ref.parse("prompt/p@1.0.0")
+    assert layer.show(str(project), ref)["data"] == 1
+    assert layer.show(str(project), ref)["data"] == 1
+    now[0] += reads.CHILD_TTL  # an edit inside a version changes no listing
+    assert layer.show(str(project), ref)["data"] == 2

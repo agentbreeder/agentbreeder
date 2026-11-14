@@ -74,7 +74,14 @@ export function href(pattern, params = {}) {
   return `#/${path}`;
 }
 
+/** A route's title: a string, or a function of the route's parameters (a detail page's name). */
+export function routeTitle(route, params = {}) {
+  if (!route || !route.title) return "";
+  return typeof route.title === "function" ? String(route.title(params)) : route.title;
+}
+
 /** The document title for a route: "Audit · AgentBreeder console". */
-export function titleFor(route) {
-  return route && route.title ? `${route.title} · ${SUFFIX}` : SUFFIX;
+export function titleFor(route, params = {}) {
+  const title = routeTitle(route, params);
+  return title ? `${title} · ${SUFFIX}` : SUFFIX;
 }

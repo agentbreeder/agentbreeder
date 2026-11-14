@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createRouter, href, pathFrom, titleFor, tokenFrom } from "../../src/agentbreeder/center/static/lib/router.js";
+import { createRouter, href, pathFrom, routeTitle, titleFor, tokenFrom } from "../../src/agentbreeder/center/static/lib/router.js";
 
 const TOKEN = "A".repeat(43);
 
@@ -59,4 +59,12 @@ test("href builds and refuses bad parameters", () => {
 test("titles", () => {
   assert.equal(titleFor({ title: "Audit" }), "Audit · AgentBreeder console");
   assert.equal(titleFor(null), "AgentBreeder console");
+});
+
+test("a route title can name the page from its parameters", () => {
+  const route = { title: (params) => `Prompt ${params.name}` };
+  assert.equal(routeTitle(route, { name: "greet" }), "Prompt greet");
+  assert.equal(titleFor(route, { name: "greet" }), "Prompt greet · AgentBreeder console");
+  assert.equal(routeTitle({ title: "Audit" }), "Audit");
+  assert.equal(routeTitle(null), "");
 });
