@@ -1,0 +1,15 @@
+usage: agentbreeder knowledge status [-h] [--project DIR]
+                                     [--environment ENVIRONMENT] [--json]
+                                     REF
+
+positional arguments:
+  REF                   knowledge/NAME or knowledge/NAME@X.Y.Z
+
+options:
+  -h, --help            show this help message and exit
+  --project DIR         The directory with stack.yaml and registry/ (default:
+                        .)
+  --environment ENVIRONMENT
+                        The stack environment (default: the only one services
+                        up wrote)
+  --json
