@@ -454,9 +454,10 @@ version is first locked; they don't vouch for that first lock.
 ## Agent packages (in progress, on `main`, not in a published preview)
 
 M13 (#763) adds an `agent` registry kind: a released agent kept as an immutable version at
-`./registry/agent/<name>/<X.Y.Z>/`. So far there are the package format, a deterministic packer
-and read-only views. **No command writes or deploys a package yet**: `release` will write them
-in a later slice. The design is in `docs/superpowers/specs/2026-11-13-agent-package-design.md`.
+`./registry/agent/<name>/<X.Y.Z>/`. So far there are the package format, a deterministic packer,
+read-only views, and `release`, which writes a package for every image it releases (see
+[`agent-yaml.md`](agent-yaml.md#eval-and-release)). **No command deploys a package yet**; that
+comes in a later slice. The design is in `docs/superpowers/specs/2026-11-13-agent-package-design.md`.
 
 - `agent/<name>@X.Y.Z` refs parse, but no `agent.yaml` or `stack.yaml` field takes one, a lock
   cannot hold one, and `build` never copies one into an image.
@@ -492,7 +493,13 @@ target, an image or a gateway, so a package cannot grant itself any of them. A p
 case text, model output, logs, secrets or registry references.
 
 A package is a record, not a credential. It is not signed. Deploying one will depend on the
-release row in your state directory's audit log, not on anything in the package.
+release row in your state directory's audit log, not on anything in the package. That row names
+the package, its tree hash and a hash of the project path (never the path itself).
+
+Commit `./registry/agent/` with the rest of the project registry, so the team sees what was
+released. AgentBreeder never overwrites a version. If git removes or changes a package while its
+image is still in production, the next `release` of that image does not reuse it: it evaluates the
+image again and writes a new version.
 
 ### Deterministic archives
 

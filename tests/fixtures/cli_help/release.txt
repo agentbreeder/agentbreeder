@@ -1,7 +1,8 @@
 usage: agentbreeder release [-h] [--environment ENVIRONMENT]
                             [--threshold THRESHOLD] [--retries RETRIES]
-                            [--rollback] [--state-dir STATE_DIR]
-                            [--output OUTPUT] [--json] [--stack DIR]
+                            [--version VERSION] [--rollback]
+                            [--state-dir STATE_DIR] [--output OUTPUT] [--json]
+                            [--stack DIR]
                             agent
 
 positional arguments:
@@ -12,6 +13,8 @@ options:
   --environment ENVIRONMENT
   --threshold THRESHOLD
   --retries RETRIES
+  --version VERSION     Package version X.Y.Z to release as (default: the next
+                        free patch, 0.1.0 first)
   --rollback            Redeploy the previous production
   --state-dir STATE_DIR
   --output OUTPUT

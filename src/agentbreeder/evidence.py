@@ -21,7 +21,14 @@ class ReleaseError(ValueError):
 
 
 def released(
-    store, agent, project: Path, current: dict, image: str, *, threshold: float | None = None
+    store,
+    agent,
+    project: Path,
+    current: dict,
+    image: str,
+    *,
+    threshold: float | None = None,
+    require_package: bool = False,
 ) -> dict:
     """The reasons of the audited `release/promoted` row for this image and production
     manifest, or a `ReleaseError` saying what is missing:
@@ -32,6 +39,10 @@ def released(
 
     For `release` all three mean "not released: evaluate again". `threshold` is the one in
     force now (`release --threshold`); by default the one in `agent.yaml`.
+
+    `require_package` (set by `release`, M13 spec §5.5) skips rows without `RELEASE_PACKAGE`,
+    written before M13, and keeps looking for a packaged row. `promote` leaves it unset and
+    keeps accepting old rows.
     """
     from agentbreeder import hints
 
@@ -40,6 +51,8 @@ def released(
     locked = Lock.load(project / "agent.lock").entries.get(str(ref)) or {}
     for row in store.audit_matching("release", "promoted"):
         reasons = {item["code"]: item["message"] for item in row.get("reasons") or []}
+        if require_package and "RELEASE_PACKAGE" not in reasons:
+            continue
         if (
             reasons.get("RELEASE_IMAGE") != image
             or reasons.get("RELEASE_MANIFEST") != current["digest"]

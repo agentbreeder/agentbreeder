@@ -52,6 +52,8 @@ class BuildResult:
     lock_changed: bool
     refs: list[dict]
     aliases: list[str]
+    # The environment-neutral deploy template (spec §5.4); `release` puts it in the package.
+    deploy: DeployTemplate | None = None
 
     def as_json(self) -> dict:
         return {
@@ -336,6 +338,27 @@ def docker_build(context: Path, iidfile: Path) -> str:
     return iidfile.read_text().strip()
 
 
+PLATFORM = re.compile(r"[a-z0-9]{1,32}/[a-z0-9_]{1,32}(/[a-z0-9]{1,16})?")
+
+
+def docker_platform(image: str) -> str:
+    """`os/architecture[/variant]` of a local image, as `package.json` records it."""
+    from agentbreeder.runtime import Docker
+
+    docker = Docker()
+    docker.authorize()
+    value = docker.command(
+        "image",
+        "inspect",
+        "--format",
+        "{{.Os}}/{{.Architecture}}{{if .Variant}}/{{.Variant}}{{end}}",
+        image,
+    ).strip()
+    if not PLATFORM.fullmatch(value):
+        raise BuildError("BUILD_FAILED", "docker image inspect did not return a platform")
+    return value
+
+
 def build(
     agent_path: Path,
     operator: OperatorConfig,
@@ -451,4 +474,5 @@ def build(
         changed and mode != "locked",
         refs,
         aliases,
+        deploy,
     )
