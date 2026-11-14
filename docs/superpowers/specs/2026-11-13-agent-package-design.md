@@ -185,11 +185,15 @@ the operator config (`build.py:262-281`).
 
 `build._manifest` is split into two functions:
 
-- `template(agent, serving, aliases) -> dict` returns only the fields derived from the agent and
-  its runtime: `port`, `health_path`, `aliases`, `budget_usd`, `rpm` and `mcp_access`.
-- `bind(template, image, operator, env, identity, name) -> Manifest` fills `identity`, `secrets`
+- `template(agent, serving, aliases) -> DeployTemplate` returns only the fields derived from the
+  agent and its runtime: `port`, `health_path`, `aliases`, `budget_usd`, `rpm` and `mcp_access`.
+  `build` calls it before `docker build`, so a bad template costs no image build.
+- `bind(template, image, operator, env, identity, name) -> dict` fills `identity`, `secrets`
   and `model_access.gateway` from the operator config only. It sets `target` and `image` from the
-  deploy path, never from the template. It validates the result with `Manifest.model_validate`.
+  deploy path, never from the template. It validates the result with `Manifest.model_validate` and
+  returns the document `build` writes; a dict, not a `Manifest`, keeps today's key order, so the
+  written YAML stays byte-identical. A `None` budget or rpm and an empty `mcp_access` are omitted.
+  (Slice 1c, as built.)
 
 The template schema has no field for `identity`, `secrets`, `policy`, `capabilities`, `requires`,
 `target`, `image` or a gateway. A package therefore cannot grant itself an identity, a secret, a
