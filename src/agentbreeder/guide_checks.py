@@ -556,7 +556,11 @@ def _build(ctx: _Context) -> dict:
             "build",
             "next",
             _reason("LOCK_STALE", "agent.lock does not match agent.yaml's refs"),
-            _fix(command=build_cmd, note="Run it from the CLI: the console's build is --locked"),
+            _fix(
+                command=build_cmd,
+                note="A plain build rewrites agent.lock to agent.yaml's refs "
+                "(the console's Build and update agent.lock)",
+            ),
             data,
         )
     fix = _fix("build", build_cmd)

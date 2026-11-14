@@ -737,3 +737,22 @@ def test_redactor_matches_redact():
     values = [SECRET.encode(), b"-----BEGIN KEY-----\nline-one-of-key-material\n-----END KEY-----"]
     text = f"a {SECRET} b line-one-of-key-material c http://u:pw-secret@h/x"
     assert redaction.Redactor(values)(text) == redaction.redact(text, values)
+
+
+@pytest.mark.parametrize("follow", [False, True])
+def test_fail_keeps_a_multi_line_error_on_one_stderr_line(capsys, follow):
+    """A Docker or kubectl message with newlines cannot forge a later `[CODE]` line."""
+    import argparse
+
+    from agentbreeder.commands import logs as logs_command
+
+    error = logs_command.LogsError("DOCKER_FAILED", "boom\n[FORGED] no\x1b[2J")
+    args = argparse.Namespace(json=True, follow=follow)
+    assert logs_command._fail(args, error) == 2
+    captured = capsys.readouterr()
+    assert captured.err.count("\n") == 1 and captured.err.startswith("[DOCKER_FAILED] boom\\n")
+    assert "\x1b" not in captured.err and "\x1b" not in captured.out
+    assert (captured.out.count("\n") == 1) is follow
+    body = json.loads(captured.out)
+    assert body["schema_version"] == 1 and body["error"]["code"] == "DOCKER_FAILED"
+    assert body["error"]["message"].startswith("boom\n[FORGED]")

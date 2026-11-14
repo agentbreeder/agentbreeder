@@ -326,6 +326,8 @@ def test_lock_stale_is_next_without_console_action(stacked, stacks):
     build = steps(guide_checks.compute(stacked, probe=probe(stacks)))["build"]
     assert build.reason.code == "LOCK_STALE" and build.state == "next"
     assert build.fix.action is None and shlex.split(build.fix.command)[1] == "build"
+    # The console offers "Build and update agent.lock" for this step (#826); the note says so.
+    assert "Build and update agent.lock" in build.fix.note and "--locked" not in build.fix.note
 
 
 def test_not_built_then_stale(stacked, operator, stacks):  # noqa: F811
