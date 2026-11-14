@@ -42,7 +42,7 @@ evals: {ref: eval/northwind-golden@1.0.1, threshold: 1.0, retries: 1}
 uses: `- {ref: mcp/github@1.0.0, tools: [list_issues]}`. `build` refuses tools the version's
 `mcp.yaml` doesn't declare (`MCP_TOOL_UNKNOWN`) and writes them into `agent.config.json` and the
 manifest's `mcp_access`. `agentbreeder services up` runs a relay for each stack `mcp:` entry
-(see [services.md](services.md#mcp-servers-through-a-relay)). `runtime/adk@1.1.0` calls the
+(see [services.md](services.md#mcp-servers-through-a-relay)). `runtime/adk@1.1.0` and later call the
 tools through it: one ADK `McpToolset` per server, with tools named `<server>_<tool>` (for
 example `github_list_issues`). `build` refuses `mcp:` on a runtime without an MCP client, such
 as `runtime/adk@1.0.6` (`MCP_RUNTIME_UNSUPPORTED`). It also refuses MCP tool names that would
@@ -159,6 +159,35 @@ the LiteLLM gateway, using the `openai/<alias>` route with `reasoning_effort` se
 - **Least privilege (1.0.6):** if the database owner has already created the runtime's tables
   (`notes`, `tickets`, `turns`, `audit_events`) and the sessions schema, the runtime runs no DDL
   on them, so its role needs only the grants it uses (see `src/agentbreeder/examples/northwind/stack/db/commerce.sql`).
+
+### `runtime/adk@1.2.0`
+
+On `main`, not in a published preview (#828). Northwind uses it; its 61/61 eval runs were on
+`1.0.6`, and a run on `1.2.0` is pending. `cost_usd` has not yet been seen from a live gateway. `1.2.0` is `1.1.0` (so it includes the MCP client) plus:
+
+- **Cost per turn:** each `/invoke` reply has `cost_usd`, the sum of the LiteLLM gateway's
+  `x-litellm-response-cost` response header over the turn's model calls, in US dollars. It is
+  `null` when any model call returned no cost header (for example a model the gateway has no
+  price for). Knowledge embeddings are not included. Each `model_called` event has the call's
+  own `cost_usd`. This is the gateway's figure, not a bill from the provider.
+- **Tool events:** every `tool:<name>` event in `audit_events` has `detail.agent` (the agent's
+  name), `detail.latency_ms`, and `detail.tool` (`tool/<name>@<version>`) for registry tools,
+  including failed calls. A failed call writes one event with `ok: false`. Runtimes `1.0.6` and
+  `1.1.0` also wrote a second event with `ok: true` for each failed call (#922).
+- **No shadowing:** a tool is refused at startup if a top-level name in its `src/` (a module
+  file or a directory) is a standard-library, built-in or runtime module, matches `__*__`, is
+  importable from the image's own `sys.path` (any installed package, locked or not), or is
+  also in another tool of the agent. A function's `module` must be in its tool's own `src/`.
+  The check covers what is importable when the agent starts; a library's optional import of a
+  package that isn't installed is not covered.
+- **Trace attribution:** when `AGENTBREEDER_DEPLOYMENT_ID` is set, the root `agent_turn` span
+  has the attribute `agentbreeder.deployment_id` (#907). `deploy` does not set it yet.
+- **Manifest:** `memory_schema: 2`.
+
+Tool code runs in the agent's process, so a malicious tool can still change `cost_usd`, its own
+audit rows or the turn's record (it holds the agent's database connection). These fields are
+reliable for honest tools and against the model, not against hostile tool code. The
+`new agent` starter also uses `1.2.0` (its stack stays on `postgres-pgvector@1.1.0`).
 
 Agents built from `agent.yaml` can't yet run behind the opt-in MCP egress sidecar
 (`runtime_enforcement: mcp_http`): the deploy is refused with `MODEL_ACCESS_UNSUPPORTED`, because

@@ -434,6 +434,7 @@ def test_builtin_adk_runtimes_declare_mcp_only_from_1_1_0():
     root = registry.BUILTIN_ROOT / "runtime" / "adk"
     assert "mcp" not in _runtime_capabilities(root / "1.0.6", "runtime/adk@1.0.6")
     assert "mcp" in _runtime_capabilities(root / "1.1.0", "runtime/adk@1.1.0")
+    assert "mcp" in _runtime_capabilities(root / "1.2.0", "runtime/adk@1.2.0")
 
 
 def test_build_refuses_an_invalid_mcp_version(project, operator):  # noqa: F811

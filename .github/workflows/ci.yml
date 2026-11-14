@@ -31,6 +31,9 @@ jobs:
     # The ADK runtime's own tests (its MCP client against the real relay, #746) need the
     # runtime's locked dependencies, so they run apart from the repo suite (testpaths = tests).
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        version: ['1.1.0', '1.2.0']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -40,11 +43,11 @@ jobs:
           python-version: '3.12'
       - run: >-
           python -m pip install --require-hashes --only-binary=:all:
-          -r src/agentbreeder/builtin_registry/runtime/adk/1.1.0/runtime/requirements.lock
+          -r src/agentbreeder/builtin_registry/runtime/adk/${{ matrix.version }}/runtime/requirements.lock
       - run: python -m pip install pytest==8.4.2
       - run: >-
           python -m pytest -q -p no:cacheprovider
-          src/agentbreeder/builtin_registry/runtime/adk/1.1.0/runtime_tests
+          src/agentbreeder/builtin_registry/runtime/adk/${{ matrix.version }}/runtime_tests
   install-smoke:
     # The installed wheel, not the checkout (#754-class failures): uv from the hashed
     # requirements file the release attaches, and uv in hardlink mode, which must leave every

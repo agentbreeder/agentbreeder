@@ -101,19 +101,20 @@ deployment removed and its key revoked. `cost` matched LiteLLM's own key spend a
 spend log rows for each deployment, counted the removed one, and never printed the master key.
 No real provider call has been costed yet.
 
-## Per-turn cost (planned, not emitted)
+## Per-turn cost (`runtime/adk@1.2.0`)
 
-`invoke --json` and the console's Try it inspector do not show a cost per turn yet: the inspector
-shows "Not measured yet" (`cost: null`). Spend logs arrive about a minute late, so a turn's cost
-has to come from the runtime: LiteLLM returns each call's cost in its `x-litellm-response-cost`
-response header. The plan is for a later `runtime/adk` version to add up those headers over the
-turn's model calls and return them in the turn body (`invoke --json`'s `response`), next to
-the counts `runtime/adk@1.1.0` reports today:
+Spend logs arrive about a minute late, so a turn's cost comes from the runtime: LiteLLM returns
+each call's cost in its `x-litellm-response-cost` response header, and `runtime/adk@1.2.0`
+(#828, on `main`, not in a published preview) adds those headers up over the turn's model calls
+and returns the total in the turn body (`invoke --json`'s `response`), next to the counts:
 
 ```json
 {"model_calls": 2, "prompt_tokens": 412, "output_tokens": 57, "cost_usd": 0.000444}
 ```
 
-`cost_usd` will be the sum of the headers LiteLLM sent (USD, its estimate), or `null` when any
-call in the turn had no cost header. Until a runtime emits it, the field is absent and consumers
-show the cost as not measured.
+`cost_usd` is the sum of the headers LiteLLM sent (USD, its estimate), or `null` when any call in
+the turn had no cost header. Each `model_called` event also has that call's `cost_usd`. Older
+runtimes (`1.1.0` and earlier) don't send the field; consumers show the cost as not measured, as
+the console's Try it inspector does today (`cost: null`). It is covered by the runtime's tests
+with scripted gateway responses; no live gateway has been checked yet. See
+[`agent-yaml.md`](agent-yaml.md#runtimeadk120).

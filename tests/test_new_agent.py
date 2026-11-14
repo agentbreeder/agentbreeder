@@ -95,7 +95,7 @@ def test_an_unknown_provider_is_refused():
 def test_plan_fills_the_stated_fields():
     plan = newagent.plan("hello", "gemini", Path("x"), today=TODAY)
     agent = yaml.safe_load(plan.files["agent.yaml"])
-    assert agent["runtime"] == "runtime/adk@1.0.6"
+    assert agent["runtime"] == "runtime/adk@1.2.0"
     assert agent["traces"] == "none" and agent["agent_events"] == "none"
     assert agent["prompt"] == {"ref": "prompt/hello-prompt@0.1.0"}
     assert agent["evals"] == {"ref": "eval/hello-evals@0.1.0", "threshold": 1.0, "retries": 1}
@@ -140,11 +140,11 @@ def test_create_writes_publishes_and_locks(tmp_path):
     assert not [p for p in project.iterdir() if p.name.startswith(".")]  # no staging left
     lock = Lock.load(project / "agent.lock")
     assert set(lock.entries) == {
-        "runtime/adk@1.0.6",
+        "runtime/adk@1.2.0",
         "prompt/hello-prompt@0.1.0",
         "eval/hello-evals@0.1.0",
     }
-    assert lock.entries["runtime/adk@1.0.6"]["source"] == "builtin"
+    assert lock.entries["runtime/adk@1.2.0"]["source"] == "builtin"
     assert lock.entries["prompt/hello-prompt@0.1.0"]["source"] == "registry"
     for ref, digest in plan.published.items():
         assert lock.entries[ref]["sha256"] == digest
@@ -349,7 +349,7 @@ def test_cli_dry_run_json_writes_nothing(tmp_path, capsys):
     assert result["dry_run"] is True and result["name"] == "hello"
     assert result["directory"] == str(target)
     assert result["model"] == "gemini" and result["key"] == "GEMINI_API_KEY"
-    assert result["runtime"] == "runtime/adk@1.0.6"
+    assert result["runtime"] == "runtime/adk@1.2.0"
     assert [entry["path"] for entry in result["files"]] == list(
         newagent.plan("hello", "gemini").files
     )
@@ -565,13 +565,13 @@ def test_an_identical_mirror_on_the_search_path_does_not_change_the_lock(tmp_pat
     from agentbreeder.lock import materialise
 
     mirror = tmp_path / "mirror"
-    builtin = registry.BUILTIN_ROOT / "runtime" / "adk" / "1.0.6"
-    shutil.copytree(builtin, mirror / "runtime" / "adk" / "1.0.6")
+    builtin = registry.BUILTIN_ROOT / "runtime" / "adk" / "1.2.0"
+    shutil.copytree(builtin, mirror / "runtime" / "adk" / "1.2.0")
     monkeypatch.setenv(registry.PATH_ENV, str(mirror))
     make(tmp_path)
     project = tmp_path / "hello"
     lock = Lock.load(project / "agent.lock")
-    assert lock.entries["runtime/adk@1.0.6"]["source"] == "builtin"
+    assert lock.entries["runtime/adk@1.2.0"]["source"] == "builtin"
     assert {entry["source"] for entry in lock.entries.values()} == {"builtin", "registry"}
     _, changed = materialise(  # what `build --locked` does, with the mirror still set
         refs=load_agent_file(project / "agent.yaml").refs(),
