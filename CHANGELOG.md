@@ -446,10 +446,6 @@ On main, not in a published preview.
 - Spec delta for M12, tools and the read-only console role (#828, epic #812):
   `docs/superpowers/specs/2026-11-13-m12-tools-console-role-design.md`. A spec only, on `main`,
   not in a published preview; nothing is built, and there is no console role or `tool log` yet.
-- Spec for agent identity at creation (#909, epic #742):
-  `docs/superpowers/specs/2026-11-13-identity-at-creation-design.md`. A spec only, on `main`, not in
-  a published preview; nothing is built: no built-in Keycloak, no principal is created and in-process
-  tool calls are not checked.
 - `safe_text` writes its bidirectional-control character class as `\u` escapes instead of seven
   literal invisible characters (#820), on `main`, not in a published preview. No behaviour
   change: a test checks every code point (U+0000 to U+10FFFF) against the documented set
