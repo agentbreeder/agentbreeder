@@ -108,7 +108,7 @@ def test_usage_reads_stack_files_and_separates_the_two(northwind):
         ("stack.yaml", "services.ops.ref")
     ]
     assert [entry["file"] for entry in service["locked"]] == ["stack.lock"]
-    runtime = registry.usage(Ref.parse("runtime/adk@1.0.6"), northwind)
+    runtime = registry.usage(Ref.parse("runtime/adk@1.2.0"), northwind)
     assert runtime["declared"][0]["at"] == "runtime"
     assert runtime["locked"][0]["source"] == "builtin"
 

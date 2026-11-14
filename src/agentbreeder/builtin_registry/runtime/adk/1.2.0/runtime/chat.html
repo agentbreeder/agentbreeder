@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{AGENT_TITLE}}</title>
+<style>
+  :root { --bg:#f6f5f2; --panel:#fff; --ink:#1d1d1b; --muted:#6b6a66; --line:#e3e1dc;
+          --me:#1f4e79; --me-ink:#fff; --chip:#eef2f6; --accent:#1f4e79; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#151515; --panel:#1f1f1e; --ink:#ecebe7; --muted:#a3a19b; --line:#33322f;
+            --me:#3b6ea5; --me-ink:#fff; --chip:#2a2f36; --accent:#8ab4e8; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width:760px; margin:0 auto; height:100vh; display:flex; flex-direction:column;
+         padding:0 16px; }
+  header { padding:18px 0 12px; border-bottom:1px solid var(--line); display:flex;
+           gap:12px; align-items:baseline; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; }
+  header small { color:var(--muted); }
+  header label { margin-left:auto; color:var(--muted); font-size:13px; }
+  header input { width:120px; padding:4px 6px; border:1px solid var(--line); border-radius:6px;
+                 background:var(--panel); color:var(--ink); }
+  #log { flex:1; overflow-y:auto; padding:16px 0; display:flex; flex-direction:column; gap:12px; }
+  .msg { max-width:85%; padding:10px 14px; border-radius:14px; white-space:pre-wrap;
+         background:var(--panel); border:1px solid var(--line); }
+  .me { align-self:flex-end; background:var(--me); color:var(--me-ink); border-color:transparent; }
+  .meta { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; font-size:12px; }
+  .chip { background:var(--chip); color:var(--ink); padding:2px 8px; border-radius:999px; }
+  .chip a { color:var(--accent); }
+  .err { border-color:#c0392b; }
+  form { display:flex; gap:8px; padding:12px 0 18px; border-top:1px solid var(--line); }
+  textarea { flex:1; resize:none; height:48px; padding:12px; border-radius:10px;
+             border:1px solid var(--line); background:var(--panel); color:var(--ink); font:inherit; }
+  button { padding:0 18px; border:0; border-radius:10px; background:var(--accent);
+           color:var(--panel); font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:wait; }
+  .hint { color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>{{AGENT_TITLE}}</h1><small>AgentBreeder · ADK runtime</small>
+    <label>Customer ID <input id="customer" value="cust-001" maxlength="64"></label>
+    <button id="new" type="button" style="height:30px">New chat</button>
+  </header>
+  <div id="log" aria-live="polite">
+    <p class="hint">{{AGENT_DESCRIPTION}}</p>
+  </div>
+  <form id="form">
+    <textarea id="text" placeholder="Type a message…" aria-label="Message"></textarea>
+    <button id="send">Send</button>
+  </form>
+</main>
+<script>
+const log = document.getElementById("log"), text = document.getElementById("text");
+const send = document.getElementById("send"), customer = document.getElementById("customer");
+let session = crypto.randomUUID().replaceAll("-", "");
+
+function add(cls, body, data) {
+  const div = document.createElement("div");
+  div.className = "msg " + cls;
+  div.textContent = body;
+  if (data) {
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const chip = (label, href) => {
+      const span = document.createElement("span");
+      span.className = "chip";
+      if (href) {
+        const a = document.createElement("a");
+        a.href = href; a.target = "_blank"; a.rel = "noopener noreferrer"; a.textContent = label;
+        span.append(a);
+      } else span.textContent = label;
+      meta.append(span);
+    };
+    (data.sources || []).forEach(s => chip("📄 " + s));
+    (data.web || []).forEach(w => /^https?:/.test(w.url) && chip("🔎 " + w.title, w.url));
+    (data.memory_saved || []).forEach(m => chip("🧠 remembered: " + m));
+    (data.tickets || []).forEach(t => chip("🎫 " + t));
+    if (meta.childElementCount) div.append(meta);
+  }
+  log.append(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function submit(e) {
+  e.preventDefault();
+  const message = text.value.trim();
+  if (!message) return;
+  add("me", message);
+  text.value = ""; send.disabled = true; customer.disabled = true;
+  const pending = document.createElement("div");
+  pending.className = "msg hint";
+  const started = Date.now();
+  const tick = () => pending.textContent = `Thinking… ${Math.round((Date.now() - started) / 1000)}s`;
+  tick(); log.append(pending); log.scrollTop = log.scrollHeight;
+  const timer = setInterval(tick, 1000);
+  try {
+    const res = await fetch("/invoke", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({message, session_id: session, customer_id: customer.value.trim() || "guest"}),
+    });
+    const data = await res.json();
+    if (!res.ok) add("err", data.error || "Request failed");
+    else add("", data.reply, data);
+  } catch (err) { add("err", "Network error: " + err.message); }
+  clearInterval(timer); pending.remove();
+  send.disabled = false; text.focus();
+}
+document.getElementById("form").addEventListener("submit", submit);
+text.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(e); }
+});
+document.getElementById("new").addEventListener("click", () => {
+  session = crypto.randomUUID().replaceAll("-", "");
+  customer.disabled = false;
+  log.replaceChildren();
+  add("", "New conversation started. Saved notes for this customer ID carry over.");
+});
+</script>
+</body>
+</html>
