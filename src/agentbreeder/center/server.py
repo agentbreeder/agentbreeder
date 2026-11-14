@@ -38,7 +38,7 @@ from pydantic import ValidationError
 
 from agentbreeder import __version__, guide, registry
 from agentbreeder.center import agents as agent_rows
-from agentbreeder.center import edits, onboard, tryit
+from agentbreeder.center import edits, onboard, toollog, tryit
 from agentbreeder.center import evals as eval_reads
 from agentbreeder.center.files import (
     BadRequest,
@@ -124,6 +124,7 @@ MAX_TURNS_IN_FLIGHT = 4
 # SERVICES_BUSY (#822 S-11): another services write holds the stack; the console says so plainly.
 SERVICES_BUSY_TEXT = "Another operation is running on this stack; retry when it finishes"
 MAX_TRACES_IN_FLIGHT = 4  # Try it trace reads (#907), each a `traces` child of up to 120 s
+MAX_TOOL_LOGS_IN_FLIGHT = 4  # tool execution log reads (#828), each a `tool log` child
 AUDIT_PAGE = 50  # rows per Audit page; one more is read to know whether an older page exists
 AUDIT_BEFORE = re.compile(r"[1-9][0-9]{0,17}")  # `audit list --before SEQ`
 AGENT = r"(?P<agent>[a-z0-9][a-z0-9-]{0,52})"
@@ -173,6 +174,7 @@ class Center:
         self.lock = threading.Lock()
         self.turns = threading.BoundedSemaphore(MAX_TURNS_IN_FLIGHT)
         self.traces = threading.BoundedSemaphore(MAX_TRACES_IN_FLIGHT)
+        self.tool_logs = threading.BoundedSemaphore(MAX_TOOL_LOGS_IN_FLIGHT)
 
     @property
     def origin(self) -> str:
@@ -609,6 +611,33 @@ class Center:
         trace, problem = tryit.trace_answer(result["data"], trace_id)
         return envelope(trace, problem)
 
+    def tool_log(self, project: dict, query: dict[str, list[str]]) -> dict:
+        """A tool's execution log (#828): `tool log REF ... --json` as an uncached, tracked read
+        (a log is always fresh, and a failed read shows its own coded error, never older rows).
+        Arguments are read only with `content=1` and are never cached, stored or logged. The
+        answer is checked by `toollog.log_answer`."""
+        request = toollog.log_request(query)
+        if not self.tool_logs.acquire(blocking=False):
+            raise BadRequest(
+                f"{MAX_TOOL_LOGS_IN_FLIGHT} tool log reads are already running; try again when "
+                "one ends",
+                "TOOL_LOG_BUSY",
+            )
+        try:
+            result = self.runner.read(
+                toollog.log_argv(project, request),
+                timeout=toollog.TIMEOUT,
+                ok_codes=(0, 2),  # `tool log` prints its JSON error object and exits 2
+                cache=False,
+                track=True,
+            )
+        finally:
+            self.tool_logs.release()
+        if result["data"] is None:
+            return result
+        log, problem = toollog.log_answer(result["data"], request)
+        return envelope(log, problem)
+
     def plan(self, project: dict) -> dict:
         result = self.runner.read(
             [
@@ -866,6 +895,10 @@ def _eval_report(request: Request) -> dict:
     return request.center.eval_reports(request.project(), request.match["run"], request.query)
 
 
+def _tool_log(request: Request) -> dict:
+    return request.center.tool_log(request.project(), request.query)
+
+
 def _agents(request: Request) -> dict:
     return request.center.agents()
 
@@ -977,6 +1010,12 @@ ROUTES: tuple[Route, ...] = (
         rf"/api/projects/{PROJECT_ID}/registry/used-by",
         _registry_used_by,
         "/api/projects/0123456789ab/registry/used-by",
+    ),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/tools/log",
+        _tool_log,
+        "/api/projects/0123456789ab/tools/log",
     ),
     Route(
         "GET",
