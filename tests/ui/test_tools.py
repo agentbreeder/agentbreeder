@@ -24,7 +24,7 @@ def test_a_tool_version_shows_its_functions_and_signatures(page, console):
     expect(lookup).to_contain_text(SIGNATURE)
     expect(lookup).to_contain_text("Look up the current customer's Northwind orders")
     expect(lookup).to_contain_text("order_id")
-    expect(lookup).to_contain_text("One order, e.g. \"NW-10021\"")
+    expect(lookup).to_contain_text('One order, e.g. "NW-10021"')
     expect(table.get_by_role("row").filter(has_text="get_product_catalog")).to_be_visible()
     version = page.get_by_role("region", name="Version 1.0.0")
     expect(version).to_contain_text("None of its own")
