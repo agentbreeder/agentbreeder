@@ -183,7 +183,10 @@ class DeploymentService:
         local: bool,
         environment: str | None = None,
         deployer: Deployer | None = None,
+        package: tuple[str, str] | None = None,
     ) -> dict:
+        """`package` is (ref, tree hash) for `deploy agent/<name>@X.Y.Z` (M13 spec §7.3): the
+        allow event carries `DEPLOY_PACKAGE` and the deployment's `package` column names it."""
         if local != (manifest.target == "local"):
             raise DeploymentError(
                 "Deployment requires --local and target: local, or --cluster and target: "
@@ -192,6 +195,10 @@ class DeploymentService:
         runtime = self._runtime_for(manifest.target)
         deployer = deployer or os_deployer()
         digest = manifest.digest()
+        linked = {"ref": package[0], "sha256": package[1]} if package else None
+        package_reasons = []
+        if package:
+            package_reasons = [{"code": "DEPLOY_PACKAGE", "message": f"{package[0]} {package[1]}"}]
         with self.store.lock():
             attempt = uuid.uuid4().hex
             requested = {"environment": environment, "target": manifest.target}
@@ -225,7 +232,14 @@ class DeploymentService:
             if not decision.allowed:
                 reason = [{"code": decision.code, "message": decision.message}]
                 self._audit(
-                    self._event(attempt, "deploy", "deny", deployer, reasons=reason, **fields)
+                    self._event(
+                        attempt,
+                        "deploy",
+                        "deny",
+                        deployer,
+                        reasons=reason + package_reasons,
+                        **fields,
+                    )
                 )
                 if self.operator.enforcement != "audit" or not decision.overridable:
                     raise GateDenied(decision.code, decision.message, attempt)
@@ -235,7 +249,7 @@ class DeploymentService:
                         "audit_mode_proceed",
                         "override",
                         deployer,
-                        reasons=reason,
+                        reasons=reason + package_reasons,
                         **fields,
                     )
                 )
@@ -261,7 +275,8 @@ class DeploymentService:
                         "deploy",
                         "aborted",
                         deployer,
-                        reasons=[{"code": "NAME_CONFLICT", "message": "different spec"}],
+                        reasons=[{"code": "NAME_CONFLICT", "message": "different spec"}]
+                        + package_reasons,
                         **fields,
                     )
                 )
@@ -269,7 +284,7 @@ class DeploymentService:
             problem = self._deploy_requirements(manifest, context.environment)
             if problem is not None:
                 code, message = problem
-                reason = [{"code": code, "message": message}]
+                reason = [{"code": code, "message": message}] + package_reasons
                 self._audit(
                     self._event(attempt, "deploy", "deny", deployer, reasons=reason, **fields)
                 )
@@ -290,8 +305,21 @@ class DeploymentService:
                         "error": None,
                         "gate": gate_info,
                     }
+            if linked and record and record.get("package"):
+                current = _linked_package(record["package"])
+                if current != linked:
+                    # A deploy by ref never replaces another package's link (spec §7.2 step 7).
+                    shown = current["ref"] if current else "an unreadable package"
+                    decision.warnings.append(
+                        f"this deployment stays linked to {shown}, the package it was deployed "
+                        "or released as; its spec is the same"
+                    )
             if not overridden:
-                self._audit(self._event(attempt, "deploy", "allow", deployer, **fields))
+                self._audit(
+                    self._event(
+                        attempt, "deploy", "allow", deployer, reasons=package_reasons, **fields
+                    )
+                )
             try:
                 if manifest.target == "kubernetes":
                     runtime.select(context.environment)
@@ -335,6 +363,7 @@ class DeploymentService:
                             audit=self._event(
                                 attempt, "deployment_created", "allow", deployer, **fields
                             ),
+                            package=linked,
                             **identity_columns,
                         )
                     else:
@@ -347,6 +376,7 @@ class DeploymentService:
                             principal=identity_columns["principal"],
                             principal_key=identity_columns["principal_key"],
                             environment=identity_columns["environment"],
+                            package=linked,
                         )
                     identifier = record["id"]
                     self.store.transition(
@@ -386,6 +416,35 @@ class DeploymentService:
                 raise AuditIncomplete() from error
             result["gate"] = gate_info
             return result
+
+    def link_package(self, identifier: str, ref: str, sha256: str, actor: Deployer) -> None:
+        """Link a deployment to the package `release` recorded for it, audited as
+        `deploy/package_linked` in the same transaction (M13 spec §6 step 3, §7.3). A replaced
+        link is named in the event (`PREVIOUS_PACKAGE`), so the column always shows production's
+        newest release and the log shows what it replaced."""
+        linked = {"ref": ref, "sha256": sha256}
+        reasons = [{"code": "DEPLOY_PACKAGE", "message": f"{ref} {sha256}"}]
+        try:
+            with self.store.transaction():
+                previous = self.store.get(identifier)["package"]
+                if previous and previous != linked:
+                    reasons.append(
+                        {
+                            "code": "PREVIOUS_PACKAGE",
+                            "message": f"{previous.get('ref')} {previous.get('sha256')}",
+                        }
+                    )
+                event = self._event(
+                    uuid.uuid4().hex,
+                    "deploy",
+                    "package_linked",
+                    actor,
+                    deployment_id=identifier,
+                    reasons=reasons,
+                )
+                self.store.link_package(identifier, linked, event)
+        except AuditError as error:
+            raise AuditUnavailable("the package link was not recorded") from error
 
     def _run(self, identifier, record, manifest, attempt, deployer, fields) -> dict:
         def event(state):
@@ -1773,6 +1832,19 @@ class DeploymentService:
             ):
                 deny("HELD_NOT_PENDING", "Held call changed concurrently")
             return _held_view(self.store.held(held_id))
+
+
+def _linked_package(text) -> dict | None:
+    """A raw `package` column value as {ref, sha256}, or None when it cannot be read."""
+    from agentbreeder.registry import clean
+
+    try:
+        value = json.loads(text) if isinstance(text, str) else None
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(value, dict) or not isinstance(value.get("ref"), str):
+        return None
+    return {"ref": clean(value["ref"], name=True)[0], "sha256": value.get("sha256")}
 
 
 def _mcp_secret(ref: str) -> tuple[str, str]:

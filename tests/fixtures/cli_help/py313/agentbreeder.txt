@@ -15,7 +15,8 @@ positional arguments:
                         them)
     quickstart          Build, gate, deploy, invoke and remove the sample
                         (needs Docker)
-    deploy              Gate and deploy a manifest
+    deploy              Gate and deploy a manifest, or a released
+                        agent/NAME@X.Y.Z package
     status              Show a deployment and re-verify its principal
     remove              Remove a deployment
     forward             Open a loopback port to a Kubernetes deployment
