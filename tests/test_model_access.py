@@ -51,6 +51,7 @@ def test_granted_access_deploys_with_service_environment(identity_env, state, ru
     assert kwargs["environment"] == {
         "AGENTBREEDER_GATEWAY_URL": "http://host.docker.internal:4000",
         "AGENTBREEDER_SERVICE_TRACES_URL": "http://host.docker.internal:8787/v1/traces",
+        "AGENTBREEDER_DEPLOYMENT_ID": result["id"],
     }
     assert kwargs["host_gateway"] is True
 

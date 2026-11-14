@@ -330,6 +330,20 @@ class Store:
         ]
         return result
 
+    def lifetimes(self) -> list[dict]:
+        """Every deployment, removed ones included, with when it was created and (if removed)
+        when it was first recorded removed: `traces` attributes traces by lifetime (#907)."""
+        return [
+            dict(row)
+            for row in self.db.execute(
+                "SELECT d.id, d.name, d.state, d.created, d.updated, "
+                "COALESCE(json_extract(d.manifest,'$.target'),'local') AS target, "
+                "(SELECT MIN(e.timestamp) FROM events e WHERE e.deployment_id=d.id "
+                "AND e.state='removed') AS removed "
+                "FROM deployments d ORDER BY d.created"
+            )
+        ]
+
     def manifest(self, identifier: str) -> dict:
         row = self.db.execute(
             "SELECT manifest FROM deployments WHERE id=?", (identifier,)
