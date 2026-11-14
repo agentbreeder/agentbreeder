@@ -103,23 +103,26 @@ export function registryList(meta) {
 
 /** One name's detail: timeline, the selected version, the diff and used-by. */
 export function registryDetail(meta) {
-  // Keyed by name: another name (back, forward, a pasted address) starts with its own latest
-  // version and a fresh diff picker.
+  // Keyed by name and case: another name or case link (back, forward, a pasted address) starts
+  // with its own latest version, a fresh diff picker and that case open.
   const Detail = detailBody(meta);
   return function RegistryDetail({ project, params }) {
-    return html`<${Detail} key=${params.name} project=${project} name=${params.name} />`;
+    return html`<${Detail} key=${`${params.name} ${params.case || ""}`} project=${project} name=${params.name} focusCase=${params.case || null} />`;
   };
 }
 
 function detailBody(meta) {
-  return function DetailBody({ project, name }) {
+  return function DetailBody({ project, name, focusCase }) {
     const view = useRegistry(project);
     const entry = view.data ? groupByName(view.data, meta.kind).find((row) => row.name === name) : null;
     const [selected, setSelected] = useState(null);
     const [saved, setSaved] = useState(null);
+    // The deep link's case (gate-failed view) opens once: a save or another version drops it.
+    const [focus, setFocus] = useState(focusCase);
     const [dialog, confirm] = useConfirm();
     const choose = async (next) => {
       if (editing.dirty && !(await confirm({ title: "Discard your changes?", text: "The prompt you are editing has unsaved changes.", confirm: "Discard" }))) return;
+      setFocus(null);
       setSelected(next);
     };
     // Pin the version shown first: a re-read after a version appears (a save here, another tab,
@@ -139,8 +142,8 @@ function detailBody(meta) {
         ${dialog}
       <//>
       <${Notice} notice=${saved} onDismiss=${() => setSaved(null)} />
-      <${Version} key=${version.ref} project=${project} version=${version} entry=${entry} kind=${meta.kind}
-        onSaved=${(next, text) => { setSaved({ tone: "ok", text }); setSelected(next); view.reload(); }} onMoved=${view.reload} />
+      <${Version} key=${version.ref} project=${project} version=${version} entry=${entry} kind=${meta.kind} focusCase=${focus}
+        onSaved=${(next, text) => { setFocus(null); setSaved({ tone: "ok", text }); setSelected(next); view.reload(); }} onMoved=${view.reload} />
       ${entry.versions.length > 1 ? html`<${Diff} key=${entry.name} project=${project} entry=${entry} />` : null}
       <${UsedBy} key=${`used-${version.ref}`} project=${project} version=${version} />`;
   };
@@ -160,7 +163,7 @@ function Timeline({ entry, current, onSelect }) {
   <//>`;
 }
 
-function Version({ project, version, entry, kind, onSaved, onMoved }) {
+function Version({ project, version, entry, kind, focusCase, onSaved, onMoved }) {
   const [view] = useView(`/api/projects/${project.id}/registry/show?${query({ ref: version.ref })}`, project.id);
   const data = view.data;
   return html`<${Card} title=${`Version ${version.version}`} busy=${view.loading}>
@@ -180,7 +183,7 @@ function Version({ project, version, entry, kind, onSaved, onMoved }) {
       : null}
   <//>
   <${MoveAgent} key=${`move-${version.ref}`} project=${project} kind=${kind} entry=${entry} version=${version} onMoved=${onMoved} />
-  ${data && !view.error ? html`<${Editor} project=${project} kind=${kind} entry=${entry} version=${version} show=${data} FileDiff=${FileDiff} onSaved=${onSaved} onRefresh=${onMoved} />` : null}`;
+  ${data && !view.error ? html`<${Editor} project=${project} kind=${kind} entry=${entry} version=${version} show=${data} focusCase=${focusCase} FileDiff=${FileDiff} onSaved=${onSaved} onRefresh=${onMoved} />` : null}`;
 }
 
 function FileView({ file }) {
@@ -266,8 +269,14 @@ function UsedBy({ project, version }) {
   <//>`;
 }
 
-/** The routes: a list and a detail per kind, under Registry in the sidebar. */
+/**
+ * The routes: a list and a detail per kind, under Registry in the sidebar. An eval set's detail
+ * also opens one case by id (`/registry/evals/NAME/case/ID`, the gate-failed view's edit link).
+ */
 export const REGISTRY_ROUTES = KINDS.flatMap((meta) => [
   { pattern: `/registry/${meta.path}`, title: meta.nav, nav: meta.nav, group: "Registry", scoped: true, screen: registryList(meta) },
   { pattern: `/registry/${meta.path}/:name`, title: (params) => `${meta.one} ${params.name}`, navAs: `/registry/${meta.path}`, scoped: true, screen: registryDetail(meta) },
+  ...(meta.path === "evals"
+    ? [{ pattern: `/registry/${meta.path}/:name/case/:case`, title: (params) => `${meta.one} ${params.name}, case ${params.case}`, navAs: `/registry/${meta.path}`, scoped: true, screen: registryDetail(meta) }]
+    : []),
 ]);

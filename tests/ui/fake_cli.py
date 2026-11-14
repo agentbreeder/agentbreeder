@@ -102,6 +102,9 @@ DEFAULT = {
     "mcp_grant": None,
     # ...and for the write only (`--expect-base`): the real write runs, then this is printed.
     "mcp_grant_write": None,
+    # `logs --failed NAME --json` (the gate-failed view's saved candidate tail, #826): a list of
+    # lines answers with them; null exits 1 (no tail saved); {"error": {code, message}} fails it.
+    "failed_tail": None,
 }
 
 TOOL_CALLS = [
@@ -319,7 +322,25 @@ def used_by(argv: list[str], data: dict) -> int:
     return 0
 
 
+def failed_tail(argv: list[str], data: dict) -> int:
+    name = argv[argv.index("--failed") + 1]
+    answer = data["failed_tail"]
+    if answer is None:
+        print(f"No failed-candidate log for {name}: none failed yet", file=sys.stderr)
+        return 1
+    if isinstance(answer, dict):
+        problem = answer["error"]
+        print(json.dumps({"schema_version": 1, "error": problem}))
+        print(f"[{problem['code']}] {problem['message']}", file=sys.stderr)
+        return 2
+    path = f"/nonexistent/fake-state/releases/{name}.candidate.log"
+    print(json.dumps({"schema_version": 1, "agent": name, "path": path, "lines": answer}))
+    return 0
+
+
 def logs(argv: list[str], data: dict) -> int:
+    if "--failed" in argv:
+        return failed_tail(argv, data)
     service = argv[:2] == ["services", "logs"]
     name = argv[3] if service else argv[1]
     tail = int(argv[argv.index("--tail") + 1])

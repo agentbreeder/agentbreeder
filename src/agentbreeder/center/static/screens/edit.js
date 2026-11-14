@@ -62,12 +62,12 @@ function useLeaveGuard(dirty) {
  * `show` its `registry show` answer, `FileDiff` the registry screen's diff renderer, `onSaved(v)`
  * re-reads the registry and shows version v, `onRefresh` re-reads it (a version appeared).
  */
-export function Editor({ project, kind, entry, version, show, FileDiff, onSaved, onRefresh }) {
+export function Editor({ project, kind, entry, version, show, focusCase = null, FileDiff, onSaved, onRefresh }) {
   if (!EDITABLE_KINDS.includes(kind) || !show) return null;
   if (version.rootKind !== "project") {
     return html`<${Fork} key=${version.ref} project=${project} entry=${entry} version=${version} onSaved=${onSaved} onRefresh=${onRefresh} />`;
   }
-  return html`<${EditorBody} key=${version.ref} project=${project} kind=${kind} entry=${entry} version=${version} show=${show} FileDiff=${FileDiff} onSaved=${onSaved} onRefresh=${onRefresh} />`;
+  return html`<${EditorBody} key=${version.ref} project=${project} kind=${kind} entry=${entry} version=${version} show=${show} focusCase=${focusCase} FileDiff=${FileDiff} onSaved=${onSaved} onRefresh=${onRefresh} />`;
 }
 
 /**
@@ -141,7 +141,7 @@ function TextBody({ path, text, onText, onKey }) {
   </div>`;
 }
 
-function EditorBody({ project, kind, entry, version, show, FileDiff, onSaved, onRefresh }) {
+function EditorBody({ project, kind, entry, version, show, focusCase, FileDiff, onSaved, onRefresh }) {
   const { client } = useConsole();
   const spec = editKind(kind);
   const files = editableFiles(show, kind);
@@ -251,7 +251,7 @@ function EditorBody({ project, kind, entry, version, show, FileDiff, onSaved, on
         </div>
         ${original.includes("\r") ? html`<p class="notice warn">This file has carriage returns (CRLF line endings). The browser edits it with LF endings, so a save changes every such line; use <code>agentbreeder registry edit</code> in a terminal to keep them.</p>` : null}
         ${spec.body === "cases"
-          ? html`<${CasesBody} key=${`${path} ${reset}`} parsed=${cases} original=${original} onText=${change} invalid=${invalid}
+          ? html`<${CasesBody} key=${`${path} ${reset}`} parsed=${cases} original=${original} onText=${change} invalid=${invalid} focus=${reset ? null : focusCase}
               fallback=${html`<${TextBody} path=${path} text=${text} onText=${setText} onKey=${onKey} />`} />`
           : html`<${TextBody} path=${path} text=${text} onText=${setText} onKey=${onKey} />`}
         <${Notice} notice=${notice} onDismiss=${() => setNotice(null)} />
