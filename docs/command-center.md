@@ -634,6 +634,52 @@ fake `invoke` (argv and stdin, refused requests, the answer's allow-list, no sta
 stored, the in-flight cap, shutdown). Not yet run against a real deployment; that is the M7
 verification.
 
+### Build an agent (#833, M17 first part): on `main`, not in a published preview
+
+Home's **Add a project** card links to **Build an agent** (`#/build`), a form beside a sticky
+preview. The form has the agent's name, the model provider (gemini; anthropic, openai and
+openrouter are marked "not run end to end") with an optional model id, the prompt, the eval
+cases (the eval-set case editor's rows, without the cited-sources check, at most 100 cases), and,
+under **Model calls and the eval gate**, model calls per turn (1 to 20), the pass threshold (0 to
+1) and retries (0 to 3). It starts with one example case to edit. Knowledge, tools and MCP servers
+are not on the form yet. The browser never builds YAML: it sends the form as
+`new agent --from-spec`'s JSON spec (`docs/commands/new.md`). It is a three-tier confirm:
+
+1. **Preview** writes the spec to a file only you can read (0600, in a fresh 0700 temporary
+   directory, removed afterwards; the prompt never goes in argv), runs `agentbreeder new agent
+   NAME --from-spec=FILE --dir=~/agentbreeder-projects/NAME --dry-run --json` and shows every file
+   it would write, each with its text (`agent.yaml`, `stack.yaml`, the gateway config, the prompt
+   and eval-set versions, one file at a time), the gateway aliases and model id, the keys the stack
+   needs, `review_by`, and whether the combination has been run end to end. Nothing is written. A
+   form edit marks the preview out of date (an answer still on its way for the old form is
+   dropped); Create waits for a new one and sends the spec that was previewed.
+2. When a picked part brings code from outside the built-in registry (`runs_code`), a **This code
+   runs in agents** box names it and its checkbox must be ticked. Nothing on this form brings code
+   yet (the server refuses tools and MCP servers, `SPEC_UNSUPPORTED`, until their pickers exist),
+   so this box is not shown yet.
+3. **Create agent and add project** is on only for a combination run end to end
+   (`combination.verified`: today gemini with a prompt and evals). Otherwise the preview names
+   what has not been run (the provider, or the extra parts) and says `agentbreeder new agent
+   --from-spec` writes it anyway. Create sends the previewed `plan_sha256`; the server runs the dry
+   run again with `--expect-digest`, refuses `COMBINATION_UNVERIFIED` or `CODE_CONFIRM_REQUIRED`
+   on that fresh answer, then runs the write with `--expect-digest` (a spec, picked version or date
+   that changed is `DIGEST_MISMATCH`: preview again) and registers the new folder. The project then
+   opens on Home with its guided path.
+
+Refusals show `new agent`'s own coded message (for example `SPEC_INVALID` for a case id it
+refuses, or a destination that is not empty). The server checks the spec's shape first (known
+fields, `schema_version` 1, the name, provider and model id, no knowledge, tools or MCP servers:
+`SPEC_UNSUPPORTED`, at most 256 KiB) and runs nothing when they fail. The preview and create
+routes (`POST /api/projects/builder`, `/api/projects/builder/create`) take bodies up to 1 MiB;
+the CLI checks the spec in full.
+
+Tested on the server against the real `new agent --from-spec` (the argv, the spec file's modes
+and removal, preview, create, a changed plan, an unverified provider, bad requests; the code
+confirm's refusal with a stubbed plan) and with Playwright and axe in light and dark, where the
+fake CLI hands `new agent --from-spec` to the real command. The code confirm box itself is not
+exercised in the browser until a picker can bring code. A built agent has not yet been taken through
+`services up` and `release` from the console: that is the M17 verification.
+
 ### Agents (#823, second part): on `main`, not in a published preview
 
 **Agents** (in the sidebar, under Home) lists every deployment of every stack on this machine

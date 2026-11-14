@@ -68,6 +68,11 @@ export function Home() {
         <p class="muted small" id="starter-rule">Lowercase letters, digits and dashes, starting with a letter.</p>
         <${Action} type="submit" tone=${projects.length ? "secondary" : "primary"} disabled=${busy ? "Adding a project…" : nameProblem}>Create starter<//>
       </form>
+      <div class="build-new">
+        <h3>A new agent of your own</h3>
+        <p class="muted">Name it, pick the model, write the prompt and its eval cases; preview every file before it is written.</p>
+        <a class="build-link" href="#/build">Build an agent</a>
+      </div>
       <div class="split">
         <div>
           <h3>Northwind example</h3>

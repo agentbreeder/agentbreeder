@@ -20,7 +20,7 @@ const preview = (data) => {
  * had it ({raw, data}, or null for a new case): an edit that puts every field back writes that
  * line again, so "No changes" comes back.
  */
-function CaseRow({ number, data, initial, problems, invalid, open, onToggle, onChange, onRemove }) {
+function CaseRow({ number, data, initial, problems, invalid, open, checks, onToggle, onChange, onRemove }) {
   const [form, setForm] = useState(() => caseForm(data));
   const start = useRef(initial).current; // the line at mount: later edits change `raw`
   const ids = useRef({ id: nextId("case-id"), reference: nextId("case-ref") }).current;
@@ -58,7 +58,7 @@ function CaseRow({ number, data, initial, problems, invalid, open, onToggle, onC
           </fieldset>
           <fieldset>
             <legend>Checks (each must pass; a judge model also grades the reply against the reference)</legend>
-            ${CHECKS.map(({ key, label }) => html`<div class="check-field" key=${key}>
+            ${checks.map(({ key, label }) => html`<div class="check-field" key=${key}>
               <label for=${`${ids.id}-${key}`}>${label}</label>
               <textarea id=${`${ids.id}-${key}`} rows="2" spellcheck="false" value=${form[key]} onInput=${(event) => set({ [key]: event.currentTarget.value })}></textarea>
             </div>`)}
@@ -76,9 +76,10 @@ function CaseRow({ number, data, initial, problems, invalid, open, onToggle, onC
  * rebuilt file. `original` is the version's text: a row whose fields are all put back writes its
  * original line. `invalid` is the CLI's EVAL_INVALID ({index, message}) from the last review,
  * shown at its case (which opens); any edit clears it. A file that is not JSON lines is shown with
- * why, and `fallback` (the plain text editor) instead.
+ * why, and `fallback` (the plain text editor) instead. `checks` (default all of CHECKS) are the
+ * checks a case's form offers, and `max` the most cases (the agent builder's spec takes fewer).
  */
-export function CasesBody({ parsed, original, onText, invalid, fallback }) {
+export function CasesBody({ parsed, original, onText, invalid, fallback, checks = CHECKS, max = MAX_CASES }) {
   const [open, setOpen] = useState(() => new Set());
   const [generation, setGeneration] = useState(0); // re-made forms after an add or remove
   const initial = useRef(null);
@@ -131,9 +132,10 @@ export function CasesBody({ parsed, original, onText, invalid, fallback }) {
       problems=${problems.cases[index]}
       invalid=${invalid && invalid.index === index ? invalid.message : null}
       open=${open.has(line)}
+      checks=${checks}
       onToggle=${(isOpen) => toggle(line, isOpen)}
       onChange=${(data, raw) => change(line, data, raw)}
       onRemove=${() => remove(line)} />`)}
-    <${Actions}><${Action} tone="secondary" onClick=${add} disabled=${cases.length >= MAX_CASES ? `An eval set has at most ${MAX_CASES} cases.` : false}>Add a case<//><//>
+    <${Actions}><${Action} tone="secondary" onClick=${add} disabled=${cases.length >= max ? `An eval set has at most ${max} cases.` : false}>Add a case<//><//>
   </div>`;
 }

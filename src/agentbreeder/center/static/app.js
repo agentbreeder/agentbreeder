@@ -280,8 +280,8 @@ function App({ initial }) {
       setScopeState(id);
       if (to) location.hash = `#${to}`;
     },
-    async addProject(body) {
-      const added = await client.post("/api/projects", body);
+    async addProject(body, path = "/api/projects") {
+      const added = await client.post(path, body);
       await loadProjects();
       return added;
     },

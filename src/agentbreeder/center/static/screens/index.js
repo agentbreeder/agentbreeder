@@ -5,6 +5,7 @@
 
 import { AGENT_ROUTES } from "./agents.js";
 import { Audit } from "./audit.js";
+import { BUILDER_ROUTES } from "./builder.js";
 import { Deployments } from "./deployments.js";
 import { EVAL_ROUTES } from "./evals.js";
 import { Home } from "./home.js";
@@ -28,4 +29,5 @@ export const ROUTES = [
   { pattern: "/targets/kubernetes", title: "Kubernetes", nav: "Kubernetes", group: "Targets", scoped: true, screen: Kubernetes },
   { pattern: "/audit", title: "Audit", nav: "Audit", group: "Governance", scoped: true, screen: Audit },
   ...EVAL_ROUTES,
+  ...BUILDER_ROUTES,
 ];
