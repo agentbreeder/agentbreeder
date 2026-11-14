@@ -7,6 +7,9 @@
     mounts/             per-generation 0444 copies that containers bind-mount read-only
     envs/<env>/operator.yaml, principals.yaml, state/   (the deploy state dir)
 
+The per-stack write lock is `~/.agentbreeder/stacks/.locks/<stack-id>.lock` (see
+`services_lock`): outside the state dir, so `down --purge` never unlinks a held lock.
+
 `<stack-id>` is `<name>-<first 8 hex of sha256(absolute project path)>`, so two checkouts that
 both use `name: northwind` never share secrets, ports, volumes or config. Every directory is
 0700 and yours, and files are written with O_NOFOLLOW and an atomic replace.
@@ -14,6 +17,7 @@ both use `name: northwind` never share secrets, ports, volumes or config. Every 
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import hmac
 import os
@@ -22,6 +26,8 @@ import secrets
 import shutil
 import sqlite3
 import stat
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import quote
 
@@ -61,6 +67,44 @@ def private_dir(path: Path) -> Path:
     if info.st_mode & 0o077:
         path.chmod(0o700)
     return path
+
+
+LOCKS_DIR = ".locks"  # under the stacks root; a dot entry, so `list --all` skips it
+_STACK_ID = re.compile(r"[a-z][a-z0-9-]{0,30}-[0-9a-f]{8}")  # as allstacks.STACK_DIRECTORY
+
+
+@contextmanager
+def services_lock(root: Path, stack: str) -> Iterator[None]:
+    """One `services` write (up, down, start, stop, restart, and `cluster up|down` on the stack)
+    at a time per stack (security finding S-11): the console's in-process locks cannot order a
+    terminal run against a console job. A second writer fails fast with SERVICES_BUSY instead of
+    waiting. Take it inside `cluster.cluster_lock` when both are needed (cluster, then stack).
+
+    The file lives in `<root>/.locks/`, not in the stack's state dir, so `down --purge` (which
+    deletes that dir) never unlinks the lock while it is held. It is never deleted."""
+    if not _STACK_ID.fullmatch(stack):
+        raise ServiceError("STATE_UNSAFE", "invalid stack id")
+    path = private_dir(private_dir(root) / LOCKS_DIR) / f"{stack}.lock"
+    try:
+        descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    except OSError as error:
+        raise ServiceError("STATE_UNSAFE", f"cannot open {path}") from error
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise ServiceError("STATE_UNSAFE", f"{path} must be a 0600 file you own")
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ServiceError(
+                "SERVICES_BUSY",
+                "another services operation is running on this stack; retry when it finishes",
+            ) from None
+        except OSError as error:  # e.g. ENOLCK on a network home directory
+            raise ServiceError("STATE_UNSAFE", f"cannot lock {path}") from error
+        yield
+    finally:
+        os.close(descriptor)
 
 
 def write_private(path: Path, data: bytes, mode: int = 0o600) -> None:

@@ -168,6 +168,17 @@ class DockerCLI:
             what=f"starting service {service}",
         )
 
+    def control(self, state: StackState, verb: str, service: str, timeout: int = 180) -> None:
+        """`docker compose start|stop|restart SERVICE` on the existing compose file: no
+        re-render, no recreate, no image pull. The stack's compose file declares no
+        `depends_on`; `restart` still passes `--no-deps` so only this container restarts."""
+        if verb not in ("start", "stop", "restart"):
+            raise ValueError(f"unknown verb {verb!r}")
+        arguments = ("restart", "--no-deps") if verb == "restart" else (verb,)
+        self.compose(
+            state, *arguments, service, timeout=timeout, what=f"docker compose {verb} {service}"
+        )
+
     def containers(self, state: StackState) -> dict[str, dict]:
         """service -> {id, state, health, config} for this stack's containers."""
         if not state.compose_path.exists():
