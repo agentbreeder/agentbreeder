@@ -330,3 +330,8 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
 .editor:focus-within { outline: 2px solid var(--ring); outline-offset: 1px; }
 .edit-review { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--control-border); }
 .params { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+/* Tool execution log (#828): customer data is marked, and its arguments fold per call. */
+.toollog { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--control-border); }
+.badge.customer { color: var(--warning); border-color: var(--warning); background: var(--warning-subtle); }
+.args { margin-top: 8px; }
+.args summary { cursor: pointer; }

@@ -214,11 +214,42 @@ A tool's version card in Registry ▸ Tools (`#/registry/tools/NAME`) adds, abov
 - **Grants**: available to the agents that reference it in `agent.yaml` (the Used by card). MCP
   grants are M15's.
 
-The source is the Files list. The code editor and the execution log come in later M12 PRs.
+The source is the Files list. The code editor comes in a later M12 PR.
 Tested with Playwright over a copy of Northwind with the real `registry show`: `tool/orders`
 shows both functions and their signatures, a module whose top level raises still shows its
 signatures (nothing is imported), a renamed function says why it has no signature, other kinds
 show no Functions, and axe passes in light and dark.
+
+### Tool execution log (#828, M12): on `main`, not in a published preview
+
+Below a tool version's Functions, **Execution log** lists the calls the agent runtime recorded,
+newest first: time, agent, version, function, status, latency, turn id, trace id and database
+role (console-inserted rows marked `(console)`). The console runs `agentbreeder tool log REF
+--project DIR --environment ENV --json` ([`docs/commands/tool.md`](commands/tool.md)) as an
+uncached child; the console server never reads a database credential. Choices: this version or
+every version of the name, the last hour, 24 hours, 7 days or 30 days, 50 to 1000 rows, and one
+agent (from the agents seen in the log).
+
+- **It is what the runtime claims it called.** The agent's database role can insert any row; the
+  CLI validates every value and the console checks the answer again before the browser sees it.
+- **Arguments are customer data.** They and the error text are read only after **Show
+  arguments** (marked "Customer data"), for that view only: never cached, stored, logged or put
+  in the page address, and taken off the screen at once on **Hide arguments** or any change of
+  choice, before the next read returns. They are
+  redacted of the stack's secrets by the CLI. Results are not stored; the trace holds them, and
+  the stack's Phoenix URL is linked.
+- **A refusal shows as "Unavailable: reason" with the next step**: for example, an owner-managed
+  database without the console role (`CONSOLE_ROLE_MISSING`) names
+  `service/postgres-pgvector@1.2.0` with `console_database`, then `services up --update`. "No
+  calls recorded yet" (`TOOL_LOG_NO_TABLES`) is not a refusal.
+
+Tested: server tests over a scripted `tool log` (fixed argv, never cached, bad queries refused
+before the CLI, arguments dropped unless asked for, hostile values nulled, at most four reads at
+once), the real CLI's `--json` answers and refusal passed through the same checks, and Playwright
+over a copy of Northwind with a scripted `tool log` (calls without arguments until asked,
+arguments gone on Hide while a slow read runs, scope, window and agent reach the CLI, a refusal
+and an empty log, axe in light and dark). Not yet run against a real stack's database: that is
+the M12 acceptance, batched with the milestone checks.
 
 ### The Audit view (#824, part 2): on `main`, not in a published preview
 
