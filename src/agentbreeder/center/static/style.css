@@ -313,3 +313,4 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
 .code-confirm { border: 1px solid var(--warning); border-radius: 6px; padding: 8px 12px 12px; margin: 0; background: var(--warning-subtle); }
 .code-confirm legend { font-weight: 600; padding: 0 4px; }
 .code-confirm .check { align-self: auto; margin-top: 8px; }
+.params { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }

@@ -160,6 +160,27 @@ Python's `difflib.unified_diff` of the files, `tool/orders@1.0.0` shows Northwin
 deployed, a failed verification shows on the list and the version, and axe passes in light and dark.
 Not yet run against a real deployment: that is the M8 console verification.
 
+### Tool detail (#828, M12): on `main`, not in a published preview
+
+A tool's version card in Registry ▸ Tools (`#/registry/tools/NAME`) adds, above its files:
+
+- **Functions**: one row per `tool.yaml` function with its module and Python function, the
+  signature the CLI read from the module with `ast` (`registry show --json` `functions`, #930: the
+  source is parsed, never imported, and size-capped), the description and the parameters (what the
+  model sees). A function with no signature says why (the module is over the size cap, does not
+  parse, or the module or function was not found); an unreadable `tool.yaml` says so instead of a
+  table. Everything from `tool.yaml` renders as text.
+- **Dependencies**: none of its own; a tool runs with the locked packages of its agent's runtime
+  (`runtime/adk`, linked).
+- **Grants**: available to the agents that reference it in `agent.yaml` (the Used by card). MCP
+  grants are M15's.
+
+The source is the Files list. The code editor and the execution log come in later M12 PRs.
+Tested with Playwright over a copy of Northwind with the real `registry show`: `tool/orders`
+shows both functions and their signatures, a module whose top level raises still shows its
+signatures (nothing is imported), a renamed function says why it has no signature, other kinds
+show no Functions, and axe passes in light and dark.
+
 ### The Audit view (#824, part 2): on `main`, not in a published preview
 
 Governance ▸ Audit shows the verify result in words and the project's audit rows, 50 to a page,
