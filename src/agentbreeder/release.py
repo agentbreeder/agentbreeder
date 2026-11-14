@@ -628,5 +628,8 @@ def rollback(
     return Outcome(
         EXIT_OK,
         f"Rolled back to {manifest.image} (ready)",
-        {"production": {"id": restored.get("id"), "endpoint": restored.get("endpoint")}},
+        {
+            "agent": agent.name,
+            "production": {"id": restored.get("id"), "endpoint": restored.get("endpoint")},
+        },
     )

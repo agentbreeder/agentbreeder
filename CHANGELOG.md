@@ -20,6 +20,24 @@ On main, not in a published preview.
   LiteLLM config beside an existing `agent.yaml` (gemini; agents with knowledge, tools or MCP
   refused), after the console's ownership check (S-01). See `docs/commands.md`.
 
+- `agentbreeder registry edit REF --set PATH FILE|--remove PATH [--bump patch|minor|major |
+  --version X.Y.Z] [--project DIR] [--dry-run | --expect-digest SHA256] [--json]` and
+  `agentbreeder agent set-ref OLD NEW [--project DIR] [--dry-run | --expect-base SHA256] [--json]`
+  (#826, M10 CLI), on `main`, not in a published preview. `edit` copies a project version to a
+  private staging directory, applies the files (from a file or stdin, never argv), raises the
+  version and publishes it atomically with `publish`'s checks; it prints the diff first, refuses
+  a version that exists or appears meanwhile (`VERSION_EXISTS`), an unchanged edit, a broken eval
+  set and a non-project version (fork it first). `set-ref` replaces one ref in `agent.yaml` by
+  exact string, refusing ambiguity, and shows the diff first; `--expect-base` refuses a file that
+  changed after the review. Neither writes an audit row: the record is the project's files and
+  git. The console editors are not built yet. See `docs/registry.md`.
+
+- `release` ends with `Next: … invoke NAME Hello` after a successful release, including
+  `--rollback` and an image already released (#820, M4 finding 1), on `main`, not in a published
+  preview: with the `--stack` and `--environment` or `--state-dir` it used; `--json` carries the
+  command as `advice.invoke`. `your-first-agent.md` no longer says to run `next` after
+  `release`.
+
 - Console guided path and Create starter (#820, M4), on `main`, not in a published preview: Home
   shows the project's `next --json` checklist (state as icon and word, reason, the current step's
   button, command and note), the top bar a "Next" pill, finished jobs a result row, and empty Home

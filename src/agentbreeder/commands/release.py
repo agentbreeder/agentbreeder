@@ -96,7 +96,7 @@ def run(args) -> int:
 
         project = args.stack if args.stack is not None else Path(args.agent)
         events.record(lambda: events.gate_failed(events.project_dir(project), outcome.details))
-    advice = _advice(args, where, outcome.details)
+    advice = _advice(args, where, outcome.code, outcome.details)
     if advice:
         outcome.details["advice"] = advice
     if args.json:
@@ -129,6 +129,8 @@ def run(args) -> int:
                     f"version in agent.yaml, then run `{advice['build']}` and release again"
                 )
             )
+        if "invoke" in advice:
+            print(hints.next_note(advice["invoke"]))
     return outcome.code
 
 
@@ -140,9 +142,12 @@ def _where(args) -> hints.Where:
     return hints.Where(environment=args.environment, state_dir=custom)
 
 
-def _advice(args, where: hints.Where, details: dict) -> dict:
+def _advice(args, where: hints.Where, code: int, details: dict) -> dict:
     """Commands that work as printed, in the same place this release ran."""
     advice: dict = {}
+    if code == 0 and details.get("agent"):
+        # Production is ready (released, already released, or rolled back): try it (M4 #820).
+        advice["invoke"] = where.command("invoke", details["agent"], "Hello")
     if details.get("candidate_log"):
         advice["show_log"] = where.command("logs", "--failed", details["agent"])
     unreleased = details.get("unreleased_production")

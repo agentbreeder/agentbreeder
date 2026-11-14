@@ -1,11 +1,12 @@
-"""`agentbreeder registry new|publish|import|fork|list|verify|show|diff|used-by`: author and
-inspect registry versions."""
+"""`agentbreeder registry new|publish|import|fork|edit|list|verify|show|diff|used-by`: author
+and inspect registry versions."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -38,7 +39,37 @@ def register(commands) -> None:
     reg_fork.add_argument("--as", dest="name", metavar="NAME", help="Fork under this name")
     reg_fork.add_argument("--version", metavar="X.Y.Z", help="Fork as this version")
     reg_fork.add_argument("--project", type=Path, default=Path("."))
-    for command in (reg_publish, reg_import, reg_fork):
+    reg_edit = reg_commands.add_parser(
+        "edit", help="Change files of a project version and publish it as a new version"
+    )
+    reg_edit.add_argument("ref", help="kind/name@X.Y.Z in the project registry")
+    reg_edit.add_argument(
+        "--set",
+        dest="sets",
+        nargs=2,
+        action="append",
+        default=[],
+        metavar=("PATH", "FILE"),
+        help="Replace or add PATH in the version with FILE's bytes (FILE - reads stdin once)",
+    )
+    reg_edit.add_argument(
+        "--remove",
+        dest="removes",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="Remove the file PATH from the version",
+    )
+    version = reg_edit.add_mutually_exclusive_group()
+    version.add_argument(
+        "--bump", choices=registry.BUMPS, default="patch", help="Version part to raise (patch)"
+    )
+    version.add_argument("--version", metavar="X.Y.Z", help="Publish as exactly this version")
+    reg_edit.add_argument(
+        "--context", type=_context, default=3, metavar="N", help="Diff context lines (default 3)"
+    )
+    reg_edit.add_argument("--project", type=Path, default=Path("."))
+    for command in (reg_publish, reg_import, reg_fork, reg_edit):
         mode = command.add_mutually_exclusive_group()
         mode.add_argument(
             "--dry-run", action="store_true", help="Check and hash a staged copy; write nothing"
@@ -82,7 +113,7 @@ def register(commands) -> None:
         help="Local deploy state to read (default: the local state); a project's stack state "
         "is always read",
     )
-    placing = (reg_publish, reg_import, reg_fork)
+    placing = (reg_publish, reg_import, reg_fork, reg_edit)
     for command in (*placing, reg_list, reg_verify, reg_show, reg_diff, reg_used):
         command.add_argument("--json", action="store_true")
     for command in (reg_list, reg_verify, reg_show, reg_diff):
@@ -134,6 +165,8 @@ def _run(args) -> int:
                 dry_run=args.dry_run,
             )
             return _placed(args, result, "fork", notice=True)
+        if args.registry_command == "edit":
+            return _edit(args)
         if args.registry_command == "used-by":
             return _used_by(args)
         search = registry.roots(args.project)
@@ -181,9 +214,10 @@ def _placed(args, result: dict, verb: str, notice: bool) -> int:
     if notice:
         print(_notice(result["kind"]), file=sys.stderr)
     if args.json:
-        # publish keeps its one-line JSON (scripts read the last line); import and fork match
-        # `show`.
-        print(json.dumps(result, indent=None if verb == "publish" else 2))
+        # publish keeps its one-line JSON (scripts read the last line); import, fork and edit
+        # match `show`.
+        one_line = args.registry_command == "publish"
+        print(json.dumps(result, indent=None if one_line else 2))
         return 0
     line = f"{result['ref']} {result['sha256']} {result['path']}"
     if result["source_ref"] != result["ref"]:
@@ -193,6 +227,58 @@ def _placed(args, result: dict, verb: str, notice: bool) -> int:
         line += f"\nTo write exactly this: --expect-digest {result['sha256']}"
     print(line)
     return 0
+
+
+def _edit(args) -> int:
+    """`registry edit`: the diff first (text mode), then the placed line and a Next: step."""
+    from agentbreeder import hints
+
+    ref = registry.Ref.parse(args.ref)
+    if sum(1 for _, source in args.sets if source == "-") > 1:
+        raise registry.RegistryError("EDIT_INVALID", "only one --set may read stdin (-)")
+    sets = [(registry.edit_path(path), _input(source)) for path, source in args.sets]
+    result = registry.edit_version(
+        ref,
+        args.project,
+        sets=sets,
+        removes=args.removes,
+        bump=args.bump,
+        version=args.version,
+        expect_digest=args.expect_digest,
+        dry_run=args.dry_run,
+        context=args.context,
+    )
+    if not args.json:
+        print(registry.unified(result["diff"]), end="")
+    code = _placed(args, result, "publish", notice=True)  # "Would publish …" in a dry run
+    if not args.json and not result["dry_run"]:
+        print(hints.next_line("agent", "set-ref", result["source_ref"], result["ref"]))
+    return code
+
+
+def _input(source: str) -> bytes:
+    """--set FILE's bytes, or stdin for `-`: a regular file only (never a FIFO or device that
+    could hang the read), capped at the version size limit."""
+    limit = registry.MAX_BYTES
+    if source == "-":
+        data = sys.stdin.buffer.read(limit + 1)
+    else:
+        try:
+            descriptor = os.open(source, os.O_RDONLY | os.O_NONBLOCK)
+            with os.fdopen(descriptor, "rb") as reader:
+                if not stat.S_ISREG(os.fstat(reader.fileno()).st_mode):
+                    raise registry.RegistryError(
+                        "EDIT_INVALID", f"{registry.clean(source, name=True)[0]} is not a file"
+                    )
+                data = reader.read(limit + 1)
+        except OSError as error:
+            raise registry.RegistryError(
+                "EDIT_INVALID",
+                f"cannot read {registry.clean(source, name=True)[0]}: {error.strerror or error}",
+            ) from None
+    if len(data) > limit:
+        raise registry.RegistryError("ENTRY_UNSAFE", "registry version is too large")
+    return data
 
 
 def _notice(kind: str) -> str:

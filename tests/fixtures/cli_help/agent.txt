@@ -1,0 +1,9 @@
+usage: agentbreeder agent [-h] {set-ref} ...
+
+positional arguments:
+  {set-ref}
+    set-ref   Replace one registry ref in agent.yaml (exact, shown as a diff
+              first)
+
+options:
+  -h, --help  show this help message and exit
