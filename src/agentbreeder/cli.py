@@ -71,6 +71,7 @@ COMMAND_MODULES = (
     "invoke",
     "watch",
     "events",
+    "cost",
 )
 
 
@@ -209,6 +210,7 @@ def _use_stack(args) -> int | None:
             "migrate",
             "logs",
             "invoke",
+            "cost",
         ) and (args.environment):
             _parser().error("--environment needs --stack for this command")
         return None

@@ -1,5 +1,5 @@
 usage: agentbreeder [-h] [--version]
-                    {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,agent,secret,services,promote,cluster,up,login,migrate,logs,next,new,invoke,watch,events}
+                    {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,agent,secret,services,promote,cluster,up,login,migrate,logs,next,new,invoke,watch,events,cost}
                     ...
 
 Local development: validate, gate and deploy trusted HTTP containers. The
@@ -8,7 +8,7 @@ Opt-in runtime enforcement covers MCP Streamable HTTP tool calls through the
 egress sidecar only.
 
 positional arguments:
-  {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,agent,secret,services,promote,cluster,up,login,migrate,logs,next,new,invoke,watch,events}
+  {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,agent,secret,services,promote,cluster,up,login,migrate,logs,next,new,invoke,watch,events,cost}
     validate            Validate a deploy manifest or an agent file (kind:
                         agent)
     doctor              Check local Docker prerequisites without changes
@@ -59,6 +59,8 @@ positional arguments:
                         restarted) until stopped
     events              List stored events (failed jobs, eval gate failures,
                         containers that exited)
+    cost                Show LLM cost per deployment or per model from the
+                        gateway's spend logs (read-only)
 
 options:
   -h, --help            show this help message and exit
