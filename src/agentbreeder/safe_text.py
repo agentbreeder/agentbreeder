@@ -4,8 +4,12 @@
 space and the text is capped. `visible` is for log lines on a terminal (security finding S-08):
 C0 controls except tab and newline, DEL and C1 controls, ESC included, are shown as `\\xNN`
 escapes, so an echoed OSC 52 or CSI sequence cannot write the clipboard, forge a link or rewrite
-earlier lines. Bidirectional overrides, the Unicode line and paragraph separators, and lone
-surrogates (which `print` cannot encode) are escaped the same way.
+earlier lines. Bidirectional overrides, the Unicode line and paragraph separators, invisible
+format characters (zero-width space, soft hyphen, BOM, the tag block that can smuggle hidden
+ASCII; #901) and lone surrogates (which `print` cannot encode) are escaped the same way. The
+bidi and format set is the console's (`center/static/lib/text.js`), checked by a test, so the
+CLI and the console agree; zero-width joiner and non-joiner stay, as emoji and Persian and Indic
+text need them.
 """
 
 from __future__ import annotations
@@ -18,10 +22,14 @@ import re
 _BIDI = "\u202a-\u202e\u2066-\u2069\u200e\u200f\u061c"
 # Line and paragraph separators: some readers break lines on them (a forged log line).
 _SEPARATORS = "\u2028\u2029"
+# Invisible format characters (#901): soft hyphen, Mongolian vowel separator, zero-width space,
+# word joiner and invisible operators (U+2060-U+2064), the deprecated format controls
+# (U+206A-U+206F), the BOM and the tag block (U+E0000-U+E007F). U+200C/U+200D are kept.
+_FORMAT = "\u00ad\u180e\u200b\u2060-\u2064\u206a-\u206f\ufeff\U000e0000-\U000e007f"
 # Lone surrogates (valid in JSON's \\uXXXX, never encodable as UTF-8) would make `print` raise.
 _SURROGATES = "\ud800-\udfff"
-_ANY_CONTROL = re.compile(f"[\x00-\x1f\x7f-\x9f{_BIDI}{_SEPARATORS}{_SURROGATES}]")
-_SHOWN = re.compile(f"[\x00-\x08\x0b-\x1f\x7f-\x9f{_BIDI}{_SEPARATORS}{_SURROGATES}]")
+_ANY_CONTROL = re.compile(f"[\x00-\x1f\x7f-\x9f{_BIDI}{_SEPARATORS}{_FORMAT}{_SURROGATES}]")
+_SHOWN = re.compile(f"[\x00-\x08\x0b-\x1f\x7f-\x9f{_BIDI}{_SEPARATORS}{_FORMAT}{_SURROGATES}]")
 
 
 def excerpt(text: object, limit: int) -> str:
@@ -32,7 +40,9 @@ def excerpt(text: object, limit: int) -> str:
 
 def _escape(match: re.Match) -> str:
     code = ord(match.group())
-    return f"\\x{code:02x}" if code < 0x100 else f"\\u{code:04x}"
+    if code < 0x100:
+        return f"\\x{code:02x}"
+    return f"\\u{code:04x}" if code < 0x10000 else f"\\U{code:08x}"
 
 
 def visible(text: str) -> str:
