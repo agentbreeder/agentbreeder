@@ -137,6 +137,23 @@ export function notEditableReason(file, kind = "prompt", show = null) {
   return "not text";
 }
 
+const FORK_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+/**
+ * What a Fork writes (#828, M9a #825): with no new name, the next free patch version of the same
+ * name; with a new name, that name at the same version (another name has no versions here to
+ * collide with; the CLI says VERSION_EXISTS if it has). `problem` is why Fork is off, or false.
+ */
+export function forkPlan(current, base, name, existing = []) {
+  const wanted = String(name || "").trim();
+  if (wanted && wanted !== current) {
+    if (!FORK_NAME.test(wanted)) return { name: wanted, version: base, problem: "A name is lowercase letters, digits and dashes, starting with a letter or digit." };
+    return { name: wanted, version: base, problem: false };
+  }
+  const version = saveVersion(base, "patch", existing);
+  return { name: null, version, problem: version ? false : "No free version to fork into." };
+}
+
 /** The line numbers for the gutter: one per line of `text` (at least one). */
 export function gutterLines(text) {
   const count = String(text ?? "").split("\n").length;

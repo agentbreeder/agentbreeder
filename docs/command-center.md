@@ -262,9 +262,10 @@ listed as not editable here; use `agentbreeder registry edit` for those.
 **Fork to edit.** A version that is built in or on `AGENTBREEDER_REGISTRY_PATH` (any kind the
 console edits) is not edited in place. **Fork to edit as X.Y.Z** runs `registry fork REF --version
 X.Y.Z --project DIR --dry-run --json` (the next free patch version): the review lists the files it
-copies and says when they hold code that runs in agents. **Fork as X.Y.Z** copies exactly what was
-reviewed (`--expect-digest`; a source changed since the review is `DIGEST_MISMATCH`). The copy is
-the project's and opens in the editor; the original is unchanged.
+copies. **Fork as X.Y.Z** copies exactly what was reviewed (`--expect-digest`; a source changed
+since the review is `DIGEST_MISMATCH`). Since M9a (#825, below), a fork of code that runs in agents
+(a tool, an eval set) also needs the "This code runs in agents" confirm, and a fork can take
+another name. The copy is the project's and opens in the editor; the original is unchanged.
 
 Tested with the real `registry edit` and `registry fork` (server tests over a copy of Northwind: a
 reviewed tool edit saved only with the confirm, a renamed function refused as `TOOL_INVALID`, only
@@ -313,7 +314,37 @@ CLI call; the answer check's refusal of raw control or bidi characters is unit-t
 Playwright over Northwind (the main flows: prompt and tool imports, a refused directory, a source
 changed after its review, the link from the registry lists, axe in light and dark). Not yet run as the M9a acceptance (an imported prompt used by an agent and released, a
 built-in service forked, a tool import's confirm), which is batched with the milestone checks.
-Forking from the registry browser is the second part.
+Forking from the registry browser is the second part (below).
+
+### Fork in the registry browser (#825, M9a, second part): on `main`, not in a published preview
+
+Every version outside the project registry (built in, or on `AGENTBREEDER_REGISTRY_PATH`) can be
+forked into it, not only the kinds the console edits. Prompts, eval sets, tools and knowledge keep
+**Fork to edit** in their Edit card. Service definitions, MCP servers and runtimes get a **Fork**
+card that copies the version into the project; the console does not edit those files, so the copy
+is changed with `agentbreeder registry edit` or by publishing a new version. Agent packages are not
+forked here (`FORK_KIND`).
+
+- **Fork under another name** (optional, `--as NAME`) forks the version under that name at the
+  same version, and the console opens the new name's page. Without a name the copy is the next
+  free patch version of the same name. One of the two must change (`FORK_UNCHANGED`).
+- **The code confirm.** Forking a tool, service, eval set, MCP server or runtime brings code from
+  outside the project into a version the project owns, as an import does, so it takes the same
+  three-tier confirm: the review, the "This code runs in agents" checkbox, the button. The server
+  runs its own fresh dry run before the write and refuses one without `code_confirmed`
+  (`CODE_NOT_CONFIRMED`). A digest that does not match that dry run is `DIGEST_MISMATCH`, refused
+  before the write lock. This replaces #828's rule that a fork needs no confirm.
+- The CLI's answer is checked as an import's (the same object); one off the contract is
+  `BAD_OUTPUT`.
+
+Tested with the real `registry fork` over a copy of Northwind (server tests: the built-in
+`service/postgres-pgvector@1.2.0` forked to 1.2.1 only with the confirm, then resolved from the
+project registry; a prompt forked under another name without a confirm; a tool fork refused
+without the confirm; a digest not from a review refused before the write lock; an answer off the
+contract; bad requests refused before any CLI call) and with Playwright (the service fork with
+the confirm, a runtime forked under another name opening its new page, the tool's Fork to edit
+with the confirm, axe in light and dark). Not yet run as the M9a acceptance, which is batched with
+the milestone checks.
 
 ### Tool detail (#828, M12): on `main`, not in a published preview
 

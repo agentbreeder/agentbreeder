@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import {
   BUMPS, EDITABLE_KINDS, agentUses, bumped, editKind, editProblem, editableFile, editableFiles, gutterLines, isSaveShortcut, movableFrom, needsNewReview, newFile,
-  notEditableReason, saveVersion,
+  forkPlan, notEditableReason, saveVersion,
 } from "../../src/agentbreeder/center/static/lib/edit.js";
 
 test("bumped raises one part and resets the lower ones", () => {
@@ -156,4 +156,15 @@ test("newFile names a new document under docs/", () => {
 
 test("a kind the console does not remove from has fixed words", () => {
   assert.match(editProblem({ code: "EDIT_REMOVE", message: "x" }).text, /registry edit --remove/);
+});
+
+test("a fork without a new name takes the next free patch version", () => {
+  assert.deepEqual(forkPlan("orders", "1.0.0", "", ["1.0.0", "1.0.1"]), { name: null, version: "1.0.2", problem: false });
+  assert.deepEqual(forkPlan("orders", "1.0.0", " orders ", ["1.0.0"]), { name: null, version: "1.0.1", problem: false });
+});
+
+test("a fork under a new name keeps the version", () => {
+  assert.deepEqual(forkPlan("orders", "1.2.0", " orders-copy ", ["1.2.0"]), { name: "orders-copy", version: "1.2.0", problem: false });
+  assert.match(forkPlan("orders", "1.2.0", "Bad Name").problem, /lowercase/);
+  assert.match(forkPlan("orders", "1.2.0", "-x").problem, /lowercase/);
 });

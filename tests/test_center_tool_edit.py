@@ -155,8 +155,9 @@ def test_a_shared_tool_is_forked_after_a_review_then_edited(
     assert {f["path"] for f in data["files"] if f["type"] == "file"} >= {SOURCE, "tool.yaml"}
     assert not source(project_dir, "1.0.1").exists()
     status, forked, _ = post(
-        center, project, cookie, "fork", ref=TOOL, version="1.0.1", digest=data["sha256"]
-    )
+        center, project, cookie, "fork",
+        ref=TOOL, version="1.0.1", digest=data["sha256"], code_confirmed=True,
+    )  # fmt: skip
     assert status == 200 and forked["error"] is None, forked
     assert (
         source(project_dir, "1.0.1").read_text()
@@ -185,14 +186,18 @@ def test_a_fork_writes_only_what_was_reviewed(center, project, cookie, project_d
 @pytest.mark.parametrize(
     "body,code",
     [
-        ({"ref": "service/postgres-pgvector@1.2.0"}, "EDIT_KIND"),
-        ({"ref": "runtime/adk@1.2.0"}, "EDIT_KIND"),
+        ({"ref": "agent/northwind-support@1.0.0"}, "FORK_KIND"),
+        ({"as": "Bad Name"}, "NAME_INVALID"),
+        ({"as": "-x"}, "NAME_INVALID"),
+        ({"as": "orders", "version": "1.0.0"}, "FORK_UNCHANGED"),
+        ({"code_confirmed": "true"}, "FORK_INVALID"),
         ({"ref": "tool/orders"}, "REF_INVALID"),
         ({"ref": None}, "REF_INVALID"),
         ({"version": "1.0.0"}, "FORK_UNCHANGED"),
         ({"version": "1.0"}, "VERSION_INVALID"),
         ({"version": "1.0.1 --as x"}, "VERSION_INVALID"),
-        ({"version": None}, "VERSION_INVALID"),
+        ({"version": None}, "FORK_UNCHANGED"),
+        ({"version": ["1.0.1"]}, "VERSION_INVALID"),
         ({"digest": "sha256:xyz"}, "DIGEST_INVALID"),
         ({"digest": ["x"]}, "DIGEST_INVALID"),
     ],
@@ -221,11 +226,22 @@ def test_fork_argv_is_a_dry_run_or_bound_to_the_digest():
     assert refused.value.code == "FORK_INVALID"
 
 
-def test_a_fork_copies_code_without_the_code_confirm(center, project, cookie, project_dir, shared):
-    """A fork copies a version and runs nothing, so it needs no confirm; editing the copy does."""
+def test_a_code_fork_needs_the_code_confirm(center, project, cookie, project_dir, shared):
+    """M9a (#825) supersedes #828's "a fork needs no confirm": a fork of a code-bearing kind
+    brings code from outside the project, as an import does, so it takes the same three-tier
+    confirm, checked on the server's own dry run; editing the copy asks again."""
     _, review, _ = post(center, project, cookie, "fork", ref=TOOL, version="1.0.1")
     digest = review["data"]["sha256"]
-    _, forked, _ = post(center, project, cookie, "fork", ref=TOOL, version="1.0.1", digest=digest)
+    for extra in ({}, {"code_confirmed": False}):
+        status, refused, _ = post(
+            center, project, cookie, "fork", ref=TOOL, version="1.0.1", digest=digest, **extra
+        )
+        assert status == 400 and refused["error"]["code"] == "CODE_NOT_CONFIRMED", refused
+        assert not source(project_dir, "1.0.1").exists()
+    _, forked, _ = post(
+        center, project, cookie, "fork",
+        ref=TOOL, version="1.0.1", digest=digest, code_confirmed=True,
+    )  # fmt: skip
     assert forked["error"] is None, forked
     text = source(project_dir, "1.0.1").read_text() + "\n# edited\n"
     request = {"ref": "tool/orders@1.0.1", "path": SOURCE, "text": text, "version": "1.0.2"}
@@ -243,7 +259,7 @@ def test_a_project_version_can_be_forked_too(center, project, cookie, project_di
     assert review["error"] is None and review["data"]["source_ref"] == TOOL, review
     _, forked, _ = post(
         center, project, cookie, "fork",
-        ref=TOOL, version="1.0.5", digest=review["data"]["sha256"],
+        ref=TOOL, version="1.0.5", digest=review["data"]["sha256"], code_confirmed=True,
     )  # fmt: skip
     assert forked["error"] is None, forked
     assert source(project_dir, "1.0.5").read_text() == source(project_dir).read_text()
