@@ -55,6 +55,7 @@ ALLOWED = {
     # The tool execution log (#828): pure query and answer checks; imports only registry and
     # center.files.
     "agentbreeder.center.toollog",
+    "agentbreeder.center.traces",
     # Onboard an agent.yaml alone (#823): pure request and answer checks; imports center.files.
     "agentbreeder.center.onboard",
     # Build an agent (#833): request and answer checks and the private spec file; no engine.

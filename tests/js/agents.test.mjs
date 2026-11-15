@@ -171,7 +171,7 @@ test("the local date is the browser's, not UTC's", () => {
 });
 
 test("tabs are Overview, Try it, Releases and Logs, and Try it keeps its address", () => {
-  assert.deepEqual(TABS.map(([, label]) => label), ["Overview", "Try it", "Releases", "Logs"]);
+  assert.deepEqual(TABS.map(([, label]) => label), ["Overview", "Try it", "Releases", "Logs", "Traces"]);
   assert.equal(tabHref("support", "overview"), "#/agents/support");
   assert.equal(tabHref("support", "try"), "#/agents/support/try");
   assert.throws(() => tabHref("../x", "try"));

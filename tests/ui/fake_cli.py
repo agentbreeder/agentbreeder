@@ -92,7 +92,9 @@ DEFAULT = {
     # `traces --trace ID ... --json` (Try it's trace panel, #907): {"spans", "status",
     # "attribution", "notes"} change the answer; {"error": {code, message}} fails it (exit 2);
     # {"missing": N} answers TRACES_NOT_FOUND to the first N calls. Every call's argv is appended
-    # to `traces-calls.json` in the fake directory.
+    # to `traces-calls.json` in the fake directory. `traces ID ... --json` (an agent's Traces tab)
+    # answers {"list": [trace, ...]} (each given the asked-for deployment ID unless it has one),
+    # or two default traces; "error" fails it the same way.
     "traces": {},
     # `tool log REF ... --json` (a tool's execution log, #828): {"calls", "notes", "credential",
     # "truncated", "phoenix_url"} change the answer and "seconds" slows a read without
@@ -217,6 +219,8 @@ def traces(argv: list[str], data: dict) -> int:
         print(json.dumps({"schema_version": 1, "error": problem}))
         print(f"[{problem['code']}] {problem['message']}", file=sys.stderr)
         return 2
+    if "--trace" not in argv:
+        return traces_list(argv, settings)
     spans = settings.get("spans", TRACE_SPANS)
     trace = {
         "trace_id": argv[argv.index("--trace") + 1],
@@ -235,6 +239,33 @@ def traces(argv: list[str], data: dict) -> int:
     }  # fmt: skip
     answer = {"schema_version": 1, "phoenix": "http://127.0.0.1:6006", "traces": [trace]}
     answer |= {"overlapping": [], "truncated": False, "notes": settings.get("notes", [])}
+    print(json.dumps(answer))
+    return 0
+
+
+def traces_list(argv: list[str], settings: dict) -> int:
+    """`traces ID --stack DIR --environment ENV --last N --json`: an agent's Traces tab (#907)."""
+    default = [
+        {"trace_id": "ab" * 16, "attribution": "exact",
+         "start_time": "2026-11-14T03:10:33.358423+00:00", "latency_ms": 41, "status": "error",
+         "models": ["gemini-2.5-flash"],
+         "tokens": {"prompt": 321, "completion": 70, "total": 391},
+         "tool_calls": [{"name": "lookup_order", "status": "error", "latency_ms": 11,
+                         "span_id": "c" * 16}],
+         "spans": TRACE_SPANS, "spans_truncated": False},
+        {"trace_id": "cd" * 16, "attribution": "exact", "start_time": "2026-11-14T03:09:00+00:00",
+         "latency_ms": 1500, "status": "ok", "models": ["gemini-2.5-flash"],
+         "tokens": {"prompt": 100, "completion": 20, "total": 120}, "tool_calls": [],
+         "spans": TRACE_SPANS[:1], "spans_truncated": False},
+    ]  # fmt: skip
+    rows = [
+        {"project": "demo", "session_id": "session-1", "end_time": None, "deployment_id": argv[1]}
+        | row
+        for row in settings.get("list", default)
+    ]
+    answer = {"schema_version": 1, "phoenix": "http://127.0.0.1:6006", "traces": rows}
+    answer |= {"overlapping": settings.get("overlapping", []), "truncated": False}
+    answer["notes"] = settings.get("notes", [])
     print(json.dumps(answer))
     return 0
 

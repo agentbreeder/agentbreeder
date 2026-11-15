@@ -247,7 +247,7 @@ function SpanNode({ node, depth = 0 }) {
  * ID --json` through the stack's Phoenix. Phoenix may receive a trace a few seconds after the
  * reply, so a trace it does not have yet can be read again.
  */
-function TracePanel({ path }) {
+export function TracePanel({ path }) {
   const { client } = useConsole();
   const [state, setState] = useState({ phase: "idle" });
   const alive = useRef(true);

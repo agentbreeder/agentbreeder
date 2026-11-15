@@ -75,8 +75,9 @@ for errors).
 
 ## `--json` (schema_version 1)
 
-The console's Try it uses `traces --trace TRACE_ID --stack DIR --environment ENV --json` for a
-turn's **Trace spans** panel (see [command-center.md](command-center.md)).
+The console's Try it and eval report viewer use `traces --trace TRACE_ID --stack DIR
+--environment ENV --json` for the **Trace spans** panel, and an agent's Traces tab uses `traces ID
+--stack DIR --environment ENV --last N --json` (see [command-center.md](command-center.md)).
 
 ```json
 {
@@ -132,7 +133,7 @@ turn's **Trace spans** panel (see [command-center.md](command-center.md)).
 
 ## Not yet
 
-- Traces of eval runs linked from `release`.
-- The console's Traces tab.
+- Traces of eval runs linked from `release` in the CLI. The console's eval report viewer opens
+  a case's trace (see [command-center.md](command-center.md)).
 - Message content (`--content`).
 - A read-only Phoenix key.

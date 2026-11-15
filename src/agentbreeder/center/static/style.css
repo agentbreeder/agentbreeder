@@ -426,3 +426,7 @@ th[scope="row"] { color: var(--foreground); }
 
 /* Log follow (#821, M5 PR 2) */
 .follow-status { margin: 0 0 8px; }
+
+/* Traces tab (#907): one deployment's recent traces, each with its span tree on request. */
+.trace-list > li.trace-item { padding: 8px 0; border-bottom: 1px solid var(--control-border); overflow-wrap: anywhere; }
+.trace-list > li.trace-item:last-child { border-bottom: 0; }
