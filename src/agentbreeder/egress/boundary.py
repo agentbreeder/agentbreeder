@@ -90,6 +90,12 @@ def sidecar_context() -> tuple[bytes, str]:
     return buffer.getvalue(), code_digest
 
 
+# The engine probes before a boundary deploy (`docker info` for the listen mode, `docker version`
+# for the engine check) get the same 30 s as every other Docker call. `docker info` stalled past
+# 10 s on a loaded Docker Desktop right after an image build, which failed the deploy (#732).
+ENGINE_PROBE_TIMEOUT = 30
+
+
 def _service_environment() -> dict:
     """Inherit the operator's environment (credential `env:` references resolve there) and make
     sure the service imports this same AgentBreeder, installed or from a checkout."""
@@ -166,13 +172,17 @@ class Boundary:
     def listen_mode(self) -> str:
         """Docker Desktop cannot bind-mount host Unix sockets (EOPNOTSUPP), so it reaches the
         host service over loopback TCP with a per-deployment token; Linux engines use a socket."""
-        system = self.runtime.command("info", "--format", "{{.OperatingSystem}}", timeout=10)
+        system = self.runtime.command(
+            "info", "--format", "{{.OperatingSystem}}", timeout=ENGINE_PROBE_TIMEOUT
+        )
         return "tcp" if "Docker Desktop" in system else "unix"
 
     def require_isolated_gateway_support(self) -> None:
         """Older engines may accept and echo unknown bridge options without enforcing them, so
         the isolated gateway (and thus the boundary) is only trusted on Docker Engine 28+."""
-        version = self.runtime.command("version", "--format", "{{.Server.Version}}", timeout=10)
+        version = self.runtime.command(
+            "version", "--format", "{{.Server.Version}}", timeout=ENGINE_PROBE_TIMEOUT
+        )
         try:
             major = int(version.split(".", 1)[0])
         except ValueError as error:

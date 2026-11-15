@@ -104,6 +104,36 @@ def test_pin_listen_modes(tmp_path, operator):
         linux.write_pin(long_record, {"revision": "r"})
 
 
+class TimedDocker(FakeDocker):
+    """Records each command's timeout, keyed by its first argument."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.timeouts: dict[str, int] = {}
+
+    def command(self, *args, timeout=30, stdin=None, env=None):
+        self.timeouts[args[0]] = timeout
+        return super().command(*args, timeout=timeout, stdin=stdin, env=env)
+
+
+def test_engine_probes_get_the_standard_docker_timeout(tmp_path, operator):
+    """`docker info` stalled past 10 s on a loaded Docker Desktop right after an image build,
+    failing a boundary deploy (#732). The listen-mode and engine-version probes get the same
+    30 s as every other Docker call, not a shorter one."""
+    assert boundary_module.ENGINE_PROBE_TIMEOUT >= 30
+    desktop = TimedDocker()
+    _boundary(tmp_path, operator, desktop).write_pin(RECORD, {"revision": "r"})
+    assert desktop.timeouts["info"] == boundary_module.ENGINE_PROBE_TIMEOUT
+
+    (tmp_path / "l").mkdir()
+    linux = TimedDocker({("version",): "28.1.1"}, system="Ubuntu 24.04")
+    probes = _boundary(tmp_path / "l", operator, linux)
+    assert probes.listen_mode() == "unix"
+    probes.require_isolated_gateway_support()
+    assert linux.timeouts["info"] == boundary_module.ENGINE_PROBE_TIMEOUT
+    assert linux.timeouts["version"] == boundary_module.ENGINE_PROBE_TIMEOUT
+
+
 def test_create_builds_internal_topology_and_hardened_sidecar(tmp_path, operator):
     _, digest = sidecar_context()
     labelled = json.dumps([{"Config": {"Labels": {"io.agentbreeder.sidecar-code": digest}}}])
