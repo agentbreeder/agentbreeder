@@ -358,7 +358,15 @@ agentbreeder agent set-ref prompt/hello-prompt@0.1.0 prompt/hello-prompt@0.1.1
   checks every version gets.
 - The output is the diff from `REF` to the new version first (`registry diff`'s format), then
   `publish`'s `REF SHA256 PATH (from REF)` line, a stderr note (code that runs inside agents, or
-  text that steers the agent) and a `Next:` line with the `agent set-ref` command. `--dry-run`
+  text that steers the agent) and a `Next:` line that depends on where the project declares
+  `REF` (#990). When `agent.yaml` declares it and `set-ref`'s own dry run passes, the line is
+  the `agent set-ref REF NEW` command (with `--project DIR` when DIR is not `.`). Otherwise it
+  names the field to change by hand: `in agent.yaml, change prompt.ref from REF to NEW (agent
+  set-ref refuses: CODE)`, or `in stack.yaml, change services.postgres.ref from REF to NEW`,
+  since no command edits `stack.yaml`. When neither file declares it, the line says which file
+  can reference the new version (`agent.yaml` for runtime, prompt, eval, knowledge and tool
+  versions, `stack.yaml` for services, either for `mcp`); there is no line when a file could
+  not be read. `--dry-run`
   writes nothing and prints the `--expect-digest` to pass; a later call with it refuses unless the
   staged copy has exactly that digest (`DIGEST_MISMATCH`), so what is written is what was
   reviewed. `--json` prints `import`'s object (indented) plus `diff`, the `registry diff --json`

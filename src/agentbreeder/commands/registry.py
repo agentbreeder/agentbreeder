@@ -236,8 +236,6 @@ def _placed(args, result: dict, verb: str, notice: bool) -> int:
 
 def _edit(args) -> int:
     """`registry edit`: the diff first (text mode), then the placed line and a Next: step."""
-    from agentbreeder import hints
-
     ref = registry.Ref.parse(args.ref)
     if sum(1 for _, source in args.sets if source == "-") > 1:
         raise registry.RegistryError("EDIT_INVALID", "only one --set may read stdin (-)")
@@ -257,8 +255,63 @@ def _edit(args) -> int:
         print(registry.unified(result["diff"]), end="")
     code = _placed(args, result, "publish", notice=True)  # "Would publish …" in a dry run
     if not args.json and not result["dry_run"]:
-        print(hints.next_line("agent", "set-ref", result["source_ref"], result["ref"]))
+        for line in _edit_next(result["source_ref"], result["ref"], args.project):
+            print(line)
     return code
+
+
+# The files whose ref fields can name a version of each kind (registry._ref_positions):
+# `agent set-ref` edits only agent.yaml; nothing edits a stack.yaml ref yet (#990).
+_REF_FILES = {
+    "runtime": ("agent.yaml",),
+    "prompt": ("agent.yaml",),
+    "eval": ("agent.yaml",),
+    "knowledge": ("agent.yaml",),
+    "tool": ("agent.yaml",),
+    "mcp": ("agent.yaml", "stack.yaml"),
+    "service": ("stack.yaml",),
+}
+
+
+def _edit_next(old: str, new: str, project: Path) -> list[str]:
+    """The Next: lines after an edit, from where the project declares OLD (#990). The
+    `agent set-ref` command only when its own dry run passes (it edits only agent.yaml, and
+    refuses OLD declared twice, NEW's name used elsewhere or an invalid file); else the field to
+    change by hand in agent.yaml or stack.yaml. When nothing declares OLD, which file can
+    reference NEW; when a file could not be read, no guess."""
+    from agentbreeder import hints, setref
+
+    ref = registry.Ref.parse(old)
+    row = registry.usage(ref, project)
+    declared = row["declared"]
+    lines = []
+    in_agent = [entry for entry in declared if entry["file"] == "agent.yaml"]
+    refused = ""
+    if in_agent:
+        try:
+            setref.set_ref(project, old, new, dry_run=True)
+        except registry.RegistryError as error:
+            refused = f" (agent set-ref refuses: {error.code})"
+        except RecursionError:  # a pathological file must not crash after the publish
+            refused = " (agent set-ref refuses: AGENT_INVALID)"
+        else:
+            extra = [] if project == Path(".") else ["--project", project]
+            lines.append(hints.next_line("agent", "set-ref", old, new, *extra))
+            in_agent = []
+    for entry in in_agent:
+        lines.append(
+            hints.next_note(f"in agent.yaml, change {entry['at']} from {old} to {new}{refused}")
+        )
+    for entry in declared:
+        if entry["file"] == "stack.yaml":
+            lines.append(
+                hints.next_note(f"in stack.yaml, change {entry['at']} from {old} to {new}")
+            )
+    if not lines and not row["errors"]:
+        files = " or ".join(_REF_FILES.get(ref.kind, ()))
+        if files:
+            lines.append(hints.next_note(f"reference {new} from a ref field in {files}"))
+    return lines
 
 
 def _input(source: str) -> bytes:

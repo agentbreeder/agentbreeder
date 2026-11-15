@@ -515,3 +515,190 @@ def test_cli_oversized_input_is_refused(starter, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(sys, "stdin", Stdin)
     assert cli.main([*base, "-"]) == 2
     assert "[ENTRY_UNSAFE]" in capsys.readouterr().err
+
+
+# -- the Next: line names the file that declares the version (#990) ---------------------------
+
+
+def _edit_text(capsys, ref, project, path, data, tmp_path, *extra) -> list[str]:
+    source = tmp_path / "input"
+    source.write_bytes(data)
+    argv = ["registry", "edit", str(ref), "--set", path, str(source), "--project", str(project)]
+    assert cli.main([*argv, *extra]) == 0
+    return [line for line in capsys.readouterr().out.splitlines() if line.startswith("Next:")]
+
+
+def test_cli_agent_ref_next_line_runs_as_printed(starter, tmp_path, capsys, monkeypatch):
+    """The set-ref hint carries --project, and running it moves agent.yaml (#990)."""
+    from agentbreeder import hints
+
+    monkeypatch.setattr(hints, "_prefix", lambda: "agentbreeder")
+    lines = _edit_text(capsys, PROMPT, starter, "prompt.md", b"Be brief.\n", tmp_path)
+    assert lines == [
+        f"Next: agentbreeder agent set-ref {PROMPT} prompt/hello-prompt@0.1.1 --project {starter}"
+    ]
+    argv = lines[0].removeprefix("Next: agentbreeder ").split()
+    assert cli.main(argv) == 0
+    assert "prompt: {ref: prompt/hello-prompt@0.1.1}" in (starter / "agent.yaml").read_text()
+
+
+def test_cli_project_dot_adds_no_project_flag(starter, tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(starter)
+    case = json.dumps({"id": "hours", "turns": ["When?"], "expect": {}, "reference": "r"})
+    data = (case + "\n").encode()
+    lines = _edit_text(capsys, EVALS, Path("."), "golden.jsonl", data, tmp_path, "--bump", "minor")
+    assert len(lines) == 1 and lines[0].endswith(f"agent set-ref {EVALS} eval/hello-evals@0.2.0")
+
+
+def test_cli_service_declared_in_stack_names_the_field(starter, tmp_path, capsys):
+    """A service version lives in stack.yaml, which `agent set-ref` never edits (#990)."""
+    builtin = Ref.parse("service/postgres-pgvector@1.1.0")
+    registry.fork_version(builtin, starter, version="1.1.1")
+    stack = starter / "stack.yaml"
+    stack.write_text(stack.read_text().replace(str(builtin), "service/postgres-pgvector@1.1.1"))
+    owned = Ref.parse("service/postgres-pgvector@1.1.1")
+    lines = _edit_text(capsys, owned, starter, "NOTES.md", b"note\n", tmp_path)
+    assert lines == [
+        "Next: in stack.yaml, change services.postgres.ref from "
+        "service/postgres-pgvector@1.1.1 to service/postgres-pgvector@1.1.2"
+    ]
+    assert "set-ref" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("builtin", "files"),
+    [
+        ("service/postgres-pgvector@1.1.0", "stack.yaml"),
+        ("mcp/github@1.0.0", "agent.yaml or stack.yaml"),
+    ],
+)
+def test_cli_undeclared_version_gets_a_note_not_a_command(
+    starter, tmp_path, capsys, builtin, files
+):
+    ref = Ref.parse(builtin)
+    registry.fork_version(ref, starter, name=f"my-{ref.name}")
+    owned = Ref(ref.kind, f"my-{ref.name}", ref.version)
+    lines = _edit_text(capsys, owned, starter, "NOTES.md", b"note\n", tmp_path)
+    bumped = Ref(ref.kind, f"my-{ref.name}", registry.bumped(ref.version, "patch"))
+    assert lines == [f"Next: reference {bumped} from a ref field in {files}"]
+
+
+@pytest.mark.parametrize(
+    ("kind", "declared", "expected"),
+    [
+        ("prompt", [("agent.yaml", "prompt.ref")], "set-ref"),
+        ("eval", [("agent.yaml", "evals.ref")], "set-ref"),
+        ("runtime", [("agent.yaml", "runtime")], "set-ref"),
+        ("tool", [("agent.yaml", "tools[0].ref")], "set-ref"),
+        ("knowledge", [("agent.yaml", "knowledge[0].ref")], "set-ref"),
+        ("mcp", [("agent.yaml", "mcp[0].ref")], "set-ref"),
+        ("mcp", [("stack.yaml", "mcp.gh.ref")], "in stack.yaml, change mcp.gh.ref"),
+        ("service", [("stack.yaml", "services.db.ref")], "in stack.yaml, change services.db.ref"),
+        ("prompt", [], "from a ref field in agent.yaml"),
+        ("tool", [], "from a ref field in agent.yaml"),
+        ("mcp", [], "from a ref field in agent.yaml or stack.yaml"),
+        ("service", [], "from a ref field in stack.yaml"),
+    ],
+)
+def test_edit_next_per_kind(monkeypatch, kind, declared, expected):
+    from agentbreeder import setref
+    from agentbreeder.commands import registry as command
+
+    row = {
+        "agent": "hello",
+        "errors": [],
+        "declared": [{"file": file, "name": "hello", "at": at} for file, at in declared],
+    }
+    monkeypatch.setattr(registry, "usage", lambda ref, project: row)
+    monkeypatch.setattr(setref, "set_ref", lambda *args, **kwargs: {})  # its dry run passes
+    lines = command._edit_next(f"{kind}/x@1.0.0", f"{kind}/x@1.0.1", Path("."))
+    assert len(lines) == 1 and expected in lines[0]
+    assert ("agent set-ref" in lines[0]) == (expected == "set-ref")
+
+
+def _refuse(*args, **kwargs):
+    raise RegistryError("REF_NOT_DECLARED", "refused")
+
+
+def test_edit_next_both_files_and_a_refused_set_ref(monkeypatch):
+    """An mcp version both files declare gets both steps; when set-ref's own dry run refuses,
+    the agent.yaml field is named for a hand edit instead of a command that exits 2."""
+    from agentbreeder import setref
+    from agentbreeder.commands import registry as command
+
+    both = {
+        "agent": "hello",
+        "errors": [],
+        "declared": [
+            {"file": "agent.yaml", "name": "hello", "at": "mcp[0].ref"},
+            {"file": "stack.yaml", "name": "hello", "at": "mcp.gh.ref"},
+        ],
+    }
+    monkeypatch.setattr(registry, "usage", lambda ref, project: both)
+    monkeypatch.setattr(setref, "set_ref", lambda *args, **kwargs: {})
+    lines = command._edit_next("mcp/x@1.0.0", "mcp/x@1.0.1", Path("p"))
+    assert "agent set-ref mcp/x@1.0.0 mcp/x@1.0.1 --project p" in lines[0]
+    assert lines[1] == "Next: in stack.yaml, change mcp.gh.ref from mcp/x@1.0.0 to mcp/x@1.0.1"
+    monkeypatch.setattr(setref, "set_ref", _refuse)
+    assert command._edit_next("mcp/x@1.0.0", "mcp/x@1.0.1", Path("p")) == [
+        "Next: in agent.yaml, change mcp[0].ref from mcp/x@1.0.0 to mcp/x@1.0.1 "
+        "(agent set-ref refuses: REF_NOT_DECLARED)",
+        "Next: in stack.yaml, change mcp.gh.ref from mcp/x@1.0.0 to mcp/x@1.0.1",
+    ]
+
+
+def test_edit_next_guesses_nothing_when_a_file_could_not_be_read(monkeypatch):
+    from agentbreeder.commands import registry as command
+
+    row = {"agent": None, "declared": [], "errors": [{"file": "stack.yaml", "error": "bad"}]}
+    monkeypatch.setattr(registry, "usage", lambda ref, project: row)
+    assert command._edit_next("service/x@1.0.0", "service/x@1.0.1", Path(".")) == []
+
+
+def test_cli_old_declared_twice_names_both_fields(starter, tmp_path, capsys):
+    """OLD at two positions: the schema refuses it (one version per name), so set-ref's dry run
+    fails with AGENT_INVALID and each field is named for a hand edit instead of a command."""
+    registry.fork_version(Ref.parse("mcp/github@1.0.0"), starter, name="gh")
+    agent = starter / "agent.yaml"
+    agent.write_text(
+        agent.read_text()
+        + "mcp:\n  - {ref: mcp/gh@1.0.0, tools: [a]}\n  - {ref: mcp/gh@1.0.0, tools: [b]}\n"
+    )
+    lines = _edit_text(capsys, Ref.parse("mcp/gh@1.0.0"), starter, "N.md", b"n\n", tmp_path)
+    assert not any(
+        line.startswith("Next: agentbreeder") or " set-ref mcp" in line for line in lines
+    )
+    assert lines and all(line.startswith("Next: in agent.yaml, change mcp[") for line in lines)
+    assert all(line.endswith("(agent set-ref refuses: AGENT_INVALID)") for line in lines)
+
+
+def test_cli_invalid_agent_yaml_gets_no_set_ref(starter, tmp_path, capsys):
+    agent = starter / "agent.yaml"
+    agent.write_text(agent.read_text() + "unknown_field: 1\n")
+    lines = _edit_text(capsys, PROMPT, starter, "prompt.md", b"Be brief.\n", tmp_path)
+    assert lines == [
+        "Next: in agent.yaml, change prompt.ref from "
+        "prompt/hello-prompt@0.1.0 to prompt/hello-prompt@0.1.1 "
+        "(agent set-ref refuses: AGENT_INVALID)"
+    ]
+
+
+def test_edit_next_survives_a_recursion_error(monkeypatch):
+    from agentbreeder import setref
+    from agentbreeder.commands import registry as command
+
+    row = {
+        "agent": "hello",
+        "errors": [],
+        "declared": [{"file": "agent.yaml", "name": "hello", "at": "tools[0].ref"}],
+    }
+    monkeypatch.setattr(registry, "usage", lambda ref, project: row)
+
+    def deep(*args, **kwargs):
+        raise RecursionError
+
+    monkeypatch.setattr(setref, "set_ref", deep)
+    assert command._edit_next("tool/x@1.0.0", "tool/x@1.0.1", Path(".")) == [
+        "Next: in agent.yaml, change tools[0].ref from tool/x@1.0.0 to tool/x@1.0.1 "
+        "(agent set-ref refuses: AGENT_INVALID)"
+    ]
