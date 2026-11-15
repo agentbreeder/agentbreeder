@@ -204,7 +204,7 @@ function JobLog({ entry }) {
 export function SignedOut({ reason }) {
   return html`<main id="main" class="center-page">
     <h1 tabindex="-1">${reason === "ended" ? "Session ended" : "Sign in"}</h1>
-    <p>${reason === "ended" ? "This tab's session ended (8 hours, or 1 hour idle)." : reason === "used" ? "This link was already used or has expired." : "There is no session in this tab."}</p>
+    <p>${reason === "ended" ? "This tab's session ended: it was open 8 hours or idle 1 hour, or the console was restarted." : reason === "used" ? "This link was already used or has expired." : "There is no session in this tab."}</p>
     <p class="muted">In the terminal running <code>agentbreeder up</code>, press Enter for a new one-time link. It brings you back to this screen.</p>
   </main>`;
 }

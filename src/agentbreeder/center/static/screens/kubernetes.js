@@ -6,15 +6,18 @@
 // step instead of offering Deploy to cluster.
 //
 // `promote` reads the agent's ready local deployment, not the release history, so a release
-// whose deployment was removed cannot be promoted: the card says what runs locally (#880).
+// whose deployment was removed cannot be promoted: the card says what runs locally (#880). The
+// card asks the CLI which one that is (`next --json`'s release step runs promote's own lookup,
+// #902) instead of picking from `list` rows: another agent's or a candidate row never counts.
 
-import { isCandidate, isNorthwind, toolGuidance } from "../lib/format.js";
+import { isNorthwind, toolGuidance } from "../lib/format.js";
+import { promotable } from "../lib/guide.js";
 import { Action, Card, Notice, Text, ViewState, useConfirm, useConsole } from "../ui/components.js";
 import { useView } from "../ui/data.js";
 import { html, useState } from "../ui/preact.js";
 
 export function Kubernetes({ project }) {
-  const { jobs, busyReason, navigate } = useConsole();
+  const { jobs, busyReason, navigate, guide } = useConsole();
   const base = `/api/projects/${project.id}`;
   const [cluster] = useView(`${base}/cluster`, project.id);
   const [deployments] = useView(`${base}/deployments`, project.id);
@@ -23,7 +26,13 @@ export function Kubernetes({ project }) {
   const busy = busyReason(project.id);
   const info = cluster.data;
   const rows = Array.isArray(deployments.data) ? deployments.data : [];
-  const local = rows.find((row) => row.target === "local" && row.state === "ready" && !isCandidate(row));
+  // Only a current answer counts: while it is read again, or when the last read failed and the
+  // answer is a last known one, the release may have changed since (#902).
+  const ownGuide = guide && guide.project === project.id ? guide : null;
+  const guideReason = !ownGuide || ownGuide.loading
+    ? "Reading the local release…"
+    : (!ownGuide.data || ownGuide.stale || ownGuide.error) && "The local release could not be read just now: run agentbreeder next in a terminal, or come back to this window to check again.";
+  const local = guideReason ? null : promotable(ownGuide.data);
   const onCluster = rows.filter((row) => row.target === "kubernetes");
   const tools = info && info.tools ? Object.entries(info.tools) : [];
   const missing = tools.filter(([, tool]) => !tool.present);
@@ -50,6 +59,7 @@ export function Kubernetes({ project }) {
     || (!info && "Reading the cluster status…")
     || (!info.cluster && "Needs a connected cluster: connect the local cluster first.")
     || (grantPending && "The cluster is not in the stack's accepted grant yet: review the grant change on Services first.")
+    || (!local && guideReason)
     || (!local && "Needs a release running locally: run a release first. Only an image that passed the eval gate can be deployed to the cluster.");
 
   return html`
@@ -73,7 +83,7 @@ export function Kubernetes({ project }) {
         <//>`
       : null}
     <${Card} title="Deploy this release to the cluster">
-      <p>${local ? html`Running locally: <strong><${Text} value=${local.name} /></strong>.` : "No ready release is running locally."}</p>
+      <p>${local ? html`Running locally: <strong><${Text} value=${local.agent} /></strong>.` : guideReason || "No ready release is running locally."}</p>
       <p class="muted">Pushes the evaluated image, deploys it by digest through the same gate, then runs the eval set on the cluster.${isNorthwind(project) ? " For Northwind: about 4 minutes and about $0.24." : ""}</p>
       <${Action} disabled=${deployReason} onClick=${() => start("promote")}>Deploy to cluster<//>
       ${onCluster.length ? html`<p class="muted">On the cluster: <${Text} value=${onCluster.map((row) => `${row.name} (${row.state})`).join(", ")} />.</p>` : null}

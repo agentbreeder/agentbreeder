@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
-  STEP_ROUTES, actionFor, currentStep, linkHost, pillText, resultText, starterNameProblem, stateWord, tryRoute,
+  STEP_ROUTES, actionFor, currentStep, linkHost, pillText, promotable, resultText, starterNameProblem, stateWord, tryRoute,
 } from "../../src/agentbreeder/center/static/lib/guide.js";
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`../ui/fixtures/guide/${name}.json`, import.meta.url), "utf8").replaceAll("@PROJECT@", "/p"));
@@ -91,4 +91,16 @@ test("a LOCK_STALE build step builds and updates agent.lock (#826 follow-up)", (
   // A fix action named by the guide wins (a future `next` may name its own).
   assert.deepEqual(actionFor({ ...stale, fix: { action: "build" } }), { label: "Build", job: "build" });
   assert.equal(actionFor({ ...stale, fix: { action: "rm" } }), null);
+});
+
+test("promotable is the release step's ready production, named by the project's agent (#902)", () => {
+  assert.deepEqual(promotable(fixture("done")), { agent: "hello", id: "3f2a9c1d0b8e4a7f9c6d5e4f3a2b1c0d" });
+  assert.equal(promotable(fixture("services")), null); // no release, a removed one, or only a candidate
+  const notReady = fixture("done");
+  notReady.steps.find((step) => step.id === "release").data.production.state = "failed";
+  assert.equal(promotable(notReady), null);
+  const noAgent = fixture("done");
+  noAgent.steps.find((step) => step.id === "project").data.agent = null;
+  assert.equal(promotable(noAgent), null);
+  for (const value of [null, undefined, {}, { steps: "x" }, { steps: [{ id: "release", data: null }] }]) assert.equal(promotable(value), null);
 });
