@@ -50,6 +50,7 @@ from agentbreeder.center import (
     tryit,
 )
 from agentbreeder.center import evals as eval_reads
+from agentbreeder.center import traces as trace_lists
 from agentbreeder.center import usage as usage_feeds
 from agentbreeder.center.files import (
     BadRequest,
@@ -771,6 +772,34 @@ class Center:
         trace, problem = tryit.trace_answer(result["data"], trace_id)
         return envelope(trace, problem)
 
+    def deployment_traces(
+        self, project: dict, deployment_id: str, query: dict[str, list[str]]
+    ) -> dict:
+        """A deployment's recent traces, for an agent's Traces tab (#907): `traces ID ... --last N
+        --json` as an uncached, tracked read sharing the trace-read bound. Its answer is checked
+        by `traces.list_answer`: a summary per trace, no spans and no message content."""
+        last = trace_lists.list_request(query)
+        argv = trace_lists.list_argv(project, deployment_id, last)
+        if not self.traces.acquire(blocking=False):
+            raise BadRequest(
+                f"{MAX_TRACES_IN_FLIGHT} trace reads are already running; try again when one ends",
+                "TRACE_BUSY",
+            )
+        try:
+            result = self.runner.read(
+                argv,
+                timeout=trace_lists.TIMEOUT,
+                ok_codes=(0, 2),  # traces prints its JSON error object and exits 2
+                cache=False,
+                track=True,
+            )
+        finally:
+            self.traces.release()
+        if result["data"] is None:
+            return result
+        answer, problem = trace_lists.list_answer(result["data"], deployment_id)
+        return envelope(answer, problem)
+
     def tool_log(self, project: dict, query: dict[str, list[str]]) -> dict:
         """A tool's execution log (#828): `tool log REF ... --json` as an uncached, tracked read
         (a log is always fresh, and a failed read shows its own coded error, never older rows).
@@ -1374,6 +1403,12 @@ def _mcp_tools(request: Request) -> dict:
     return request.center.mcp_tools(request.project(), _query_ref(request, "ref"))
 
 
+def _deployment_traces(request: Request) -> dict:
+    return request.center.deployment_traces(
+        request.project(), request.match["deployment"], request.query
+    )
+
+
 def _service_action(request: Request) -> dict:
     return request.center.service_action(
         request.project(), request.match["service"], request.match["action"], request.body
@@ -1639,6 +1674,12 @@ ROUTES: tuple[Route, ...] = (
         rf"/api/follows/{FOLLOW_ID}/stop",
         _follow_stop,
         "/api/follows/" + "0" * 32 + "/stop",
+    ),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/deployments/{DEPLOYMENT}/traces",
+        _deployment_traces,
+        "/api/projects/0123456789ab/deployments/" + "0" * 32 + "/traces",
     ),
 )
 

@@ -648,7 +648,12 @@ route whose agent is not an agent name reads nothing either, rather than droppin
   `release` removes afterwards), the report file, and the report's notes.
 - **Cases**: failed first, then passed after a retry, then passed, each group in the report's
   order: case id and category, result, failed checks, correctness, the judge's reason, latency
-  and the trace id (with Copy; read it with `agentbreeder traces --trace ID`).
+  and the trace id (with Copy). A case whose trace id is 32 lowercase hex characters also has the
+  closed **Trace spans** disclosure of Try it (#907): opening it reads `traces --trace ID` through
+  the same route. `traces --trace` searches the Phoenix projects of every deployment in the state,
+  removed ones included, and a candidate shares its agent's project, so a case's trace is meant to
+  be found after `release` removes the candidate; that has not been run against a live Phoenix. A
+  missing id, or one outside that rule, shows "none" and no disclosure.
 - **Replies and explanations** are read only after "Show replies and explanations"
   (`--content`): each case then has a closed "Reply and explanation" disclosure. They are model
   output, redacted and capped by the CLI, and shown as text with controls made visible. If that
@@ -1094,6 +1099,41 @@ light and dark, and on the server against a fake CLI (argv, linking rows to proj
 listings, pairing release rows, rollbacks, the 1,000-row cut, `stack.yaml` errors that never echo
 values, a symlinked `stack.yaml`). Not yet run against real deployments; that is the M7
 verification.
+
+### Traces (#907, console half): on `main`, not in a published preview
+
+An agent's detail has a **Traces** tab after Logs. It lists one deployment's recent traces from
+the stack's Phoenix through `traces ID --stack DIR --environment ENV --last N --json` (a fixed
+argv, never cached; see [`traces.md`](traces.md)) and
+`GET /api/projects/ID/deployments/DEPLOYMENT_ID/traces?last=N`.
+
+- **Deployment**: one of this agent's deployments in the project, production when there is one,
+  and **Show** the newest 10, 20 (the default) or 50. The console allows at most 50, though the CLI
+  allows 200, because every trace in the answer carries its spans. A deployment ID outside 32
+  lowercase hex characters, or a count outside 1 to 50, never reaches the CLI (404 or
+  `LAST_INVALID`).
+- **Each trace**: its start (UTC), status, latency, models, prompt and output tokens, span count,
+  tool calls (name, error, latency) and trace ID with Copy. Its span tree opens under it in the
+  same **Trace spans** disclosure as Try it (`traces --trace ID`), read only when opened.
+- **What reaches the browser**: `center/traces.py` passes on only that summary, each value checked
+  for type and size. It passes on no spans, Phoenix address, project name, or session and turn IDs.
+  A trace the answer attributes to another deployment is left out and counted ("1 trace was left
+  out"). `traces` never reads prompts, replies, or tool arguments and results, and it redacts every
+  string as for `logs`. Everything is shown as text.
+- **Attribution**: when the runtime does not record its deployment (`window`), the tab says so,
+  and names how many other deployments of the agent overlapped. The CLI's notes (no Phoenix project
+  yet, never ran) and a partial answer are shown. A failed read shows the CLI's code, in words for
+  `TRACES_NO_PHOENIX` and `TRACES_UNREACHABLE`, and **Read again** reads it again.
+- List reads share Try it's bound of 4 trace reads at once (`TRACE_BUSY`).
+
+Tested with pytest (the argv, the `last` and ID rules, no caching, only the allow-listed fields,
+another deployment's trace dropped, coded failures, the CLI's own `Report` shape passing through,
+the shared bound). It is also tested with Playwright and the fake CLI: the list and its span tree,
+switching the deployment and the count, a failed read, no traces with a note, window attribution,
+untrusted strings shown as text, an eval case's trace, an eval case with no trace ID or an invalid
+one, and axe in light and dark. Not yet run against a live Phoenix: the #907 acceptance (a Try it
+turn on Northwind shows its tool calls, and an eval case's trace can be reached from the release
+report) is batched with the milestone checks.
 
 ### Docker-down blocker (#822, M6, first part): on `main`, not in a published preview
 

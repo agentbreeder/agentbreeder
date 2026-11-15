@@ -192,6 +192,7 @@ export const TABS = [
   ["try", "Try it"],
   ["releases", "Releases"],
   ["logs", "Logs"],
+  ["traces", "Traces"],
 ];
 
 /** A tab's hash: `#/agents/NAME` for Overview, `#/agents/NAME/KEY` for the rest. */

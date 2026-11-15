@@ -1,6 +1,6 @@
 // Agents (#823, M7): every agent across projects (`list --all --json`), and one agent's detail with
 // the gate strip (Build → Candidate → Evals n/N → Identity → Production), the identity strip and
-// the tabs Overview, Try it, Releases and Logs.
+// the tabs Overview, Try it, Releases, Logs and Traces (#907).
 //
 // The list reads every stack's state without registering anything: a stack whose project is not
 // registered here shows "not registered" and has no detail. A detail is per project: opening one
@@ -22,6 +22,7 @@ import { useView } from "../ui/data.js";
 import { GateFailed } from "./gate.js";
 import { html, useEffect, useState } from "../ui/preact.js";
 import { LogsLink } from "./logs.js";
+import { Traces } from "./traces.js";
 import { TryIt } from "./try.js";
 
 /**
@@ -246,6 +247,7 @@ function AgentDetail({ project, name, tab }) {
     ${tab === "try" ? html`<${TryIt} project=${project} params=${{ name }} />` : null}
     ${tab === "releases" ? html`<${Releases} name=${name} releases=${releases} />` : null}
     ${tab === "logs" ? html`<${Logs} name=${name} rows=${deployments.data} />` : null}
+    ${tab === "traces" ? html`<${Traces} project=${project} name=${name} rows=${deployments.data} />` : null}
   `;
 }
 

@@ -1,14 +1,17 @@
 // Governance ▸ Audit ▸ Eval run (#932): one saved eval report, read with `evals show RUN --json`
 // (docs/evals.md). The header is the summary `release` saved; the cases come failed first, with
-// their failed checks, the judge's reason and the trace id. Replies and the judge's full
+// their failed checks, the judge's reason and the trace id, whose span tree opens under it
+// (#907). Replies and the judge's full
 // explanations are read only when asked for (`--content`). Every string is the CLI's redacted,
 // capped text, shown through Text (controls made visible), never as markup.
 
 import { RUN_ID, allPassed, caseState, isAgentName, orderedCases, reportApi, scoreText } from "../lib/evals.js";
 import { href } from "../lib/router.js";
+import { tracePath } from "../lib/tryit.js";
 import { Action, Card, Table, Text, ViewState } from "../ui/components.js";
 import { useView } from "../ui/data.js";
 import { html, useState } from "../ui/preact.js";
+import { TracePanel } from "./try.js";
 
 const STATE_WORDS = { failed: "Failed", flaky: "Passed after a retry", passed: "Passed" };
 
@@ -47,7 +50,15 @@ function Content({ row }) {
   </details>`;
 }
 
-function CaseRow({ row, content }) {
+/** A case's trace id and its span tree (`traces --trace ID`), or "none" when the id is missing or
+ * outside the rule (32 lowercase hex characters). */
+function CaseTrace({ project, traceId }) {
+  const path = tracePath(project.id, traceId);
+  if (!path) return html`<span class="muted">none</span>`;
+  return html`<${Text} value=${traceId} copy label="trace id" /><${TracePanel} path=${path} />`;
+}
+
+function CaseRow({ project, row, content }) {
   const state = caseState(row);
   const failedChecks = Array.isArray(row.failed_checks) ? row.failed_checks.filter((name) => typeof name === "string") : [];
   return html`<tr>
@@ -57,7 +68,7 @@ function CaseRow({ row, content }) {
     <td class="nowrap">${number(row.correctness, 2)}</td>
     <td>${row.reason ? html`<${Text} value=${String(row.reason)} />` : html`<span class="muted">none</span>`}${content ? html`<${Content} row=${row} />` : null}</td>
     <td class="nowrap">${Number.isInteger(row.latency_ms) ? `${row.latency_ms} ms` : ""}</td>
-    <td>${typeof row.trace_id === "string" ? html`<${Text} value=${row.trace_id} copy label="trace id" />` : html`<span class="muted">none</span>`}</td>
+    <td><${CaseTrace} project=${project} traceId=${row.trace_id} /></td>
   </tr>`;
 }
 
@@ -106,10 +117,10 @@ function Report({ project, run, agent }) {
           </div>
           ${cases.length
             ? html`<${Table} label="Eval cases, failed first" columns=${["Case", "Result", "Failed checks", "Correctness", "Judge's reason", "Latency", "Trace"]}>
-                ${cases.map((row, index) => html`<${CaseRow} key=${index} row=${row} content=${shown} />`)}
+                ${cases.map((row, index) => html`<${CaseRow} key=${index} project=${project} row=${row} content=${shown} />`)}
               <//>`
             : html`<p class="muted">This report has no readable cases.</p>`}
-          <p class="muted small">Replies, reasons and explanations are model output, redacted and capped by the CLI. Read a trace with <code>agentbreeder traces --trace ID</code>.</p>
+          <p class="muted small">Replies, reasons and explanations are model output, redacted and capped by the CLI. A trace's spans are read from this stack's Phoenix when opened (<code>agentbreeder traces --trace ID</code>).</p>
         <//>`
       : null}
   `;
