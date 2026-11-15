@@ -128,7 +128,12 @@ agentbreeder services start|stop|restart [DIR] NAME [--yes] [--json]   # one con
   **grant**, and needs `--yes` (or an interactive yes) the first time and whenever the grant
   changes. It then imports and generates secrets, builds project services, starts everything with
   Docker Compose, waits for health, runs `init` and `bootstrap` steps, and writes the operator
-  config. Only services whose configuration changed are recreated.
+  config. Only services whose configuration changed are recreated. A service with an HTTP
+  health check gets 180 s; if its container is still running then (a cold start on a busy
+  engine), `up` says so and waits up to 240 s more. A container that exited fails at once
+  with `SERVICE_UNHEALTHY`. Started services are kept, and every `up` checks each service's
+  health again, so running it again with the same flags (`--yes` included) continues (on `main`,
+  not in a published preview).
 - **The grant** lists every service with its image (built-in or project), egress, which networks
   can reach it, its `127.0.0.1` ports, imported variable names, the wiring, what agents receive,
   the gateway's models and where each provider key goes, and the demo identities.

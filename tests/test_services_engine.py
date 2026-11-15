@@ -1258,3 +1258,73 @@ def test_up_records_the_project_path_in_stack_meta(env):
         assert state.get(PROJECT_KEY) == str(env.resolve())
     finally:
         state.close()
+
+
+class SlowStart(FakeDocker):
+    """#979: probes answer from `results` in turn; `state` is what `compose ps` reports."""
+
+    def __init__(self, results, state="running"):
+        super().__init__()
+        self.results = list(results)
+        self.state_after = state
+        self.timeouts = []
+
+    def probe(self, state, network, url, **kwargs):
+        if not self.results:  # later services are healthy
+            return True
+        self.timeouts.append(kwargs.get("timeout"))
+        return self.results.pop(0)
+
+    def containers(self, state):
+        found = super().containers(state)
+        for entry in found.values():
+            entry["state"] = self.state_after
+        return found
+
+
+def slow_up(project, docker):
+    messages = []
+    instance = Engine(project, docker=docker, allocate=iter(range(41000, 42000)).__next__)
+    instance.log = messages.append
+    try:
+        return instance.up("dev", confirm=lambda grant: True), messages
+    finally:
+        instance.close()
+
+
+def test_a_service_still_starting_gets_more_time(env):
+    docker = SlowStart([False, True])
+    _, messages = slow_up(env, docker)
+    assert docker.timeouts == [engine_module.PROBE_SECONDS, engine_module.PROBE_EXTRA_SECONDS]
+    assert any("still starting after 180 s; waiting up to 240 s more" in m for m in messages)
+
+
+def test_a_service_still_starting_past_the_extra_time_fails(env):
+    docker = SlowStart([False, False])
+    with pytest.raises(ServiceError, match="SERVICE_UNHEALTHY") as error:
+        slow_up(env, docker)
+    assert docker.timeouts == [engine_module.PROBE_SECONDS, engine_module.PROBE_EXTRA_SECONDS]
+    assert "run the same command again" in str(error.value)
+    assert "agentbreeder services logs echo" in str(error.value)
+
+
+@pytest.mark.parametrize("state", ["exited", "restarting", "created", ""])
+def test_a_service_that_is_not_running_fails_without_more_time(env, state):
+    docker = SlowStart([False], state=state)
+    with pytest.raises(ServiceError, match="SERVICE_UNHEALTHY"):
+        slow_up(env, docker)
+    assert docker.timeouts == [engine_module.PROBE_SECONDS]
+
+
+@pytest.mark.parametrize("failure", [ServiceError("DOCKER_FAILED", "x"), ValueError("bad json")])
+def test_an_unreadable_container_state_fails_without_more_time(env, failure):
+    class Unreadable(SlowStart):
+        def containers(self, state):
+            if self.timeouts:  # after the first probe: the before-snapshot still works
+                raise failure
+            return super().containers(state)
+
+    docker = Unreadable([False])
+    with pytest.raises(ServiceError, match="SERVICE_UNHEALTHY"):
+        slow_up(env, docker)
+    assert docker.timeouts == [engine_module.PROBE_SECONDS]
