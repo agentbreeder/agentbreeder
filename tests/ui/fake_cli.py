@@ -71,6 +71,11 @@ DEFAULT = {
     # it. Without an entry, `generated_lines` lines are made (every 100th an ERROR).
     "logs": {},
     "generated_lines": 5000,
+    # `... logs ... --follow --json` (M5 PR 2): the tail's generated lines, then one "live N" line
+    # every `every` seconds until stdin ends. {"end": "container"} ends by itself after `count`
+    # live lines; {"error": {code, message}} fails at once. Each argv is appended to
+    # `follow-argv.jsonl` in the fake directory, and a line to `follow-ended.txt` when stdin ends.
+    "follow": {},
     # `invoke NAME - --json` (Try it): the message is read from stdin. {"reply", "tools",
     # "sources", "trace_id", "seconds"} change the answer; {"error": {code, message, sent}} fails
     # it (exit 2, or 1 when sent). The reply defaults to an echo of the message. Every call's
@@ -505,9 +510,57 @@ def failed_tail(argv: list[str], data: dict) -> int:
     return 0
 
 
+def follow_logs(argv: list[str], data: dict) -> int:
+    """`services logs DIR NAME --follow --json` / `logs ID ... --follow --json`, as the CLI: NDJSON
+    lines, then the end record once stdin ends (the console's stop)."""
+    import threading
+
+    service = argv[:2] == ["services", "logs"]
+    with (Path(os.environ["AGENTBREEDER_FAKE_DIR"]) / "follow-argv.jsonl").open("a") as log:
+        log.write(json.dumps(argv) + "\n")
+    if service:
+        label = {"source": "service", "target": "local", "name": argv[3]}
+    else:
+        label = {"source": "agent", "target": "local", "name": "demo", "deployment": argv[1]}
+    plan = {"every": 0.3, "count": 5, **data["follow"]}
+    if "error" in plan:
+        problem = plan["error"]
+        print(json.dumps({"schema_version": 1, "error": problem}))
+        print(f"[{problem['code']}] {problem['message']}", file=sys.stderr)
+        return 2
+
+    def say(text: str, level: str | None) -> None:
+        print(json.dumps({"schema_version": 1, **label, "line": text, "level": level}), flush=True)
+
+    done = threading.Event()
+    threading.Thread(target=lambda: (sys.stdin.read(), done.set()), daemon=True).start()
+    tail = int(argv[argv.index("--tail") + 1])
+    try:
+        for n in range(1, min(tail, data["generated_lines"]) + 1):
+            say(f"2026-11-13T10:00:00Z INFO: request {n} handled", "info")
+        n = 0
+        while not done.wait(plan["every"]):
+            n += 1
+            word = "ERROR" if n % 3 == 0 else "INFO"
+            say(f"2026-11-13T10:00:01Z {word}: live {n}", word.lower())
+            if plan.get("end") and n >= plan["count"]:
+                break
+        reason = "container" if plan.get("end") and not done.is_set() else "stdin"
+        if reason == "stdin":  # the console closed stdin: a test sees the follow stopped
+            with (Path(os.environ["AGENTBREEDER_FAKE_DIR"]) / "follow-ended.txt").open("a") as f:
+                f.write("stdin\n")
+        end = {"schema_version": 1, "event": "end", "reason": reason, "dropped": False}
+        print(json.dumps(end), flush=True)
+    except BrokenPipeError:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), 1)
+    return 0
+
+
 def logs(argv: list[str], data: dict) -> int:
     if "--failed" in argv:
         return failed_tail(argv, data)
+    if "--follow" in argv:
+        return follow_logs(argv, data)
     service = argv[:2] == ["services", "logs"]
     name = argv[3] if service else argv[1]
     tail = int(argv[argv.index("--tail") + 1])

@@ -1,8 +1,13 @@
 """The log viewer (#821, M5 console half, PR 1): one snapshot of a service's or a deployment's
 logs through `services logs --json` / `logs ID --json` (the fake CLI makes the lines), filtered,
-searched, wrapped and copied in the browser. Follow arrives with the pumped children (PR 2)."""
+searched, wrapped and copied in the browser; and (PR 2) followed live, with Pause and Jump to
+latest, through one pumped `--follow --json` child per following tab."""
 
 from __future__ import annotations
+
+import json
+import re
+import time
 
 import pytest
 from playwright.sync_api import expect
@@ -264,3 +269,159 @@ def test_a_pod_reason_from_the_cluster_is_escaped(page, console):
     empty = page.locator(".log-empty")
     expect(empty).to_contain_text("Crash\\x1b[31mLoop")
     expect(empty.locator(".esc")).to_have_text("\\x1b")
+
+
+# -- follow (M5 PR 2) ---------------------------------------------------------------------------
+
+
+LIVE = re.compile(r"live [0-9]+")
+
+
+def follow_status(page):
+    return page.locator(".follow-status")
+
+
+def _follow_calls(console) -> list[list[str]]:
+    path = console.state / "follow-argv.jsonl"
+    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+
+def _until_at_bottom(page) -> None:
+    """The log box shows its newest line (scrolled to its end)."""
+    box = page.get_by_role("region", name="Log lines")
+    script = "box => box.scrollTop + box.clientHeight >= box.scrollHeight - 2"
+    deadline = time.monotonic() + 5
+    while not box.evaluate(script):
+        assert time.monotonic() < deadline, "the log box is not at its newest line"
+        page.wait_for_timeout(100)
+
+
+def _ended(console) -> int:
+    path = console.state / "follow-ended.txt"
+    return len(path.read_text().splitlines()) if path.exists() else 0
+
+
+def test_follow_shows_live_lines_and_stop_ends_the_child(page, console):
+    console.scenario(follow={"every": 0.2})
+    open_service(page, console)
+    read_again = page.get_by_role("button", name="Read again")
+    page.get_by_role("button", name="Follow", exact=True).click()
+    expect(follow_status(page)).to_have_text("Following: new lines appear as they are written.")
+    expect(lines(page).last).to_contain_text(LIVE)
+    _until_at_bottom(page)  # it stays at the newest line
+    expect(read_again).to_be_disabled()
+    expect(page.get_by_text("Stop following to read a snapshot.")).to_be_visible()
+    argv = _follow_calls(console)[0]
+    assert argv[:2] == ["services", "logs"] and argv[3] == "litellm"
+    assert argv[-4:] == ["--tail", "200", "--json", "--follow"]
+    page.get_by_role("button", name="Stop following").click()
+    expect(follow_status(page)).to_have_text("Follow stopped.")
+    assert _ended(console) == 1
+    expect(page.get_by_role("button", name="Follow again")).to_be_visible()
+    expect(page.locator(".log-notes")).to_contain_text("lines kept on this page")
+    # Read again goes back to a snapshot.
+    read_again.click()
+    expect(follow_status(page)).to_have_count(0)
+    expect(page.locator(".log-notes")).to_contain_text("200 lines read")
+
+
+def test_pause_holds_new_lines_until_jump_to_latest(page, console):
+    console.scenario(follow={"every": 0.15})
+    open_service(page, console)
+    page.get_by_role("button", name="Follow", exact=True).click()
+    expect(lines(page).last).to_contain_text(LIVE)
+    page.get_by_role("button", name="Pause").click()
+    expect(follow_status(page)).to_have_text(re.compile(r"^Paused: new lines wait"))
+    jump = page.get_by_role("button", name=re.compile(r"^Jump to latest \(\d+ new\)$"))
+    expect(jump).to_be_visible()
+    held = lines(page).last.inner_text()
+    page.wait_for_timeout(500)
+    assert lines(page).last.inner_text() == held  # nothing moves while paused
+    jump.click()
+    expect(follow_status(page)).to_have_text("Following: new lines appear as they are written.")
+    expect(lines(page).last).not_to_have_text(held)
+    _until_at_bottom(page)
+
+
+def test_scrolling_up_pauses_a_follow(page, console):
+    console.scenario(follow={"every": 0.2})
+    open_service(page, console)
+    page.get_by_role("button", name="Follow", exact=True).click()
+    expect(lines(page).last).to_contain_text(LIVE)
+    box = page.get_by_role("region", name="Log lines")
+    box.evaluate("box => { box.scrollTop = 0; box.dispatchEvent(new Event('scroll')); }")
+    expect(follow_status(page)).to_have_text(re.compile(r"^Paused"))
+    expect(lines(page).first).to_contain_text("request 1 handled")
+    page.get_by_role("button", name=re.compile(r"^Jump to latest")).click()
+    expect(lines(page).last).to_contain_text("live")
+    _until_at_bottom(page)
+
+
+def test_a_container_that_stops_ends_the_follow(page, console):
+    console.scenario(follow={"every": 0.1, "end": "container", "count": 2})
+    open_service(page, console)
+    page.get_by_role("button", name="Follow", exact=True).click()
+    expect(follow_status(page)).to_have_text("Follow ended: the container stopped or was removed.")
+    expect(lines(page).last).to_contain_text("live 2")
+    page.get_by_role("button", name="Follow again").click()
+    expect(lines(page).last).to_contain_text(LIVE)
+    assert len(_follow_calls(console)) == 2
+
+
+def test_a_failed_follow_shows_its_coded_error(page, console):
+    problem = {"code": "DOCKER_LOGS_FAILED", "message": "compose could not read the logs"}
+    console.scenario(follow={"error": problem})
+    open_service(page, console)
+    page.get_by_role("button", name="Follow", exact=True).click()
+    expect(follow_status(page)).to_have_text(
+        "Follow failed: compose could not read the logs (DOCKER_LOGS_FAILED)"
+    )
+    # The snapshot's lines stay readable: the follow shows none of its own.
+    expect(page.get_by_role("button", name="Follow again")).to_be_visible()
+
+
+def test_leaving_the_page_stops_the_follow(page, console):
+    console.scenario(follow={"every": 0.2})
+    open_service(page, console)
+    page.get_by_role("button", name="Follow", exact=True).click()
+    expect(lines(page).last).to_contain_text(LIVE)
+    page.get_by_role("link", name="Home").first.click()
+    deadline = time.monotonic() + 10
+    while _ended(console) < 1 and time.monotonic() < deadline:
+        page.wait_for_timeout(100)
+    assert _ended(console) == 1
+
+
+def test_a_deployment_follow_passes_its_stack(page, console):
+    console.scenario(deployments=ROWS, follow={"every": 0.2})
+    sign_in(page, console)
+    page.goto(f"{console.origin}/#/logs/deployment/{LOCAL}")
+    expect(lines(page).first).to_contain_text("request 1 handled")
+    page.get_by_role("button", name="Follow", exact=True).click()
+    expect(lines(page).last).to_contain_text(LIVE)
+    argv = _follow_calls(console)[0]
+    assert argv[:2] == ["logs", LOCAL] and "--stack" in argv and "--environment" in argv
+    assert "--previous" not in argv
+
+
+def test_a_previous_container_cannot_be_followed(page, console):
+    console.scenario(deployments=ROWS)
+    sign_in(page, console)
+    page.goto(f"{console.origin}/#/logs/deployment/{CLUSTER}")
+    page.get_by_label("Previous container (after a restart)").check()
+    page.get_by_role("button", name="Read again").click()
+    expect(page.locator(".log-notes")).to_contain_text("From the previous container")
+    expect(page.get_by_role("button", name="Follow", exact=True)).to_be_disabled()
+    expect(page.get_by_text("A previous container writes no new lines.")).to_be_visible()
+
+
+def test_a_followed_log_has_no_serious_axe_findings(scheme_page, console):  # noqa: F811
+    console.scenario(follow={"every": 0.2})
+    open_service(scheme_page, console)
+    scheme_page.get_by_role("button", name="Follow", exact=True).click()
+    expect(lines(scheme_page).last).to_contain_text(LIVE)
+    found = blocking(scheme_page, "logs, following")
+    scheme_page.get_by_role("button", name="Pause").click()
+    expect(scheme_page.get_by_role("button", name=re.compile(r"^Jump to latest"))).to_be_visible()
+    found += blocking(scheme_page, "logs, paused")
+    assert found == []

@@ -1,9 +1,13 @@
 // Logs (#821, M5): one snapshot of a stack service's or a deployment's logs, read by `services logs
 // --json` or `logs ID --json` (redacted by the CLI, controls escaped). The lines are filtered,
-// searched, wrapped and copied here; nothing is stored. Follow comes with the pumped children
-// (M5 PR2).
+// searched, wrapped and copied here; nothing is stored. Follow (M5 PR 2) starts one pumped child
+// on the server (`--follow --json`) and reads its new lines every second; Pause holds them back
+// (as does scrolling up) until Jump to latest.
 
-import { emptyReason, LEVEL_CHOICES, linePieces, logNotes, logsPath, searchHits, searchStatus, shownRows, SINCE, stepHit, TAILS, windowOf } from "../lib/logs.js";
+import {
+  emptyReason, FOLLOW_EVERY, followBody, followHeld, followInitial, followMerge, followNotes, followPath, followReadPath, followShown, followStatus,
+  LEVEL_CHOICES, linePieces, logNotes, logsPath, searchHits, searchStatus, shownRows, SINCE, stepHit, TAILS, windowOf,
+} from "../lib/logs.js";
 import { href } from "../lib/router.js";
 import { visible } from "../lib/text.js";
 import { Action, Card, CopyButton, nextId, Notice, Text, useConsole } from "../ui/components.js";
@@ -85,6 +89,91 @@ function useLogs(path) {
   return [state, () => setTick((n) => n + 1)];
 }
 
+/**
+ * One follow at a time for the reader: `start(options)` replaces any running one, `stop()` asks the
+ * server to end it (its last lines still arrive), `clear()` forgets it. Leaving the page stops it.
+ * Returns {state, asked, start, stop, clear, pause, resume}; `state` is null when not following.
+ */
+function useFollow(project, source) {
+  const { client } = useConsole();
+  const [state, setState] = useState(null);
+  const [asked, setAsked] = useState(false);
+  const run = useRef(null); // {live, id, after, timer, running}
+  const sendStop = (id) => client.request(`/api/follows/${id}/stop`, { body: {} }).catch(() => {});
+  const end = () => {
+    const current = run.current;
+    run.current = null;
+    if (!current) return;
+    current.live = false;
+    clearTimeout(current.timer);
+    if (current.id && current.running) sendStop(current.id);
+  };
+  useEffect(() => end, []);
+  const poll = async (current) => {
+    let reply;
+    try {
+      reply = await client.request(followReadPath(current.id, current.after));
+    } catch (error) {
+      if (!current.live || error.kind === "session") return;
+      if (error.status !== 404) sendStop(current.id); // polling ends here: end the child now
+      // 404: the server forgot it (a minute after it ended unread, e.g. in a background tab).
+      reply = error.status === 404
+        ? { data: { running: false, gone: true, lines: [], next: current.after }, error: null }
+        : { data: null, error: { code: error.code, message: error.message } };
+    }
+    if (!current.live) return;
+    const data = reply.data;
+    if (data && Number.isSafeInteger(data.next) && data.next > current.after) current.after = data.next;
+    setState((previous) => previous && followMerge(previous, reply));
+    if (data && (data.running || data.more)) {
+      current.timer = setTimeout(() => poll(current), data.more ? 0 : FOLLOW_EVERY);
+    } else {
+      current.running = false;
+    }
+  };
+  const start = async (options) => {
+    end();
+    const current = { live: true, id: null, after: 0, timer: null, running: true, stopAsked: false };
+    run.current = current;
+    setAsked(false);
+    setState(followInitial());
+    let reply;
+    try {
+      reply = await client.request(followPath(project.id, source), { body: followBody(options) });
+    } catch (error) {
+      if (!current.live || error.kind === "session") return;
+      reply = { data: null, error: { code: error.code, message: error.message } };
+    }
+    const id = reply.data && reply.data.id;
+    if (!current.live) {
+      if (id) sendStop(id);
+      return;
+    }
+    if (id && current.stopAsked) sendStop(id); // Stop following came while it started
+    if (!id) {
+      current.running = false;
+      setState({ ...followInitial(), running: false, error: reply.error || { code: "UNREADABLE", message: "Unreadable response" } });
+      return;
+    }
+    current.id = id;
+    poll(current);
+  };
+  const stop = () => {
+    const current = run.current;
+    if (!current || !current.running || current.stopAsked) return;
+    current.stopAsked = true;
+    setAsked(true);
+    if (current.id) sendStop(current.id); // else `start` sends it once the ID arrives
+  };
+  const clear = () => {
+    end();
+    setState(null);
+  };
+  const pause = () => setState((previous) => previous && previous.pausedAt === null ? { ...previous, pausedAt: previous.rows.length ? previous.rows[previous.rows.length - 1].seq : previous.after } : previous);
+  const resume = () => setState((previous) => previous && { ...previous, pausedAt: null });
+  return { state, asked, start, stop, clear, pause, resume };
+}
+
 function Reader({ project, source, kubernetes }) {
   // The read's options are a small form: applied with Read, so typing never starts a read.
   const [form, setForm] = useState({ tail: 200, since: "", previous: false });
@@ -97,26 +186,39 @@ function Reader({ project, source, kubernetes }) {
   // The chosen match is kept with the hits it was chosen from, so a new filter or search drops it
   // in the same render; `jump` scrolls to it on every Next or Previous, even with one match.
   const [pick, setPick] = useState({ hits: null, at: -1, jump: 0 });
+  const follow = useFollow(project, source);
+  const followed = follow.state;
+  const following = Boolean(followed && followed.running);
   const data = read.data;
-  const lines = (data && data.lines) || [];
-  const levels = (data && data.levels) || [];
-  const shown = useMemo(() => shownRows(lines, levels, { level: data && data.format ? level || null : null, filter }), [data, level, filter]);
+  // Following, the rows are the follow's (numbered by their place in the stream); else the read's.
+  const followRows = useMemo(() => (followed ? followShown(followed) : null), [followed]);
+  const lines = followRows ? followRows.map((row) => row.line) : (data && data.lines) || [];
+  const levels = followRows ? followRows.map((row) => row.level) : (data && data.levels) || [];
+  const shown = useMemo(() => {
+    const rows = shownRows(lines, levels, { level: data && data.format ? level || null : null, filter });
+    return followRows ? rows.map((row) => ({ ...row, number: followRows[row.index].seq })) : rows;
+  }, [data, followRows, level, filter]);
   const hits = useMemo(() => searchHits(shown, query), [shown, query]);
   const hit = pick.hits === hits ? pick.at : -1;
   const sinceBad = Boolean(form.since) && !SINCE.test(form.since);
   const sinceWhy = useRef(nextId("why")).current;
   const apply = (event) => {
     event.preventDefault();
-    if (sinceBad || read.loading) return; // the button stays the same element, so focus stays
+    if (sinceBad || read.loading || following) return; // the button stays the same element, so focus stays
+    follow.clear();
     const next = { ...form, previous: kubernetes && form.previous };
     if (JSON.stringify(next) === JSON.stringify(applied)) again();
     else setApplied(next);
   };
   const empty = emptyReason(read.error, data);
   const failed = read.error && !empty;
-  const levelOff = !data ? "Read the logs first." : !data.format ? "This log's format is not known, so its lines have no level." : false;
+  const levelOff = !data ? (followed ? "Read the logs once (Read again) to learn this log's format." : "Read the logs first.") : !data.format ? "This log's format is not known, so its lines have no level." : false;
   const go = (backwards) => setPick((previous) => ({ hits, at: stepHit(hits, hit, backwards), jump: previous.jump + 1 }));
   const name = source.kind === "service" ? source.name : `deployment ${source.name.slice(0, 8)}`;
+  const held = followed ? followHeld(followed) : 0;
+  const have = Boolean(data || followed);
+  const paused = Boolean(followed && followed.pausedAt !== null);
+  const followOff = !data && !read.error ? "Read the logs first." : applied.previous ? "A previous container writes no new lines." : sinceBad ? "Fix Since first." : false;
   return html`
     <${Card} title=${`Logs: ${name}`} busy=${read.loading}>
       <form class="row log-options" onSubmit=${apply}>
@@ -134,10 +236,16 @@ function Reader({ project, source, kubernetes }) {
           ${sinceBad ? html`<span class="reason" id=${sinceWhy}>Since must look like 10m, 2h or 2026-11-11T09:00:00Z.</span>` : null}
         </div>
         ${kubernetes ? html`<label class="check"><input type="checkbox" checked=${form.previous} onChange=${(e) => setForm({ ...form, previous: e.currentTarget.checked })} /> Previous container (after a restart)</label>` : null}
-        <${Action} type="submit" tone="secondary" disabled=${sinceBad ? "Fix Since first." : false}>${read.loading ? "Reading…" : data || read.error ? "Read again" : "Read"}<//>
+        <${Action} type="submit" tone="secondary" disabled=${following ? "Stop following to read a snapshot." : sinceBad ? "Fix Since first." : false}>${read.loading ? "Reading…" : data || read.error ? "Read again" : "Read"}<//>
+        ${following
+          ? html`<${Action} tone="secondary" onClick=${follow.stop}>Stop following<//>
+              ${paused ? null : html`<${Action} tone="ghost" onClick=${follow.pause}>Pause<//>`}`
+          : html`<${Action} tone="secondary" disabled=${followOff} onClick=${() => follow.start(applied)}>${followed ? "Follow again" : "Follow"}<//>`}
+        ${paused || held ? html`<${Action} tone="ghost" onClick=${follow.resume}>Jump to latest${held ? ` (${held} new)` : ""}<//>` : null}
       </form>
+      ${followed ? html`<p class="follow-status" role="status"><${Text} value=${followStatus(followed, { asked: follow.asked })} /></p>` : null}
       ${failed ? html`<${Notice} notice=${{ tone: "error", text: `${read.error.message || "Could not read the logs."}${read.error.code ? ` (${read.error.code})` : ""}` }} />` : null}
-      ${data
+      ${have
         ? html`<div class="row log-tools" role="group" aria-label="Show lines">
             <label class="field">
               <span>Filter</span>
@@ -157,11 +265,12 @@ function Reader({ project, source, kubernetes }) {
             <${CopyButton} value=${shown.map((row) => row.text).join("\n")} label=${`the ${shown.length} shown lines`} />
           </div>`
         : null}
-      <div role="status" class="log-status">${empty ? html`<p class="log-empty"><${EmptyText} empty=${empty} /></p>` : null}</div>
-      ${data && shown.length !== lines.length && shown.length ? html`<p class="muted small">Showing ${shown.length} of ${lines.length} lines.</p>` : null}
-      ${data && shown.length ? html`<${LogLines} rows=${shown} wrap=${wrap} query=${query} current=${hit >= 0 ? hits[hit] : -1} jump=${pick.jump} />` : null}
-      ${data && lines.length && !shown.length ? html`<p class="muted">No line matches the filter.</p>` : null}
-      ${data ? html`<ul class="log-notes muted small">${logNotes(data, { tail: applied.tail }).map((note) => html`<li>${note}</li>`)}</ul>` : null}
+      <div role="status" class="log-status">${empty && !followed ? html`<p class="log-empty"><${EmptyText} empty=${empty} /></p>` : null}</div>
+      ${followed && !followed.rows.length && following ? html`<p class="muted">Waiting for lines…</p>` : null}
+      ${have && shown.length !== lines.length && shown.length ? html`<p class="muted small">Showing ${shown.length} of ${lines.length} lines.</p>` : null}
+      ${have && shown.length ? html`<${LogLines} rows=${shown} wrap=${wrap} query=${query} current=${hit >= 0 ? hits[hit] : -1} jump=${pick.jump} stick=${Boolean(followed) && !paused} onAway=${follow.pause} />` : null}
+      ${have && lines.length && !shown.length ? html`<p class="muted">No line matches the filter.</p>` : null}
+      ${followed ? html`<ul class="log-notes muted small">${followNotes(followed).map((note) => html`<li>${note}</li>`)}</ul>` : data ? html`<ul class="log-notes muted small">${logNotes(data, { tail: applied.tail }).map((note) => html`<li>${note}</li>`)}</ul>` : null}
     <//>
   `;
 }
@@ -189,11 +298,20 @@ function LevelPick({ level, setLevel, off }) {
  * the page: 10,000 lines stay as fast as 200. Wrapped rows vary in height, so all are in the page
  * and the browser skips laying out the ones out of view (`content-visibility: auto`).
  */
-function LogLines({ rows, wrap, query, current, jump }) {
+function LogLines({ rows, wrap, query, current, jump, stick = false, onAway }) {
   const box = useRef(null);
   const [view, setView] = useState({ top: 0, height: 480 });
-  const onScroll = () => box.current && setView({ top: box.current.scrollTop, height: box.current.clientHeight });
-  useLayoutEffect(onScroll, [rows, wrap]);
+  const onScroll = () => {
+    const el = box.current;
+    if (!el) return;
+    // Following, a scroll up from the bottom pauses (so the lines being read stay put).
+    if (stick && onAway && el.scrollTop + el.clientHeight < el.scrollHeight - 2 * ROW) onAway();
+    setView({ top: el.scrollTop, height: el.clientHeight });
+  };
+  useLayoutEffect(() => {
+    if (stick && box.current) box.current.scrollTop = box.current.scrollHeight;
+    if (box.current) setView({ top: box.current.scrollTop, height: box.current.clientHeight });
+  }, [rows, wrap, stick]);
   useLayoutEffect(() => {
     if (current < 0 || !box.current) return;
     if (wrap) {
@@ -208,8 +326,9 @@ function LogLines({ rows, wrap, query, current, jump }) {
     ${wrap ? null : html`<div class="spacer" style=${{ height: `${first * ROW}px` }}></div>`}
     ${rows.slice(first, last).map((row, offset) => {
       const position = first + offset;
-      return html`<div key=${row.index} data-pos=${position} class=${`logline${row.level ? ` level-${row.level}` : ""}${position === current ? " current" : ""}`}>
-        <span class="ln" aria-hidden="true">${row.index + 1}</span><span class="lt">${linePieces(row.line, query).map((piece) => {
+      const number = row.number ?? row.index + 1;
+      return html`<div key=${number} data-pos=${position} class=${`logline${row.level ? ` level-${row.level}` : ""}${position === current ? " current" : ""}`}>
+        <span class="ln" aria-hidden="true">${number}</span><span class="lt">${linePieces(row.line, query).map((piece) => {
           const text = piece.escaped ? html`<span class="esc" title="A control or invisible character, shown escaped">${piece.text}</span>` : piece.text;
           return piece.hit ? html`<mark>${text}</mark>` : text;
         })}</span>
