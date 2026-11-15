@@ -101,6 +101,15 @@ deployment removed and its key revoked. `cost` matched LiteLLM's own key spend a
 spend log rows for each deployment, counted the removed one, and never printed the master key.
 No real provider call has been costed yet.
 
+## In the console
+
+The console (`agentbreeder up`) runs `cost --stack DIR --environment ENV --since DAY --until DAY
+--json` for a project's **LLM cost** card on Home and for an agent's Overview (its own deployment
+keys, removed ones included). It shows the currency, the window and the time it was read, and
+labels the amounts as LiteLLM spend, not a bill. See
+[`command-center.md`](command-center.md#llm-cost-906-console-half-on-main-not-in-a-published-preview)
+(on `main`, not in a published preview; tested with a scripted `cost`, not against a live gateway).
+
 ## Per-turn cost (`runtime/adk@1.2.0`)
 
 Spend logs arrive about a minute late, so a turn's cost comes from the runtime: LiteLLM returns

@@ -49,6 +49,7 @@ from agentbreeder.center import (
     toollog,
     tryit,
 )
+from agentbreeder.center import cost as cost_reads
 from agentbreeder.center import evals as eval_reads
 from agentbreeder.center import traces as trace_lists
 from agentbreeder.center import usage as usage_feeds
@@ -148,6 +149,7 @@ MAX_TOOL_LOGS_IN_FLIGHT = 4  # tool execution log reads (#828), each a `tool log
 DOCKER_REUSE = 3.0  # seconds one Docker check answers every tab (M6 #822)
 DOCKER_TIMEOUT = 15  # `doctor --only docker`: one engine check with its own 10 s timeout
 MAX_KNOWLEDGE_IN_FLIGHT = 4  # knowledge status reads (#830), each a `knowledge status` child
+MAX_COST_IN_FLIGHT = 2  # LLM cost reads (#906), each a `cost` child of up to 120 s
 AUDIT_PAGE = 50  # rows per Audit page; one more is read to know whether an older page exists
 AUDIT_BEFORE = re.compile(r"[1-9][0-9]{0,17}")  # `audit list --before SEQ`
 AGENT = r"(?P<agent>[a-z0-9][a-z0-9-]{0,52})"
@@ -201,6 +203,7 @@ class Center:
         self.docker_lock = threading.Lock()
         self.docker_seen: tuple[float, dict] | None = None
         self.knowledge_reads = threading.BoundedSemaphore(MAX_KNOWLEDGE_IN_FLIGHT)
+        self.cost_reads = threading.BoundedSemaphore(MAX_COST_IN_FLIGHT)
         self.usage = usage_feeds.Usage(self.runner)  # one `services usage --follow` per project
         self.log_follows = logfollow.LogFollows(self.runner)  # M5: a tab's `logs --follow`
 
@@ -854,6 +857,31 @@ class Center:
         status, problem = knowledgestatus.status_answer(result["data"], request)
         return envelope(status, problem)
 
+    def llm_cost(self, project: dict, query: dict[str, list[str]]) -> dict:
+        """The project's LLM cost (#906): `cost --stack DIR ... --json` as an uncached, tracked
+        read (spend is always read fresh, and a failed read shows its own coded error, never older
+        numbers). The answer is checked by `cost.cost_answer`, which adds when it was read."""
+        request = cost_reads.cost_request(query)
+        if not self.cost_reads.acquire(blocking=False):
+            raise BadRequest(
+                f"{MAX_COST_IN_FLIGHT} cost reads are already running; try again when one ends",
+                "COST_BUSY",
+            )
+        try:
+            result = self.runner.read(
+                cost_reads.cost_argv(project, request),
+                timeout=cost_reads.TIMEOUT,
+                ok_codes=(0, 2),  # `cost` prints its JSON error object and exits 2
+                cache=False,
+                track=True,
+            )
+        finally:
+            self.cost_reads.release()
+        if result["data"] is None:
+            return result
+        cost, problem = cost_reads.cost_answer(result["data"], request)
+        return envelope(cost, problem)
+
     def plan(self, project: dict) -> dict:
         result = self.runner.read(
             [
@@ -1375,6 +1403,10 @@ def _knowledge_status(request: Request) -> dict:
     return request.center.knowledge_status(request.project(), request.query)
 
 
+def _llm_cost(request: Request) -> dict:
+    return request.center.llm_cost(request.project(), request.query)
+
+
 def _agents(request: Request) -> dict:
     return request.center.agents()
 
@@ -1680,6 +1712,13 @@ ROUTES: tuple[Route, ...] = (
         rf"/api/projects/{PROJECT_ID}/deployments/{DEPLOYMENT}/traces",
         _deployment_traces,
         "/api/projects/0123456789ab/deployments/" + "0" * 32 + "/traces",
+    ),
+    # A dash, so the generic view route (`[a-z]+`) never matches it (#906).
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/llm-cost",
+        _llm_cost,
+        "/api/projects/0123456789ab/llm-cost",
     ),
 )
 

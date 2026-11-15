@@ -63,6 +63,8 @@ ALLOWED = {
     # Knowledge index status (#830): pure query and answer checks; imports only registry and
     # center.files.
     "agentbreeder.center.knowledgestatus",
+    # LLM cost (#906): pure query and answer checks; imports only center.files.
+    "agentbreeder.center.cost",
     # Usage feeds (#822): the follow child's answer checks and the in-memory ring; imports only
     # center.jobs.
     "agentbreeder.center.usage",

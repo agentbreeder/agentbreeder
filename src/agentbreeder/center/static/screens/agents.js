@@ -19,6 +19,7 @@ import { visible } from "../lib/text.js";
 import { productionRow } from "../lib/tryit.js";
 import { Card, Table, Text, ViewState, useConsole } from "../ui/components.js";
 import { useView } from "../ui/data.js";
+import { AgentCost } from "./cost.js";
 import { GateFailed } from "./gate.js";
 import { html, useEffect, useState } from "../ui/preact.js";
 import { LogsLink } from "./logs.js";
@@ -183,6 +184,7 @@ function Overview({ project, name, agent, production, candidate, failedRun }) {
           </dl>`
         : html`<${ViewState} view=${agent} />`}
     <//>
+    <${AgentCost} project=${project} name=${name} />
   `;
 }
 
