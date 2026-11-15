@@ -470,3 +470,97 @@ def valid_probe(server: str, output: str, declared) -> dict:
 
 def lock_tools(lock: Lock, server: str) -> dict[str, str]:
     return dict((lock.mcp.get(server) or {}).get("tools") or {})
+
+
+# -- repin review (#964) ------------------------------------------------------------------------
+
+REVIEW_VERSION = 1
+
+
+def canonical(value) -> bytes:
+    """The encoding `tool_hash` uses: sorted keys, no spaces, UTF-8, no NaN or Infinity."""
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
+
+
+@dataclass
+class PinsReview:
+    document: dict  # what the digest covers, exactly (spec §3)
+    details: dict  # per server: new, changed (with previous), missing, drop, same (display)
+    need_up: list[str]  # servers with no pins but tools to pin: a plain `up` pins them first
+
+
+def pins_review(
+    stack_id: str,
+    entries: dict[str, McpEntry],
+    lock: Lock,
+    probes: dict[str, dict],
+    previous: dict[str, dict] | None = None,
+) -> PinsReview:
+    """The repin review for every `mcp:` entry. `probes` are `valid_probe` results taken with
+    each entry's declared tools; `previous` holds each relay's current pins file (display
+    only: a previous definition is kept only where it hashes to the pinned hash)."""
+    servers: dict[str, dict] = {}
+    details: dict[str, dict] = {}
+    need_up = []
+    for server, entry in sorted(entries.items()):
+        pinned = lock_tools(lock, server)
+        report = compare(pinned, probes[server])
+        old_pins = (previous or {}).get(server) or {}
+        changed = {}
+        for name, item in report["changed"].items():
+            old = old_pins.get(name)
+            kept = None
+            if (
+                isinstance(old, dict)
+                and old.get("sha256") == pinned[name]
+                and isinstance(old.get("definition"), dict)
+                and tool_hash(old["definition"]) == pinned[name]
+            ):
+                kept = old["definition"]
+            changed[name] = {
+                "pinned": pinned[name],
+                "sha256": item["sha256"],
+                "definition": item["definition"],
+                "previous": kept,
+            }
+        new = {
+            name: {"sha256": item["sha256"], "definition": item["definition"]}
+            for name, item in report["new"].items()
+        }
+        accept = {name: item["sha256"] for name, item in (new | changed).items()}
+        drop = sorted(n for n in report["missing"] if n in pinned and n not in accept)
+        servers[server] = {
+            "identity": entry.identity(),
+            "pinned": pinned,
+            "accept": accept,
+            "drop": drop,
+        }
+        details[server] = {
+            "origin": entry.origin,
+            "state": "drift" if changed or drop else "ok",
+            "new": new,
+            "changed": changed,
+            "missing": report["missing"],
+            "drop": drop,
+            "same": report["same"],
+        }
+        if not pinned and accept:
+            need_up.append(server)
+    document = {"v": REVIEW_VERSION, "stack": stack_id, "servers": servers}
+    return PinsReview(document, details, need_up)
+
+
+def pins_review_digest(document: dict) -> str:
+    """The only producer of the `--expect-pins` digest: sha256 hex of the canonical review."""
+    return hashlib.sha256(canonical(document)).hexdigest()
+
+
+def need_up_error(servers: list[str]):
+    return ServiceError(
+        "MCP_PINS_NEED_UP",
+        f"{', '.join(f'mcp.{s}' for s in servers)} has no tool pins yet (first pins or a "
+        "changed version, origin or upstream); run `agentbreeder services up` without --repin "
+        "first, then review again",
+    )

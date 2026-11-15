@@ -280,8 +280,13 @@ class Engine:
         repin: bool = False,
         allow_project_mcp: frozenset[str] = frozenset(),
         expect_grant: str | None = None,
+        expect_pins: str | None = None,
     ) -> dict:
         self.state.env_dir(environment)  # validates the name before anything runs
+        if expect_pins is not None and (not repin or mode == "locked"):
+            raise ServiceError(
+                "PINS_EXPECT_NEEDS_REPIN", "--expect-pins needs --repin (and --locked never pins)"
+            )
         plan = self.plan(mode)
         unknown = sorted(set(allow_project_mcp) - set(plan.locked.mcp))
         if unknown:
@@ -333,7 +338,11 @@ class Engine:
         self.state.prune_mounts(mounts)
         self.state.put("grant", digest)
         self._attach_cluster(plan)
-        mcp = self._pin(plan, mode, repin, confirm_pins, allow_project_mcp)
+        repinned = None
+        if expect_pins is not None:
+            mcp, repinned = self._repin_expected(plan, expect_pins)
+        else:
+            mcp = self._pin(plan, mode, repin, confirm_pins, allow_project_mcp)
         config = operator_writer.write(plan, self.state, environment)
         after = self.docker.containers(self.state)
         actions = {}
@@ -356,6 +365,7 @@ class Engine:
             "lock_changed": plan.locked.changed,
             "mcp": mcp,
             "removed": removed,
+            **(repinned or {}),
         }
 
     def _grant(self, plan: Plan, environment: str) -> dict:
@@ -603,6 +613,90 @@ class Engine:
                 "missing": report["missing"],
             }
         return reports
+
+    def _review(self, plan: Plan, *, create: bool, need_up_on_failure: bool = False):
+        """Probe every relay (declared tools only, as `_pin`) and build the repin review. Any
+        probe failure raises: a partial review has no digest."""
+        lock = self._lock_state[0]
+        probes, previous = {}, {}
+        for server, entry in sorted(plan.locked.mcp.items()):
+            try:
+                probes[server] = self._probe(entry, set(entry.spec.tools), create)
+            except ServiceError:
+                if need_up_on_failure and not mcp_stack.lock_tools(lock, server):
+                    raise mcp_stack.need_up_error([server]) from None
+                raise
+            pins = self.state.directory / "pins" / server / "pins.json"
+            previous[server] = mcp_stack.read_pins(pins)
+        return mcp_stack.pins_review(
+            self.state.id, plan.locked.mcp, lock, probes, previous
+        ), probes
+
+    def pins(self) -> dict:
+        """`services pins`: the repin review and its digest (spec #964 §4). Changes no pin, the
+        lock file, a secret, the admin token, the ports table or a container; `plan()` may copy
+        content-addressed files into the state dir (the caller holds the write lock)."""
+        self.docker.authorize()
+        containers = self.docker.containers(self.state)
+        for server in sorted(self.stack.mcp):
+            relay = mcp_stack.relay_name(server)
+            if (containers.get(relay) or {}).get("state") != "running":
+                raise ServiceError(
+                    "MCP_RELAY_NOT_RUNNING",
+                    f"{relay} isn't running; run `agentbreeder services up` first",
+                )
+        plan = self.plan("plain")  # a pending lock change stays in memory: nothing is saved
+        review, _ = self._review(plan, create=False, need_up_on_failure=True)
+        if review.need_up:
+            raise mcp_stack.need_up_error(review.need_up)
+        return {
+            "stack": self.state.id,
+            "digest": mcp_stack.pins_review_digest(review.document),
+            "review": review.document,
+            "servers": review.details,
+        }
+
+    def _repin_expected(self, plan: Plan, expect_pins: str) -> tuple[dict, dict]:
+        """Phase 2 with `--expect-pins` (spec #964 §5): probe all, check the digest of what
+        these probes would pin, save stack.lock once, then write every pins file. Nothing is
+        pinned unless the whole live review matches the reviewed digest."""
+        lock, lock_path = self._lock_state
+        review, probes = self._review(plan, create=True)
+        if review.need_up:
+            raise mcp_stack.need_up_error(review.need_up)
+        digest = mcp_stack.pins_review_digest(review.document)
+        if digest != expect_pins:
+            raise ServiceError(
+                "PINS_CHANGED",
+                "the MCP tool definitions or pins differ from the ones reviewed; nothing was "
+                "pinned. The rest of `up` ran (grant recorded, services started); review them "
+                "again with `agentbreeder services pins`",
+            )
+        repinned, pinned_after = {}, {}
+        for server, item in review.document["servers"].items():
+            pinned = {k: v for k, v in item["pinned"].items() if k not in item["drop"]}
+            pinned.update(item["accept"])  # the hashes of the probes just checked
+            pinned_after[server] = pinned
+            if item["accept"] or item["drop"]:
+                repinned[server] = {"accept": sorted(item["accept"]), "drop": item["drop"]}
+                lock.mcp[server]["tools"] = pinned
+        if repinned:
+            lock.save(lock_path)  # once, before any pins file is served
+        # A failure writing a pins file below leaves that relay on its old file: its hashes no
+        # longer match stack.lock, so it hides the tool (fail closed) until the next `up`.
+        reports = {}
+        for server, pinned in pinned_after.items():
+            path = self.state.shared_dir("pins", server) / "pins.json"
+            previous = mcp_stack.read_pins(path)
+            document = mcp_stack.pins_document(server, pinned, probes[server], previous)
+            write_private(path, document, mode=0o444)
+            reports[server] = {
+                "state": "ok",
+                "pinned": sorted(pinned),
+                "changed": [],
+                "missing": review.details[server]["missing"],
+            }
+        return reports, {"repinned": repinned, "pins_digest": digest}
 
     def _image(self, plan: Plan, name: str) -> None:
         spec = plan.spec(name)

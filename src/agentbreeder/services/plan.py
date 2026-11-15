@@ -13,6 +13,7 @@ import difflib
 import hashlib
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote
@@ -493,6 +494,98 @@ def pins_text(report: dict) -> str:
     if report["missing"] and report.get("repin"):
         lines.append("  Tools missing upstream: answering yes drops these pins.")
     return "\n".join(lines)
+
+
+WRAP = 100  # display columns before a long line is wrapped (display only; never hashed)
+WRAP_MARK = "↩"  # data shows a real U+21A9 escaped (`↩`), so this is always the marker
+DIFF_LINES = 2000  # difflib is quadratic in lines: past this, show the definition in full
+
+
+_TOKEN = re.compile(r"\\u[0-9a-fA-F]{4}|\\.?|.", re.DOTALL)
+
+
+def _tokens(line: str):
+    r"""`line` split so no JSON escape (`\uXXXX`, `\"`, `\\`, ...) is ever cut in two."""
+    return (match.group() for match in _TOKEN.finditer(line))
+
+
+def review_lines(definition) -> list[str]:
+    """`_definition`, with any line over WRAP columns hard-wrapped and each break marked with
+    WRAP_MARK, so a one-character change inside a long description is a small hunk."""
+    lines = []
+    for line in _definition(definition):
+        if len(line) <= WRAP:
+            lines.append(line)
+            continue
+        chunk = ""
+        for token in _tokens(line):
+            if len(chunk) + len(token) > WRAP:
+                lines.append(chunk + WRAP_MARK)
+                chunk = ""
+            chunk += token
+        lines.append(chunk)
+    return lines
+
+
+def review_diff(previous, definition) -> list[str]:
+    """A changed tool for review: a unified diff, or the new definition in full when the
+    previous one is unavailable or either side is too long to diff."""
+    after = review_lines(definition)
+    if previous is None:
+        return ["(previous definition unavailable; the new one in full:)", *after]
+    before = review_lines(previous)
+    if len(before) > DIFF_LINES or len(after) > DIFF_LINES:
+        return ["(diff too large; the new definition in full:)", *after]
+    return list(difflib.unified_diff(before, after, "pinned", "upstream now", lineterm=""))
+
+
+def pins_review_text(result: dict, directory: str = "DIR") -> str:
+    """`services pins`: the read-mode review. States the facts and asks nothing; only `drop`
+    is listed as removed. Ends with the digest and the command that applies it."""
+    pad = " " * 11
+    lines = [
+        f"MCP tool pins for stack {result['stack']}. A repin with this review's digest pins "
+        "exactly the definitions below and nothing else."
+    ]
+    review = result["review"]["servers"]
+    for server, info in sorted(result["servers"].items()):
+        lines.append(f"mcp.{server} ({info['origin']}): {info['state']}")
+        for name, item in sorted(info["new"].items()):
+            lines.append(f"  new      {name}  {item['sha256'][7:23]}")
+            lines.extend(pad + line for line in review_lines(item["definition"]))
+        for name, item in sorted(info["changed"].items()):
+            lines.append(f"  changed  {name}  {item['pinned'][7:23]} -> {item['sha256'][7:23]}")
+            lines.extend(pad + line for line in review_diff(item["previous"], item["definition"]))
+        for name in info["drop"]:
+            lines.append(f"  missing upstream  {name}  (this pin is removed)")
+        for name in info["missing"]:
+            if name not in info["drop"]:
+                lines.append(f"  missing upstream  {name}  (not pinned)")
+        if not review[server]["accept"] and not info["drop"]:
+            lines.append("  nothing to repin")
+    if not result["servers"]:
+        lines.append("The stack has no mcp: entries.")
+    lines += [
+        f"Review digest: {result['digest']}",
+        f"Apply: agentbreeder services up {directory} --environment ENV --repin --expect-pins "
+        + result["digest"],
+    ]
+    return "\n".join(lines)
+
+
+def repinned_lines(result: dict) -> list[str]:
+    """`up --repin --expect-pins`: what was pinned, under which digest."""
+    if "pins_digest" not in result:
+        return []
+    lines = []
+    for server, item in sorted(result["repinned"].items()):
+        parts = [f"accepted {', '.join(item['accept'])}"] if item["accept"] else []
+        parts += [f"dropped {', '.join(item['drop'])}"] if item["drop"] else []
+        lines.append(f"mcp.{server:<12} repinned: {'; '.join(parts)}")
+    if not result["repinned"]:
+        lines.append("MCP pins: nothing to repin")
+    lines.append(f"Pins digest: {result['pins_digest']}")
+    return lines
 
 
 def mcp_status_lines(mcp: dict) -> list[str]:

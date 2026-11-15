@@ -1,0 +1,8 @@
+usage: agentbreeder services pins [-h] [--json] [dir]
+
+positional arguments:
+  dir
+
+options:
+  -h, --help  show this help message and exit
+  --json

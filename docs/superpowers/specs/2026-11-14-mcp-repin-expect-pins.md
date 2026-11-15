@@ -1,6 +1,7 @@
 # MCP repin without a TTY: `services pins` and `services up --repin --expect-pins` (#964)
 
-Status: spec delta, r4 (2026-11-14). Docs only; lane A implements after the owner signs off.
+Status: spec delta, r5 (2026-11-14). Owner decisions D1–D3 taken (§11); CLI half implemented
+(lane C, #964). The console half (§7) is lane B2's.
 Parent: #812 / #831 (M15). Plan of record: `docs/superpowers/plans/2026-11-11-console-epic.md`
 (M15). This delta amends the services spec §7.7.1 (`2026-11-08-agent-services-design.md`) and the
 console's MCP section (`docs/command-center.md`, "Pins").
@@ -201,9 +202,11 @@ agentbreeder services pins [DIR] [--json]
   `services` write (including `services pins`) changes `stack.lock` between the check and the save.
   A hand edit of `stack.lock` in that window is outside the model, as for `--expect-grant`.
 - **Output.** `reports` keeps its current shape per server (`state`, `pinned`, `changed`,
-  `missing`). The `up --json` result's `mcp` block gains `"repinned": {"<server>": {"accept":
-  [...], "drop": [...]}}` and `"pins_digest": "<hex>"`, so the job log records what was pinned and
-  under which digest. The human output prints the same lines.
+  `missing`). The `up --json` result gains, at its top level, `"repinned": {"<server>":
+  {"accept": [...], "drop": [...]}}` (servers with a change only) and `"pins_digest": "<hex>"`,
+  so the job log records what was pinned and under which digest. They sit beside `mcp`, not in
+  it: `mcp` is keyed by server name, and a server could be named `repinned` (implementation
+  note, r5). The human output prints the same lines.
 - **Without `--expect-pins`**, `--repin` is unchanged (a TTY prompt per server).
 
 ## 6. TOCTOU between probe and pin
@@ -396,6 +399,9 @@ The console server drives the CLI as child processes, as for `plan --json` and `
 
 ## 11. Owner decisions
 
+**Decided 2026-11-14 (owner):** D1, D2 and D3 as recommended (comment on #964): accept R1 and R2,
+and add the `services pins` subcommand.
+
 - **D1.** Accept R1. A digest proves the content was fetched unchanged, not that a person read it
   (as `--expect-grant`). This includes new tools of non-built-in servers. Recommendation: accept.
 - **D2.** Accept R2: no TTL or one-time use in the CLI. The console uses a digest once.
@@ -413,3 +419,5 @@ Different-model review (Sonnet, read-only subagents; coder Opus).
 | 1 | Security | Changes requested (no Critical or High) | (M) "Writes no file": fixed as above, which also closes the `down --purge` race. (M) Browser re-serialization could hide a changed hash: the server renders with Python and the browser sets `textContent` only; tests for `1.0` and integers above 2^53. (M) `PINS_CHANGED` leaves the rest of `up` applied: stated in §5, §7.5 and §9. (L) R4 added (metadata, not behaviour; probe vs runtime; prompt injection in descriptions). (L) Size: a 64 KiB diff cap, a streaming 2 MiB console cap with a kill, and 8 MiB fail-closed accepted. (L) Review hygiene: a guarded POST, the project lock, cleared on start, a duplicate-key-rejecting parse, and errors are "invalid review". (L) A relay running an old config on the same identity: §6 row. (Nit) The fail-closed crash wording, D1 covering new tools on non-built-in servers, and an `--update` test. |
 | 2 | Architecture and security | Changes requested (no High) | All round-1 fixes verified in the text and code. (M) The read and `up` used different `NEED_UP` predicates, so a never-pinned server with nothing to pin blocked every review: one `need_up` from `pins_review` (pinned empty and accept non-empty), with a test. (M) `Runner.read` buffers and kills only the CLI: `max_bytes` with an incremental read, and `track=True` so the process group (and the lock) goes. (L) `origin`, `changed.pinned` and `previous` are now checked against `review`; `state`, `same` and `missing` are derived. (L) The write lock is held up to 180 s per relay: accepted; Start is disabled during the read. (L) Review consumption: popped atomically at compare time, put back on a preflight refusal. (L) A change hidden in a long line: display wraps strings at 100 columns; the diff cap is 2,000 lines. (Nit) `state` defined as `_mcp_status`; the escape-expansion note; a stale relay config failing `declared` names `services up`. |
 | 3 | Architecture and security | Approved | All 9 round-2 findings verified as resolved. Low and nit wording fixes folded in as r4: the §9 row 4 wrap exception; wrapping keys too and never inside an escape; restore only into an empty slot and on any pre-launch refusal; `missing` comes from the CLI JSON; a probe failure on an unpinned server reports `MCP_PINS_NEED_UP`; the `NEED_UP` wording in §8 and §5. |
+| Impl 1 | Implementation: architecture, correctness and security (CLI half) | Approved (Low and Nit only) | Fixed: the engine refuses `expect_pins` without `repin` or with `locked` (not only the CLI); `drop` excludes a tool that is also in `accept`; the escape-safe wrap tokenizer is a regex generator; an ASCII terminal gets an escaped fallback; a comment on a failing pins-file write (fails closed). Tests added for each, and for a probe failure on apply. Not changed: the read path opens `pins.json` directly rather than through `shared_dir`, so a read never creates the directory. |
+| Impl 2 | Verification of the fixes, plus the security boundary | Approved | Each fix verified, and the tokenizer fuzzed with 3,000 random definitions. Hashes are saved only from the probes whose digest matched, and no first pin can happen through `--expect-pins`. Folded in: the ASCII fallback escapes all non-ASCII text, not only the marker. |
