@@ -1,10 +1,11 @@
 """Recent agent traces per deployment, read from a stack's Phoenix (#907).
 
 Where they come from: a stack's `service/phoenix@*` service (`services up`), on its loopback host
-port, read with the stack's stored `ingest-key` (the system API key Phoenix's bootstrap mints).
-That key is admin-equivalent in Phoenix (it can also write): it is only sent to that loopback
-URL, only with GET, never printed, and Phoenix's redirects are not followed. A VIEWER key is a
-planned follow-up (phoenix@1.1.0).
+port, read with the stack's stored `read-key`: from `service/phoenix@1.1.0` on, the bootstrap
+mints a personal API key of a VIEWER user, which Phoenix refuses for any write (#925). A stack
+on phoenix 1.0.x has only the `ingest-key` (a system API key, admin-equivalent: it can also
+write); it is used instead, and the report says so in `notes`. Either key is only sent to that
+loopback URL, only with GET, never printed, and Phoenix's redirects are not followed.
 
 Which deployment a trace belongs to: runtime/adk names the Phoenix project after the agent
 (`openinference.project.name` = the agent name, so `X-candidate` deployments share project `X`).
@@ -41,7 +42,13 @@ SCHEMA_VERSION = 1
 ATTRIBUTE = "agentbreeder.deployment_id"
 CANDIDATE_SUFFIX = "-candidate"
 PHOENIX_REF = "service/phoenix@"
+NO_READ_KEY = ("service/phoenix@1.0.",)  # versions whose bootstrap mints no read key
+READ_KEY = "read-key"
 INGEST_KEY = "ingest-key"
+FALLBACK_NOTE = (
+    "Read with the stack's Phoenix ingest key, which can also write: phoenix@1.1.0 mints a "
+    "read-only key; move the stack to it and run `services up`"
+)
 PORT = "http"
 DEFAULT_LAST = 20
 MAX_LAST = 200
@@ -82,6 +89,7 @@ _OPENER = build_opener(ProxyHandler({}), _NoRedirect)
 class Phoenix:
     url: str
     key: str = field(repr=False)
+    key_name: str = READ_KEY  # which stored key: READ_KEY, or INGEST_KEY on phoenix 1.0.x
     calls: int = 0
     tagged: dict = field(default_factory=dict, repr=False)  # (project, deployment) -> bool
     started: float = field(default_factory=monotonic, repr=False)
@@ -209,7 +217,8 @@ class Phoenix:
 
 
 def locate(project_dir, state_dir) -> Phoenix:
-    """The stack's Phoenix: its loopback URL and stored ingest key (never printed)."""
+    """The stack's Phoenix: its loopback URL and stored read key, else (phoenix 1.0.x, which
+    mints none) its ingest key. The key is never printed."""
     from agentbreeder import redaction
     from agentbreeder.services import engine
     from agentbreeder.services.schema import ServiceError
@@ -237,7 +246,14 @@ def locate(project_dir, state_dir) -> Phoenix:
             raise TracesError("TRACES_NO_PHOENIX", "the stack was never brought up")
         try:
             port = state.ports().get(names[0], {}).get(PORT)
-            key = state.read_secret(names[0], INGEST_KEY)
+            key_name = READ_KEY
+            # On 1.0.x a stored read key was not minted by this version (it may be left from
+            # 1.1.0, and is dead if 1.0.x re-minted on a new volume): only the ingest key is used.
+            old = stack.services[names[0]].ref.startswith(NO_READ_KEY)
+            key = None if old else state.read_secret(names[0], READ_KEY)
+            if key is None:
+                key_name = INGEST_KEY
+                key = state.read_secret(names[0], INGEST_KEY)
         finally:
             state.close()
     except ServiceError as error:
@@ -247,7 +263,7 @@ def locate(project_dir, state_dir) -> Phoenix:
     if not key:
         raise TracesError(
             "TRACES_NO_PHOENIX",
-            f"Phoenix ({names[0]}) has no ingest key yet; run `services up` again",
+            f"Phoenix ({names[0]}) has no key yet; run `services up` again",
         )
     try:
         token = key.decode("ascii").strip()
@@ -255,7 +271,7 @@ def locate(project_dir, state_dir) -> Phoenix:
         raise TracesError("TRACES_NO_PHOENIX", "the stack's Phoenix key is malformed") from None
     if not token or any(c.isspace() for c in token):
         raise TracesError("TRACES_NO_PHOENIX", "the stack's Phoenix key is malformed")
-    return Phoenix(f"http://127.0.0.1:{int(port)}", token)
+    return Phoenix(f"http://127.0.0.1:{int(port)}", token, key_name)
 
 
 # -- parsing ------------------------------------------------------------------------------------

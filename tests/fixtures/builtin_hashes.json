@@ -11,6 +11,7 @@
  "service/mcp-relay@1.0.0": "sha256:fc587fe2beb5230561b22777f99f0288b35bc118f4bfea34a4e630bfb0371cbe",
  "service/mcp-relay@1.0.1": "sha256:1af7120eed33ad03fbb3dbe370dfb01ef82b8534c76c534f3a408df0b4033a58",
  "service/phoenix@1.0.0": "sha256:3a7071f82aacc6ba76fd89c918ba3f6d08a3f7ad5793265014c9ba63777bc8d6",
+ "service/phoenix@1.1.0": "sha256:21ead382a81cc74dad2f7c12b155cbce7ef2abfb14fa0051b2c01c08d9c818f7",
  "service/playwright-mcp@1.0.0": "sha256:5b13f7867ef164fa26ed9dfebb082f928f315673771e79debefe535e0dad8ec3",
  "service/postgres-pgvector@1.0.0": "sha256:a1d15ca0f25a49c64aa354d6b0eea573231687b3c096958a40e7f3ed5d6ae780",
  "service/postgres-pgvector@1.1.0": "sha256:b8eb6826b25bfaf1cda0eb93214b1e4803da53c872054d5287c953ab7090914b",

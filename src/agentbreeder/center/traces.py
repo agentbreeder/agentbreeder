@@ -5,9 +5,9 @@ run as an uncached CLI child.
 Pure functions: the server checks the query with `list_request`, builds the argv with
 `list_argv` and passes the answer through `list_answer` before the browser sees it.
 
-- Phoenix is read only by the CLI child, with the stack's stored ingest key; the console server
-  never reads a credential. `traces` never reads prompts, replies or tool arguments and results,
-  and redacts every string with the same values as `logs`.
+- Phoenix is read only by the CLI child, with the stack's stored read key (the ingest key on
+  phoenix 1.0.x); the console server never reads a credential. `traces` never reads prompts,
+  replies or tool arguments and results, and redacts every string with the same values as `logs`.
 - Only an allow-listed summary per trace is passed on: its id, start, latency, status,
   attribution, models, token counts, tool calls (name, status, latency) and span count. The span
   tree opens per trace through the Try it trace route (`traces --trace ID`, `tryit.trace_answer`),

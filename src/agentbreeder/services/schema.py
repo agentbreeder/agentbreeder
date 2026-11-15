@@ -148,15 +148,32 @@ class Health(_Strict):
         return self
 
 
+WRITES_LIMIT = 4
+
+
 class OneShot(_Strict):
     command: list[str]
     secrets: list[str] = Field(default_factory=list, max_length=20)
+    # One secret: stdout is its value. Several (`writes_secrets`, bootstrap only): stdout is one
+    # JSON object with exactly those names as keys, each a one-line string value.
     writes_secret: str | None = Field(default=None, pattern=KEY)
+    writes_secrets: list[str] | None = Field(default=None, min_length=2, max_length=WRITES_LIMIT)
 
     @model_validator(mode="after")
     def exec_form(self):
         _argv(self.command, "command")
+        if self.writes_secret is not None and self.writes_secrets is not None:
+            raise ValueError("a step has at most one of writes_secret or writes_secrets")
+        names = self.writes_secrets or []
+        if any(not _matches(KEY, name) for name in names) or len(set(names)) != len(names):
+            raise ValueError("writes_secrets names must be unique secret names")
         return self
+
+    def written(self) -> tuple[str, ...]:
+        """The secret names this step writes, in declared order."""
+        if self.writes_secrets is not None:
+            return tuple(self.writes_secrets)
+        return (self.writes_secret,) if self.writes_secret is not None else ()
 
 
 class Output(_Strict):
@@ -277,7 +294,7 @@ class ServiceSpec(_Strict):
         for name, output in self.outputs.items():
             if output.port is not None and output.port not in self.ports:
                 raise ValueError(f"output {name}: unknown port {output.port}")
-            written = {self.bootstrap.writes_secret} if self.bootstrap else set()
+            written = set(self.bootstrap.written()) if self.bootstrap else set()
             if output.secret is not None and output.secret not in set(self.secrets) | written:
                 raise ValueError(f"output {name}: unknown secret {output.secret}")
             if output.per is not None and output.per not in lists:
@@ -294,13 +311,15 @@ class ServiceSpec(_Strict):
             for secret in step.secrets:
                 if secret not in self.mounted_secrets():
                     raise ValueError(f"{step_name}: unknown secret {secret}")
-            if step_name == "init" and step.writes_secret is not None:
+            if step_name == "init" and step.written():
                 raise ValueError("only bootstrap can write a secret")
         if self.bootstrap is not None:
-            target = self.bootstrap.writes_secret
-            if target is None:
-                raise ValueError("bootstrap must name the secret it writes (writes_secret)")
-            if target in self.secrets:
+            targets = self.bootstrap.written()
+            if not targets:
+                raise ValueError(
+                    "bootstrap must name the secrets it writes (writes_secret or writes_secrets)"
+                )
+            if set(targets) & set(self.secrets):
                 raise ValueError("bootstrap's writes_secret must not also be declared")
         if self.provides == "gateway/litellm":
             url = self.outputs.get("url")
@@ -334,7 +353,7 @@ class ServiceSpec(_Strict):
     def _check_output_template(self, name: str, output: Output) -> None:
         """A secret template names only its address, its item (per outputs), the service's own
         secrets and its own string/db_name params (e.g. the database a role connects to)."""
-        written = {self.bootstrap.writes_secret} if self.bootstrap else set()
+        written = set(self.bootstrap.written()) if self.bootstrap else set()
         allowed = {"address"} | {f"secret.{s}" for s in set(self.secrets) | written}
         scalars = {k for k, p in self.params.items() if p.type in ("string", "db_name")}
         allowed |= {f"params.{k}" for k in scalars}
@@ -347,8 +366,8 @@ class ServiceSpec(_Strict):
     def mounted_secrets(self) -> set[str]:
         """Secret names the service's container may receive (own, secret inputs, bootstrap's)."""
         names = set(self.secrets) | {n for n, i in self.inputs.items() if i.type == "secret"}
-        if self.bootstrap is not None and self.bootstrap.writes_secret:
-            names.add(self.bootstrap.writes_secret)
+        if self.bootstrap is not None:
+            names.update(self.bootstrap.written())
         return names
 
 

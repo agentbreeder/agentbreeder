@@ -85,6 +85,34 @@ def open_state(project: Path, root: Path | None = None) -> tuple[Stack, StackSta
     return stack, StackState(stack.name, project, root)
 
 
+def _bootstrap_values(service: str, targets: tuple[str, ...], output: bytes) -> dict[str, bytes]:
+    """The secrets a bootstrap's stdout holds: the whole of it for one, else a JSON object with
+    exactly the declared names, each a non-empty one-line string. Errors never quote the output."""
+    if len(targets) == 1:
+        return {targets[0]: output}
+    where = f"{service}.bootstrap"
+    try:
+        data = json.loads(output)
+    except (ValueError, RecursionError):
+        raise ServiceError("ONESHOT_OUTPUT", f"{where} did not write a JSON object") from None
+    if not isinstance(data, dict) or set(data) != set(targets):
+        raise ServiceError(
+            "ONESHOT_OUTPUT", f"{where} must write exactly these secrets: {', '.join(targets)}"
+        )
+    values = {}
+    for target in targets:
+        value = data[target]
+        if (
+            not isinstance(value, str)
+            or not value
+            or value != value.strip()
+            or any(ord(c) < 0x20 or c == "\x7f" for c in value)
+        ):
+            raise ServiceError("ONESHOT_OUTPUT", f"{where} wrote an invalid value for {target}")
+        values[target] = value.encode()
+    return values
+
+
 @dataclass(frozen=True)
 class StackContext:
     stack_id: str
@@ -222,9 +250,10 @@ class Engine:
                     if value is not None:
                         own[key] = value
             if spec.bootstrap is not None:
-                written = self.state.read_secret(name, spec.bootstrap.writes_secret)
-                if written is not None:
-                    own[spec.bootstrap.writes_secret] = written
+                for target in spec.bootstrap.written():
+                    written = self.state.read_secret(name, target)
+                    if written is not None:
+                        own[target] = written
             plan.secrets[name] = own
             self.docker.redactions.extend(own.values())
 
@@ -786,17 +815,25 @@ class Engine:
             for volume in plan.spec(owner).volumes
         )
         marker = "|".join(identities) or "no-volume"
-        target = spec.bootstrap.writes_secret
-        if self.state.get(f"bootstrap:{name}") == marker and target in plan.secrets[name]:
+        targets = spec.bootstrap.written()
+        # Every written secret must be present: a new version that writes one more secret (e.g.
+        # phoenix@1.1.0's read-key) runs its bootstrap again on the same data.
+        if self.state.get(f"bootstrap:{name}") == marker and all(
+            target in plan.secrets[name] for target in targets
+        ):
             return
         self.log(f"Running {name} bootstrap")
-        value = self._step_run(plan, name, spec.bootstrap, "bootstrap", mounts, capture=True)
-        self.state.write_secret(name, target, value, "bootstrap")
-        self.docker.redactions.append(value)
-        changed = plan.secrets[name].get(target) != value
-        plan.secrets[name][target] = value
+        output = self._step_run(plan, name, spec.bootstrap, "bootstrap", mounts, capture=True)
+        values = _bootstrap_values(name, targets, output)
+        self.docker.redactions.extend(values.values())
+        changed = []
+        for target, value in values.items():  # declared order
+            self.state.write_secret(name, target, value, "bootstrap")
+            if plan.secrets[name].get(target) != value:
+                changed.append(target)
+            plan.secrets[name][target] = value
         self.state.put(f"bootstrap:{name}", marker)
-        if changed and target in spec.mounted_secrets():
+        if set(changed) & spec.mounted_secrets():
             self._start(plan, name, rendered, mounts)  # the service mounts what it minted
 
     # -- status / logs / down ---------------------------------------------------------------------
