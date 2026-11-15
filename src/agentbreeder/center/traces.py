@@ -9,10 +9,10 @@ Pure functions: the server checks the query with `list_request`, builds the argv
   phoenix 1.0.x); the console server never reads a credential. `traces` never reads prompts,
   replies or tool arguments and results, and redacts every string with the same values as `logs`.
 - Only an allow-listed summary per trace is passed on: its id, start, latency, status,
-  attribution, models, token counts, tool calls (name, status, latency) and span count. The span
-  tree opens per trace through the Try it trace route (`traces --trace ID`, `tryit.trace_answer`),
-  so this answer carries no spans. Phoenix's origin, the project name and the session and turn ids
-  stay on the server.
+  attribution, models, token counts, tool calls (name, status, latency), span count and whether
+  it is still arriving (no root span yet, #1010). The span tree opens per trace through the Try
+  it trace route (`traces --trace ID`, `tryit.trace_answer`), so this answer carries no spans.
+  Phoenix's origin, the project name and the session and turn ids stay on the server.
 - A trace attributed to another deployment is dropped: the CLI attributes every listed trace to
   the ID it was asked for, so one that is not is a contract break, never shown as this one's.
 - A refusal (exit 2, `{"schema_version": 1, "error": {code, message}}`) comes back as the
@@ -113,6 +113,7 @@ def _trace(found: object, deployment_id: str) -> dict | None:
         "span_count": min(len(spans), MAX_SPANS) if isinstance(spans, list) else 0,
         "spans_truncated": found.get("spans_truncated") is True
         or (isinstance(spans, list) and len(spans) > MAX_SPANS),
+        "incomplete": found.get("incomplete") is True,  # #1010: no root span yet
     }
 
 

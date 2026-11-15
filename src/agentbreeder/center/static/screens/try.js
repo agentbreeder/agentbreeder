@@ -273,7 +273,7 @@ export function TracePanel({ path }) {
   };
   const trace = state.trace;
   const tree = state.phase === "loaded" ? spanTree(trace.spans) : [];
-  const said = state.phase === "loading" ? "Reading the trace from Phoenix…" : state.phase === "loaded" ? `Trace read: ${trace.spans.length} span${trace.spans.length === 1 ? "" : "s"}.` : "";
+  const said = state.phase === "loading" ? "Reading the trace from Phoenix…" : state.phase === "loaded" ? `Trace read: ${trace.spans.length} span${trace.spans.length === 1 ? "" : "s"}${trace.incomplete ? " so far, still arriving" : ""}.` : "";
   return html`<details class="trace" onToggle=${onToggle}>
     <summary>Trace spans <span class="muted small">(from this stack's Phoenix)</span></summary>
     <div class="trace-body">
@@ -284,6 +284,7 @@ export function TracePanel({ path }) {
       ${state.phase === "loaded"
         ? html`<p><${Text} value=${traceSummary(trace)} /></p>
             <p class="muted small"><${Text} value=${attributionText(trace)} /> Prompts, replies and tool arguments are never read; error text is the runtime's own and can quote what the agent was given.</p>
+            ${trace.incomplete ? html`<${Action} tone="secondary" small=${true} onClick=${() => load(true)}>Read again<//>` : null}
             ${(Array.isArray(trace.notes) ? trace.notes : []).map((note, index) => html`<p class="muted small" key=${index}><${Text} value=${note} /></p>`)}
             ${tree.length
               ? html`<ul class="span-tree" aria-label="Spans of this trace">${tree.map((node) => html`<${SpanNode} key=${node.span.span_id} node=${node} />`)}</ul>`

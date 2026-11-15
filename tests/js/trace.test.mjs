@@ -73,3 +73,20 @@ test("attribution and failures in words", () => {
   assert.equal(traceProblemText({ code: "TRACES_AUTH", message: "Phoenix refused the key" }), "Phoenix refused the key [TRACES_AUTH]");
   assert.equal(traceProblemText(null), "The trace could not be read [TRACE_FAILED]");
 });
+
+test("a span whose counts are also on a span under it says they are counted there (#1009)", () => {
+  const tokens = { prompt: 1756, completion: 104 };
+  assert.equal(spanFacts(span("call_llm", null, { kind: "CHAIN", tokens, tokens_counted: false })), "chain · 1,756 in, 104 out tokens, counted in a span under it");
+  assert.equal(spanFacts(span("g", null, { kind: "LLM", tokens, tokens_counted: true })), "llm · 1,756 in, 104 out tokens");
+  assert.equal(spanFacts(span("g", null, { kind: "LLM", tokens })), "llm · 1,756 in, 104 out tokens");
+});
+
+test("a trace still arriving says so instead of guessing its deployment (#1010)", () => {
+  const trace = { status: "ok", spans: [span("a", "gone"), span("b", "a")], models: [], tool_calls: [], incomplete: true, attribution: null };
+  assert.equal(traceSummary(trace), "OK · 2 spans so far · 0 tool calls");
+  assert.match(attributionText(trace), /^Still arriving: Phoenix does not have this trace's root span yet/);
+  assert.doesNotMatch(attributionText(trace), /does not record/);
+  assert.match(attributionText({ ...trace, attribution: "window" }), /^Still arriving/);
+  assert.match(attributionText({ ...trace, attribution: "exact" }), /^Recorded by the agent's runtime/);
+  assert.match(attributionText({ ...trace, incomplete: false, attribution: "window" }), /^Matched by time/);
+});

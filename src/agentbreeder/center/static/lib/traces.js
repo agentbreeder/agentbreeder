@@ -44,7 +44,8 @@ export function traceLine(trace) {
   const completion = count(tokens.completion);
   if (prompt !== null || completion !== null) parts.push(`${prompt ?? "?"} in, ${completion ?? "?"} out tokens`);
   const spans = count(trace.span_count) ?? 0;
-  parts.push(`${spans} span${spans === 1 ? "" : "s"}${trace.spans_truncated ? " (Phoenix had more)" : ""}`);
+  parts.push(`${spans} span${spans === 1 ? "" : "s"}${trace.incomplete ? " so far" : ""}${trace.spans_truncated ? " (Phoenix had more)" : ""}`);
+  if (trace.incomplete) parts.push("still arriving");
   return parts.join(" · ");
 }
 
@@ -70,6 +71,14 @@ export function windowText(answer) {
   return others
     ? `Matched by time: this runtime does not record its deployment on its traces, and ${others} other deployment${others === 1 ? "" : "s"} of this agent ran at the same time, so some of these traces may be theirs.`
     : "Matched by time: this runtime does not record its deployment on its traces.";
+}
+
+/** How many listed traces Phoenix has only part of (no root span yet, #1010), in words, or null. */
+export function arrivingText(answer) {
+  const traces = Array.isArray(answer && answer.traces) ? answer.traces : [];
+  const arriving = traces.filter((trace) => trace && trace.incomplete === true).length;
+  if (!arriving) return null;
+  return `${arriving} ${arriving === 1 ? "trace is" : "traces are"} still arriving: Phoenix does not have ${arriving === 1 ? "its" : "their"} root span yet, so ${arriving === 1 ? "its" : "their"} spans and tokens are partial and which deployment ran ${arriving === 1 ? "it" : "them"} is not known yet. Read again in a few seconds.`;
 }
 
 /** A failed list read, in words. */

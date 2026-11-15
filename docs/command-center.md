@@ -933,7 +933,11 @@ second disclosure beside Turn details. The first time it is opened, the server r
 [`traces.md`](traces.md)) through `GET /api/projects/ID/traces/TRACE_ID`. It shows the trace in
 one line (status, latency, span count, models, total tokens, tool calls), how the trace was
 attributed to a deployment (`exact` or by time window), and the span tree as nested lists: each
-span's name, kind, status, latency, model, tool and tokens, and its error text. The server passes on
+span's name, kind, status, latency, model, tool and tokens, and its error text. The total counts
+each model call once; a span whose counts are also on a span under it says "counted in a span
+under it" (#1009). A trace read before its root span reached Phoenix says it is still arriving,
+with its spans so far and **Read again**, instead of a time-window attribution (#1010). Both
+are tested with a fake CLI only. The server passes on
 only those fields, and the Phoenix address, session and turn IDs stay on the server. `traces` never
 reads prompts, replies or tool arguments and results. Error text is redacted and cut, but it is the
 runtime's own text and can quote what the agent was given. At most 4 trace reads run at once
@@ -1166,7 +1170,9 @@ argv, never cached; see [`traces.md`](traces.md)) and
   string as for `logs`. Everything is shown as text.
 - **Attribution**: when the runtime does not record its deployment (`window`), the tab says so,
   and names how many other deployments of the agent overlapped. The CLI's notes (no Phoenix project
-  yet, never ran) and a partial answer are shown. A failed read shows the CLI's code, in words for
+  yet, never ran) and a partial answer are shown. A trace whose root span is not in Phoenix yet
+  is marked "still arriving", is not counted as matched by time, and the tab says to read again
+  (#1010). A failed read shows the CLI's code, in words for
   `TRACES_NO_PHOENIX` and `TRACES_UNREACHABLE`, and **Read again** reads it again.
 - List reads share Try it's bound of 4 trace reads at once (`TRACE_BUSY`).
 

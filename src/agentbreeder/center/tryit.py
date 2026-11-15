@@ -20,7 +20,9 @@ Pure functions: the server checks the request with `turn_request`, builds the ar
   (S-12c, #780), which the screen says.
 - A turn's trace (#907): `traces --trace ID --stack DIR --environment ENV --json` (contract:
   docs/traces.md), built by `trace_argv` and checked by `trace_answer`. Only the span tree's
-  names, kinds, models, token counts, tool names, latency, status and error text are passed on.
+  names, kinds, models, token counts (and whether each span's counts are in the trace's total,
+  #1009), tool names, latency, status and error text are passed on, with whether the trace is
+  still arriving (no root span yet, #1010).
   `traces` never reads prompts, replies or tool arguments and results; error text is redacted and
   cut by `traces` but is the runtime's own text, so it can quote what the agent was given.
 """
@@ -217,6 +219,8 @@ def _span_tokens(value: object) -> dict | None:
 def _span(value: object) -> dict | None:
     if not isinstance(value, dict) or _id(value.get("span_id"), HEX16) is None:
         return None
+    tokens = _span_tokens(value.get("tokens"))
+    counted = value.get("tokens_counted")
     return {
         "span_id": value["span_id"],
         "parent_id": _id(value.get("parent_id"), HEX16),
@@ -225,9 +229,11 @@ def _span(value: object) -> dict | None:
         "status": _pick(value.get("status"), SPAN_STATUS) or "unset",
         "latency_ms": _count(value.get("latency_ms")),
         "model": _text(value.get("model"), MAX_TEXT),
-        "tokens": _span_tokens(value.get("tokens")),
+        "tokens": tokens,
         "tool": _text(value.get("tool"), MAX_TEXT),
         "error": _text(value.get("error"), MAX_ERROR),
+        # #1009: False when the same counts are on a span under it (not in the trace's total).
+        "tokens_counted": counted if tokens is not None and isinstance(counted, bool) else None,
     }
 
 
@@ -292,5 +298,7 @@ def trace_answer(data: object, trace_id: str) -> tuple[dict | None, dict | None]
         "truncated": found.get("spans_truncated") is True
         or (isinstance(raw, list) and len(raw) > MAX_SPANS),
         "notes": [n[:MAX_ERROR] for n in notes[:MAX_NOTES] if isinstance(n, str) and n],
+        # #1010: no root span yet; the spans, tokens and attribution are partial.
+        "incomplete": found.get("incomplete") is True,
     }
     return trace, None

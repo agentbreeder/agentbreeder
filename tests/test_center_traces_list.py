@@ -122,6 +122,7 @@ def test_traces_are_read_with_a_fixed_argv(center, project, cookie, tmp_path):  
         "tool_calls": [{"name": "lookup_order", "status": "error", "latency_ms": 11}],
         "span_count": 2,
         "spans_truncated": False,
+        "incomplete": False,
     }
 
 
@@ -335,3 +336,23 @@ def test_the_bound_is_released_when_a_read_fails(center, project, cookie, monkey
         assert center.traces.acquire(blocking=False)
     for _ in range(server.MAX_TRACES_IN_FLIGHT):
         center.traces.release()
+
+
+def test_a_trace_still_arriving_passes_through():
+    """#1010: a listed trace with no root span yet is marked, so the tab can say so."""
+    rows = [
+        {
+            "context": {"span_id": "b" * 16}, "parent_id": "a" * 16, "name": "call_llm",
+            "span_kind": "CHAIN", "status_code": "OK", "start_time": "2026-11-14T03:10:33+00:00",
+            "end_time": "2026-11-14T03:10:34+00:00", "attributes": {},
+        },
+    ]  # fmt: skip
+    summary = phoenix_traces.summarize(TRACE, "support", rows, phoenix_traces.Shown(lambda t: t))
+    summary["deployment_id"] = DEPLOYMENT
+    listed, problem = traces.list_answer({"schema_version": 1, "traces": [summary]}, DEPLOYMENT)
+    assert problem is None
+    (trace,) = listed["traces"]
+    assert trace["incomplete"] is True and trace["attribution"] is None
+    summary["incomplete"] = "true"
+    listed, _ = traces.list_answer({"schema_version": 1, "traces": [summary]}, DEPLOYMENT)
+    assert listed["traces"][0]["incomplete"] is False

@@ -159,11 +159,20 @@ class FakePhoenix:
             )
 
         if kind == "traces":
-            roots = [s for s in spans if s["parent_id"] is None and inside(s)]
-            roots.sort(key=lambda s: s["start_time"], reverse=True)
+            # Phoenix lists a trace once any of its spans is in, root or not (#1010).
+            first: dict[str, dict] = {}
+            for s in spans:
+                trace = s["context"]["trace_id"]
+                if trace not in first or s["start_time"] < first[trace]["start_time"]:
+                    first[trace] = s
+            starts = sorted(
+                (s for s in first.values() if inside(s)),
+                key=lambda s: s["start_time"],
+                reverse=True,
+            )
             rows = [
                 {"trace_id": s["context"]["trace_id"], "start_time": s["start_time"]}
-                for s in roots
+                for s in starts
             ]
             return self.page(rows, query)
         rows = [s for s in spans if inside(s)]
@@ -1122,3 +1131,183 @@ def test_failed_at_creation_is_not_awaiting_approval(phoenix):
     row["updated"] = row["created"]
     report = run_for(phoenix, [row], [row])
     assert report.notes == [f"{D1}: stopped before --since"]
+
+
+# -- #1009: tokens once per model call; #1010: a trace whose root is not in yet ----------------
+
+
+def adk_turn(trace, at=0, deployment=None):
+    """A `runtime/adk@1.2.0` turn as Phoenix stores it (11 spans, 2 model calls): ADK puts each
+    call's token counts on both the `call_llm` CHAIN span and its `generate_content` LLM child."""
+    root = {"session.id": "s-1", "agent.turn_id": "t-1"}
+    if deployment:
+        root[phoenix_traces.ATTRIBUTE] = deployment
+
+    def tokens(prompt, completion):
+        return {"llm.token_count.prompt": prompt, "llm.token_count.completion": completion}
+
+    model = {"llm.model_name": "gemini-2.5-flash"}
+    return [
+        span(trace, "1" * 16, None, "agent_turn", "AGENT", at, 900, **root),
+        span(trace, "2" * 16, "1" * 16, "invocation", "CHAIN", at, 890),
+        span(trace, "3" * 16, "2" * 16, "invoke_agent support", "AGENT", at, 880),
+        span(trace, "4" * 16, "3" * 16, "retrieve_knowledge", "RETRIEVER", at, 30),
+        span(trace, "5" * 16, "3" * 16, "call_llm", "CHAIN", at + 0.1, 300, **tokens(1756, 104)),
+        span(trace, "6" * 16, "5" * 16, "generate_content gemini-2.5-flash", "LLM", at + 0.1,
+             290, **tokens(1756, 104), **model),
+        span(trace, "7" * 16, "3" * 16, "execute_tool a", "TOOL", at + 0.4, 5,
+             **{"tool.name": "a"}),
+        span(trace, "8" * 16, "3" * 16, "execute_tool b", "TOOL", at + 0.41, 5,
+             **{"tool.name": "b"}),
+        span(trace, "9" * 16, "3" * 16, "execute_tool c", "TOOL", at + 0.42, 5,
+             **{"tool.name": "c"}),
+        span(trace, "a" * 16, "3" * 16, "call_llm", "CHAIN", at + 0.5, 300, **tokens(1907, 107)),
+        span(trace, "b" * 16, "a" * 16, "generate_content gemini-2.5-flash", "LLM", at + 0.5,
+             290, **tokens(1907, 107), **model),
+    ]  # fmt: skip
+
+
+def arriving(trace, at=0, deployment=None):
+    """The same turn read about 2 s after the reply (#1010): 6 of its 11 spans, with no root."""
+    keep = {"4" * 16, "5" * 16, "6" * 16, "7" * 16, "8" * 16, "9" * 16}
+    return [s for s in adk_turn(trace, at, deployment) if s["context"]["span_id"] in keep]
+
+
+def test_a_model_calls_tokens_are_counted_once():
+    trace = phoenix_traces.summarize("1" * 32, "support", adk_turn("1" * 32), show())
+    # The runtime and LiteLLM report 3663 in, 211 out for this turn, not 7326/422.
+    assert trace["tokens"] == {"prompt": 3663, "completion": 211, "total": 3874}
+    counted = {s["name"]: s["tokens_counted"] for s in trace["spans"] if s["tokens"]}
+    assert counted == {"call_llm": False, "generate_content gemini-2.5-flash": True}
+    assert all(s["tokens_counted"] is None for s in trace["spans"] if not s["tokens"])
+    assert trace["incomplete"] is False
+
+
+def test_tokens_on_a_span_with_no_token_span_under_it_are_counted():
+    # A CHAIN span with counts whose only child is a tool, and a sibling LLM span: both count.
+    rows = [
+        span("1" * 32, "1" * 16, None, "agent_turn", "AGENT"),
+        span("1" * 32, "2" * 16, "1" * 16, "call", "CHAIN", **{"llm.token_count.prompt": 9}),
+        span("1" * 32, "3" * 16, "2" * 16, "tool", "TOOL"),
+        span("1" * 32, "4" * 16, "1" * 16, "llm", "LLM", **{"llm.token_count.completion": 4}),
+    ]
+    trace = phoenix_traces.summarize("1" * 32, "p", rows, show())
+    assert trace["tokens"] == {"prompt": 9, "completion": 4, "total": 13}
+    assert [s["tokens_counted"] for s in trace["spans"]] == [None, True, None, True]
+
+
+def test_tokens_are_counted_once_per_field():
+    # The parent has only prompt counts and its child only completion counts: neither repeats
+    # the other, so both are in the total; a grandchild repeating the prompt takes it over.
+    rows = [
+        span("1" * 32, "1" * 16, None, "call", "CHAIN", **{"llm.token_count.prompt": 9}),
+        span("1" * 32, "2" * 16, "1" * 16, "llm", "LLM", at=1,
+             **{"llm.token_count.completion": 4}),
+    ]  # fmt: skip
+    trace = phoenix_traces.summarize("1" * 32, "p", rows, show())
+    assert trace["tokens"] == {"prompt": 9, "completion": 4, "total": 13}
+    assert [s["tokens_counted"] for s in trace["spans"]] == [True, True]
+    rows.append(span("1" * 32, "3" * 16, "2" * 16, "inner", "LLM", at=2,
+                     **{"llm.token_count.prompt": 9}))  # fmt: skip
+    trace = phoenix_traces.summarize("1" * 32, "p", rows, show())
+    assert trace["tokens"] == {"prompt": 9, "completion": 4, "total": 13}
+    assert [s["tokens_counted"] for s in trace["spans"]] == [False, True, True]
+
+
+def test_a_parent_cycle_neither_hangs_nor_drops_the_token_count():
+    rows = [
+        span("1" * 32, "1" * 16, "2" * 16, "x", "LLM", **{"llm.token_count.prompt": 5}),
+        span("1" * 32, "2" * 16, "1" * 16, "y", "LLM", **{"llm.token_count.prompt": 7}),
+        span("1" * 32, "3" * 16, None, "z", "LLM", **{"llm.token_count.prompt": 1}),
+    ]
+    trace = phoenix_traces.summarize("1" * 32, "p", rows, show())
+    assert trace["tokens"]["prompt"] == 13  # untrusted data: each span of the cycle counts
+
+
+def test_a_trace_with_no_root_span_is_incomplete():
+    trace = phoenix_traces.summarize("1" * 32, "support", arriving("1" * 32, 0, D1), show())
+    assert trace["incomplete"] is True
+    assert len(trace["spans"]) == 6
+    assert trace["tokens"] == {"prompt": 1756, "completion": 104, "total": 1860}
+
+
+def test_a_cut_trace_is_not_called_incomplete(monkeypatch):
+    # Spans newest first, cut at MAX_SPANS: the root (the earliest) is among those dropped.
+    rows = list(reversed(adk_turn("1" * 32, 0, D1)))
+    monkeypatch.setattr(phoenix_traces, "MAX_SPANS", 10)
+    trace = phoenix_traces.summarize("1" * 32, "support", rows, show())
+    assert trace["spans_truncated"] is True and trace["incomplete"] is False
+    monkeypatch.setattr(phoenix_traces, "MAX_SPANS", 500)
+    trace = phoenix_traces.summarize("1" * 32, "support", rows[:6], show(), partial=True)
+    assert trace["spans_truncated"] is True and trace["incomplete"] is False
+
+
+def test_a_root_with_an_outside_parent_and_the_deployment_id_is_complete():
+    rows = adk_turn("1" * 32, 0, D1)
+    rows[0]["parent_id"] = "f" * 16  # a propagated traceparent
+    trace = phoenix_traces.summarize("1" * 32, "support", rows, show())
+    assert trace["incomplete"] is False and trace["attribution"] == "exact"
+
+
+def test_one_trace_still_arriving_is_not_matched_by_time(phoenix):
+    phoenix.projects = {"support": arriving("1" * 32, 1, D1)}
+    rows = [deployment(D1)]
+    report = phoenix_traces.Report(phoenix.url)
+    phoenix_traces.one_trace(client(phoenix), "1" * 32, ["support"], rows, show(), report)
+    (trace,) = report.traces
+    assert trace["incomplete"] is True
+    assert (trace["deployment_id"], trace["attribution"]) == (None, None)
+    assert report.overlapping == []
+    # Once the root is in, the same read is exact.
+    phoenix.projects = {"support": adk_turn("1" * 32, 1, D1)}
+    report = phoenix_traces.Report(phoenix.url)
+    phoenix_traces.one_trace(client(phoenix), "1" * 32, ["support"], rows, show(), report)
+    (trace,) = report.traces
+    assert trace["incomplete"] is False
+    assert (trace["deployment_id"], trace["attribution"]) == (D1, "exact")
+    assert trace["tokens"]["total"] == 3874
+
+
+def test_a_listed_trace_still_arriving_is_not_matched_by_time(phoenix):
+    # D1's first turn: Phoenix lists the trace before its root (with the ID) is in.
+    phoenix.projects = {"support": arriving("1" * 32, 1, D1)}
+    rows = [deployment(D1), deployment(D2)]
+    report = run_for(phoenix, [rows[0]], rows)
+    (trace,) = report.traces
+    assert trace["incomplete"] is True and trace["deployment_id"] == D1  # the one asked for
+    assert trace["attribution"] is None
+    assert report.overlapping == [D2]  # until its root is in, it may be D2's
+    phoenix.projects = {"support": adk_turn("1" * 32, 1, D1)}
+    report = run_for(phoenix, [rows[0]], rows)
+    assert [(t["attribution"], t["incomplete"]) for t in report.traces] == [("exact", False)]
+
+
+def test_an_untagged_trace_still_arriving_beside_complete_ones(phoenix):
+    phoenix.projects = {"support": [*turn("2" * 32, 1), *arriving("3" * 32, 2)]}
+    rows = [deployment(D1), deployment(D2)]
+    report = run_for(phoenix, [rows[0]], rows)
+    assert [(t["trace_id"], t["attribution"], t["incomplete"]) for t in report.traces] == [
+        ("3" * 32, None, True), ("2" * 32, "window", False),
+    ]  # fmt: skip
+    assert report.overlapping == [D2]
+
+
+def test_text_says_a_trace_is_still_arriving(phoenix, wired, capsys):
+    phoenix.projects = {"support": arriving("1" * 32, 1, D1)}
+    state = ["--state-dir", str(wired.state_dir)]
+    code, out, err = run(["--trace", "1" * 32, *state], capsys)
+    assert code == 0
+    assert "still arriving" in out and "read it again" in out
+    assert "NOTE" not in err  # the tree says it once
+    assert "tokens 1756/104" in out
+    phoenix.projects = {"support": adk_turn("1" * 32, 1, D1)}
+    code, out, _ = run(["--trace", "1" * 32, *state], capsys)
+    assert "still arriving" not in out and "tokens 3663/211" in out
+    assert "1756/104 tokens, counted in a span under it" in out
+    assert "generate_content gemini-2.5-flash [LLM, gemini-2.5-flash, 1756/104 tokens]" in out
+    code, out, err = run([D1, *state], capsys)
+    assert "(exact)" in out and "still arriving" not in out + err
+    phoenix.projects = {"support": arriving("1" * 32, 1, D1)}
+    code, out, err = run([D1, *state], capsys)
+    assert "(still arriving)" in out
+    assert "NOTE: 1 trace is still arriving" in err and "read again" in err
