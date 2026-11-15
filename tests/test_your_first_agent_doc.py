@@ -35,6 +35,7 @@ STEP_OF_FUNCTION = {
     "_release": "release",
     "_try": "try",
     "_kubernetes": "kubernetes",
+    "_approve_note": "release",  # also the kubernetes step's; the page shows it once
 }
 KEYWORD_FLAGS = {"stack": "--stack", "environment": "--environment", "state_dir": "--state-dir"}
 # Commands the page's clean-up section shows; the guide has no clean-up step.

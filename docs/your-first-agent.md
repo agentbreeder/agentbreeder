@@ -164,17 +164,21 @@ agentbreeder migrate --stack . --environment dev
 ```
 
 When the kill switch disabled production, `next` prints the command to re-enable it, with the
-deployment id and the stack's state directory filled in:
+deployment id filled in:
 
 ```sh
-agentbreeder enable DEPLOYMENT_ID --environment dev --state-dir STATE_DIR
+agentbreeder enable DEPLOYMENT_ID --stack . --environment dev
 ```
 
 `enable` needs a verified human operator that policy allows (`agentbreeder login` against an
 issuer in the operator config). The demo config `services up` writes has none, so there it is
 refused. This is a check in the CLI, not protection against someone who can edit the local
-state. A deploy waiting for a second person's approval is shown as blocked with how to approve
-it.
+state. A deploy waiting for a second person's approval is shown as blocked, with the `approve` command a
+second authorised person runs (put the pending approval's ID in place of `ID`):
+
+```sh
+agentbreeder approve ID --stack . --environment dev
+```
 
 ## 7. Try it
 

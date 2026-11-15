@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shlex
 import sqlite3
 import stat
 import unicodedata
@@ -812,11 +811,10 @@ def _release(ctx: _Context) -> dict:
                 command=hints.command(
                     "enable",
                     data["production"]["id"],
-                    "--environment",
-                    ctx.environment,
-                    state_dir=store.directory,
+                    stack=ctx.project,
+                    environment=ctx.environment,
                 ),
-                note=_config_hint(ctx) + ": with it, only an authorised operator can re-enable it",
+                note="Only an operator this stack's operator config authorises can re-enable it",
             ),
             data,
         )
@@ -887,21 +885,15 @@ def _cluster_attached(ctx: _Context) -> bool:
     return ctx.stack_state is not None and bool(ctx.stack_state.get("kubernetes"))
 
 
-def _config_hint(ctx: _Context) -> str:
-    from agentbreeder.operator_config import CONFIG_ENV
-
-    path = ctx.stack_state.env_dir(ctx.environment) / "operator.yaml" if ctx.stack_state else None
-    hint = f"{CONFIG_ENV}={shlex.quote(str(path))}" if path else ""
-    if not hint or len(hint) > 200:  # never let the note cap cut a path in half
-        return f"set {CONFIG_ENV} to this stack's operator.yaml"
-    return hint
-
-
 def _approve_note(ctx: _Context) -> str:
-    return (
-        _config_hint(ctx) + ": with it, a second authorised person runs `agentbreeder approve ID` "
-        "with --state-dir set to this stack's state"
-    )
+    """Who runs `approve`, and how. A note, not a command: the approval ID is not read here,
+    and the person running `next` is usually the deployer, who cannot approve their own deploy."""
+    approve = hints.command("approve", "ID", stack=ctx.project, environment=ctx.environment)
+    note = f"A second authorised person runs `{approve}`"
+    if len(note) > 300 or not str(ctx.project).isprintable():
+        # Never let the note cap cut the path in half, nor a control character split the line.
+        return "A second authorised person runs `approve ID` with --stack set to this project"
+    return note
 
 
 def _unproven(data: dict, ctx: _Context, release_cmd: str) -> tuple:

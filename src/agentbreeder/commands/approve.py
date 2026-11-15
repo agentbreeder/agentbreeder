@@ -13,14 +13,16 @@ NAMES = ("approve", "reject", "approve-call", "reject-call")
 
 def register(commands) -> None:
     for name in ("approve", "reject"):
-        cli.stateful_parser(
+        command = cli.stateful_parser(
             commands, name, f"{name.title()} a pending approval as a second person", "approval_id"
         )
+        cli.add_stack(command, environment=True)
     for name in ("approve-call", "reject-call"):
         verb = name.split("-")[0]
-        cli.stateful_parser(
+        command = cli.stateful_parser(
             commands, name, f"{verb.title()} one held MCP tool call as a second person", "held_id"
         )
+        cli.add_stack(command, environment=True)
 
 
 def run(args) -> int:

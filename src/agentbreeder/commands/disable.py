@@ -16,7 +16,10 @@ def register(commands) -> None:
         ("enable", "Clear a principal blocker (starts nothing)", False),
     ):
         command = cli.stateful_parser(commands, name, help_text, "target", local=local)
-        command.add_argument("--environment")
+        command.add_argument(
+            "--environment", help="The principal's environment (with --stack: the stack's)"
+        )
+        cli.add_stack(command)
         command.add_argument("--provider", help="Provider connection (with --ref)")
         command.add_argument("--ref", help="Principal reference (with --provider)")
         if name == "disable":

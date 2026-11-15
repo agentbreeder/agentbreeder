@@ -1,6 +1,6 @@
 usage: agentbreeder enable [-h] [--state-dir STATE_DIR] [--json]
-                           [--environment ENVIRONMENT] [--provider PROVIDER]
-                           [--ref REF]
+                           [--environment ENVIRONMENT] [--stack DIR]
+                           [--provider PROVIDER] [--ref REF]
                            target
 
 positional arguments:
@@ -11,5 +11,9 @@ options:
   --state-dir STATE_DIR
   --json
   --environment ENVIRONMENT
+                        The principal's environment (with --stack: the
+                        stack's)
+  --stack DIR           Use the operator config and state that `services up`
+                        wrote for DIR
   --provider PROVIDER   Provider connection (with --ref)
   --ref REF             Principal reference (with --provider)

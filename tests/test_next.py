@@ -433,7 +433,15 @@ def test_pending_approval_then_blocker(stacked, operator, stacks):  # noqa: F811
     )
     release = steps(guide_checks.compute(stacked, probe=probe(stacks)))["release"]
     assert release.reason.code == "PRODUCTION_DISABLED" and release.data.blocker
-    assert shlex.split(release.fix.command)[1:3] == ["enable", production["id"]]
+    assert shlex.split(release.fix.command)[1:] == [
+        "enable",
+        production["id"],
+        "--stack",
+        str(stacked),
+        "--environment",
+        "dev",
+    ]
+    assert "operator config authorises" in release.fix.note
 
 
 def test_expired_approval_is_ignored(stacked, operator, stacks):  # noqa: F811
@@ -908,7 +916,16 @@ def test_candidate_approval_blocks_release(stacked, operator, stacks):  # noqa: 
     _, store, _ = released(stacked, operator, stacks)
     add_approval(store, "sha256:" + "8" * 64, LATER, agent="helper-candidate")
     release = steps(guide_checks.compute(stacked, probe=probe(stacks)))["release"]
-    assert release.reason.code == "APPROVAL_PENDING" and "approve" in release.fix.note
+    assert release.reason.code == "APPROVAL_PENDING" and release.fix.command is None
+    approve = release.fix.note.split("`")[1]
+    assert shlex.split(approve)[1:] == [
+        "approve",
+        "ID",
+        "--stack",
+        str(stacked),
+        "--environment",
+        "dev",
+    ]
 
 
 def test_name_approval_goes_to_kubernetes_when_released(stacked, operator, stacks):  # noqa: F811
@@ -1000,3 +1017,16 @@ def test_disabled_without_blocker_is_not_ready(stacked, operator, stacks):  # no
     store.db.execute("UPDATE deployments SET state='disabled'")
     release = steps(guide_checks.compute(stacked, probe=probe(stacks)))["release"]
     assert release.reason.code == "PRODUCTION_NOT_READY" and release.fix.action == "release"
+
+
+def test_approve_note_never_cuts_a_long_project_path(tmp_path):
+    deep = tmp_path.joinpath(*["d" * 40] * 8)
+    ctx = SimpleNamespace(project=deep, environment="dev")
+    note = guide_checks._approve_note(ctx)
+    assert len(note) <= 300 and str(deep) not in note
+    assert "approve ID" in note and "--stack" in note
+
+
+def test_approve_note_drops_a_path_with_a_control_character(tmp_path):
+    ctx = SimpleNamespace(project=tmp_path / "a\nb", environment="dev")
+    assert "\n" not in guide_checks._approve_note(ctx)
