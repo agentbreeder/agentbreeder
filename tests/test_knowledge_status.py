@@ -210,8 +210,12 @@ def test_doc_unreadable(tmp_path, monkeypatch):
     root = tmp_path / "registry"
     path = _version(root)
 
-    def refuse(*args, **kwargs):
-        raise PermissionError(13, "Permission denied")
+    real = os.open
+
+    def refuse(path, *args, **kwargs):  # only the documents: the manifest is read with os.open too
+        if str(path).endswith(".md"):
+            raise PermissionError(13, "Permission denied")
+        return real(path, *args, **kwargs)
 
     monkeypatch.setattr(knowledge.os, "open", refuse)
     with pytest.raises(KnowledgeError, match="cannot read docs/a.md"):

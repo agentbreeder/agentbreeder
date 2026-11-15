@@ -267,11 +267,6 @@ def test_a_yaml_looking_prompt_stays_text(tmp_path):
 # -- refusals --------------------------------------------------------------------------------
 
 
-def test_knowledge_is_refused(tmp_path):
-    error = refused(tmp_path, spec(knowledge=[{"ref": "knowledge/x@1.0.0"}]))
-    assert error.code == "SPEC_UNSUPPORTED"
-
-
 def test_the_name_must_match(tmp_path):
     assert refused(tmp_path, spec(name="other")).code == "NAME_MISMATCH"
 
@@ -605,11 +600,6 @@ def test_patterns_that_backtrack_exponentially_are_refused(tmp_path, pattern):
 def test_ordinary_patterns_are_allowed(tmp_path, pattern):
     case = {"id": "a", "turns": ["x"], "reference": "r", "expect": {"must_not_match": [pattern]}}
     make(tmp_path, spec(evals={"cases": [case]}))
-
-
-@pytest.mark.parametrize("knowledge", [["x"], [{"ref": "a"}, {"ref": "b"}], [1]])
-def test_any_knowledge_is_unsupported(tmp_path, knowledge):
-    assert refused(tmp_path, spec(knowledge=knowledge)).code == "SPEC_UNSUPPORTED"
 
 
 def test_a_long_unknown_key_is_cut_short(tmp_path):

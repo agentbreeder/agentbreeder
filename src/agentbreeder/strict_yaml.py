@@ -6,7 +6,9 @@ as the deploy manifest (manifest.py).
 
 from __future__ import annotations
 
+import os
 import re
+import stat
 from pathlib import Path
 
 import yaml
@@ -64,8 +66,22 @@ def load_text(text: str) -> dict:
 
 
 def load_file(path: Path, limit: int = 64 * 1024) -> dict:
+    """Only a regular file is read: it is opened non-blocking, so a FIFO (in a shared registry
+    root, say) is refused instead of blocking the open forever (#989)."""
     try:
-        with path.open("rb") as stream:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    except OSError as error:
+        raise StrictYamlError(f"Cannot read {path}") from error
+    try:
+        regular = stat.S_ISREG(os.fstat(descriptor).st_mode)
+    except OSError as error:
+        os.close(descriptor)
+        raise StrictYamlError(f"Cannot read {path}") from error
+    if not regular:  # checked before fdopen, which raises (and leaks it) on a directory
+        os.close(descriptor)
+        raise StrictYamlError(f"{path.name} is not a regular file")
+    try:
+        with os.fdopen(descriptor, "rb") as stream:
             raw = stream.read(limit + 1)
     except OSError as error:
         raise StrictYamlError(f"Cannot read {path}") from error

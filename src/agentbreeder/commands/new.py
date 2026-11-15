@@ -160,6 +160,12 @@ def _from_spec(args) -> int:
     if summary["grants"]:
         grants = "; ".join(f"{g['server']}: {', '.join(g['tools'])}" for g in summary["grants"])
         notes.append(f"MCP grants in stack.yaml: {grants}.")
+    for row in summary["knowledge"]:
+        notes.append(
+            f"Knowledge: {row['ref']} ({row['documents']} documents, {row['chunks']} chunks), "
+            f"embedded as {row['alias']} with {row['embedding_model']} "
+            f"({row['dimensions']} dimensions); the index is built at the first search."
+        )
     code = [e for e in summary["refs"] if e["runs_code"] and e["root_kind"] != "builtin"]
     if code:
         refs = ", ".join(f"{e['ref']} ({e['root_kind']})" for e in code)

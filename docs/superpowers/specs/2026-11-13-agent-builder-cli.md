@@ -18,7 +18,7 @@ must not travel through argv.
   `--stack-for` template (`stackfor.render`, extracted; `--stack-for` output is byte-identical,
   golden-tested), MCP grants added with `mcpgrant.change`, then `agent.lock`.
 - `stackfor._agent_entry` stays the single #909 identity seam.
-- Knowledge is refused (`SPEC_UNSUPPORTED`) until a knowledge combination has been run (after M14).
+- Knowledge was refused (`SPEC_UNSUPPORTED`) until #989: the CLI now takes one pinned `knowledge/` version (`docs/commands/new.md`), unverified until a generated knowledge project has run end to end; the console builder still refuses it.
 - Unverified combinations are reported (`combination.verified: false`), not refused; the console
   enables only verified ones. Today only gemini + prompt + evals is verified (`agentspec.VERIFIED`).
 - Picked versions are not re-published into the new registry; they must resolve over the roots the

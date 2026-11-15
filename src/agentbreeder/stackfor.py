@@ -64,7 +64,7 @@ schema_version: 1
 name: {name}
 services:
   postgres:
-    ref: service/postgres-pgvector@1.1.0
+    ref: {postgres}
     with: {{databases: [app, litellm]}}
   litellm:
     ref: service/litellm@1.0.0
@@ -86,6 +86,12 @@ LITELLM_MODEL = """\
   - model_name: {alias}
     litellm_params: {{model: {model}, api_key: os.environ/{key}}}
 """
+# A knowledge version's embedding alias (`--from-spec`): the version's own alias and dimensions.
+LITELLM_EMBEDDING = """\
+  - model_name: {alias}
+    litellm_params: {{model: {model}, api_key: os.environ/{key}, dimensions: {dimensions}}}
+"""
+POSTGRES = "service/postgres-pgvector@1.1.0"
 LITELLM_TAIL = """\
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
@@ -354,14 +360,19 @@ def render(
     written_by: str = "--stack-for agent.yaml",
     mcp: dict[str, str] | None = None,
     keys: tuple[str, ...] = (),
+    embedding: tuple[str, str, int] | None = None,
+    postgres: str = POSTGRES,
 ) -> dict[str, str]:
     """`stack.yaml` and the gateway config for a checked NAME, provider, model id and aliases
     (also used by `--from-spec`, `agentspec`). `mcp`: server name -> checked `mcp/` ref, added
     as the stack's `mcp:` block (no grants; those are added with `mcpgrant`); `keys`: the keys
-    its servers import, named in the header. `written_by` is a fixed string from the caller,
-    never user text."""
+    its servers import, named in the header; `embedding`: a checked (alias, LiteLLM model,
+    dimensions) for a knowledge version, served with the provider's key; `postgres`: the
+    Postgres service ref. `written_by` and `postgres` are fixed strings from the caller, never
+    user text."""
     provider = PROVIDERS[model]
     quoted = [json.dumps(alias) for alias in aliases]
+    models = quoted + ([json.dumps(embedding[0])] if embedding else [])
     mcp_block = ""
     if mcp:
         mcp_block = "mcp:\n" + "".join(
@@ -374,7 +385,8 @@ def render(
         today=today.isoformat(),
         written_by=written_by,
         keys=" and ".join(f"{key}=..." for key in (provider.key, *keys)),
-        models=", ".join(quoted),
+        models=", ".join(models),
+        postgres=postgres,
         mcp_block=mcp_block,
         agent_entry=_agent_entry(name, review_by),
     )
@@ -385,6 +397,16 @@ def render(
                 alias=alias, model=newagent.model_yaml(model_id), key=provider.key
             )
             for alias in quoted
+        )
+        + (
+            LITELLM_EMBEDDING.format(
+                alias=json.dumps(embedding[0]),
+                model=newagent.model_yaml(embedding[1]),
+                key=provider.key,
+                dimensions=int(embedding[2]),
+            )
+            if embedding
+            else ""
         )
         + LITELLM_TAIL
     )
