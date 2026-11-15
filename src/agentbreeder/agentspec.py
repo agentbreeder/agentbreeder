@@ -36,7 +36,8 @@ at most 256 KiB of UTF-8 JSON without duplicate keys or non-finite numbers. Its 
 echoed in errors.
 
 `verified` in the summary is true only for a combination that has been run end to end
-(`VERIFIED`); the CLI writes unverified ones too, and the console enables only verified ones.
+(`VERIFIED`); the CLI writes unverified ones too, and the console enables only verified ones
+(it refuses knowledge on its own, whatever `VERIFIED` says).
 """
 
 from __future__ import annotations
@@ -80,8 +81,9 @@ MCP_TOOL = r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$"  # services.schema.MCP_TOOL
 # Combinations run end to end with this command (services up, release, invoke), as the sorted
 # names of the parts the spec uses beyond the model, prompt and evals every spec has. A provider
 # must also be verified (`PROVIDERS`).
-# Knowledge is not in it until a generated knowledge project has run end to end (#989).
-VERIFIED: frozenset[tuple[str, ...]] = frozenset({()})
+# One knowledge version alone was run end to end with gemini (#833); knowledge with tools or MCP
+# was not, so those combinations stay unverified.
+VERIFIED: frozenset[tuple[str, ...]] = frozenset({(), ("knowledge",)})
 STACK_SERVICES = frozenset({"postgres", "litellm"})  # services the generated stack has
 # A provider's embedding model in the pinned LiteLLM 1.106.2 model map and its largest output
 # (`output_vector_size`). anthropic and openrouter have none there.
