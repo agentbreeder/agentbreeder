@@ -24,7 +24,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from agentbreeder import redaction
+from agentbreeder import events, redaction
 from agentbreeder.center.files import BadRequest, write_private
 
 __all__ = [
@@ -482,6 +482,7 @@ class Running:
     seen_output: float | None = None  # when the first line arrived
     cancel_requested: float | None = None  # when Cancel was asked
     signalled: bool = False
+    shutdown: bool = False  # signalled by the console stopping
 
 
 def process_start(pid: int) -> str | None:
@@ -740,6 +741,7 @@ class Runner:
         pump = threading.Thread(
             target=self._pump,
             args=(identifier, process, env_file, list((keys or {}).values()), on_success),
+            kwargs={"kind": kind, "path": project["path"]},
             daemon=True,
         )
         with self.mutex:
@@ -758,13 +760,18 @@ class Runner:
             stream.writelines(f"{name}={_dotenv_quote(value)}\n" for name, value in keys.items())
         return path
 
-    def _pump(self, identifier, process, env_file, values, on_success) -> None:
+    def _pump(
+        self, identifier, process, env_file, values, on_success, kind=None, path=None
+    ) -> None:
         seq = 0
         code = None
         unrecorded = False
+        last = ""  # the last non-blank line: the CLI prints its `[CODE] message` error last
         try:
             for line in process.stdout:  # always drained, so the child never blocks on a pipe
                 seq += 1
+                if line.strip():
+                    last = line.strip()[:MAX_LINE]
                 if seq == 1:
                     self._first_output(identifier)
                 if unrecorded or seq > MAX_LINES:
@@ -798,8 +805,26 @@ class Runner:
                     pass  # removed at the next start (S-16); the locks must still be freed
             self.invalidate()
             with self.mutex:
-                self.jobs.pop(identifier, None)
-                self._free(identifier)
+                job = self.jobs.get(identifier)
+                # Cancel, or the console stopping (shutdown marks the jobs it signals): what
+                # stopped it was asked for. A job that ended before shutdown began is not
+                # marked; one that ended waiting for approval or at its eval gate keeps
+                # that outcome (no event, or `release`'s own `gate_failed`).
+                asked = bool(job and (job.cancel_requested is not None or job.shutdown))
+                cancelled = (
+                    asked
+                    and code != EXIT_APPROVAL
+                    and not (kind in ("release", "promote") and code == 5)
+                )
+            # Stored while the job is still listed as running, so whoever sees it end also
+            # finds its event.
+            try:
+                if code not in (0, EXIT_APPROVAL) and kind is not None and path is not None:
+                    self._record_failure(kind, path, code, last, cancelled)
+            finally:  # the locks are freed whatever happens
+                with self.mutex:
+                    self.jobs.pop(identifier, None)
+                    self._free(identifier)
         # The exit code decides: a job that finished (0) despite its log failing did its work
         # (services up, a release); one stopped because of it exits non-zero and is failed.
         state = (
@@ -813,6 +838,32 @@ class Runner:
                 time.sleep(0.2)  # a second failure leaves it to the next start (interrupted)
         if state == "succeeded" and on_success:
             on_success()
+
+    def _record_failure(
+        self, kind: str, path: str, code: int | None, last: str, cancelled: bool
+    ) -> None:
+        """Store a `job_failed` event (#827, `agentbreeder events`) in the console directory's
+        `events.sqlite3`: the job's kind, its exit code and, from the output's last line only
+        when it is the CLI's own `[CODE] message`, the code alone; never any other text. A job
+        the eval gate stopped (exit 5 of a release) is not one: `release` stores `gate_failed`.
+        Never raises: a store that cannot be opened loses the event, not the job's end."""
+        try:
+            event = events.job_failed(
+                kind,
+                events.project_dir(Path(path)),
+                code,
+                last if CODED.match(last) else None,
+                cancelled=cancelled,
+            )
+            if event is None:
+                return
+            store = events.EventStore.open(self.directory)
+        except Exception:  # noqa: BLE001 - the event is best effort
+            return
+        try:
+            events.record(event, store)
+        finally:
+            store.close()
 
     def cancel(self, identifier: str) -> bool:
         """One SIGINT to the CLI child only: `release` and `promote` finish any replace step and
@@ -1092,6 +1143,7 @@ class Runner:
             interrupt = [job.process for job in jobs if not job.signalled] + live
             for job in jobs:
                 job.signalled = True
+                job.shutdown = True
         for process in interrupt:
             _signal(process, signal.SIGINT)
         try:

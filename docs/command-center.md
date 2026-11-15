@@ -788,9 +788,9 @@ In the viewer:
   `POD_NOT_RUNNING`); and `LOG_UNAVAILABLE`, when Kubernetes no longer has the container's log.
   An address that names no service or deployment says so.
 
-Follow, with Pause and "Jump to latest", is the second part, below. **Not yet**: `watch` per
-project, and the M5 console verification (both deployments, local and kind, and the leak scan of
-API output).
+Follow, with Pause and "Jump to latest", is the second part, and container events from `watch`
+the third, below. **Not yet**: the M5 console verification (both deployments, local and kind, and
+the leak scan of API output).
 
 Tested with Playwright against a fake CLI (10,000 lines windowed, the level and text filters,
 search, wrap, copy, the coded empty states, a deployment's Previous container) with axe in light
@@ -1266,6 +1266,51 @@ with `node --test` for the wording and sparkline shapes. The M6 acceptance with 
 real Docker (its 5 services with usage updating within 10 seconds, the blocker within 15 s,
 `services restart litellm` restarting only that container) is batched with the milestone
 verifications and recorded in `docs/superpowers/verification/M6.md` once it has run.
+
+### Container events and failed jobs (#821, third part): on `main`, not in a published preview
+
+`GET /api/projects/ID/watch` returns `{running, status, events, held, dropped}`. The first
+request starts one `agentbreeder watch --stack PROJECT --json --record` child for that project
+(see [`commands/watch.md`](commands/watch.md)); later requests read what it has printed. It uses
+the usage feed's plumbing and limits: stopped about 15 seconds after the last request (a poll, it
+does not keep a session alive) and when the console stops, a failed child's coded error kept for
+10 seconds before a restart, one child per project, counted in the 16 long-lived children.
+
+- `status` is the latest status record (every 60 seconds: each service's compose state and
+  health, each deployment's state, a pod check for a ready kind deployment). `events` are the
+  newest 50 `died`, `unhealthy` and `restarted` events, newest first, each with an `id` that only
+  grows. Both are kept in memory only and outlive an idle stop.
+- Only the contract's fields pass, each checked (service names, deployment IDs, agent names,
+  state words, pod reasons, exit codes); a line that does not match is counted in `dropped`.
+- A `restarted` that arrives while a Start services job of the same project runs is not shown
+  (counted in `held`): the CLI cannot see the console's jobs. This is best effort: it is checked
+  when the line is read, so a restart read just after the job ended still shows.
+- `--record` makes the CLI store `died` and `unhealthy` for `agentbreeder events`; the console
+  stores nothing of its own from the child.
+
+On **Home**, under each project's rows in the Services table, **Container events** lists the
+newest five, each with its time and words for what happened ("postgres exited by itself (exit
+0)", "became unhealthy", "started again"; colour is never the only cue), or "None since this
+console started watching", and when status was last checked. It is asked for every 5 seconds
+while one of the project's services is up and the page is visible. A new event reads the
+project's status again, so the chips follow. A stop, a release, a remove or Stop services is not
+an event.
+
+**Failed jobs are stored as events.** When a job fails or is cancelled (Cancel, or the console
+stopping), the job runner stores a `job_failed` event in the console directory's
+`events.sqlite3` (see [`events.md`](events.md)): the job kind, its exit code, whether it was
+cancelled, and the error code of its last output line only when that line is the CLI's own
+`[CODE] message` (a job's output merges stdout and stderr, and the CLI prints its error last). No other text of the output is stored there. A job waiting for approval (exit 3)
+and a release stopped by its eval gate (exit 5, which `release` stores as `gate_failed`) are not
+events. A store that cannot be opened loses the event, never the job's result. Showing the stored
+events in the console (the bell and its panel) is M11's console half.
+
+Tested on the server with a fake CLI (argv, the contract check against the CLI's own records,
+newest-first ids and the cap, held restarts, the idle stop, a failed child's coded error with no
+free stderr, the shared cap, the stored `job_failed` fields for coded, uncoded, cancelled,
+approval and gate exits, with a planted value never stored), with Playwright against a fake CLI
+(events on Home, a new event re-reading status, a failed watch, axe in light and dark), and with
+`node --test` for the wording. Not yet run against real services: that is the M5 acceptance.
 
 ## How it stays the same engine
 

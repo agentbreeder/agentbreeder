@@ -507,6 +507,42 @@ def real(argv: list[str]) -> int:
     return cli.main(argv)
 
 
+def watch(argv: list[str], data: dict) -> int:
+    """`watch --stack DIR --json --record` (#821): a status record, then the scenario's events
+    one every `every` seconds (default 0.5), then waits for stdin to end and prints the end record.
+    Scenario key `watch` = {"error": "[CODE] message" (fail at once), "events": the event records'
+    fields, "every": seconds}. Each start's argv is appended to `watch-argv`."""
+    settings = data.get("watch") or {}
+    with open(Path(os.environ.get("AGENTBREEDER_FAKE_DIR", "")) / "watch-argv", "a") as log:
+        log.write(json.dumps(argv) + "\n")
+    if settings.get("error"):
+        print(settings["error"], file=sys.stderr)
+        return 2
+    done = threading.Event()
+
+    def watch_stdin() -> None:
+        sys.stdin.read()
+        done.set()
+
+    threading.Thread(target=watch_stdin, daemon=True).start()
+    services = [
+        {"name": name, "state": info.get("state") or None, "health": info.get("health") or None}
+        for name, info in sorted(data["services"].items())
+    ]
+    try:
+        status = {"event": "status", "time": _now(), "services": services, "deployments": []}
+        print(json.dumps({"schema_version": 1, **status}), flush=True)
+        for event in settings.get("events") or []:
+            if done.wait(settings.get("every", 0.5)):
+                break
+            print(json.dumps({"schema_version": 1, "time": _now(), **event}), flush=True)
+        done.wait()
+        print(json.dumps({"schema_version": 1, "event": "end", "reason": "stdin", "dropped": 0}))
+    except BrokenPipeError:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), 1)
+    return 0
+
+
 def used_by(argv: list[str], data: dict) -> int:
     """`registry used-by`: the real declared and locked parts (`registry.usage`); deployed is
     the scenario's `used_by_deployed` for every project that declares or locks the ref."""
@@ -661,6 +697,8 @@ def main(argv: list[str]) -> int:
         return job("services-down", data)
     elif head == ["services", "usage"]:
         return usage(argv, scenario())
+    elif argv and argv[0] == "watch":
+        return watch(argv, scenario())
     elif head in (["services", "start"], ["services", "stop"], ["services", "restart"]):
         return service_control(argv, data)
     elif head in (["registry", "show"], ["registry", "diff"]):

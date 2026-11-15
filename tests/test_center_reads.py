@@ -66,6 +66,12 @@ ALLOWED = {
     # Usage feeds (#822): the follow child's answer checks and the in-memory ring; imports only
     # center.jobs.
     "agentbreeder.center.usage",
+    # Container events (#821): the `watch` child's answer checks, the in-memory events; imports
+    # only center.jobs and center.usage.
+    "agentbreeder.center.watch",
+    # `job_failed` events from the job runner (#827): stored fields only; imports only safe_text.
+    "agentbreeder.events",
+    "agentbreeder.safe_text",
     # Log follows (#821): the follow records' checks and the in-memory ring; imports only
     # center.jobs.
     "agentbreeder.center.logfollow",

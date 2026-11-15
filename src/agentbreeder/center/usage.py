@@ -160,11 +160,9 @@ def parse(line: str) -> dict | None:
 
 
 @dataclass
-class Feed:
-    """One project's usage child and what it has printed."""
+class Child:
+    """One project's long-lived child (usage here, `watch` in `center.watch`) and its state."""
 
-    samples: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))  # (at, sample)
-    disk: dict | None = None
     follow: Follow | None = None
     polled: float = 0.0
     ended: float | None = None  # when the last child failed, or was refused, to run
@@ -180,23 +178,58 @@ class Feed:
         return self.starting or (self.follow is not None and self.follow.pump.is_alive())
 
 
-class Usage:
-    """Every project's usage feed. `read` is the route; a reaper thread stops idle children."""
+@dataclass
+class Feed(Child):
+    """One project's usage child and what it has printed."""
+
+    samples: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))  # (at, sample)
+    disk: dict | None = None
+
+
+class Feeds:
+    """One long-lived CLI child per project, started by a poll of its route and stopped
+    IDLE_AFTER seconds after the last one; a reaper thread stops idle children. Subclasses name
+    the argv, parse the lines and shape the answer (`Usage` here, `center.watch.Watch`)."""
+
+    what = "command"  # in "The ... command could not start"
+    max_line = MAX_LINE  # a longer stdout line is dropped whole
 
     def __init__(self, runner: Runner, clock: Callable[[], float] = time.monotonic):
         self.runner = runner
         self.clock = clock
         self.mutex = threading.Lock()
-        self.feeds: dict[str, Feed] = {}
+        self.feeds: dict[str, Child] = {}
         self.reaper: threading.Thread | None = None
 
+    # -- what a subclass provides ----------------------------------------------------------------
+
+    def new_feed(self, project: dict) -> Child:
+        raise NotImplementedError
+
+    def argv(self, project: dict) -> list[str]:
+        raise NotImplementedError
+
+    def on_line(self, feed: Child, line: str) -> None:
+        raise NotImplementedError
+
+    def data(self, feed: Child, now: float) -> dict:
+        """The answer's data (called with the mutex held)."""
+        raise NotImplementedError
+
+    def _trim(self, feed: Child, now: float) -> None:
+        """Drop what is too old (called with the mutex held)."""
+
+    # -- the generic part ------------------------------------------------------------------------
+
     def read(self, project: dict) -> dict:
-        """The project's ring and latest disk reading (an envelope). Starts its child when none
-        runs, unless one ended less than RESTART_AFTER seconds ago."""
+        """The project's feed (an envelope). Starts its child when none runs, unless one ended
+        less than RESTART_AFTER seconds ago."""
         now = self.clock()
         token = None
         with self.mutex:
-            feed = self.feeds.setdefault(project["id"], Feed())
+            feed = self.feeds.get(project["id"])
+            if feed is None:
+                feed = self.feeds[project["id"]] = self.new_feed(project)
             feed.polled = now
             if not feed.running() and (feed.ended is None or now - feed.ended >= RESTART_AFTER):
                 token = feed.token = object()
@@ -206,30 +239,23 @@ class Usage:
             self._start(project, feed, token)
         with self.mutex:
             self._trim(feed, now)
-            data = {
-                "running": feed.running(),
-                "window": RING_SECONDS,
-                "samples": [sample for _at, sample in feed.samples],
-                "disk": feed.disk,
-                "dropped": feed.dropped,
-            }
+            data = {"running": feed.running(), **self.data(feed, now), "dropped": feed.dropped}
             problem = None if data["running"] else feed.problem
         return {"data": data, "error": problem, "stale": problem is not None}
 
-    def _start(self, project: dict, feed: Feed, token: object) -> None:
+    def _start(self, project: dict, feed: Child, token: object) -> None:
         """Start the child (without the mutex). A refusal is kept as the feed's error."""
-        argv = ["services", "usage", project["path"], "--follow", "--json"]
         try:
             follow = self.runner.follow(
-                argv,
-                on_line=lambda line: self._line(feed, line),
+                self.argv(project),
+                on_line=lambda line: self.on_line(feed, line),
                 on_end=lambda follow: self._ended(feed, token, follow),
-                max_line=MAX_LINE,
+                max_line=self.max_line,
             )
         except FollowRefused as refused:
             problem = error(refused.code, refused.message)
         except Exception:  # never leave the feed "starting" for good
-            problem = error("COMMAND_FAILED", "The usage command could not start")
+            problem = error("COMMAND_FAILED", f"The {self.what} command could not start")
         else:
             problem = None
         if problem is not None:
@@ -240,21 +266,7 @@ class Usage:
         with self.mutex:
             feed.starting, feed.follow = False, follow
 
-    def _line(self, feed: Feed, line: str) -> None:
-        record = parse(line)
-        with self.mutex:
-            if record is None:
-                feed.dropped += 1
-            elif record["event"] == "error":
-                pass
-            elif record["event"] == "sample":
-                del record["event"]
-                feed.samples.append((self.clock(), record))
-            elif record["event"] == "disk":
-                del record["event"]
-                feed.disk = record
-
-    def _ended(self, feed: Feed, token: object, follow: Follow) -> None:
+    def _ended(self, feed: Child, token: object, follow: Follow) -> None:
         """A child exited. Stopped as idle, the next poll starts a new one at once; otherwise
         (Docker went away, the stack is gone) its coded error is shown and kept for
         RESTART_AFTER seconds, so a failing child is not restarted on every poll."""
@@ -266,10 +278,6 @@ class Usage:
                 feed.ended, feed.problem = None, None
             else:
                 feed.ended, feed.problem = self.clock(), problem
-
-    def _trim(self, feed: Feed, now: float) -> None:
-        while feed.samples and now - feed.samples[0][0] > RING_SECONDS:
-            feed.samples.popleft()
 
     def _ensure_reaper(self) -> None:
         if self.reaper is None or not self.reaper.is_alive():
@@ -294,3 +302,40 @@ class Usage:
                     return
             for follow in idle:
                 self.runner.end_follow(follow)
+
+
+class Usage(Feeds):
+    """Every project's usage feed: the five-minute ring and the latest disk reading."""
+
+    what = "usage"
+
+    def new_feed(self, project: dict) -> Feed:
+        return Feed()
+
+    def argv(self, project: dict) -> list[str]:
+        return ["services", "usage", project["path"], "--follow", "--json"]
+
+    def on_line(self, feed: Feed, line: str) -> None:
+        record = parse(line)
+        with self.mutex:
+            if record is None:
+                feed.dropped += 1
+            elif record["event"] == "error":
+                pass
+            elif record["event"] == "sample":
+                del record["event"]
+                feed.samples.append((self.clock(), record))
+            elif record["event"] == "disk":
+                del record["event"]
+                feed.disk = record
+
+    def data(self, feed: Feed, now: float) -> dict:
+        return {
+            "window": RING_SECONDS,
+            "samples": [sample for _at, sample in feed.samples],
+            "disk": feed.disk,
+        }
+
+    def _trim(self, feed: Feed, now: float) -> None:
+        while feed.samples and now - feed.samples[0][0] > RING_SECONDS:
+            feed.samples.popleft()

@@ -52,6 +52,7 @@ from agentbreeder.center import (
 from agentbreeder.center import evals as eval_reads
 from agentbreeder.center import traces as trace_lists
 from agentbreeder.center import usage as usage_feeds
+from agentbreeder.center import watch as watch_feeds
 from agentbreeder.center.files import (
     BadRequest,
     check_ancestors,
@@ -203,6 +204,7 @@ class Center:
         self.knowledge_reads = threading.BoundedSemaphore(MAX_KNOWLEDGE_IN_FLIGHT)
         self.usage = usage_feeds.Usage(self.runner)  # one `services usage --follow` per project
         self.log_follows = logfollow.LogFollows(self.runner)  # M5: a tab's `logs --follow`
+        self.watch = watch_feeds.Watch(self.runner)  # one `watch --record` per project (#821)
 
     @property
     def origin(self) -> str:
@@ -1241,6 +1243,13 @@ def _usage(request: Request) -> dict:
     return request.center.usage.read(request.project())
 
 
+def _watch(request: Request) -> dict:
+    """The project's container events and latest status (M5 #821): starts its `watch --stack DIR
+    --json --record` child on the first poll; the child stops IDLE_AFTER seconds after the last
+    one. `--record` stores `died` and `unhealthy` for `agentbreeder events`."""
+    return request.center.watch.read(request.project())
+
+
 def _docker(request: Request) -> dict:
     return request.center.docker(fresh=request.query.get("fresh") == ["1"])
 
@@ -1505,6 +1514,13 @@ ROUTES: tuple[Route, ...] = (
         rf"/api/projects/{PROJECT_ID}/usage",
         _usage,
         "/api/projects/0123456789ab/usage",
+        poll=True,
+    ),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/watch",
+        _watch,
+        "/api/projects/0123456789ab/watch",
         poll=True,
     ),
     Route(

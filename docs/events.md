@@ -14,7 +14,7 @@ AgentBreeder reports two kinds of things that need attention:
 
 | Kind | Written by | Fields |
 |---|---|---|
-| `job_failed` | the console, when a job fails or is cancelled (not wired yet) | job kind, exit code, the CLI's error code |
+| `job_failed` | the console, when a job fails or is cancelled | job kind, exit code, the CLI's error code |
 | `gate_failed` | `release`, when the eval gate fails (exit 5) | agent, passed/total, failed case ids, report path |
 | `container_died` | `watch --record`, when a container exits by itself | service or agent, exit code, out of memory |
 | `container_unhealthy` | `watch --record`, when a health check starts failing | service or agent |
@@ -102,9 +102,15 @@ also printed as `{"schema_version": 1, "error": {"code", "message"}}`.
 
 `watch --stack DIR --record` also stores the `died` and `unhealthy` events it prints. It fails
 with `EVENTS_UNSAFE` or `EVENTS_UNREADABLE` when the store cannot be opened. `release` stores
-`gate_failed` itself, whether it was run from a terminal or by the console. For the console's job
-runner, `agentbreeder.events.job_failed` builds a `job_failed` event, but the console does not
-call it yet. A job waiting for approval (exit 3) is not an event,
+`gate_failed` itself, whether it was run from a terminal or by the console. The console's job
+runner stores a `job_failed` event when a job fails or is cancelled (Cancel, or the console
+stopping), in the console directory's store: the job kind, the exit code, and the error code of
+the job's last output line when that line is the CLI's own `[CODE] message` (nothing else of
+the output). While Home is open and one of a project's services is up, the console runs
+`watch --record` for that project, so container events are stored then too; with no services up
+or Home closed, nothing is watched. Both are on `main`, not in a published preview.
+
+A job waiting for approval (exit 3) is not an event,
 and neither is a release the gate stopped (exit 5), which is stored as `gate_failed`. Storing an
 event never fails the command that stores it.
 
