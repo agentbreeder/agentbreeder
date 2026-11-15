@@ -359,6 +359,7 @@ def _span(row: dict, show: Shown) -> dict | None:
     model = show(attributes.get("llm.model_name")) or show(attributes.get("gen_ai.request.model"))
     prompt = _count(attributes.get("llm.token_count.prompt"))
     completion = _count(attributes.get("llm.token_count.completion"))
+    fields = {f for f, n in (("prompt", prompt), ("completion", completion)) if n is not None}
     error = None
     if status == "error":
         error = show(row.get("status_message"), ERROR_TEXT) or show(
@@ -380,10 +381,42 @@ def _span(row: dict, show: Shown) -> dict | None:
         else {"prompt": prompt or 0, "completion": completion or 0},
         "tool": show(attributes.get("tool.name")) if kind == "TOOL" else None,
         "error": error,
+        "tokens_counted": None,
+        "_fields": fields,
+        "_counted": set(),
         "_end": end,
         "_start": start,
         "_attributes": attributes,
     }
+
+
+def _count_tokens_once(parsed: list[dict]) -> None:
+    """Set each span's `_counted` (the token fields, prompt and completion, that go into the
+    trace's total) and `tokens_counted` (True when all of its counts do, False when a span under
+    it carries one of the same fields, None without counts). One model call can carry its counts
+    on nested spans: ADK's `call_llm` CHAIN span and its `generate_content` LLM child both do
+    (#1009), so a field is counted on the innermost span that has it. The walk up is bounded by
+    the span count; a walk that comes back to its own span (a parent cycle, untrusted data)
+    covers nothing, so a cycle's spans are each counted rather than all dropped."""
+    by_id = {s["span_id"]: s for s in parsed}
+    covered: dict[str, set[str]] = {}  # span id -> fields carried by a span under it
+    for span in parsed:
+        if not span["_fields"]:
+            continue
+        path, at = [], span["parent_id"]
+        for _ in range(len(parsed)):
+            if at is None or at not in by_id or at == span["span_id"]:
+                break
+            path.append(at)
+            at = by_id[at]["parent_id"]
+        if at == span["span_id"]:
+            continue  # its ancestors loop back to it: a cycle
+        for ancestor in path:
+            covered.setdefault(ancestor, set()).update(span["_fields"])
+    for span in parsed:
+        if span["_fields"]:
+            span["_counted"] = span["_fields"] - covered.get(span["span_id"], set())
+            span["tokens_counted"] = span["_counted"] == span["_fields"]
 
 
 def summarize(
@@ -403,13 +436,22 @@ def summarize(
     ids = {s["span_id"] for s in parsed}
     roots = [s for s in parsed if s["parent_id"] is None or s["parent_id"] not in ids]
     root = next((s for s in roots if s["parent_id"] is None), roots[0] if roots else parsed[0])
+    _count_tokens_once(parsed)
     attributes = root["_attributes"]
     starts = [s["_start"] for s in parsed if s["_start"]]
     ends = [s["_end"] for s in parsed if s["_end"]]
     start, end = (min(starts) if starts else None), (max(ends) if ends else None)
     marked = attributes.get(ATTRIBUTE)
-    prompt = sum(s["tokens"]["prompt"] for s in parsed if s["tokens"])
-    completion = sum(s["tokens"]["completion"] for s in parsed if s["tokens"])
+    truncated = partial or len(rows) > MAX_SPANS
+    # No span without a parent: Phoenix has some of the trace's spans but not its root yet (the
+    # root ends last, so it is exported last), #1010. Not when spans were cut (the root may be
+    # among them), nor when the first orphan carries the deployment ID (it is the turn's root,
+    # with a parent outside the trace, e.g. a propagated traceparent).
+    incomplete = (
+        not truncated and all(s["parent_id"] is not None for s in parsed) and not _hex32(marked)
+    )
+    prompt = sum(s["tokens"]["prompt"] for s in parsed if "prompt" in s["_counted"])
+    completion = sum(s["tokens"]["completion"] for s in parsed if "completion" in s["_counted"])
     models: list[str] = []
     for s in parsed:
         if s["model"] and s["model"] not in models:
@@ -439,7 +481,8 @@ def summarize(
             if s["kind"] == "TOOL"
         ],
         "spans": spans,
-        "spans_truncated": partial or len(rows) > MAX_SPANS,
+        "spans_truncated": truncated,
+        "incomplete": incomplete,
     }
 
 
@@ -576,8 +619,18 @@ def for_deployment(
         if marked is not None and marked != deployment["id"]:
             continue  # another deployment's trace, in the same project and window
         trace["deployment_id"] = deployment["id"]
-        trace["attribution"] = "exact" if marked else "window"
-        window |= not marked
+        if marked:
+            trace["attribution"] = "exact"
+        elif trace["incomplete"]:
+            # Its root, which carries the ID when the runtime records it, is not in yet: which
+            # deployment ran it is not known until it is (#1010). It is listed because it is in
+            # this deployment's project and window (`deployment_id` is the one asked for), and
+            # like a window-matched trace it may be an overlapping deployment's.
+            trace["attribution"] = None
+            window = True
+        else:
+            trace["attribution"] = "window"
+            window = True
         report.truncated |= trace["spans_truncated"]
         report.traces.append(trace)
         added += 1
@@ -609,7 +662,7 @@ def one_trace(
         if trace is None:
             continue
         report.truncated |= trace["spans_truncated"]
-        if trace["deployment_id"] is None:
+        if trace["deployment_id"] is None and not trace["incomplete"]:  # #1010: root not in yet
             moment = _when(trace["start_time"])
             matches = [
                 d["id"]

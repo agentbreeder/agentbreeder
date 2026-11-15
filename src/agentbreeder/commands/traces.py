@@ -80,6 +80,14 @@ def run(args) -> int:
         _print(report, bool(args.trace))
     for note in report.notes:
         print(f"NOTE: {note}", file=sys.stderr)
+    arriving = sum(1 for trace in report.traces if trace.get("incomplete"))
+    if arriving and not args.json and not args.trace:  # --trace says so in its tree
+        print(
+            f"NOTE: {arriving} trace{' is' if arriving == 1 else 's are'} still arriving: Phoenix "
+            "does not have the root span yet, so the spans, tokens and deployment are partial; "
+            "read again in a few seconds",
+            file=sys.stderr,
+        )
     if report.overlapping:
         print(
             "WARNING: window-attributed or unattributed traces may belong to any of these "
@@ -213,6 +221,7 @@ def _line(trace: dict) -> str:
             f"tokens {tokens['prompt']}/{tokens['completion']}",
             ", ".join(trace["models"]) or "-",
             f"tools: {tools}" if tools else "",
+            "(still arriving)" if trace.get("incomplete") else "",
         )
         if part
     )
@@ -245,7 +254,10 @@ def _tree_line(span: dict, depth: int) -> str:
     if span["model"]:
         detail.append(span["model"])
     if span["tokens"]:
-        detail.append(f"{span['tokens']['prompt']}/{span['tokens']['completion']} tokens")
+        counts = f"{span['tokens']['prompt']}/{span['tokens']['completion']} tokens"
+        if span.get("tokens_counted") is False:  # the same call's counts, on a span under it
+            counts += ", counted in a span under it"
+        detail.append(counts)
     text = f"{'  ' * depth}{span['name']} [{', '.join(detail)}] {_ms(span['latency_ms'])}"
     if span["status"] == "error":
         text += " ERROR" + (f": {span['error']}" if span["error"] else "")
@@ -261,7 +273,15 @@ def _print(report: phoenix_traces.Report, tree: bool) -> None:
     for trace in report.traces:
         if not tree and trace["deployment_id"] != current:
             current = trace["deployment_id"]
-            how = f" ({trace['attribution']})" if trace["attribution"] else ""
+            # A trace still arriving has no attribution yet; the others of the deployment do.
+            how = next(
+                (
+                    f" ({other['attribution']})"
+                    for other in report.traces
+                    if other["deployment_id"] == current and other["attribution"]
+                ),
+                "",
+            )
             print(f"Deployment {current or '(unknown)'}{how}, project {trace['project']}:")
         print(("" if tree else "  ") + _line(trace))
         if tree:
@@ -270,6 +290,11 @@ def _print(report: phoenix_traces.Report, tree: bool) -> None:
                 + (f" ({trace['attribution']})" if trace["attribution"] else "")
                 + f", session {trace['session_id'] or '-'}, turn {trace['turn_id'] or '-'}"
             )
+            if trace.get("incomplete"):
+                print(
+                    "  still arriving: Phoenix does not have this trace's root span yet, so the "
+                    "spans, tokens and deployment are partial; read it again in a few seconds"
+                )
             for line in _tree(trace):
                 print(line)
             if trace["spans_truncated"]:

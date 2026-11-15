@@ -185,11 +185,11 @@ def test_only_allow_listed_fields_reach_the_browser(center, project, cookie, tmp
     assert "57340" not in text and "s-1" not in text and "turn-1" not in text
     assert set(data["data"]) == {
         "trace_id", "deployment_id", "attribution", "latency_ms", "status", "models", "tokens",
-        "tool_calls", "spans", "truncated", "notes",
+        "tool_calls", "spans", "truncated", "notes", "incomplete",
     }  # fmt: skip
     assert set(data["data"]["spans"][0]) == {
         "span_id", "parent_id", "name", "kind", "status", "latency_ms", "model", "tokens", "tool",
-        "error",
+        "error", "tokens_counted",
     }  # fmt: skip
 
 
@@ -315,3 +315,39 @@ def test_trace_reads_are_bounded(center, project, cookie, tmp_path):  # noqa: F8
             center.traces.release()
     status, data, _ = read(center, project, cookie)
     assert status == 200 and data["error"] is None
+
+
+def test_counted_tokens_and_a_trace_still_arriving_pass_through():
+    """#1009: the trace total counts each model call once, and a span whose counts are also on a
+    span under it says so; #1010: a trace with no root span yet is marked, not attributed."""
+    llm = {"llm.token_count.prompt": 5, "llm.token_count.completion": 2}
+
+    def row(span_id, parent, name, kind, **attributes):
+        return {
+            "context": {"span_id": span_id}, "parent_id": parent, "name": name,
+            "span_kind": kind, "status_code": "OK", "start_time": "2026-11-14T03:10:33+00:00",
+            "end_time": "2026-11-14T03:10:34+00:00", "attributes": attributes,
+        }  # fmt: skip
+
+    rows = [
+        row("a" * 16, None, "agent_turn", "AGENT"),
+        row("b" * 16, "a" * 16, "call_llm", "CHAIN", **llm),
+        row("c" * 16, "b" * 16, "generate_content", "LLM", **llm),
+    ]
+    shown = phoenix_traces.Shown(lambda text: text)
+    summary = phoenix_traces.summarize(TRACE, "support", rows, shown)
+    trace, _ = tryit.trace_answer({"traces": [summary]}, TRACE)
+    assert trace["tokens"] == {"prompt": 5, "completion": 2, "total": 7}
+    assert [s["tokens_counted"] for s in trace["spans"]] == [None, False, True]
+    assert trace["incomplete"] is False
+    summary = phoenix_traces.summarize(TRACE, "support", rows[1:], shown)
+    trace, _ = tryit.trace_answer({"traces": [summary]}, TRACE)
+    assert trace["incomplete"] is True and trace["attribution"] is None
+    for bad in ("yes", 1, None):
+        found = dict(summary, incomplete=bad)
+        found["spans"] = [dict(summary["spans"][0], tokens_counted=bad)]
+        trace, _ = tryit.trace_answer({"traces": [found]}, TRACE)
+        assert trace["incomplete"] is False and trace["spans"][0]["tokens_counted"] is None
+    found = dict(summary, spans=[dict(summary["spans"][0], tokens=None, tokens_counted=True)])
+    trace, _ = tryit.trace_answer({"traces": [found]}, TRACE)
+    assert trace["spans"][0]["tokens_counted"] is None  # no counts, nothing counted

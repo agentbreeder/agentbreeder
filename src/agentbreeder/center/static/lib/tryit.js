@@ -214,7 +214,8 @@ export function spanFacts(span) {
   if (typeof span.model === "string" && span.model) parts.push(`model ${span.model}`);
   if (typeof span.tool === "string" && span.tool && span.tool !== span.name) parts.push(`tool ${span.tool}`);
   const tokens = spanTokensText(span.tokens);
-  if (tokens) parts.push(`${tokens} tokens`);
+  // #1009: a model call's counts can sit on nested spans; only the innermost is in the total.
+  if (tokens) parts.push(span.tokens_counted === false ? `${tokens} tokens, counted in a span under it` : `${tokens} tokens`);
   return parts.join(" · ");
 }
 
@@ -223,7 +224,7 @@ export function traceSummary(trace) {
   const spans = Array.isArray(trace.spans) ? trace.spans.length : 0;
   const parts = [trace.status === "error" ? "Error" : trace.status === "ok" ? "OK" : "Status unknown"];
   if (Number.isFinite(trace.latency_ms)) parts.push(latencyText(trace.latency_ms));
-  parts.push(`${spans} span${spans === 1 ? "" : "s"}${trace.truncated ? " (Phoenix had more; the rest are not shown)" : ""}`);
+  parts.push(`${spans} span${spans === 1 ? "" : "s"}${trace.incomplete ? " so far" : ""}${trace.truncated ? " (Phoenix had more; the rest are not shown)" : ""}`);
   const models = Array.isArray(trace.models) ? trace.models.filter((m) => typeof m === "string") : [];
   if (models.length) parts.push(`model${models.length === 1 ? "" : "s"} ${models.join(", ")}`);
   const total = count(trace.tokens && trace.tokens.total);
@@ -233,8 +234,14 @@ export function traceSummary(trace) {
   return parts.join(" · ");
 }
 
+/** The words for a trace Phoenix has only part of: its root span is not in yet (#1010). */
+export const ARRIVING_TEXT =
+  "Still arriving: Phoenix does not have this trace's root span yet, so its spans and tokens are partial and which deployment ran it is not known yet. Read it again in a few seconds.";
+
 /** Which deployment the trace was attributed to, in words. */
 export function attributionText(trace) {
+  // A trace with no root yet is never "matched by time": the root may carry the deployment.
+  if (trace.incomplete && trace.attribution !== "exact") return ARRIVING_TEXT;
   if (trace.attribution === "exact") return "Recorded by the agent's runtime for this deployment.";
   if (trace.attribution === "window") return "Matched by time: this runtime does not record its deployment on its traces.";
   return "Not attributed to a deployment.";

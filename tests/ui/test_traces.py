@@ -192,3 +192,46 @@ def test_the_traces_tab_has_no_serious_axe_findings(scheme_page, console):  # no
     expect(scheme_page.get_by_role("alert")).to_be_visible()
     found += blocking(scheme_page, "traces tab, failure")
     assert found == []
+
+
+NESTED_SPANS = [
+    {"span_id": "a" * 16, "parent_id": None, "name": "agent_turn", "kind": "AGENT",
+     "status": "unset", "latency_ms": 41, "model": None, "tokens": None, "tool": None,
+     "error": None},
+    {"span_id": "b" * 16, "parent_id": "a" * 16, "name": "call_llm", "kind": "CHAIN",
+     "status": "ok", "latency_ms": 30, "model": None,
+     "tokens": {"prompt": 1756, "completion": 104}, "tool": None, "error": None,
+     "tokens_counted": False},
+    {"span_id": "c" * 16, "parent_id": "b" * 16, "name": "generate_content", "kind": "LLM",
+     "status": "ok", "latency_ms": 20, "model": "gemini-2.5-flash",
+     "tokens": {"prompt": 1756, "completion": 104}, "tool": None, "error": None,
+     "tokens_counted": True},
+]  # fmt: skip
+
+
+def test_a_trace_still_arriving_says_so_and_reads_again(page, console):
+    """#1010: a trace read before its root span is in is not "matched by time"; #1009: a span
+    whose counts are also on the span under it says they are counted there."""
+    arriving = [{"trace_id": "ab" * 16, "attribution": None, "incomplete": True,
+                 "status": "ok", "spans": NESTED_SPANS[1:]}]  # fmt: skip
+    console.scenario(
+        deployments=ROWS, traces={"list": arriving, "arriving": 2, "spans": NESTED_SPANS}
+    )
+    open_traces(page, console)
+    expect(items(page)).to_have_count(1)
+    expect(items(page).first).to_contain_text("OK · 2 spans so far · still arriving")
+    expect(page.get_by_text("1 trace is still arriving")).to_be_visible()
+    expect(page.get_by_text("Matched by time")).to_have_count(0)
+    trace = items(page).first.locator("details.trace")
+    trace.locator("summary").click()
+    expect(trace.get_by_role("status")).to_have_text("Trace read: 2 spans so far, still arriving.")
+    expect(trace).to_contain_text("Still arriving: Phoenix does not have this trace's root span")
+    expect(trace).not_to_contain_text("does not record")
+    expect(trace).to_contain_text("1,756 in, 104 out tokens, counted in a span under it")
+    trace.get_by_role("button", name="Read again", exact=True).click()
+    expect(trace.get_by_role("status")).to_have_text("Trace read: 3 spans.")
+    expect(trace).to_contain_text("Recorded by the agent's runtime for this deployment.")
+    expect(trace.get_by_role("button", name="Read again", exact=True)).to_have_count(0)
+    assert [argv[1] for argv in wait_for_calls(page, console, 3)] == [
+        PRODUCTION_ID, "--trace", "--trace",
+    ]  # fmt: skip

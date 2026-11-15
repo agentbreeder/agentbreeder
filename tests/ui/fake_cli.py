@@ -10,6 +10,7 @@ state directory) before the console first reads them: the console caches reads b
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import io
 import json
 import os
@@ -153,11 +154,25 @@ TRACE_SPANS = [
 ]  # fmt: skip
 
 
+def _record(name: str, call) -> list:
+    """Append `call` to the JSON list in `name` and return the calls recorded before it. Children
+    run concurrently and the tests poll the file, so the read-modify-write holds a lock and the
+    new list replaces the file whole: a reader never sees it empty or half written, and no call is
+    lost (the console-ui flake of 2026-11-15, a JSONDecodeError in `calls`)."""
+    directory = Path(os.environ.get("AGENTBREEDER_FAKE_DIR", ""))
+    path = directory / name
+    with open(directory / f".{name}.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        recorded = json.loads(path.read_text()) if path.is_file() else []
+        partial = directory / f".{name}.{os.getpid()}"
+        partial.write_text(json.dumps([*recorded, call]))
+        os.replace(partial, path)
+    return recorded
+
+
 def invoke(argv: list[str], data: dict) -> int:
     message = sys.stdin.buffer.read().decode("utf-8")
-    calls = Path(os.environ.get("AGENTBREEDER_FAKE_DIR", "")) / "invoke-calls.json"
-    recorded = json.loads(calls.read_text()) if calls.is_file() else []
-    calls.write_text(json.dumps([*recorded, {"argv": argv, "stdin": message}]))
+    recorded = _record("invoke-calls.json", {"argv": argv, "stdin": message})
     settings = data["invoke"]
     time.sleep(float(settings.get("seconds", 0)))
     if "error" in settings:
@@ -190,9 +205,7 @@ def invoke(argv: list[str], data: dict) -> int:
 
 
 def evals(argv: list[str], data: dict) -> int:
-    calls = Path(os.environ.get("AGENTBREEDER_FAKE_DIR", "")) / "evals-calls.json"
-    previous = json.loads(calls.read_text()) if calls.is_file() else []
-    calls.write_text(json.dumps([*previous, argv]))
+    _record("evals-calls.json", argv)
     spec = data["evals"]
     problem = spec.get("error") or ("--content" in argv and spec.get("content_error"))
     if problem:
@@ -215,9 +228,7 @@ def evals(argv: list[str], data: dict) -> int:
 
 
 def traces(argv: list[str], data: dict) -> int:
-    calls = Path(os.environ.get("AGENTBREEDER_FAKE_DIR", "")) / "traces-calls.json"
-    recorded = json.loads(calls.read_text()) if calls.is_file() else []
-    calls.write_text(json.dumps([*recorded, argv]))
+    recorded = _record("traces-calls.json", argv)
     settings = data["traces"]
     problem = settings.get("error")
     if problem is None and len(recorded) < settings.get("missing", 0):
@@ -229,11 +240,17 @@ def traces(argv: list[str], data: dict) -> int:
     if "--trace" not in argv:
         return traces_list(argv, settings)
     spans = settings.get("spans", TRACE_SPANS)
+    # "arriving": N answers `--trace` with the trace's root not in yet (#1010) while fewer than N
+    # `traces` calls (list reads included) were recorded before this one.
+    arriving = len(recorded) < settings.get("arriving", 0)
+    if arriving:
+        spans = [span for span in spans if span["parent_id"] is not None]
     trace = {
         "trace_id": argv[argv.index("--trace") + 1],
         "project": "demo",
-        "deployment_id": "d" * 32,
-        "attribution": settings.get("attribution", "exact"),
+        "deployment_id": None if arriving else "d" * 32,
+        "attribution": None if arriving else settings.get("attribution", "exact"),
+        "incomplete": arriving,
         "latency_ms": 41,
         "status": settings.get("status", "error"),
         "session_id": "session-1",

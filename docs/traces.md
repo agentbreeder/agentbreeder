@@ -64,12 +64,44 @@ other value is treated as absent.
   about on stderr), because its traces can't be told apart.
 `--trace` reports the deployment only when exactly one candidate fits.
 
+### A trace still arriving
+
+Phoenix receives a turn's spans in batches, and the root span (`agent_turn`, which carries
+`agentbreeder.deployment_id`) ends last, so it arrives last. A read made a few seconds after the
+reply can find some spans but no root. Such a trace has `"incomplete": true`: every span in it
+has a parent, its spans were not cut by a limit (`spans_truncated` is false), and its earliest
+orphan span carries no deployment ID. Its spans and tokens are partial, and it is **never
+attributed by time**, because its root may still carry a deployment ID (#1010):
+
+- `--trace` gives it `deployment_id` and `attribution` null and does not list `overlapping`
+  deployments for it.
+- A deployment's list keeps it, because it started in that deployment's project and window.
+  There `deployment_id` is the deployment asked for, not an attribution, and `attribution` is
+  null. Like a window-matched trace it may be another deployment's, so overlapping deployments
+  that don't record their ID are listed in `overlapping`. A deployment whose runtime has already
+  tagged a trace is read by its tagged roots, so a trace whose root is not in yet is not listed.
+- Text output marks it `(still arriving)`. `--trace` says to read it again in its tree; a list
+  prints a `NOTE:` saying so on stderr. The console says the same and offers **Read again**.
+
+When the root arrives, the same trace reads complete and is attributed as usual. A root that never
+arrives (the runtime stopped mid-turn) leaves the trace incomplete, and so does an untagged root
+whose parent is outside the trace (a propagated `traceparent`), which never clears; a tagged one is
+attributed `exact`. Tested with a fake Phoenix that reproduces the partial read seen in the #907
+live run, and with the console's fake CLI; not yet re-run against a live Phoenix.
+
 ## What is shown, and what never is
 
 Shown: span names, kinds (OpenInference), status, latency, model names, token counts, tool
-names and error messages. Token counts come from each span's `llm.token_count.*`, and a trace's
-total is their sum over its spans, as Phoenix computes it. Phoenix also maps `gen_ai.*` usage
-onto those attributes. Never read out: message content
+names and error messages. Token counts come from each span's `llm.token_count.*` (Phoenix also
+maps `gen_ai.*` usage onto those attributes). One model call can carry its counts on nested
+spans: `runtime/adk` puts the same counts on the `call_llm` CHAIN span and on its
+`generate_content` LLM child. So a trace's total adds a span's prompt (or completion) count only
+when no span under it carries a prompt (or completion) count, and each model call is counted once
+(#1009). `tokens_counted` is `true` when all of a span's counts are in the total. Under a parent
+cycle (malformed data), each span in the cycle is counted. Tested
+with a fake Phoenix holding the span counts from the #907 live run, where the total now matches
+the runtime's and LiteLLM's 3,663 in, 211 out; not yet re-run against a live Phoenix. The tree still shows every span's
+own counts, and marks the outer ones "counted in a span under it". Never read out: message content
 (`input.value`, `output.value`, tool arguments and results, retrieved documents), because it
 holds customer messages. Every string from Phoenix is redacted with the same stored-secret values
 as `logs`. If one of them can't be read, nothing is printed (`REDACTION_INCOMPLETE`). Each
@@ -106,9 +138,10 @@ The console's Try it and eval report viewer use `traces --trace TRACE_ID --stack
       "spans": [
         {"span_id": "a623a1e273310546", "parent_id": null, "name": "agent_turn", "kind": "AGENT",
          "status": "unset", "start_time": "…", "latency_ms": 41, "model": null, "tokens": null,
-         "tool": null, "error": null}
+         "tool": null, "error": null, "tokens_counted": null}
       ],
-      "spans_truncated": false
+      "spans_truncated": false,
+      "incomplete": false
     }
   ],
   "overlapping": [],
@@ -119,13 +152,19 @@ The console's Try it and eval report viewer use `traces --trace TRACE_ID --stack
 
 - `spans` is flat, in start order. The tree comes from `parent_id`; a span whose parent isn't
   in the list is a root.
+- `tokens_counted` per span is `true` when all its counts are in the trace's `tokens`, `false`
+  when a span under it carries one of the same counts (the same model call's), and null when it
+  has no counts.
+- `incomplete` is `true` when the trace has no root span yet (see *A trace still arriving*).
 - `status` is `ok|error|unset` per span (a span with `tool.error` is `error`), and `ok|error`
   per trace.
 - `notes` explain empty results: a deployment whose agent has no Phoenix project yet, one that
   never ran (awaiting approval), or one that stopped before `--since`.
 - With `--since`, a deployment whose runtime tags its traces shows only its own traces in that
   window (possibly none). It never falls back to the window.
-- `deployment_id` and `attribution` are null when `--trace` can't attribute the trace.
+- `deployment_id` and `attribution` are null when `--trace` can't attribute the trace, or the
+  trace is still arriving. In a deployment's list, `attribution` is null for a trace still
+  arriving.
 - `truncated` (and `spans_truncated` per trace) means a limit cut the answer. Reaching `--last`
   doesn't set it.
 - Errors: `[CODE] message` on stderr, and with `--json` also `{"schema_version": 1, "error":

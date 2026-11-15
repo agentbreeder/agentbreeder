@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  DEFAULT_LAST, LAST_CHOICES, defaultDeployment, startText, toolCallsText, traceLine, tracesPath, tracesProblemText, windowText,
+  DEFAULT_LAST, LAST_CHOICES, arrivingText, defaultDeployment, startText, toolCallsText, traceLine, tracesPath, tracesProblemText, windowText,
 } from "../../src/agentbreeder/center/static/lib/traces.js";
 
 const ID = "18bc2abed83946b6a52c045e973d1844";
@@ -56,4 +56,15 @@ test("tracesProblemText keeps the code and words the common ones", () => {
   assert.equal(tracesProblemText(null), "The traces could not be read [TRACES_FAILED]");
   assert.equal(tracesProblemText({}), "The traces could not be read [TRACES_FAILED]");
   assert.match(tracesProblemText({ code: "TRACE_BUSY", message: "4 trace reads" }), /still running.*\[TRACE_BUSY\]$/);
+});
+
+test("a listed trace still arriving is marked, and the list says to read again (#1010)", () => {
+  const trace = { status: "ok", span_count: 6, incomplete: true, attribution: null };
+  assert.equal(traceLine(trace), "OK · 6 spans so far · still arriving");
+  assert.equal(arrivingText({ traces: [{ attribution: "exact" }] }), null);
+  assert.equal(arrivingText({}), null);
+  assert.match(arrivingText({ traces: [trace, { attribution: "exact" }] }), /^1 trace is still arriving: .*root span.*Read again/);
+  assert.match(arrivingText({ traces: [trace, trace] }), /^2 traces are still arriving/);
+  // A trace still arriving was not matched by time: no "does not record" sentence for it.
+  assert.equal(windowText({ traces: [trace] }), null);
 });

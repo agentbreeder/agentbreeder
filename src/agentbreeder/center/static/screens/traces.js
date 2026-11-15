@@ -7,7 +7,7 @@
 import { agentName } from "../lib/agents.js";
 import { isCandidate } from "../lib/format.js";
 import { visible } from "../lib/text.js";
-import { DEFAULT_LAST, LAST_CHOICES, defaultDeployment, startText, toolCallsText, traceLine, tracesPath, tracesProblemText, windowText } from "../lib/traces.js";
+import { DEFAULT_LAST, LAST_CHOICES, arrivingText, defaultDeployment, startText, toolCallsText, traceLine, tracesPath, tracesProblemText, windowText } from "../lib/traces.js";
 import { productionRow, tracePath } from "../lib/tryit.js";
 import { Action, Card, CopyButton, Notice, Text } from "../ui/components.js";
 import { useView } from "../ui/data.js";
@@ -33,11 +33,13 @@ function TraceList({ project, deployment, last }) {
   const traces = answer && Array.isArray(answer.traces) ? answer.traces : [];
   const notes = answer && Array.isArray(answer.notes) ? answer.notes.filter((note) => typeof note === "string") : [];
   const matched = answer ? windowText(answer) : null;
+  const arriving = answer ? arrivingText(answer) : null;
   return html`<div aria-busy=${view.loading ? "true" : "false"}>
     <p class="muted small" role="status">${view.loading ? "Reading traces from Phoenix…" : answer ? `${traces.length} trace${traces.length === 1 ? "" : "s"} read, newest first.` : ""}</p>
     ${view.error && !view.loading ? html`<${Notice} notice=${{ tone: "error", text: tracesProblemText(view.error) }} />` : null}
     ${answer && !view.loading && !traces.length && !view.error ? html`<p class="muted">Phoenix has no traces for this deployment yet. A trace appears a few seconds after a turn (Try it) or an eval case.</p>` : null}
     ${matched ? html`<p class="muted small"><${Text} value=${matched} /></p>` : null}
+    ${arriving ? html`<p class="small"><${Text} value=${arriving} /></p>` : null}
     ${notes.map((note, index) => html`<p class="muted small" key=${index}><${Text} value=${note} /></p>`)}
     ${answer && answer.truncated ? html`<p class="muted small">Phoenix returned more than is read; the list is partial. Ask for fewer traces.</p>` : null}
     ${answer && answer.dropped ? html`<p class="muted small">${answer.dropped} trace${answer.dropped === 1 ? " was" : "s were"} left out: not this deployment's, or not readable.</p>` : null}
