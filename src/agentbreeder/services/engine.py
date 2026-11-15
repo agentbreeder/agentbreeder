@@ -40,6 +40,11 @@ from agentbreeder.services.state import (
 
 STACK_FILE = "stack.yaml"
 LOCK_FILE = "stack.lock"
+# An HTTP health check gets PROBE_SECONDS. If its container is still running then (a cold start
+# on a busy engine: LiteLLM's first log line came 178 s after start in #979), it gets
+# PROBE_EXTRA_SECONDS more. A container that exited fails at once.
+PROBE_SECONDS = 180
+PROBE_EXTRA_SECONDS = 240
 
 
 def allocate_port() -> int:
@@ -627,12 +632,28 @@ class Engine:
             if not self._probe_pulled:
                 self.docker.pull(PROBE_IMAGE)
                 self._probe_pulled = True
-            if not self.docker.probe(self.state, plan.health_network(name), url):
+            network = plan.health_network(name)
+            healthy = self.docker.probe(self.state, network, url, timeout=PROBE_SECONDS)
+            if not healthy and self._still_running(name):
+                self.log(
+                    f"{name} is still starting after {PROBE_SECONDS} s; "
+                    f"waiting up to {PROBE_EXTRA_SECONDS} s more"
+                )
+                healthy = self.docker.probe(self.state, network, url, timeout=PROBE_EXTRA_SECONDS)
+            if not healthy:
                 raise ServiceError(
                     "SERVICE_UNHEALTHY",
                     f"service {name} did not become healthy; see `agentbreeder services logs "
-                    f"{name}`",
+                    f"{name}`. Started services are kept, so if it was still starting, run "
+                    "the same command again",
                 )
+
+    def _still_running(self, name: str) -> bool:
+        """Whether the service's container is up (not exited, restarting or gone)."""
+        try:
+            return self.docker.containers(self.state).get(name, {}).get("state") == "running"
+        except (ServiceError, ValueError, OSError):
+            return False
 
     def _step_run(self, plan: Plan, name: str, step, label: str, mounts: set[Path], capture):
         values = plan.mounted(name, set(step.secrets))
