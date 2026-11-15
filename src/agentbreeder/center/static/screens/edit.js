@@ -21,12 +21,15 @@
 // --locked and refuse a lock without the new ref), then release from Build and release.
 
 import { caseAtLine, caseProblems, parseCases } from "../lib/cases.js";
-import { EDITABLE_KINDS, BUMPS, agentUses, editKind, editProblem, editableFiles, gutterLines, isSaveShortcut, movableFrom, needsNewReview, newFile, notEditableReason, saveVersion } from "../lib/edit.js";
-import { diffStats } from "../lib/registry.js";
+import { EDITABLE_KINDS, BUMPS, agentUses, editKind, editProblem, editableFiles, forkPlan, gutterLines, isSaveShortcut, movableFrom, needsNewReview, newFile, notEditableReason, saveVersion } from "../lib/edit.js";
+import { KINDS, diffStats } from "../lib/registry.js";
 import { href } from "../lib/router.js";
 import { Action, Actions, Card, Notice, Text, useConfirm, useConsole } from "../ui/components.js";
 import { html, useEffect, useRef, useState } from "../ui/preact.js";
 import { CasesBody } from "./cases.js";
+
+/** The registry browser's labels for `kind` (its route segment), or null. */
+const registryMeta = (kind) => KINDS.find((meta) => meta.kind === kind) || null;
 
 /** POST that returns {data, problem}: a 4xx (the server's own check) and a CLI refusal alike. */
 async function send(client, path, body) {
@@ -70,67 +73,104 @@ function useLeaveGuard(dirty) {
 export function Editor({ project, kind, entry, version, show, focusCase = null, FileDiff, onSaved, onRefresh }) {
   if (!EDITABLE_KINDS.includes(kind) || !show) return null;
   if (version.rootKind !== "project") {
-    return html`<${Fork} key=${version.ref} project=${project} entry=${entry} version=${version} onSaved=${onSaved} onRefresh=${onRefresh} />`;
+    return html`<${Fork} key=${version.ref} project=${project} kind=${kind} entry=${entry} version=${version} onSaved=${onSaved} onRefresh=${onRefresh} />`;
   }
   return html`<${EditorBody} key=${version.ref} project=${project} kind=${kind} entry=${entry} version=${version} show=${show} focusCase=${focusCase} FileDiff=${FileDiff} onSaved=${onSaved} onRefresh=${onRefresh} />`;
 }
 
 /**
- * Fork to edit: copy a built-in or shared version into the project registry as the next free
- * patch version, reviewed first (the files and digest of the copy), then edit the copy.
+ * Fork: copy a version into the project registry, reviewed first (the files and digest of the
+ * copy), as the next free patch version or, with a new name, under that name at the same
+ * version (M9a, #825). `mode` "edit" is "Fork to edit" (#828) for the kinds the console edits;
+ * "copy" is the registry browser's Fork for the others (services, MCP servers, runtimes). A
+ * code-bearing copy takes the three-tier confirm, which the server checks again.
  */
-function Fork({ project, entry, version, onSaved, onRefresh }) {
-  const { client } = useConsole();
-  const [review, setReview] = useState(null); // the dry run's answer
+export function Fork({ project, kind, entry, version, mode = "edit", onSaved, onRefresh }) {
+  const { client, navigate } = useConsole();
+  const [review, setReview] = useState(null); // {data, version, name}
   const [busy, setBusy] = useState(null); // "review" | "fork"
   const [notice, setNotice] = useState(null);
+  const [name, setName] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
   const existing = entry.versions.map((v) => v.version);
-  const target = saveVersion(version.version, "patch", existing);
-  const where = version.rootKind === "builtin" ? "built in" : "in a shared path";
+  const plan = forkPlan(entry.name, version.version, name, existing);
+  const where = version.rootKind === "builtin" ? "built in" : version.rootKind === "path" ? "in a shared path" : "in this project";
   const path = `/api/projects/${project.id}/registry/fork`;
+  const current = review && review.version === plan.version && review.name === plan.name ? review : null;
+  // A confirm belongs to the review it was given for: a changed name or version clears it.
+  useEffect(() => {
+    if (!current) setConfirmed(false);
+  }, [current]);
   const fail = (problem) => {
     if (needsNewReview(problem)) setReview(null);
     if (problem.code === "VERSION_EXISTS") onRefresh();
     setNotice({ tone: "error", text: editProblem(problem).text });
   };
+  const body = () => ({ ref: version.ref, ...(plan.name ? { as: plan.name } : {}), version: plan.version });
   const ask = async () => {
-    if (busy || !target) return;
+    if (busy || plan.problem) return;
     setBusy("review");
     setNotice(null);
-    const { data, problem } = await send(client, path, { ref: version.ref, version: target });
+    setConfirmed(false);
+    const { data, problem } = await send(client, path, body());
     setBusy(null);
     if (problem) return fail(problem);
-    setReview({ data, version: target });
+    setReview({ data, version: plan.version, name: plan.name });
   };
   const fork = async () => {
-    if (busy || !review || review.version !== target) return;
+    if (busy || !current) return;
+    const code = Boolean(current.data.runs_code);
+    if (code && !confirmed) return;
     setBusy("fork");
     setNotice(null);
-    const { data, problem } = await send(client, path, { ref: version.ref, version: review.version, digest: review.data.sha256 });
+    const { data, problem } = await send(client, path, { ...body(), digest: current.data.sha256, ...(code ? { code_confirmed: true } : {}) });
     setBusy(null);
     if (problem) return fail(problem);
     setReview(null);
-    onSaved(data.version, `Forked ${version.ref} into this project as ${data.ref}; edit the copy. ${version.ref} is unchanged, and an agent uses the copy only after you move it there and release.`);
+    setConfirmed(false);
+    if (plan.name) {
+      // Another name is another registry page: open it.
+      const meta = registryMeta(kind);
+      if (meta) return navigate(href(`/registry/${meta.path}/:name`, { name: data.name }).replace(/^#/, ""));
+      onRefresh();
+      return setNotice({ tone: "ok", text: `Forked ${version.ref} into this project as ${data.ref}.` });
+    }
+    const next = mode === "edit" ? "edit the copy" : "change it with agentbreeder registry edit or publish a new version";
+    onSaved(data.version, `Forked ${version.ref} into this project as ${data.ref}; ${next}. ${version.ref} is unchanged, and an agent uses the copy only after you move it there and release.`);
   };
-  const files = review && Array.isArray(review.data.files) ? review.data.files.filter((file) => file && file.type === "file") : [];
-  return html`<${Card} title="Edit">
-    <p class="muted">This version is ${where}, so it is not edited in place. Fork it into this project's registry as a new version the project owns, then edit the copy.</p>
+  const files = current && Array.isArray(current.data.files) ? current.data.files.filter((file) => file && file.type === "file") : [];
+  const target = plan.name ? `${kind}/${plan.name}@${plan.version}` : plan.version;
+  const intro = mode === "edit"
+    ? html`This version is ${where}, so it is not edited in place. Fork it into this project's registry as a new version the project owns, then edit the copy.`
+    : html`This version is ${where}. Fork it into this project's registry as a version the project owns; the console does not edit ${kind} files, so change the copy with <code>agentbreeder registry edit</code>.`;
+  return html`<${Card} title=${mode === "edit" ? "Edit" : "Fork"}>
+    <p class="muted">${intro}</p>
+    <div class="stack fork-name">
+      <label for=${`fork-as-${version.ref}`}>Fork under another name <span class="muted small">(optional)</span></label>
+      <input id=${`fork-as-${version.ref}`} autocomplete="off" spellcheck="false" maxlength="63" placeholder=${entry.name} value=${name} onInput=${(event) => { setName(event.currentTarget.value); setNotice(null); }} />
+    </div>
     <${Notice} notice=${notice} onDismiss=${() => setNotice(null)} />
-    ${review && review.version === target
+    ${current
       ? html`<section class="edit-review" aria-label="Review">
-          <h3>Review: fork ${version.version} → ${review.version}</h3>
-          <p role="status"><${Text} value=${`Copies ${files.length} ${files.length === 1 ? "file" : "files"} into this project's registry as ${review.data.ref}; only the manifest's version line changes.`} /></p>
+          <h3>Review: fork ${version.version} → <${Text} value=${target} /></h3>
+          <p role="status"><${Text} value=${`Copies ${files.length} ${files.length === 1 ? "file" : "files"} into this project's registry as ${current.data.ref}; only the manifest's ${plan.name ? "name" : "version"} line changes.`} /></p>
           <ul class="plain">${files.map((file) => html`<li key=${file.path}><code><${Text} value=${file.path} /></code></li>`)}</ul>
-          ${review.data.runs_code ? html`<p class="notice warn">This version holds code that runs in agents. Forking copies it unchanged; review it before you move an agent to the copy.</p>` : null}
+          ${current.data.runs_code
+            ? html`<fieldset class="code-confirm">
+                <legend>This code runs in agents</legend>
+                <p>Forking copies this ${kind} version unchanged into a version the project owns. Building and releasing an agent that uses the copy runs this code as you, with the stack's model key and database. The eval gate is a quality gate, not a security review.</p>
+                <label class="check"><input type="checkbox" checked=${confirmed} onChange=${(event) => setConfirmed(event.currentTarget.checked)} /> I reviewed this code and trust it to run in agents</label>
+              </fieldset>`
+            : null}
           <${Actions}>
-            <button type="button" class="action primary" disabled=${Boolean(busy)} onClick=${fork}>${busy === "fork" ? "Forking…" : `Fork as ${review.version}`}</button>
+            <button type="button" class="action primary" disabled=${Boolean(busy) || (Boolean(current.data.runs_code) && !confirmed)} onClick=${fork}>${busy === "fork" ? "Forking…" : html`Fork as <${Text} value=${target} />`}</button>
             <${Action} tone="secondary" onClick=${() => setReview(null)} disabled=${busy ? "Waiting for the console." : false}>Cancel<//>
           <//>
         </section>`
       : html`<${Actions}>
-          <${Action} onClick=${ask} disabled=${busy ? "Waiting for the console." : !target ? "No free version to fork into." : false}>${busy === "review" ? "Reviewing…" : `Fork to edit as ${target}`}<//>
+          <${Action} onClick=${ask} disabled=${busy ? "Waiting for the console." : plan.problem}>${busy === "review" ? "Reviewing…" : html`${mode === "edit" ? "Fork to edit as" : "Fork into this project as"} <${Text} value=${target || "X.Y.Z"} />`}<//>
         <//>`}
-    <p class="muted small">In a terminal: <code><${Text} value=${`agentbreeder registry fork ${version.ref} --version ${target || "X.Y.Z"}`} /></code></p>
+    <p class="muted small">In a terminal: <code><${Text} value=${`agentbreeder registry fork ${version.ref}${plan.name ? ` --as ${plan.name}` : ""} --version ${plan.version || "X.Y.Z"}`} /></code></p>
   <//>`;
 }
 

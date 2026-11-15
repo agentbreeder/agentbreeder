@@ -26,6 +26,9 @@ refuses one of those kinds without `code_confirmed: true` (`Center.registry_impo
 is a UX control, not a boundary (spec §10.1 I1): an imported version takes effect only when an
 `agent.yaml` references it and a release passes.
 
+`registry fork --json` prints the same object, so `Center.registry_fork` checks its answers with
+`import_answer` too (#825, part 2).
+
 Pure request and answer checks; imports only `registry` and `center.files` (on the server's
 allowlist, `tests/test_center_reads.py`).
 """

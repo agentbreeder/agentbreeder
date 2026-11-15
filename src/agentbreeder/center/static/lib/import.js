@@ -9,8 +9,8 @@ const NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const VERSION = /^(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$/;
 
 /**
- * The kinds whose versions are code that runs in agents (`registry.CODE_KINDS`). Object keys, as
- * in lib/registry.js: the static guard refuses the eval kind's name as a quoted string.
+ * The kinds whose versions are code that runs in agents (`registry.CODE_KINDS`), written as
+ * object keys: the console's static guard refuses the eval kind's name as a quoted string.
  */
 export const CODE_KINDS = Object.keys({ tool: 1, service: 1, eval: 1, mcp: 1, runtime: 1 });
 

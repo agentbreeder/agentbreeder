@@ -92,9 +92,14 @@ def test_a_shared_tool_is_forked_after_a_review_then_edited(page, console):
     review = card.get_by_role("region", name="Review")
     expect(review).to_contain_text("fork 1.0.0 → 1.0.1")
     expect(review).to_contain_text(SOURCE)
-    expect(review).to_contain_text("This version holds code that runs in agents.")
+    # M9a (#825): a code-bearing fork takes the three-tier confirm.
+    confirm = review.get_by_role("group", name="This code runs in agents")
+    expect(confirm).to_contain_text("The eval gate is a quality gate, not a security review.")
     assert not (project / TOOLS).exists()  # a review writes nothing
-    review.get_by_role("button", name="Fork as 1.0.1").click()
+    fork = review.get_by_role("button", name="Fork as 1.0.1")
+    expect(fork).to_be_disabled()
+    confirm.get_by_label("I reviewed this code and trust it to run in agents").check()
+    fork.click()
     expect(
         page.get_by_role("status").filter(has_text="as tool/orders@1.0.1; edit the copy")
     ).to_be_visible()

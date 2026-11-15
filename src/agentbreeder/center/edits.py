@@ -29,7 +29,9 @@ with `remove` take it. Documents land in a git-tracked registry; the screen says
 "Fork to edit" (#828): a version outside the project registry (built in, or on
 AGENTBREEDER_REGISTRY_PATH) is not edited in place. `registry fork REF --version X.Y.Z --project
 DIR (--dry-run | --expect-digest D) --json` copies it into the project registry as a new version,
-reviewed first the same way (S-04); the copy is then edited like any project version."""
+reviewed first the same way (S-04); the copy is then edited like any project version. M9a
+(#825) widens it to every kind but an agent package, adds `--as NAME`, and makes a code-bearing
+fork take the three-tier confirm (the server checks it on its own dry run, as an import)."""
 
 from __future__ import annotations
 
@@ -153,27 +155,53 @@ def edit_argv(project: dict, request: dict) -> list[str]:
 
 
 def fork_request(body: object) -> dict:
-    """{ref, version, digest|None} from the browser's JSON, or BadRequest. Only the kinds the
-    console edits are forked here; the copy keeps its name and takes an exact new version."""
+    """{ref, name|None, version|None, digest|None, code_confirmed} from the browser's JSON, or
+    BadRequest. Any kind but an agent package is forked (#825, M9a: a built-in service version
+    too), under another name (`as`), another exact version, or both; at least one must change.
+    `code_confirmed` is checked by the server against its own dry run (code-bearing kinds)."""
     if not isinstance(body, dict):
         raise BadRequest("Send a JSON object", "FORK_INVALID")
     ref = _ref(body.get("ref"), "ref")
-    if ref.kind not in KINDS:
-        raise BadRequest(f"The console forks {', '.join(sorted(KINDS))} versions", "EDIT_KIND")
+    if ref.kind == registry.PACKAGE_KIND:
+        raise BadRequest("Agent packages are not forked here", "FORK_KIND")
+    name = body.get("as")
+    if name in (None, ""):
+        name = None
+    elif not isinstance(name, str) or not registry.NAME.fullmatch(name):
+        raise BadRequest(
+            "A name is lowercase letters, digits and dashes, starting with a letter or digit, "
+            "at most 63 characters",
+            "NAME_INVALID",
+        )
     version = body.get("version")
-    if not isinstance(version, str) or not registry.VERSION.fullmatch(version):
+    if version in (None, ""):
+        version = None
+    elif not isinstance(version, str) or not registry.VERSION.fullmatch(version):
         raise BadRequest("version must be X.Y.Z", "VERSION_INVALID")
-    if version == ref.version:
-        raise BadRequest("Fork it as a new version", "FORK_UNCHANGED")
-    return {"ref": ref, "version": version, "digest": _digest(body.get("digest"), "digest")}
+    if name in (None, ref.name) and version in (None, ref.version):
+        raise BadRequest("Fork it as a new version or under a new name", "FORK_UNCHANGED")
+    confirmed = body.get("code_confirmed", False)
+    if not isinstance(confirmed, bool):
+        raise BadRequest("code_confirmed must be true or false", "FORK_INVALID")
+    return {
+        "ref": ref,
+        "name": name,
+        "version": version,
+        "digest": _digest(body.get("digest"), "digest"),
+        "code_confirmed": confirmed,
+    }
 
 
-def fork_argv(project: dict, request: dict) -> list[str]:
-    """The `registry fork` argv: a dry run without a digest, else the copy bound to it."""
-    mode = ["--expect-digest", request["digest"]] if request["digest"] else ["--dry-run"]
+def fork_argv(project: dict, request: dict, *, dry_run: bool | None = None) -> list[str]:
+    """The `registry fork` argv: a dry run (without a digest, or when asked), else the copy
+    bound to the reviewed digest."""
+    if dry_run is None:
+        dry_run = request["digest"] is None
+    mode = ["--dry-run"] if dry_run else ["--expect-digest", request["digest"]]
+    rename = ["--as", request["name"]] if request["name"] else []
+    version = ["--version", request["version"]] if request["version"] else []
     return [
-        "registry", "fork", str(request["ref"]),
-        "--version", request["version"],
+        "registry", "fork", str(request["ref"]), *rename, *version,
         "--project", project["path"],
         *mode, "--json",
     ]  # fmt: skip

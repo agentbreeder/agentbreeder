@@ -2,7 +2,9 @@
 // verify status and where this project uses it; a name's detail has the version timeline, one
 // version's manifest and files (`registry show`), the diff between any two versions (`registry
 // diff`) and used-by across the registered projects (`registry used-by`). Prompts are edited
-// into a new version, and the agent moved to it, from `edit.js` (#826, M10); forking is M9a.
+// into a new version, and the agent moved to it, from `edit.js` (#826, M10). A version outside
+// the project is forked into it from `edit.js` too: "Fork to edit" for the kinds the console
+// edits, "Fork" for the others (M9a, #825).
 
 import { href } from "../lib/router.js";
 import { ToolFacts } from "./tool.js";
@@ -11,7 +13,8 @@ import {
   KINDS, ROOT_LABELS, deployedLines, diffStats, groupByName, hunkHeader, noHunkReason, usedByText, useText, verifyLabel, verifyState,
 } from "../lib/registry.js";
 import { Action, Card, Notice, Table, Text, ViewState, useConfirm } from "../ui/components.js";
-import { Editor, MoveAgent, editing } from "./edit.js";
+import { EDITABLE_KINDS } from "../lib/edit.js";
+import { Editor, Fork, MoveAgent, editing } from "./edit.js";
 import { useView } from "../ui/data.js";
 import { html, useEffect, useRef, useState } from "../ui/preact.js";
 
@@ -186,7 +189,10 @@ function Version({ project, version, entry, kind, focusCase, onSaved, onMoved })
       : null}
   <//>
   <${MoveAgent} key=${`move-${version.ref}`} project=${project} kind=${kind} entry=${entry} version=${version} onMoved=${onMoved} />
-  ${data && !view.error ? html`<${Editor} project=${project} kind=${kind} entry=${entry} version=${version} show=${data} focusCase=${focusCase} FileDiff=${FileDiff} onSaved=${onSaved} onRefresh=${onMoved} />` : null}`;
+  ${data && !view.error ? html`<${Editor} project=${project} kind=${kind} entry=${entry} version=${version} show=${data} focusCase=${focusCase} FileDiff=${FileDiff} onSaved=${onSaved} onRefresh=${onMoved} />` : null}
+  ${data && !view.error && !EDITABLE_KINDS.includes(kind) && version.rootKind !== "project"
+    ? html`<${Fork} key=${`fork-${version.ref}`} project=${project} kind=${kind} entry=${entry} version=${version} mode="copy" onSaved=${onSaved} onRefresh=${onMoved} />`
+    : null}`;
 }
 
 export function FileView({ file }) {
