@@ -234,6 +234,10 @@ def _use_stack(args) -> int | None:
             "traces",
             "invoke",
             "cost",
+            "approve",
+            "reject",
+            "approve-call",
+            "reject-call",
         ) and (args.environment):
             _parser().error("--environment needs --stack for this command")
         return None

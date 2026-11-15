@@ -166,8 +166,8 @@ When several codes apply, the step reports the first in the table's order. Notes
   again.
 - `PRODUCTION_DISABLED`: the kill switch blocks production's principal in this environment (a
   `blockers` row: the release step's `data.blocker`); `release` would be denied. `command` is
-  `agentbreeder enable ID --state-dir <stack state> …`, which only an authorised operator can run,
-  with the stack's operator config (`note` names the `AGENTBREEDER_OPERATOR_CONFIG` value). Once the blocker is gone
+  `agentbreeder enable ID --stack DIR --environment ENV`, which only an operator that the stack's
+  operator config authorises can run (`note` says so). Once the blocker is gone
   the code becomes `PRODUCTION_NOT_READY` with a Release action. A principal blocked before any production
   exists is not reported (there is no production to name), so the step shows `NOT_RELEASED` with
   a Release action that the gate denies; the job's output then explains it.
@@ -178,9 +178,9 @@ When several codes apply, the step reports the first in the table's order. Notes
   not something `next` can recompute. The table has no target column, so a `NAME-candidate` row
   is always the release step's, and a `NAME` row is the `kubernetes` step's only when the stack
   has a cluster attached and the release step is otherwise done; otherwise it is the release
-  step's. `note` says who must run `approve` and that it needs this stack's state and operator
-  config (`approve`, like `enable`, has no `--stack` yet; #860 adds it, and these
-  notes will then print `--stack`). Matching by name makes this a hint: a pending approval for an
+  step's. `command` is `null`; `note` says that a second authorised person runs
+  `agentbreeder approve ID --stack DIR --environment ENV` (the approval ID is not read; with a
+  project path too long for the note, it names the flags without the path). Matching by name makes this a hint: a pending approval for an
   earlier revision of the same agent matches too, so the message says only that a deploy of this
   agent is waiting, not that it is for the current build. When policy requires
   approval, `release` stops before it creates a request, so nothing is recorded and `next` shows

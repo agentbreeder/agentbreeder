@@ -1,4 +1,6 @@
-usage: agentbreeder reject-call [-h] [--state-dir STATE_DIR] [--json] held_id
+usage: agentbreeder reject-call [-h] [--state-dir STATE_DIR] [--json]
+                                [--stack DIR] [--environment ENVIRONMENT]
+                                held_id
 
 positional arguments:
   held_id
@@ -7,3 +9,7 @@ options:
   -h, --help            show this help message and exit
   --state-dir STATE_DIR
   --json
+  --stack DIR           Use the operator config and state that `services up`
+                        wrote for DIR
+  --environment ENVIRONMENT
+                        With --stack: the stack environment
