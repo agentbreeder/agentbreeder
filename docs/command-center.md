@@ -776,14 +776,59 @@ In the viewer:
   `POD_NOT_RUNNING`); and `LOG_UNAVAILABLE`, when Kubernetes no longer has the container's log.
   An address that names no service or deployment says so.
 
-**Not yet**: Follow (with pause and "Jump to latest") needs one CLI child per open log, with the
-S-10 limits; it is the next part of #821. Then `watch` per project, and the M5 console
-verification (both deployments, local and kind, and the leak scan of API output).
+Follow, with Pause and "Jump to latest", is the second part, below. **Not yet**: `watch` per
+project, and the M5 console verification (both deployments, local and kind, and the leak scan of
+API output).
 
 Tested with Playwright against a fake CLI (10,000 lines windowed, the level and text filters,
 search, wrap, copy, the coded empty states, a deployment's Previous container) with axe in light
 and dark, and on the server with a fake CLI (argv, refused options, the answer's shape, no cache).
 Not yet run against real services.
+
+### Follow a log (#821, second part): on `main`, not in a published preview
+
+**Follow** (beside Read again) streams the log as it is written. The server starts one CLI child
+for that tab, the snapshot read's command with `--follow`:
+
+- a service: `agentbreeder services logs PROJECT NAME --tail N [--since D] --json --follow`;
+- a deployment: `agentbreeder logs ID --stack PROJECT --environment ENV --tail N [--since D]
+  --json --follow` (never `--previous`: Follow is off, with its reason, for a previous container).
+
+`POST /api/projects/ID/logs/service/NAME/follow` (or `.../deployment/ID/follow`) with `{tail,
+since}` starts it and answers `{id}`; the page then reads `GET /api/follows/ID?after=SEQ` every
+second (a poll: it does not keep the session alive) for `{running, lines: [{seq, line, level}],
+next, more, missed, dropped, cli_dropped, reason, stopped}`, and **Stop following** sends `POST
+/api/follows/ID/stop`. A follow belongs to the session that started it; another session gets 404
+for its ID.
+
+- Each record is checked against the CLI's contract (the source and name followed, `line` a
+  string, `level` one of the known levels); only `line` and `level` pass, and a record that does
+  not match is dropped and counted. The CLI has already redacted every line, failing closed, as
+  for a read.
+- Lines are held in memory only: up to 5,000 lines and 4 MiB per follow on the server, until the
+  page reads them, and the newest 10,000 in the page. A page that reads too slowly is told how
+  many lines it missed; the notes say how many the page dropped to stay fast.
+- **Pause** holds new lines back (the view stays still for reading, searching and copying);
+  scrolling up from the newest line pauses too. **Jump to latest (N new)** shows them and goes
+  back to the newest line. While following, Read again is off ("Stop following to read a
+  snapshot").
+- The status line says how a follow ended: the container stopped or was removed, Stop following,
+  a coded error from the CLI (`DOCKER_LOGS_FAILED`, `KUBECTL_LOGS_FAILED`, `POD_NOT_RUNNING`), or
+  15 seconds without a read (a background tab), with **Follow again**.
+
+Limits (S-10): at most 8 follows per session (`FOLLOWS_FULL`, "stop one and retry") and 16
+long-lived children in the console, usage children included. A follow is stopped when its page
+closes or moves away, 15 seconds after its last read, on Stop following and when the console
+stops, each through the same plumbing as the usage feed: stdin a pipe the console holds, its own
+process group, its PID in `children.json`. An ended follow's last lines stay readable for a
+minute.
+
+Tested on the server with a fake CLI (argv for both kinds, refused options, the contract check,
+session ownership, both caps, the idle stop, a failed child's coded error, shutdown, the ring's
+line and byte bounds) and with Playwright against a fake CLI (live lines, Stop, Pause and Jump to
+latest, scroll-up pause, a stopped container, a failed follow, leaving the page, a deployment,
+the previous-container refusal, axe in light and dark). Not yet run against real services: that
+is the M5 acceptance, batched with the milestone verifications.
 
 ### Try it (#823, first part): on `main`, not in a published preview
 

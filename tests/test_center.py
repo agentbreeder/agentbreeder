@@ -1298,6 +1298,7 @@ def test_only_sign_in_skips_the_session_and_only_job_polls_keep_it_idle():
         ("GET", "/api/projects/0123456789ab/usage"),
         ("GET", "/api/jobs/" + "0" * 32),
         ("GET", "/api/docker"),
+        ("GET", "/api/follows/" + "0" * 32),
     ]
 
 

@@ -423,3 +423,6 @@ td.notice-row { color: var(--warning); }
 .tile-value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .tile .spark { width: 100%; }
 th[scope="row"] { color: var(--foreground); }
+
+/* Log follow (#821, M5 PR 2) */
+.follow-status { margin: 0 0 8px; }

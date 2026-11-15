@@ -42,6 +42,7 @@ from agentbreeder.center import (
     builder,
     edits,
     knowledgestatus,
+    logfollow,
     mcpgrants,
     onboard,
     registryimport,
@@ -123,6 +124,7 @@ JOB_ID = r"(?P<job>[0-9a-f]{32})"
 # `runtime.SINCE` (tests keep both equal; neither module is loaded by the server process).
 SERVICE = r"(?P<service>[a-z][a-z0-9-]{0,30})"
 DEPLOYMENT = r"(?P<deployment>[0-9a-f]{32})"
+FOLLOW_ID = r"(?P<follow>[0-9a-f]{32})"
 LOG_SINCE = re.compile(
     r"[1-9][0-9]{0,5}[smh]|[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z"
 )
@@ -199,6 +201,7 @@ class Center:
         self.docker_seen: tuple[float, dict] | None = None
         self.knowledge_reads = threading.BoundedSemaphore(MAX_KNOWLEDGE_IN_FLIGHT)
         self.usage = usage_feeds.Usage(self.runner)  # one `services usage --follow` per project
+        self.log_follows = logfollow.LogFollows(self.runner)  # M5: a tab's `logs --follow`
 
     @property
     def origin(self) -> str:
@@ -613,23 +616,9 @@ class Center:
         error, not older lines. The CLI redacts every line (failing closed) and escapes
         controls; the answer is checked against its shape and passed on, never stored."""
         tail_text = query.get("tail", [str(LOG_TAIL)])[0]
-        if not re.fullmatch(r"[1-9][0-9]{0,4}", tail_text) or int(tail_text) > MAX_LOG_TAIL:
-            raise BadRequest(f"Lines must be 1 to {MAX_LOG_TAIL}", "TAIL_INVALID")
         since = query.get("since", [""])[0]
-        if since and not LOG_SINCE.fullmatch(since):
-            raise BadRequest(
-                "Since must look like 10m, 2h or 2026-11-11T09:00:00Z", "SINCE_INVALID"
-            )
         previous = query.get("previous", [""])[0] == "1"
-        path = project["path"]
-        if source == "service":
-            if previous:
-                raise BadRequest("Only a deployment has a previous container", "PREVIOUS_INVALID")
-            argv = ["services", "logs", path, name]
-        else:
-            argv = ["logs", name, "--stack", path, "--environment", project["environment"]]
-            argv += ["--previous"] if previous else []
-        argv += ["--tail", tail_text, *(["--since", since] if since else []), "--json"]
+        argv = _log_argv(project, source, name, tail_text, since, previous)
         result = self.runner.read(argv, timeout=LOG_TIMEOUT, cache=False, track=True)
         if result["data"] is None:
             return result
@@ -643,6 +632,20 @@ class Center:
                 ),
             )
         return envelope(checked)
+
+    def follow_logs(
+        self, project: dict, source: str, name: str, body: dict, session: bytes
+    ) -> dict:
+        """Start following a service's or a deployment's logs for this session (#821, M5 PR 2):
+        the snapshot read's argv with `--follow` (no `--previous`: a stopped container has no
+        more lines). Only `tail` and `since` come from the request, checked as for a read; the
+        lines then come from `GET /api/follows/ID` (`logfollow`)."""
+        tail = body.get("tail", LOG_TAIL)
+        since = body.get("since", "")
+        if type(tail) is not int or not isinstance(since, str):
+            raise BadRequest("Tail must be a number and since a string", "BAD_REQUEST")
+        argv = _log_argv(project, source, name, str(tail), since, False)
+        return self.log_follows.start(session, source, name, [*argv, "--follow"])
 
     def failed_tail(self, project: dict, agent: str) -> dict:
         """The log tail `release` saved from the agent's last failed candidate (#826, the
@@ -1084,6 +1087,26 @@ def _service_answer(data: Any, name: str, action: str) -> tuple[dict | None, dic
     }, None
 
 
+def _log_argv(
+    project: dict, source: str, name: str, tail_text: str, since: str, previous: bool
+) -> list[str]:
+    """`services logs DIR NAME` or `logs ID --stack DIR --environment ENV` with fixed flags and
+    `--json`; the line count, `--since` and `--previous` checked first (BadRequest)."""
+    if not re.fullmatch(r"[1-9][0-9]{0,4}", tail_text) or int(tail_text) > MAX_LOG_TAIL:
+        raise BadRequest(f"Lines must be 1 to {MAX_LOG_TAIL}", "TAIL_INVALID")
+    if since and not LOG_SINCE.fullmatch(since):
+        raise BadRequest("Since must look like 10m, 2h or 2026-11-11T09:00:00Z", "SINCE_INVALID")
+    path = project["path"]
+    if source == "service":
+        if previous:
+            raise BadRequest("Only a deployment has a previous container", "PREVIOUS_INVALID")
+        argv = ["services", "logs", path, name]
+    else:
+        argv = ["logs", name, "--stack", path, "--environment", project["environment"]]
+        argv += ["--previous"] if previous else []
+    return [*argv, "--tail", tail_text, *(["--since", since] if since else []), "--json"]
+
+
 def _log_answer(data: Any, source: str, name: str) -> dict | None:
     """`logs --json` / `services logs --json` checked (docs/logs.md): the source and name asked
     for, lines as strings, one level (or null) per line. Only the known keys go on."""
@@ -1146,6 +1169,7 @@ class Request:
     match: re.Match
     body: dict | None
     query: dict[str, list[str]]
+    session: bytes = b""  # the session token's hash (owner of log follows, #821)
 
     def project(self) -> dict:
         return self.center.need_project(self.match["project"])
@@ -1268,6 +1292,42 @@ def _deployment_logs(request: Request) -> dict:
     return request.center.logs(
         request.project(), "deployment", request.match["deployment"], request.query
     )
+
+
+def _follow_service_logs(request: Request) -> dict:
+    return request.center.follow_logs(
+        request.project(), "service", request.match["service"], request.body, request.session
+    )
+
+
+def _follow_deployment_logs(request: Request) -> dict:
+    return request.center.follow_logs(
+        request.project(),
+        "deployment",
+        request.match["deployment"],
+        request.body,
+        request.session,
+    )
+
+
+def _follow_read(request: Request) -> dict:
+    """A follow's lines after `after` (a poll: it does not keep the session alive)."""
+    after = request.query.get("after", ["0"])[0]
+    if not re.fullmatch(r"0|[1-9][0-9]{0,15}", after):
+        raise BadRequest("After must be a line number", "AFTER_INVALID")
+    try:
+        return request.center.log_follows.read(
+            request.session, request.match["follow"], int(after)
+        )
+    except logfollow.FollowNotFound as missing:
+        raise NotFound("No such log follow") from missing
+
+
+def _follow_stop(request: Request) -> dict:
+    try:
+        return request.center.log_follows.stop(request.session, request.match["follow"])
+    except logfollow.FollowNotFound as missing:
+        raise NotFound("No such log follow") from missing
 
 
 def _failed_tail(request: Request) -> dict:
@@ -1558,6 +1618,28 @@ ROUTES: tuple[Route, ...] = (
         _service_action,
         "/api/projects/0123456789ab/services/litellm/restart",
     ),
+    # Log follows (#821, M5 PR 2): start one, poll its lines, stop it.
+    Route(
+        "POST",
+        rf"/api/projects/{PROJECT_ID}/logs/service/{SERVICE}/follow",
+        _follow_service_logs,
+        "/api/projects/0123456789ab/logs/service/litellm/follow",
+    ),
+    Route(
+        "POST",
+        rf"/api/projects/{PROJECT_ID}/logs/deployment/{DEPLOYMENT}/follow",
+        _follow_deployment_logs,
+        "/api/projects/0123456789ab/logs/deployment/" + "0" * 32 + "/follow",
+    ),
+    Route(
+        "GET", rf"/api/follows/{FOLLOW_ID}", _follow_read, "/api/follows/" + "0" * 32, poll=True
+    ),
+    Route(
+        "POST",
+        rf"/api/follows/{FOLLOW_ID}/stop",
+        _follow_stop,
+        "/api/follows/" + "0" * 32 + "/stop",
+    ),
 )
 
 
@@ -1758,7 +1840,9 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 raise HttpError(404, "NOT_FOUND", "Not found")
             body = self._read_body(route) if method != "GET" else None
-            request = Request(self.center, match, body, parse_qs(parts.query))
+            token = self.headers.get("X-AgentBreeder-Session")
+            session = _hash(token) if token else b""
+            request = Request(self.center, match, body, parse_qs(parts.query), session)
             self._json(200, self._handle(route, request))
         except HttpError as failure:
             self._fail(failure)

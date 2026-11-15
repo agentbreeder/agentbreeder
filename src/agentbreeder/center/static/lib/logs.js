@@ -137,10 +137,10 @@ export function logNotes(data, { tail }) {
   return notes;
 }
 
-const cap = (text, limit = 200) => {
+function cap(text, limit = 200) {
   const value = String(text ?? "");
   return value.length > limit ? `${value.slice(0, limit)}…` : value;
-};
+}
 
 /** The empty state for a read: a coded error that means "no lines here", or null. */
 export function emptyReason(error, data) {
@@ -154,4 +154,103 @@ export function emptyReason(error, data) {
   }
   if (data && Array.isArray(data.lines) && !data.lines.length) return { code: "EMPTY", text: "No log lines in this range." };
   return null;
+}
+
+// -- follow (#821, M5 PR 2) ------------------------------------------------------------------------
+
+export const FOLLOW_EVERY = 1000; // ms between reads of a follow's new lines
+export const FOLLOW_KEEP = 10000; // lines this page keeps while following, as the largest read
+const FOLLOW_ID = /^[0-9a-f]{32}$/;
+const REDACTED = "Secret values this stack knows are shown as [redacted]. Logs can still hold customer messages and model output.";
+const ENDED = {
+  container: "Follow ended: the container stopped or was removed.",
+  stdin: "Follow stopped.",
+  signal: "Follow ended: the log command was stopped by a signal.",
+  interrupt: "Follow ended: the log command was interrupted.",
+};
+
+/** The path that starts a follow of `source`, or null when the source is not a valid one. */
+export function followPath(projectId, source) {
+  const read = logsPath(projectId, source);
+  return read ? read.replace(/\?.*$/, "/follow") : null;
+}
+
+/** The body that starts a follow: the read's line count and Since (never Previous). */
+export function followBody({ tail = 200, since = "" } = {}) {
+  return since ? { tail, since } : { tail };
+}
+
+/** The path that reads a follow's lines after `after`, or null for an ID the server never gives. */
+export function followReadPath(id, after) {
+  if (!FOLLOW_ID.test(String(id)) || !Number.isSafeInteger(after) || after < 0) return null;
+  return `/api/follows/${id}?after=${after}`;
+}
+
+/** A follow before its first answer. `rows` are {seq, line, level}, oldest first. */
+export function followInitial() {
+  return { rows: [], after: 0, cut: 0, missed: 0, dropped: 0, cliDropped: false, running: true, reason: null, stopped: false, gone: false, error: null, pausedAt: null };
+}
+
+/**
+ * The follow after one read's envelope: new rows appended (the oldest dropped past FOLLOW_KEEP and
+ * counted in `cut`), lines the server's ring lost before this read in `missed`, and how it ended.
+ */
+export function followMerge(state, reply) {
+  const data = reply && reply.data;
+  if (!data) return { ...state, running: false, error: (reply && reply.error) || { code: "UNREADABLE", message: "Unreadable response" } };
+  const fresh = (Array.isArray(data.lines) ? data.lines : []).filter((row) => row && Number.isSafeInteger(row.seq) && row.seq > state.after && typeof row.line === "string");
+  let rows = fresh.length ? state.rows.concat(fresh.map((row) => ({ seq: row.seq, line: row.line, level: row.level ?? null }))) : state.rows;
+  let cut = state.cut;
+  if (rows.length > FOLLOW_KEEP) {
+    cut += rows.length - FOLLOW_KEEP;
+    rows = rows.slice(rows.length - FOLLOW_KEEP);
+  }
+  return {
+    ...state,
+    rows,
+    cut,
+    after: Number.isSafeInteger(data.next) && data.next > state.after ? data.next : state.after,
+    missed: state.missed + (Number.isSafeInteger(data.missed) && data.missed > 0 ? data.missed : 0),
+    dropped: Number.isSafeInteger(data.dropped) ? data.dropped : state.dropped,
+    cliDropped: data.cli_dropped === true || state.cliDropped,
+    running: data.running === true,
+    reason: data.reason ?? null,
+    stopped: data.stopped === true,
+    gone: data.gone === true,
+    error: reply.error || null,
+  };
+}
+
+/** The rows shown: all of them, or while paused only those up to where the pause began. */
+export function followShown(state) {
+  if (state.pausedAt === null) return state.rows;
+  return state.rows.filter((row) => row.seq <= state.pausedAt);
+}
+
+/** Lines that arrived after the pause began (shown by Jump to latest). */
+export function followHeld(state) {
+  if (state.pausedAt === null) return 0;
+  return state.rows.filter((row) => row.seq > state.pausedAt).length;
+}
+
+/** One line for the follow's live region: following, paused with N new lines, or how it ended. */
+export function followStatus(state, { asked = false } = {}) {
+  if (state.error) return `Follow failed: ${cap(state.error.message || "the log command failed")}${state.error.code ? ` (${state.error.code})` : ""}`;
+  if (state.running) {
+    if (state.pausedAt === null) return "Following: new lines appear as they are written.";
+    return "Paused: new lines wait until Jump to latest.";
+  }
+  if (state.gone) return "The follow is gone (the console restarted, or it ended over a minute ago). Follow again to resume.";
+  if (state.stopped && !asked) return "Follow stopped: this page did not read it for 15 seconds (a background tab). Follow again to resume.";
+  return ENDED[state.reason] || "Follow ended.";
+}
+
+/** The notes under a followed log. */
+export function followNotes(state) {
+  const notes = [`${state.rows.length} ${state.rows.length === 1 ? "line" : "lines"} kept on this page (at most the newest ${FOLLOW_KEEP}).`, REDACTED];
+  if (state.cut) notes.push(`The oldest ${state.cut} ${state.cut === 1 ? "line was" : "lines were"} dropped from this page to keep it fast.`);
+  if (state.missed) notes.push(`${state.missed} ${state.missed === 1 ? "line" : "lines"} arrived faster than this page read them and ${state.missed === 1 ? "was" : "were"} skipped. Read again for the full log.`);
+  if (state.dropped) notes.push(`${state.dropped} ${state.dropped === 1 ? "record" : "records"} did not match the log format and ${state.dropped === 1 ? "was" : "were"} not shown.`);
+  if (state.cliDropped) notes.push("Lines over 1 MiB were dropped whole.");
+  return notes;
 }

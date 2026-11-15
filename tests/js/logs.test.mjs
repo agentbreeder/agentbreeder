@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  emptyReason, levelShown, linePieces, logNotes, logsPath, matchRanges, searchHits, searchStatus,
+  emptyReason, FOLLOW_KEEP, followBody, followHeld, followInitial, followMerge, followNotes, followPath, followReadPath, followShown, followStatus, levelShown, linePieces, logNotes, logsPath, matchRanges, searchHits, searchStatus,
   shownRows, stepHit, windowOf,
 } from "../../src/agentbreeder/center/static/lib/logs.js";
 
@@ -112,4 +112,79 @@ test("cluster text in an empty state is capped", () => {
   const long = "x".repeat(500);
   assert.equal(emptyReason({ code: "POD_NOT_RUNNING", message: long }, null).text.length, 201);
   assert.ok(emptyReason(null, { lines: [], pod_reason: long }).text.endsWith("…)."));
+});
+
+// -- follow (M5 PR 2) ---------------------------------------------------------------------------
+
+const reply = (lines, extra = {}) => ({
+  data: { running: true, lines, next: lines.length ? lines[lines.length - 1].seq : 0, more: false, missed: 0, dropped: 0, cli_dropped: false, reason: null, stopped: false, ...extra },
+  error: null,
+});
+const row = (seq, level = null) => ({ seq, line: `line ${seq}`, level });
+
+test("follow paths carry only checked values", () => {
+  assert.equal(followPath("aaaaaaaaaaaa", { kind: "service", name: "litellm" }), "/api/projects/aaaaaaaaaaaa/logs/service/litellm/follow");
+  assert.equal(followPath("aaaaaaaaaaaa", { kind: "deployment", name: ID }), `/api/projects/aaaaaaaaaaaa/logs/deployment/${ID}/follow`);
+  assert.equal(followPath("aaaaaaaaaaaa", { kind: "service", name: "../x" }), null);
+  assert.deepEqual(followBody({ tail: 1000, since: "", previous: true }), { tail: 1000 });
+  assert.deepEqual(followBody({ tail: 200, since: "10m" }), { tail: 200, since: "10m" });
+  assert.equal(followReadPath(ID, 12), `/api/follows/${ID}?after=12`);
+  for (const [id, after] of [["x/../y", 0], [ID, -1], [ID, 1.5], [ID, "3"]]) assert.equal(followReadPath(id, after), null);
+});
+
+test("merging appends new rows once, keeps the newest and counts what was lost", () => {
+  let state = followMerge(followInitial(), reply([row(1), row(2, "error")]));
+  assert.deepEqual(state.rows.map((r) => r.seq), [1, 2]);
+  assert.equal(state.after, 2);
+  // A repeated answer (a retried read) adds nothing.
+  state = followMerge(state, reply([row(2), row(3)], { missed: 4 }));
+  assert.deepEqual(state.rows.map((r) => r.seq), [1, 2, 3]);
+  assert.equal(state.missed, 4);
+  const many = Array.from({ length: FOLLOW_KEEP }, (_, n) => row(n + 4));
+  state = followMerge(state, reply(many));
+  assert.equal(state.rows.length, FOLLOW_KEEP);
+  assert.equal(state.cut, 3);
+  assert.equal(state.rows[0].seq, 4);
+  assert.match(followNotes(state).join(" "), /oldest 3 lines were dropped/);
+  assert.match(followNotes(state).join(" "), /4 lines arrived faster/);
+});
+
+test("pause holds new rows back until Jump to latest", () => {
+  let state = followMerge(followInitial(), reply([row(1), row(2)]));
+  state = { ...state, pausedAt: 2 };
+  state = followMerge(state, reply([row(3), row(4)]));
+  assert.deepEqual(followShown(state).map((r) => r.seq), [1, 2]);
+  assert.equal(followHeld(state), 2);
+  assert.match(followStatus(state), /^Paused/);
+  state = { ...state, pausedAt: null };
+  assert.equal(followShown(state).length, 4);
+  assert.equal(followHeld(state), 0);
+  assert.match(followStatus(state), /^Following/);
+});
+
+test("the status says how a follow ended", () => {
+  const ended = (extra) => followMerge(followInitial(), reply([], { running: false, ...extra }));
+  assert.match(followStatus(ended({ reason: "container" })), /container stopped/);
+  assert.equal(followStatus(ended({ reason: "stdin", stopped: true }), { asked: true }), "Follow stopped.");
+  assert.match(followStatus(ended({ reason: "stdin", stopped: true })), /did not read it for 15 seconds/);
+  assert.equal(followStatus(ended({ reason: "other" }), { asked: true }), "Follow ended.");
+  const failed = followMerge(followInitial(), { data: { ...reply([]).data, running: false }, error: { code: "DOCKER_LOGS_FAILED", message: "the stream ended" } });
+  assert.equal(followStatus(failed), "Follow failed: the stream ended (DOCKER_LOGS_FAILED)");
+  const unreadable = followMerge(followInitial(), { data: null, error: null });
+  assert.equal(unreadable.running, false);
+  assert.match(followStatus(unreadable), /UNREADABLE/);
+});
+
+test("follow notes count dropped records and lines", () => {
+  const state = followMerge(followInitial(), reply([row(1)], { dropped: 1, cli_dropped: true }));
+  const notes = followNotes(state).join(" ");
+  assert.match(notes, /1 line kept on this page/);
+  assert.match(notes, /1 record did not match/);
+  assert.match(notes, /over 1 MiB/);
+  assert.match(notes, /\[redacted\]/);
+});
+
+test("a follow the server no longer knows says so", () => {
+  const gone = followMerge(followInitial(), { data: { running: false, gone: true, lines: [], next: 0 }, error: null });
+  assert.match(followStatus(gone), /^The follow is gone/);
 });
