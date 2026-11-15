@@ -82,7 +82,10 @@ FAKE = textwrap.dedent(
         open(marker + "/usage-pids", "a").write(f"{os.getpid()} {stats.pid}\\n")
         if os.path.exists(marker + "/usage-stubborn"):
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
-            print("stubborn", flush=True)
+            try:  # a console already gone must not end it: it stays for the sweep
+                print("stubborn", flush=True)
+            except BrokenPipeError:
+                os.dup2(os.open(os.devnull, os.O_WRONLY), 1)
             while True:
                 time.sleep(1)
         done = threading.Event()
@@ -91,19 +94,23 @@ FAKE = textwrap.dedent(
             done.set()
         threading.Thread(target=watch_stdin, daemon=True).start()
         lines_file = marker + "/usage-lines"
-        if os.path.exists(lines_file):
-            for line in open(lines_file).read().splitlines():
-                print(line, flush=True)
-        else:
-            print(json.dumps(DISK), flush=True)
-        try:  # as the CLI: a reader that left (BrokenPipeError) stops it too
-            while not done.wait(0.1):
-                if not os.path.exists(lines_file):
-                    print(json.dumps(SAMPLE), flush=True)
-        except BrokenPipeError:
-            pass
-        stats.kill()
-        stats.wait()
+        # As the CLI: every write is inside the try and the reader is stopped in `finally`,
+        # so a console that died before the first write (BrokenPipeError) cannot orphan it.
+        try:
+            try:
+                if os.path.exists(lines_file):
+                    for line in open(lines_file).read().splitlines():
+                        print(line, flush=True)
+                else:
+                    print(json.dumps(DISK), flush=True)
+                while not done.wait(0.1):
+                    if not os.path.exists(lines_file):
+                        print(json.dumps(SAMPLE), flush=True)
+            except BrokenPipeError:
+                pass
+        finally:
+            stats.kill()
+            stats.wait()
         try:
             print(json.dumps({"schema_version": 1, "event": "end", "reason": "stdin",
                               "dropped": 0}), flush=True)
