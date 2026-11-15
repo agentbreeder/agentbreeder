@@ -13,7 +13,7 @@ from __future__ import annotations
 import http.client
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -286,7 +286,7 @@ _PARAMS = {
     "reasoning_effort",
 }
 _MODEL_NAME = re.compile(r"[A-Za-z0-9._:/-]{1,128}")
-_FALLBACKS = {"fallbacks", "context_window_fallbacks"}
+_FALLBACKS = ("fallbacks", "context_window_fallbacks")
 _GENERAL_ENV = {"master_key": _ENV + "LITELLM_MASTER_KEY", "database_url": _ENV + "DATABASE_URL"}
 # Prompt and reply logging stays off (#1028): when present, each key must hold exactly this
 # boolean. There is no operator opt-in; a stack that needs message logs is a new design.
@@ -303,6 +303,10 @@ class ConfigReview:
     aliases: set[str]
     providers: dict[str, str]  # alias -> "gemini (GEMINI_API_KEY)", shown in the services grant
     sha256: str
+    # alias -> the aliases LiteLLM may serve it from instead, `fallbacks` and
+    # `context_window_fallbacks` merged in that order (#1033: a fallback runs under the
+    # caller's key, so `services up` refuses a target the environment doesn't grant).
+    fallbacks: dict[str, list[str]] = field(default_factory=dict)
 
 
 def _unsafe(path: Path, where: str) -> GatewayError:
@@ -326,8 +330,9 @@ def _scalar(value) -> bool:
     return value is None or isinstance(value, (bool, int, float, str))
 
 
-def _fallbacks(path: Path, where: str, value, aliases: set[str]) -> None:
-    """`[{alias: [alias, ...]}, ...]` naming declared models only (no inline deployments)."""
+def _fallbacks(path: Path, where: str, value, aliases: set[str], edges: dict) -> None:
+    """`[{alias: [alias, ...]}, ...]` naming declared models only (no inline deployments).
+    Adds each edge to `edges`."""
     if not isinstance(value, list):
         raise _unsafe(path, where)
     for item in value:
@@ -340,6 +345,8 @@ def _fallbacks(path: Path, where: str, value, aliases: set[str]) -> None:
             or any(not isinstance(t, str) or t not in aliases for t in targets)
         ):
             raise _unsafe(path, f"{where} (fallbacks name declared model_names only)")
+        known = edges.setdefault(source, [])
+        known.extend(t for t in dict.fromkeys(targets) if t not in known)
 
 
 def config_review(path: Path) -> ConfigReview:
@@ -423,16 +430,19 @@ def config_review(path: Path) -> ConfigReview:
             allowed_env.add(f"{where}.litellm_params.api_key")
         providers[name] = f"{provider} ({key[len(_ENV) :] if key else 'no key'})"
         aliases.add(name)
+    edges: dict[str, list[str]] = {}
     for section, keys in _SECTIONS.items():
-        for key, value in (data.get(section) or {}).items() if keys else ():
-            if key in _FALLBACKS:
-                _fallbacks(path, f"{section}.{key}", value, aliases)
-            elif not _scalar(value):
+        values = (data.get(section) or {}) if keys else {}
+        for key in _FALLBACKS:  # a fixed merge order: `fallbacks` first
+            if key in values:
+                _fallbacks(path, f"{section}.{key}", values[key], aliases, edges)
+        for key, value in values.items():
+            if key not in _FALLBACKS and not _scalar(value):
                 raise _unsafe(path, f"{section}.{key} value (plain values only)")
     for where, _ in _env_strings(data, "config"):
         if where.removeprefix("config.") not in allowed_env:
             raise _unsafe(path, f"os.environ reference at {where.removeprefix('config.')}")
-    return ConfigReview(aliases, providers, hashlib.sha256(path.read_bytes()).hexdigest())
+    return ConfigReview(aliases, providers, hashlib.sha256(path.read_bytes()).hexdigest(), edges)
 
 
 def config_aliases(path: Path) -> set[str]:

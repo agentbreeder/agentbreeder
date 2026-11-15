@@ -437,12 +437,15 @@ def test_run_mints_and_revokes_judge_key(project, operator, state, tmp_path):
     master.write_text(MASTER)
     master.chmod(0o600)
     operator.config["gateways"]["gw"].update({"url": gateway.url, "master_key": f"file:{master}"})
+    # The judge key is granted the judge alias's granted fallback targets too (#1033).
+    operator.config["environments"]["dev"]["fallbacks"] = {"support-judge": ["support-model"]}
     agent = Agent(reply="bye")
     eval_set = evals.EvalSet("golden", "1.0.0", "support-judge", CASES, None)
 
     def grade(self, prompt):
         minted = [k for a, k in gateway.keys.items() if "eval-" in a]
         assert minted and minted[0]["duration"] == evals.JUDGE_KEY_DURATION
+        assert minted[0]["models"] == ["support-judge", "support-model"]
         graded.append(self.key)
         assert self.key.startswith("vk-") and self.alias == "support-judge"
         return 1.0, "ok"

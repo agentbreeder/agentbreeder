@@ -240,15 +240,28 @@ def _single_file(directory: Path) -> Path:
 
 def _gateway_aliases(stack: Stack, specs, files) -> list[str]:
     """Every alias the environment grants must be served by the gateway's config (error);
-    extra aliases in the config are only a warning."""
+    extra aliases in the config are only a warning. Every fallback target must be granted
+    (#1033): LiteLLM serves a fallback under the caller's key, without checking the key's
+    `models`, so an ungranted target would reach a provider the environment never granted."""
     gateway = stack.environment.gateway
     config = files.get(gateway, {}).get("config")
     if config is None:
         raise ServiceError("GATEWAY_CONTRACT", "the gateway service needs a `config` file param")
     try:
-        served = gateway_keys.config_aliases(config)
+        review = gateway_keys.config_review(config)
     except gateway_keys.GatewayError as error:
         raise ServiceError(error.code, str(error)) from None
+    served = review.aliases
+    ungranted = sorted(
+        {target for targets in review.fallbacks.values() for target in targets}
+        - set(stack.environment.models)
+    )
+    if ungranted:
+        raise ServiceError(
+            "GATEWAY_FALLBACK_UNGRANTED",
+            f"the gateway config falls back to aliases environment.models doesn't grant: "
+            f"{ungranted}; add them to environment.models or remove the fallback",
+        )
     missing = sorted(set(stack.environment.models) - served)
     if missing:
         raise ServiceError(

@@ -33,7 +33,9 @@ services:
       database-url: postgres.roles.support_ops
 environment:
   gateway: litellm
-  models: [support-model, support-embedding, support-judge]
+  # support-model-openrouter is support-model's fallback: granted, since a fallback runs under
+  # the agent's key (`services up` refuses an ungranted fallback target, #1033).
+  models: [support-model, support-model-openrouter, support-embedding, support-judge]
   ceilings: {budget_usd: 50, rpm: 300}
   services:
     traces_url: "{proxy.url}/v1/traces"

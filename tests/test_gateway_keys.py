@@ -445,3 +445,83 @@ def test_config_review_accepts_prompt_logging_off_or_unset(tmp_path):
     assert gateway_keys.config_review(_config(tmp_path, data)).aliases == {"m"}
     unset = {"model_list": [_entry("gemini/x")], "litellm_settings": {"drop_params": True}}
     assert gateway_keys.config_review(_config(tmp_path, unset)).aliases == {"m"}
+
+
+# -- fallbacks (#1033) ---------------------------------------------------------------------
+
+
+def _models(*names):
+    return [{"model_name": n, "litellm_params": {"model": "gemini/x"}} for n in names]
+
+
+def test_config_review_returns_every_fallback_edge():
+    review = gateway_keys.config_review(
+        ROOT / "src/agentbreeder/examples/northwind/stack/litellm/config.yaml"
+    )
+    assert review.fallbacks == {"support-model": ["support-model-openrouter"]}
+
+
+def test_config_review_merges_both_fallback_kinds(tmp_path):
+    data = {
+        "model_list": _models("a", "b", "c"),
+        "litellm_settings": {
+            "fallbacks": [{"a": ["b"]}, {"b": ["c"]}],
+            "context_window_fallbacks": [{"a": ["c", "b"]}],
+        },
+    }
+    review = gateway_keys.config_review(_config(tmp_path, data))
+    assert review.fallbacks == {"a": ["b", "c"], "b": ["c"]}
+    plain = gateway_keys.config_review(_config(tmp_path, {"model_list": _models("a")}))
+    assert plain.fallbacks == {}
+
+
+def test_deploy_mints_granted_fallback_targets_too(minting, gateway, state, runtime):
+    dev = minting.config["environments"]["dev"]
+    dev["models"] = ["support-model", "support-embedding", "or-model", "third", "judge"]
+    # Followed transitively; a fallback of an alias the agent doesn't use adds nothing.
+    dev["fallbacks"] = {"support-model": ["or-model"], "or-model": ["third"], "judge": ["third"]}
+    running(runtime)
+    result = DeploymentService(state, runtime, minting.load()).deploy(manifest(), local=True)
+    minted = gateway.keys[gateway_keys.alias(result["id"])]
+    assert minted["models"] == ["support-model", "or-model", "third"]
+    rows = repr(state.audit_rows(limit=200))
+    assert "GATEWAY_KEY_MODELS" in rows and "support-model, or-model, third" in rows
+    assert minted["key"] not in rows
+
+
+def test_unrelated_fallbacks_mint_only_the_manifest_aliases(minting, gateway, state, runtime):
+    minting.config["environments"]["dev"]["fallbacks"] = {"support-embedding": ["support-model"]}
+    running(runtime)
+    result = DeploymentService(state, runtime, minting.load()).deploy(manifest(), local=True)
+    assert gateway.keys[gateway_keys.alias(result["id"])]["models"] == ["support-model"]
+
+
+@pytest.mark.parametrize(
+    "fallbacks",
+    [
+        {"support-model": ["not-granted"]},  # a target outside environment.models
+        {"not-granted": ["support-model"]},  # a source outside environment.models
+        {"support-model": []},
+    ],
+)
+def test_operator_config_fallbacks_stay_inside_the_grant(minting, fallbacks):
+    from agentbreeder.operator_config import OperatorConfigError
+
+    minting.config["environments"]["dev"]["fallbacks"] = fallbacks
+    with pytest.raises(OperatorConfigError):
+        minting.load()
+
+
+def test_key_models_follow_fallbacks_in_a_stable_order():
+    from agentbreeder.operator_config import Environment
+
+    env = Environment.model_validate(
+        {
+            "targets": ["local"],
+            "models": ["a", "b", "c", "d"],
+            "fallbacks": {"a": ["c", "b"], "c": ["a", "d"], "b": ["d"]},
+        }
+    )
+    assert env.key_models(["a"]) == ["a", "c", "b", "d"]
+    assert env.key_models(["d", "b"]) == ["d", "b"]
+    assert env.key_models(["x"]) == ["x"]  # the gate refuses ungranted aliases, not this helper

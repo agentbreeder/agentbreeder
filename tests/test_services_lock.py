@@ -313,3 +313,50 @@ def test_update_mode_accepts_edited_file_params_only(project, tmp_path):
     with pytest.raises(RegistryError, match="HASH_MISMATCH") as caught:
         run(project, tmp_path, "update", lock2)  # a published version never changes
     assert "--update" not in str(caught.value)
+
+
+# -- fallbacks must stay inside the grant (#1033) --------------------------------------------
+
+
+def _with_fallbacks(project, settings):
+    config = copy.deepcopy(LITELLM_CONFIG)
+    config["model_list"].append(
+        {"model_name": "support-model-or", "litellm_params": {"model": "openrouter/v/x"}}
+    )
+    config["litellm_settings"] = settings
+    (project / "litellm/config.yaml").write_text(yaml.safe_dump(config))
+
+
+@pytest.mark.parametrize("kind", ["fallbacks", "context_window_fallbacks"])
+def test_an_ungranted_fallback_target_is_refused(project, tmp_path, kind):
+    _with_fallbacks(project, {kind: [{"support-model": ["support-model-or"]}]})
+    with pytest.raises(ServiceError) as caught:
+        run(project, tmp_path)
+    assert caught.value.code == "GATEWAY_FALLBACK_UNGRANTED"
+    assert "['support-model-or']" in str(caught.value)
+    assert "environment.models" in str(caught.value)
+
+
+def test_a_fallback_from_an_ungranted_alias_is_refused_too(project, tmp_path):
+    # One rule for every edge: a key could be granted the source later.
+    _with_fallbacks(project, {"fallbacks": [{"support-judge": ["support-model-or"]}]})
+    with pytest.raises(ServiceError) as caught:
+        run(project, tmp_path)
+    assert caught.value.code == "GATEWAY_FALLBACK_UNGRANTED"
+
+
+def test_a_granted_fallback_target_is_accepted(project, tmp_path):
+    _with_fallbacks(project, {"fallbacks": [{"support-model": ["support-model-or"]}]})
+    data = copy.deepcopy(STACK)
+    data["environment"]["models"] = ["support-model", "support-model-or"]
+    locked, _ = run(project, tmp_path, stack_data=data)
+    assert locked.warnings == [
+        "gateway config serves aliases the environment doesn't grant: ['support-judge']"
+    ]
+
+
+def test_northwind_grants_its_fallback_alias():
+    stack = yaml.safe_load((NORTHWIND_GATEWAY.parents[2] / "stack.yaml").read_text())
+    review = gateway_keys.config_review(NORTHWIND_GATEWAY)
+    targets = {t for ts in review.fallbacks.values() for t in ts}
+    assert targets and targets <= set(stack["environment"]["models"])
