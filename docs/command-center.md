@@ -86,8 +86,10 @@ On `main` the walkthrough column is replaced by a console shell (Preact + htm, n
   Closing the dock never stops a job.
 - **Sign-in states**: the one-time link is consumed before anything else and removed from the
   address bar. "Session ended" and "Sign in" pages say how to get a new link, and signing in again
-  returns to the screen you were on. "Console not reachable at this address" (no answer at all)
-  is a separate page that retries every 5 seconds.
+  returns to the screen you were on. Sessions live in the console's memory, so "Session ended"
+  names both causes: the tab was open 8 hours or idle 1 hour, or the console was restarted
+  (#879). "Console not reachable at this address" (no answer at all) is a separate page that
+  retries every 5 seconds.
 - **Walkthrough fixes (#811)**:
   - Audit shows each row's time (from `at`), agent deployment, mode, reason codes and whether the
     actor was verified. Verify is one sentence ("Chain intact: 19 rows checked, head 63639e…" or
@@ -115,7 +117,12 @@ On `main` the walkthrough column is replaced by a console shell (Preact + htm, n
   (`promote` reads the agent's ready local deployment, not the release history). When no local
   deployment is ready (for example after it was removed), the card says "No ready release is
   running locally." and Deploy to cluster stays off with "Needs a release running locally"
-  instead of offering a `promote` that fails with `NO_LOCAL_RELEASE` (#880).
+  instead of offering a `promote` that fails with `NO_LOCAL_RELEASE` (#880). The card asks the CLI
+  which deployment that is rather than picking from the deployment list: the release step of the
+  console's `next --json` read runs `promote`'s own lookup (this agent's active local deployment),
+  and Deploy is on only when it is `ready`. Another agent's deployment, a release candidate or a
+  removed deployment never turns it on (#902). While that read is running again, has failed or
+  is a last known answer, Deploy stays off and the card says so.
 
 Tested with Playwright against the built wheel with a fake CLI: in Chromium in CI, and in the
 installed Chrome on macOS 13, where Playwright's Chromium is not offered. The tests cover every

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import shutil
 import subprocess
 import sys
@@ -36,6 +37,15 @@ class Console:
         self.process.stdin.write("mint\n")
         self.process.stdin.flush()
         return json.loads(self.process.stdout.readline())["login"]
+
+    def restart(self) -> None:
+        """Stop the server and start a new one on the same port: its sessions are gone, as when
+        `agentbreeder up` is stopped and started again."""
+        self.process.stdin.write("restart\n")
+        self.process.stdin.flush()
+        ready, _, _ = select.select([self.process.stdout], [], [], 30)
+        assert ready, "the console did not restart within 30 seconds"
+        assert json.loads(self.process.stdout.readline())["origin"] == self.origin
 
     def scenario(self, **answers) -> None:
         """Change the fake CLI's answers (before the console first reads them)."""

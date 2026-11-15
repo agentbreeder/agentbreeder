@@ -400,6 +400,64 @@ def test_released_then_removed_does_not_claim_nothing_was_released(page, console
     expect(deploy).not_to_be_focused()
 
 
+# #902: the card offers Deploy only for the deployment `promote` takes, which `next --json`'s
+# release step reports (this agent's ready local deployment), whatever `list` shows. The fixture
+# project's agent is `hello`; the "services" guide has no production for it.
+OWN = {**DEPLOYMENTS[0], "id": "d8", "name": "hello"}
+OTHER_AGENT = {**DEPLOYMENTS[0], "id": "d9", "name": "billing"}
+PROMOTE_CASES = {
+    "no release": [],
+    "a removed release": [{**OWN, "state": "removed"}],
+    "another agent's release": [OTHER_AGENT],
+    "a candidate row": [{**DEPLOYMENTS[1], "name": "hello-candidate"}],
+    # The list and promote's lookup disagree (the row went between the two reads): the CLI wins.
+    "a ready row promote does not take": [OWN],
+}
+
+
+def kubernetes_card(page, console):
+    sign_in(page, console)
+    go(page, console, "/targets/kubernetes", "Kubernetes")
+    return page.locator("section", has=page.get_by_role("heading", name="Deploy this release"))
+
+
+def deploy_reason(page):
+    deploy = page.get_by_role("button", name="Deploy to cluster")
+    expect(deploy).to_be_disabled()
+    return page.locator(f"#{deploy.get_attribute('aria-describedby')}")
+
+
+@pytest.mark.parametrize("case", list(PROMOTE_CASES))
+def test_deploy_to_cluster_matches_promote(page, console, case):
+    console.scenario(
+        **{**RELEASED_THEN_REMOVED, "deployments": PROMOTE_CASES[case], "guide": "services"}
+    )
+    card = kubernetes_card(page, console)
+    expect(card).to_contain_text("No ready release is running locally")
+    expect(deploy_reason(page)).to_contain_text("Needs a release running locally")
+
+
+def test_deploy_to_cluster_is_off_on_a_last_known_guide(page, console):
+    console.scenario(**{**RELEASED_THEN_REMOVED, "guide": "done"})
+    card = kubernetes_card(page, console)
+    expect(page.get_by_role("button", name="Deploy to cluster")).to_be_enabled()
+    # `next` now fails: the server answers with the last good guide, marked stale.
+    console.scenario(**{**RELEASED_THEN_REMOVED, "guide": None})
+    page.evaluate("() => window.dispatchEvent(new Event('focus'))")
+    expect(deploy_reason(page)).to_contain_text("could not be read just now")
+    expect(card).to_contain_text("could not be read just now")
+
+
+def test_deploy_to_cluster_offers_the_agents_own_release(page, console):
+    # The agent's own ready deployment counts even when `list` shows only other rows.
+    console.scenario(
+        **{**RELEASED_THEN_REMOVED, "deployments": [OTHER_AGENT, DEPLOYMENTS[1]], "guide": "done"}
+    )
+    card = kubernetes_card(page, console)
+    expect(card).to_contain_text("Running locally: hello.")
+    expect(page.get_by_role("button", name="Deploy to cluster")).to_be_enabled()
+
+
 def test_cost_figures_only_for_northwind(page, console):
     sign_in(page, console)
     go(page, console, "/release", "Build and release")
@@ -434,6 +492,23 @@ def test_session_ended_then_sign_in_returns_to_the_route(page, console):
     expect(page.get_by_role("heading", level=1)).to_contain_text("Audit")
     expect(page).not_to_have_url(TOKEN_IN_URL)
     expect(page).to_have_url(re.compile(r"#/audit$"))
+
+
+def test_session_ended_after_a_console_restart_names_the_restart(page, console):
+    """#879: a restart drops every session (they live in the server's memory), so the text must
+    not claim the cause was 8 hours or 1 hour idle."""
+    sign_in(page, console)
+    go(page, console, "/audit", "Audit")
+    console.restart()
+    page.reload()
+    expect(page.get_by_role("heading", level=1)).to_have_text("Session ended")
+    expect(page.locator("main")).to_contain_text(
+        "This tab's session ended: it was open 8 hours or idle 1 hour, "
+        "or the console was restarted."
+    )
+    expect(page.locator("main")).to_contain_text("press Enter for a new one-time link")
+    page.goto(console.mint())
+    expect(page.get_by_role("heading", level=1)).to_contain_text("Audit")
 
 
 def test_a_link_pasted_into_a_signed_out_tab_is_redeemed(page, console):

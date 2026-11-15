@@ -60,6 +60,22 @@ export function tryRoute(guide) {
   return typeof agent === "string" && /^[a-z0-9]([a-z0-9-]{0,51}[a-z0-9])?$/.test(agent) && !agent.endsWith("-candidate") ? `/agents/${agent}/try` : null;
 }
 
+/**
+ * The local deployment `promote` would take (#902), as `next --json` reports it: the release
+ * step's `production` is the same lookup `promote` runs (this agent's active local deployment,
+ * never another agent's, a candidate or a removed one), and `promote` needs it `ready`.
+ * Returns {agent, id} or null.
+ */
+export function promotable(guide) {
+  const steps = (guide && Array.isArray(guide.steps) && guide.steps) || [];
+  const project = steps.find((step) => step.id === "project");
+  const release = steps.find((step) => step.id === "release");
+  const agent = project && project.data && project.data.agent;
+  const production = release && release.data && release.data.production;
+  if (typeof agent !== "string" || !agent || !production || production.state !== "ready" || typeof production.id !== "string") return null;
+  return { agent, id: production.id };
+}
+
 /** A step's state as a word (never colour alone). */
 export function stateWord(state) {
   return STATE_WORDS[state] || "Unknown";
