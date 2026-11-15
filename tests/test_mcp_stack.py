@@ -119,7 +119,15 @@ def project(tmp_path, monkeypatch):
 
 
 def run_up(
-    project, docker=None, *, pins=True, allow=("github",), mode="plain", repin=False, seen=None
+    project,
+    docker=None,
+    *,
+    pins=True,
+    allow=("github",),
+    mode="plain",
+    repin=False,
+    seen=None,
+    expect=None,
 ):
     docker = docker or RelayDocker()
     engine = Engine(project, docker=docker, allocate=iter(range(43000, 44000)).__next__)
@@ -137,6 +145,7 @@ def run_up(
             confirm_pins=confirm_pins,
             repin=repin,
             allow_project_mcp=frozenset(allow),
+            expect_pins=expect,
         )
         return result, engine
     finally:

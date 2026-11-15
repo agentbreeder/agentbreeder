@@ -2,7 +2,8 @@
 
 It counts tools/call per tool in /tmp/calls.json, records whether each request carried the
 relay's credential (never the value), and injects a server-initiated sampling request and a
-list_changed notification into every tools/call stream.
+list_changed notification into every tools/call stream. A test can change what tools/list serves
+by writing a JSON list of tools to /tmp/tools.json (tests/test_services_pins_docker.py).
 """
 
 import json
@@ -21,6 +22,15 @@ STATE = {"calls": {}, "authorized": 0, "unauthorized": 0}
 EXPECTED = (
     open("/run/secrets/token").read().strip() if os.path.exists("/run/secrets/token") else ""
 )
+
+
+def tools():
+    """TOOLS, or the list a test wrote to /tmp/tools.json."""
+    try:
+        with open("/tmp/tools.json") as handle:
+            return json.load(handle)
+    except OSError:
+        return TOOLS
 
 
 def save():
@@ -74,7 +84,9 @@ class Handler(BaseHTTPRequestHandler):
         if method.startswith("notifications/"):
             return self.send(202)
         if method == "tools/list":
-            body = json.dumps({"jsonrpc": "2.0", "id": message["id"], "result": {"tools": TOOLS}})
+            body = json.dumps(
+                {"jsonrpc": "2.0", "id": message["id"], "result": {"tools": tools()}}
+            )
             return self.send(200, body.encode())
         name = message["params"]["name"]
         with LOCK:

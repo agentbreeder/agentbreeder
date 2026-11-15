@@ -350,6 +350,19 @@ reloads it without restarting. The first pin trusts what the upstream serves at 
 and asks before accepting it, and `--locked` refuses either change (`LOCK_STALE`). A changed
 version, origin, upstream or token endpoint also needs consent again, and its pins are redone.
 
+**Repin without a terminal** (#964; on `main`, not in a published preview). `agentbreeder
+services pins DIR [--json]` probes every running relay and shows what a repin would pin: each
+new or changed definition in full (escaped, long lines wrapped with `↩` for display only), a
+diff against the pinned definition, the pins it would drop, and one review digest. `services up
+DIR --environment ENV --repin --expect-pins DIGEST` then repins with no prompt, but only if the
+live definitions, the pins in `stack.lock` and each server's identity still give that digest; on
+any difference it pins nothing (`PINS_CHANGED`). The digest proves the definitions were fetched
+and are unchanged, not that a person read them: a script can chain the two commands, as
+`plan --json` chains into `--expect-grant`. It has no expiry. A pin binds the advertised
+definition, not what a tool does, and a description is upstream text that can address the
+reader. First pins still go through a plain `services up` (`MCP_PINS_NEED_UP`). See
+[`services`](commands/services.md).
+
 `agentbreeder mcp grant|revoke AGENT SERVER TOOL…` edits an agent's grant in `stack.yaml` for
 you; see [`mcp`](commands/mcp.md) (on `main`, not in a published preview).
 

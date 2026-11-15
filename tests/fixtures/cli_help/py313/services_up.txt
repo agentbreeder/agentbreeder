@@ -1,7 +1,7 @@
 usage: agentbreeder services up [-h] --environment ENVIRONMENT [--locked |
                                 --update] [--env-file ENV_FILE] [--yes]
                                 [--repin] [--allow-project-mcp NAME] [--json]
-                                [--expect-grant SHA256]
+                                [--expect-grant SHA256] [--expect-pins SHA256]
                                 [dir]
 
 positional arguments:
@@ -25,3 +25,5 @@ options:
   --json
   --expect-grant SHA256
                         Refuse unless the grant has this digest
+  --expect-pins SHA256  With --repin: pin without a prompt, only if the live
+                        MCP review (`services pins`) has this digest

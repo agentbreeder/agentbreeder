@@ -1,11 +1,13 @@
 """`agentbreeder services up|plan|status|logs|usage|env|down|start|stop|restart`: local backing
-services from stack.yaml (local-only preview). Every write (up, down, start, stop, restart) runs
-under the per-stack lock (S-11, `state.services_lock`)."""
+services from stack.yaml (local-only preview). Every write (up, down, plan, pins, start, stop,
+restart) runs under the per-stack lock (S-11, `state.services_lock`)."""
 
 from __future__ import annotations
 
 import contextlib
 import json
+import re
+import shlex
 import sqlite3
 import sys
 from pathlib import Path
@@ -20,8 +22,10 @@ CONTROL_HELP = {
     "restart": "Restart one service's container (only that one)",
 }
 SCHEMA_VERSION = 1
-# Every command that changes the stack or its state dir (`plan` records ports and file copies).
-WRITES = ("up", "down", "plan", *CONTROL_HELP)
+# Every command that changes the stack or its state dir (`plan` records ports and file copies;
+# `pins` copies files too, and must not probe a relay that `up` is recreating).
+WRITES = ("up", "down", "plan", "pins", *CONTROL_HELP)
+PINS_DIGEST = re.compile(r"[0-9a-f]{64}")
 
 
 def register(commands) -> None:
@@ -63,12 +67,23 @@ def register(commands) -> None:
     up.add_argument(
         "--expect-grant", metavar="SHA256", help="Refuse unless the grant has this digest"
     )
+    up.add_argument(
+        "--expect-pins",
+        metavar="SHA256",
+        help="With --repin: pin without a prompt, only if the live MCP review (`services pins`) "
+        "has this digest",
+    )
     sv_plan = service_commands.add_parser(
         "plan", help="Show the grant `up` would ask to confirm (starts nothing)"
     )
     sv_plan.add_argument("dir", nargs="?", type=Path, default=Path("."))
     sv_plan.add_argument("--environment", required=True)
     sv_plan.add_argument("--json", action="store_true")
+    sv_pins = service_commands.add_parser(
+        "pins", help="Probe every MCP relay and show what a repin would pin, with its digest"
+    )
+    sv_pins.add_argument("dir", nargs="?", type=Path, default=Path("."))
+    sv_pins.add_argument("--json", action="store_true")
     sv_status = service_commands.add_parser("status", help="Show the stack's services")
     sv_status.add_argument("dir", nargs="?", type=Path, default=Path("."))
     sv_status.add_argument("--json", action="store_true")
@@ -144,6 +159,17 @@ def run(args) -> int:
         name = args.target[-1]
     else:
         directory = args.dir
+    if command == "up" and args.expect_pins is not None:
+        if not PINS_DIGEST.fullmatch(args.expect_pins):
+            return cli.fail(
+                args, "PINS_EXPECT_INVALID", "--expect-pins takes 64 lowercase hex characters"
+            )
+        if not args.repin or args.locked:
+            return cli.fail(
+                args,
+                "PINS_EXPECT_NEEDS_REPIN",
+                "--expect-pins needs --repin (and --locked never pins)",
+            )
     if command == "down" and (args.volumes or args.purge) and not args.yes:
         flag = "--purge" if args.purge else "--volumes"
         return cli.fail(args, "CONFIRM_REQUIRED", f"down {flag} deletes data; add --yes")
@@ -190,6 +216,7 @@ def run(args) -> int:
                 repin=args.repin,
                 allow_project_mcp=frozenset(args.allow_project_mcp),
                 expect_grant=args.expect_grant,
+                expect_pins=args.expect_pins,
             )
             for warning in result["warnings"]:
                 print(f"WARNING: {warning}", file=sys.stderr)
@@ -202,6 +229,8 @@ def run(args) -> int:
                     print(f"{service:<16} removed")
                 for line in stack_plan.mcp_status_lines(result.get("mcp") or {}):
                     print(line)
+                for line in stack_plan.repinned_lines(result):
+                    print(line)
                 print(f"Operator config: {result['operator_config']}")
                 hint = _next_after_up(directory, args.environment)
                 if hint:
@@ -210,6 +239,17 @@ def run(args) -> int:
         if command == "plan":
             preview = engine.preview(args.environment)
             print(json.dumps(preview, indent=2) if args.json else preview["text"])
+            return 0
+        if command == "pins":
+            result = engine.pins()
+            if args.json:
+                print(json.dumps({"schema_version": SCHEMA_VERSION, **result}, indent=2))
+            else:
+                text = stack_plan.pins_review_text(result, shlex.quote(str(directory)))
+                try:
+                    print(text)
+                except UnicodeEncodeError:  # a non-UTF-8 terminal: escape the rest too
+                    print(text.encode("ascii", "backslashreplace").decode("ascii"))
             return 0
         if command == "status":
             result = engine.status()
