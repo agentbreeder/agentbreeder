@@ -89,9 +89,13 @@ def test_gemini_without_model_id_is_unchanged_by_905():
         "  - model_name: judge\n"
         "    litellm_params: {model: gemini/gemini-3.8-flash, "
         "api_key: os.environ/GEMINI_API_KEY}\n"
+        "litellm_settings:\n"
+        "  turn_off_message_logging: true"
+        "   # spend logs keep tokens/cost, not prompts or replies\n"
         "general_settings:\n"
         "  master_key: os.environ/LITELLM_MASTER_KEY\n"
         "  database_url: os.environ/DATABASE_URL\n"
+        "  store_prompts_in_spend_logs: false\n"
     )
     explicit = newagent.plan("hello", "gemini", today=TODAY, model_id="gemini/gemini-3.8-flash")
     assert explicit.files == plan.files
@@ -375,3 +379,18 @@ def test_stack_for_a_gateway_serving_another_model_is_a_template_bug(tmp_path, m
         stackfor.create(stackfor.plan("hello", "gemini", project / "agent.yaml", today=TODAY))
     assert error.value.code == "TEMPLATE_INVALID"
     assert not (project / "stack.yaml").exists()
+
+
+# -- #1018: the starter's gateway never stores prompts or replies in its spend logs ---------
+
+
+@pytest.mark.parametrize("model", sorted(newagent.PROVIDERS))
+def test_the_starter_pins_message_logging_off_and_the_gateway_accepts_it(tmp_path, model):
+    model_id = "openrouter/google/gemini-x" if model == "openrouter" else None
+    plan = newagent.plan("hello", model, tmp_path / "hello", today=TODAY, model_id=model_id)
+    loaded = config(plan)
+    assert loaded["litellm_settings"] == {"turn_off_message_logging": True}
+    assert loaded["general_settings"]["store_prompts_in_spend_logs"] is False
+    newagent.create(plan)
+    review = gateway_keys.config_review(tmp_path / "hello" / "stack/litellm/config.yaml")
+    assert review.aliases == {"chat", "judge"}

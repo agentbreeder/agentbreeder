@@ -694,3 +694,13 @@ def test_a_version_replaced_before_the_lock_is_refused(tmp_path, tool_root, monk
         newagent.create(plan)
     assert caught.value.code == "DIGEST_MISMATCH"
     assert not (tmp_path / "helper").exists()
+
+
+def test_a_spec_stack_pins_message_logging_off(tmp_path):
+    """#1018: `--from-spec` writes the same logging pins as the starter."""
+    make(tmp_path)
+    config = yaml.safe_load(
+        (tmp_path / "helper" / "stack/litellm/config.yaml").read_text(encoding="utf-8")
+    )
+    assert config["litellm_settings"]["turn_off_message_logging"] is True
+    assert config["general_settings"]["store_prompts_in_spend_logs"] is False

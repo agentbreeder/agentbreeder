@@ -599,19 +599,32 @@ def test_the_text_output_names_code_from_outside_the_built_ins(tmp_path, capsys)
 
 
 # -- golden: `render` was extracted for --from-spec (#833); --stack-for output is unchanged ----
+# The gateway config digests changed once, on purpose, for the logging pins (#1018); the test
+# below checks that removing those three lines gives back the pre-#1018 bytes.
+
+PRE_1018_CONFIG = {
+    "plain": "a22ee06d033cbbe3fbd85f5be8071c1283983844ff3c6136130bcfa4a13e4167",
+    "budget": "085f9794672faf902cbb976307ce2b64e4e7e1ff089491b9992bdc1f1a6aabec",
+    "openrouter": "c226e920f65550c1667213cf9cf296b44170a744294b239b58df137ef2cc9c86",
+}
+PINS_1018 = (
+    "litellm_settings:\n"
+    "  turn_off_message_logging: true   # spend logs keep tokens/cost, not prompts or replies\n",
+    "  store_prompts_in_spend_logs: false\n",
+)
 
 GOLDEN = {
     "plain": (
         "4b96e4fcb87fc4ad79714e999f34193bad3525ab59210f87a9b00adeb0c9cab5",
-        "a22ee06d033cbbe3fbd85f5be8071c1283983844ff3c6136130bcfa4a13e4167",
+        "72289de318490d8b66d48ba18944dd53e64889263e873daf671b4a9fcb79f8c1",
     ),
     "budget": (
         "63b596a158c545ad565fad0bfe98afeeaad2ce7b4f14134e070db991d128f00f",
-        "085f9794672faf902cbb976307ce2b64e4e7e1ff089491b9992bdc1f1a6aabec",
+        "0f9a4073e01a813c8802be566a60e34fa729f6171c4ae4b5dca8fc3ef5e2b345",
     ),
     "openrouter": (
         "c73ddfb0fb7793e40c454452c4cf77d33e0c8565142f1a8d3df3026956e98d84",
-        "c226e920f65550c1667213cf9cf296b44170a744294b239b58df137ef2cc9c86",
+        "5479256c8c43f462f0cb9d7f03d61c3704e61e15da260f6788d603ae3bc4a97e",
     ),
 }
 
@@ -631,3 +644,46 @@ def test_stack_for_output_is_byte_identical_to_before_render(tmp_path, variant):
         for name in (stackfor.STACK_FILE, stackfor.LITELLM_CONFIG)
     )
     assert digests == GOLDEN[variant]
+    config = files.files[stackfor.LITELLM_CONFIG]
+    for pin in PINS_1018:
+        assert config.count(pin) == 1
+        config = config.replace(pin, "")
+    assert hashlib.sha256(config.encode()).hexdigest() == PRE_1018_CONFIG[variant]
+
+
+# -- #1018: the gateway config never stores prompts or replies in its spend logs -----------
+
+
+def _pinned(config: dict) -> None:
+    assert config["litellm_settings"]["turn_off_message_logging"] is True
+    assert config["general_settings"]["store_prompts_in_spend_logs"] is False
+
+
+@pytest.mark.parametrize("model", ["gemini", "openrouter"])
+def test_stack_for_pins_message_logging_off(tmp_path, model):
+    project, _ = starter(tmp_path)
+    model_id = "openrouter/google/gemini-x" if model == "openrouter" else None
+    files = stackfor.plan("hello", model, project / "agent.yaml", today=TODAY, model_id=model_id)
+    _pinned(yaml.safe_load(files.files[stackfor.LITELLM_CONFIG]))
+
+
+def test_render_with_an_embedding_pins_message_logging_off():
+    """The `--from-spec` path (`agentspec`) with a knowledge version's embedding alias."""
+    files = stackfor.render(
+        "hello",
+        "gemini",
+        "gemini/gemini-3.8-flash",
+        ["chat", "judge"],
+        budget=5,
+        rpm=60,
+        today=TODAY,
+        review_by="2027-02-11",
+        embedding=("embedding", "gemini/gemini-embedding-2", 768),
+    )
+    config = yaml.safe_load(files[stackfor.LITELLM_CONFIG])
+    _pinned(config)
+    assert [entry["model_name"] for entry in config["model_list"]] == [
+        "chat",
+        "judge",
+        "embedding",
+    ]
