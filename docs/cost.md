@@ -99,7 +99,14 @@ sandbox on macOS (2026-11-13): two deployment keys minted by AgentBreeder's own 
 ten model calls answered by LiteLLM's server-side mock response (no provider was called), one
 deployment removed and its key revoked. `cost` matched LiteLLM's own key spend and the sum of its
 spend log rows for each deployment, counted the removed one, and never printed the master key.
-No real provider call has been costed yet.
+
+Against real provider calls on Northwind (`main` at 2b4e4cf, macOS, 2026-11-15): a release (61
+eval cases), one Try it turn and 5 `invoke` turns made 260 calls to `gemini/gemini-3.8-flash` and
+`gemini/gemini-embedding-2` through LiteLLM. `cost`, by deployment and `--by model`, equalled a SQL
+sum of LiteLLM's own spend log table per key, per model and in total (USD 0.264939, removed
+candidate and eval judge keys included). That is LiteLLM's estimate; nothing was compared with a
+provider invoice. A key's budget (`max_budget`) being reached was not run. The record is
+`docs/superpowers/verification/906-cost.md`.
 
 ## In the console
 
@@ -108,7 +115,8 @@ The console (`agentbreeder up`) runs `cost --stack DIR --environment ENV --since
 keys, removed ones included). It shows the currency, the window and the time it was read, and
 labels the amounts as LiteLLM spend, not a bill. See
 [`command-center.md`](command-center.md#llm-cost-906-console-half-on-main-not-in-a-published-preview)
-(on `main`, not in a published preview; tested with a scripted `cost`, not against a live gateway).
+(on `main`, not in a published preview). In the 2026-11-15 Northwind run above, both cards showed
+the same figures as `cost` and the spend log.
 
 ## Per-turn cost (`runtime/adk@1.2.0`)
 
@@ -125,6 +133,11 @@ and returns the total in the turn body (`invoke --json`'s `response`), next to t
 the turn had no cost header. Each `model_called` event also has that call's `cost_usd`. Older
 runtimes (`1.1.0` and earlier) don't send the field; consumers show the cost as not measured. The
 console's Try it inspector shows `cost_usd` when it is there (#906) and "Not measured" when it is
-null or missing. It is covered by the runtime's tests
-with scripted gateway responses; no live gateway has been checked yet. See
+null or missing.
+
+In the 2026-11-15 Northwind run above, `invoke --json` returned `cost_usd` for every turn, and Try
+it showed it ("$0.003538 (LiteLLM's estimate, reported by the runtime)"). The 6 turns' `cost_usd`
+added up to USD 0.01493425; LiteLLM's spend log had 0.01493475 for that key's 9 chat calls (a
+rounding difference). The turn's figure evidently leaves out its knowledge embedding calls (that
+key's 7 cost 0.0000144 in all); this was not checked call by call. See
 [`agent-yaml.md`](agent-yaml.md#runtimeadk120).

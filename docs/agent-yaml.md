@@ -162,8 +162,10 @@ the LiteLLM gateway, using the `openai/<alias>` route with `reasoning_effort` se
 
 ### `runtime/adk@1.2.0`
 
-On `main`, not in a published preview (#828). Northwind uses it; its 61/61 eval runs were on
-`1.0.6`, and a run on `1.2.0` is pending. `cost_usd` has not yet been seen from a live gateway. `1.2.0` is `1.1.0` (so it includes the MCP client) plus:
+On `main`, not in a published preview (#828). Northwind uses it; it released 61/61 on `1.2.0`
+from `main` (2b4e4cf, macOS, 2026-11-15), and in that run every `invoke` turn returned `cost_usd`,
+which added up, within rounding, to LiteLLM's spend log for the key's chat calls (see
+[`cost.md`](cost.md#per-turn-cost-runtimeadk120)). `1.2.0` is `1.1.0` (so it includes the MCP client) plus:
 
 - **Cost per turn:** each `/invoke` reply has `cost_usd`, the sum of the LiteLLM gateway's
   `x-litellm-response-cost` response header over the turn's model calls, in US dollars. It is

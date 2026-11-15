@@ -696,7 +696,8 @@ route whose agent is not an agent name reads nothing either, rather than droppin
   closed **Trace spans** disclosure of Try it (#907): opening it reads `traces --trace ID` through
   the same route. `traces --trace` searches the Phoenix projects of every deployment in the state,
   removed ones included, and a candidate shares its agent's project, so a case's trace is meant to
-  be found after `release` removes the candidate; that has not been run against a live Phoenix. A
+  be found after `release` removes the candidate; on Northwind against a live Phoenix (2026-11-15,
+  `907-tracing.md`) a case's trace was read this way after the candidate was removed. A
   missing id, or one outside that rule, shows "none" and no disclosure.
 - **Replies and explanations** are read only after "Show replies and explanations"
   (`--content`): each case then has a closed "Reply and explanation" disclosure. They are model
@@ -925,7 +926,8 @@ is no trace link (the answer's `trace.url` stays null). **Cost** is the turn's c
 "$0.000444". The server passes it on only as a finite number from 0 to under 1,000,000, otherwise
 null. Older runtimes don't report it, and neither does 1.2.0 when a call in the turn had no cost
 header: the inspector then says "Not measured" and why. Tested with a fake CLI and with the runtime's
-scripted gateway responses; no live gateway cost has been shown yet.
+scripted gateway responses, and shown live on Northwind (2026-11-15, `906-cost.md`: "$0.003538
+(LiteLLM's estimate, reported by the runtime)", within rounding of LiteLLM's spend log).
 
 **Trace spans** (#907, on `main`, not in a published preview): a turn with a trace ID has a
 second disclosure beside Turn details. The first time it is opened, the server runs
@@ -939,7 +941,10 @@ reads prompts, replies or tool arguments and results. Error text is redacted and
 runtime's own text and can quote what the agent was given. At most 4 trace reads run at once
 (`TRACE_BUSY` otherwise). Phoenix can receive a trace a few seconds after the reply, so
 `TRACES_NOT_FOUND` says so and offers **Read again**; a stack without `service/phoenix` says it has
-no traces. Tested with a fake CLI; the panel has not been run against a live Phoenix yet.
+no traces. Tested with a fake CLI, and run against a live Phoenix on Northwind (2026-11-15,
+`907-tracing.md`): the panel listed the turn's tool calls, but its first read, 2 s after the reply,
+was partial (6 of 11 spans, no root, and wrongly "Matched by time"; #1010). A later read had the
+full tree. The tree's token total counts each model call twice (#1009).
 
 A later message continues the conversation's session (`--session`); **New conversation** starts a
 new one. **Customer ID** is optional and sent as `--customer`.
@@ -1175,9 +1180,11 @@ another deployment's trace dropped, coded failures, the CLI's own `Report` shape
 the shared bound). It is also tested with Playwright and the fake CLI: the list and its span tree,
 switching the deployment and the count, a failed read, no traces with a note, window attribution,
 untrusted strings shown as text, an eval case's trace, an eval case with no trace ID or an invalid
-one, and axe in light and dark. Not yet run against a live Phoenix: the #907 acceptance (a Try it
-turn on Northwind shows its tool calls, and an eval case's trace can be reached from the release
-report) is batched with the milestone checks.
+one, and axe in light and dark. Run against a live Phoenix on Northwind (2026-11-15,
+`907-tracing.md`): a Try it turn's trace showed its tool calls (the full 11-span tree on a read 8 s
+after the reply; reads in the first seconds can be partial, #1010), and an eval case's trace was
+reached from Releases, Eval report, the case's Trace spans. Token totals count each model call
+twice (#1009).
 
 ### LLM cost (#906, console half): on `main`, not in a published preview
 
@@ -1208,15 +1215,20 @@ last N UTC days ending today); nothing from the browser reaches the argv but the
   (`COST_NO_GATEWAY`) and a gateway that does not answer (`GATEWAY_UNREACHABLE`) name
   `services up`, and an old state names `migrate`. Other codes show the CLI's message and the
   `cost` command to run in a terminal.
-- Try it shows a turn's own cost (above). Budgets (`max_budget`) are not enforced: that is CLI work.
+- Try it shows a turn's own cost (above). The console neither shows nor changes a key's budget.
+  Deploy mints each key with a 30-day budget (the manifest's `budget_usd`, else the environment's
+  ceiling) for LiteLLM to enforce, and `status` shows spend against it; a key reaching its budget
+  has not been run.
 
 Tested: server tests over a scripted `cost` (fixed argv, never cached, bad windows refused before
 the CLI, unknown fields dropped, control characters removed, eval and unknown keys, long lists
 cut and counted, bad counts, amounts, currencies, sources and windows refused, coded refusals, at
 most two reads at once), `llmcost.report`'s own answer and the real CLI's refusal passed through
 the same checks, and Playwright with a fake `cost` (Home's card, the window picker, Refresh, a
-refusal, no calls, an agent's own and removed deployments, axe in light and dark). Not yet run
-against a live gateway's spend logs.
+refusal, no calls, an agent's own and removed deployments, axe in light and dark). Run on
+Northwind against a live gateway (2026-11-15, `906-cost.md`): Home's card and the agent's Overview
+card showed the same figures as `cost` and a SQL sum of LiteLLM's spend log (USD 0.264939, 260
+calls; the agent's own keys USD 0.202319).
 
 ### Docker-down blocker (#822, M6, first part): on `main`, not in a published preview
 
