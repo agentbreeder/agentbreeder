@@ -1030,8 +1030,7 @@ Before this, the console read `doctor --json` as a failure when a required check
 exits 1 then), so it kept showing the last passing answer, or nothing, and Home's Docker notice
 never appeared. `/api/overview` now keeps doctor's exit-1 answer too.
 
-The service controls follow below; the usage child and the Home services table (the rest of M6)
-come in later parts. The M6 acceptance (stop Docker with Northwind running: the blocker within 15 s; start it:
+The service controls, the usage child and the Home services table follow below. The M6 acceptance (stop Docker with Northwind running: the blocker within 15 s; start it:
 the blocker clears without a reload) is batched with the milestone verifications; the UI tests run
 it against the fake CLI.
 
@@ -1098,10 +1097,52 @@ stopped; a group whose leader is already gone is not swept, and a child whose st
 could not be read is protected by its stdin alone. M5's log follows will use the same
 plumbing.
 
-The Home services table and the service detail's Usage tab, which read this route, are the last
-part of M6. The M6 acceptance (Northwind's 5 services with usage updating within 10 seconds) is
-batched with the milestone verifications; the tests run the route, the idle stop, the failure
-path and a SIGKILLed console against a fake CLI.
+The Home services table and the service detail's Usage tab, which read this route, follow below.
+The tests run the route, the idle stop, the failure path and a SIGKILLed console against a fake CLI.
+
+### Home services and the Usage tab (#822, M6, fourth part): on `main`, not in a published preview
+
+**Home** has a **Services** table across every registered project, one row per stack service:
+its name (a link to its detail, which also puts that project in scope), the project, a status
+chip, its host ports and four usage figures. The chip is an icon, a word and a colour, and the
+word alone carries the meaning: Healthy, Running, Starting, Unhealthy, Restarting, Paused,
+Stopped, Created, Dead or Not created, from `services status --json`. A service without host
+ports says "internal only" and why (reached by agents on the stack network, not from this
+machine); a stopped one shows its last ports as not listening.
+
+The figures are **CPU** and **Memory**, both headed "of the Docker VM" (Docker Desktop runs the
+containers in one VM: CPU is a share of one of its cores, so a busy container can pass 100%), and
+**Network** and **Block IO** as bytes per second, averaged between two samples, with the totals
+since the container started. Each figure is a text value next to a sparkline of the last five
+minutes; the sparkline is an image whose accessible name gives its low, high and newest value, so
+neither colour nor shape is the only cue. A stopped service says "Not running: no usage."
+
+Each project's figures come from `GET /api/projects/ID/usage`, asked every 3 seconds only while one
+of the project's services is up and the page is visible (a hidden tab stops asking; the server
+stops the child about 15 seconds later). When the usage command fails, its coded message shows
+above that project's rows with "It is tried again in a few seconds", and the last figures stay
+marked as the last reading. Status is read as on Services (again when one of the project's jobs
+ends). When the newest sample and the status disagree, because a container was stopped or
+started outside the console while another service of the project runs, status is read once more
+for that disagreement, at most 3 times per visit to Home and 30 seconds apart: status reads are
+not polls, so a page left open does not keep the session alive. With nothing of a project up,
+usage is not asked for, so a service started from a terminal shows when one of the project's
+jobs ends or the page is opened again.
+
+The service detail (`#/services/NAME`) now has two tabs: **Overview** (Config and the controls,
+as before) and **Usage** (`#/services/NAME/usage`). Usage shows one tile per figure (CPU, memory,
+network in and out, block read and written, processes), each with its text value, what it is
+measured against and a sparkline, then the **Disk** reading: the container's writable layer, the
+stack's volumes and when the CLI last read them (every 60 seconds; "the last reading failed" when
+the latest one did). Switching tabs keeps focus on the tab link.
+
+Tested with Playwright against a fake `services usage --follow --json` through the real console
+and its usage ring (figures updating within 10 seconds, one child per project, none while nothing
+runs, a failed command, stopped and starting services, the tabs), with axe in light and dark, and
+with `node --test` for the wording and sparkline shapes. The M6 acceptance with Northwind on
+real Docker (its 5 services with usage updating within 10 seconds, the blocker within 15 s,
+`services restart litellm` restarting only that container) is batched with the milestone
+verifications and recorded in `docs/superpowers/verification/M6.md` once it has run.
 
 ## How it stays the same engine
 

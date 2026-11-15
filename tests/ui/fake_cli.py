@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -356,6 +357,92 @@ def service_control(argv: list[str], data: dict) -> int:
     return 0
 
 
+MIB = 1024 * 1024
+
+
+def _now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _usage_rows(data: dict, n: int) -> list[dict]:
+    """A row per running service, its numbers growing with each sample `n`."""
+    rows = []
+    for i, (name, info) in enumerate(sorted(data["services"].items())):
+        if info.get("state") != "running":
+            continue
+        rows.append(
+            {
+                "source": "service",
+                "name": name,
+                "deployment": None,
+                "cpu_percent": round(1.5 + i + (n % 3) * 0.5, 2),
+                "memory_used": (64 + 8 * i + n) * MIB,
+                "memory_limit": 8 * 1024 * MIB,
+                "memory_percent": round((64 + 8 * i + n) / 81.92, 2),
+                "network_rx": n * 2048 * (i + 1),
+                "network_tx": n * 1024 * (i + 1),
+                "block_read": n * 4096,
+                "block_write": n * 512,
+                "pids": 5 + i,
+            }
+        )
+    return rows
+
+
+def usage(argv: list[str], data: dict) -> int:
+    """`services usage DIR --follow --json` (#822): samples until stdin ends, then the end record.
+    Scenario key `usage` = {"error": "[CODE] message" (fail at once), "every": seconds between
+    samples (default 1), "rows": fixed sample rows instead of the generated ones ("flap": true uses
+    them only in every other sample), "disk": a disk
+    record's fields, or null for none}. Each start's argv is appended to `usage-argv`."""
+    settings = data.get("usage") or {}
+    with open(Path(os.environ.get("AGENTBREEDER_FAKE_DIR", "")) / "usage-argv", "a") as log:
+        log.write(json.dumps(argv) + "\n")
+    if settings.get("error"):
+        print(settings["error"], file=sys.stderr)
+        return 2
+    done = threading.Event()
+
+    def watch_stdin() -> None:
+        sys.stdin.read()
+        done.set()
+
+    threading.Thread(target=watch_stdin, daemon=True).start()
+    running = [n for n, i in sorted(data["services"].items()) if i.get("state") == "running"]
+    disk = {
+        "as_of": _now(),
+        "stale": False,
+        "volumes": [{"name": "agentbreeder-0123456789ab_pgdata", "size": 50 * MIB}],
+        "containers": [
+            {"source": "service", "name": name, "deployment": None, "size": 4096 * (k + 1)}
+            for k, name in enumerate(running)
+        ],
+    }
+    if "disk" in settings:
+        disk = None if settings["disk"] is None else {**disk, **settings["disk"]}
+    n = 0
+    try:  # as the CLI: a reader that left (BrokenPipeError) stops it too
+        if disk is not None:
+            print(json.dumps({"schema_version": 1, "event": "disk", **disk}), flush=True)
+        while not done.is_set():
+            rows = settings.get("rows")
+            sample = {
+                "schema_version": 1,
+                "event": "sample",
+                "time": _now(),
+                "containers": rows
+                if rows is not None and not (settings.get("flap") and n % 2)
+                else _usage_rows(data, n),
+            }
+            print(json.dumps(sample), flush=True)
+            n += 1
+            done.wait(settings.get("every", 1))
+        print(json.dumps({"schema_version": 1, "event": "end", "reason": "stdin", "dropped": 0}))
+    except BrokenPipeError:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), 1)
+    return 0
+
+
 def job(name: str, data: dict) -> int:
     lines = data["job_lines"].get(name) or [
         f"{name}: Starting",
@@ -476,6 +563,8 @@ def main(argv: list[str]) -> int:
             )
         )
     elif head == ["services", "status"]:
+        with open(Path(os.environ.get("AGENTBREEDER_FAKE_DIR", "")) / "status-calls", "a") as log:
+            log.write("status\n")  # #822: Home's status re-reads are counted
         print(json.dumps({"services": data["services"], "mcp": data["mcp_status"]}))
     elif head == ["services", "env"]:
         print("export AGENTBREEDER_STATE_DIR=/nonexistent/fake-state")
@@ -486,6 +575,8 @@ def main(argv: list[str]) -> int:
         return job("services-up", data)
     elif head == ["services", "down"]:
         return job("services-down", data)
+    elif head == ["services", "usage"]:
+        return usage(argv, scenario())
     elif head in (["services", "start"], ["services", "stop"], ["services", "restart"]):
         return service_control(argv, data)
     elif head in (["registry", "show"], ["registry", "diff"]):
