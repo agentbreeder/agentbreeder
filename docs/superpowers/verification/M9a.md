@@ -160,3 +160,179 @@ built yet.
 - The forked manifest quotes both `name:` and `version:`, even when only one changes (seen in the
   B07 diff; `docs/registry.md` says only that these two lines are replaced).
 - Not run: `release` (the acceptance does not need a released agent) and Linux.
+
+
+## Addendum: the console half (#976, #981)
+
+Status: **verified from `main`; the console was driven by Playwright against a real stack and
+recorded as screenshots, saved page text and the console API's answers, not video** (d123d4f,
+2026-11-14 local time (2026-11-15 UTC), macOS 13.7.8 x86_64, Docker Desktop engine 27.5.1). This
+closes the CLI half's open console item: the "this code runs in agents" confirm is now asked by
+the console, and its server refuses without it. The Chrome click-through is still not run. The
+results:
+- **A prompt imported from another directory by path in the console resolves.** Registry ▸ Import
+  reviewed and imported `prompt/team-voice@0.1.0` from a directory outside the project. After
+  `agent set-ref` moved the agent to it, `build` locked it with the digest the console's review
+  showed, and the built image holds its text.
+- **A built-in service version forks into an editable project copy, under the next patch and
+  under another name.** The console forked `service/postgres-pgvector@1.2.0` to `1.2.1`, and
+  under another name (the console's "Fork under another name", the CLI's `--as`) to
+  `service/m9c-pg@1.2.0`, which opened its new page. Both showed the code confirm before the fork;
+  the first fork's button was recorded disabled until the box was ticked (the second's state was
+  not recorded). The `1.2.1` copy was then changed with `registry edit` and published as
+  `1.2.2`.
+- **A tool import asks for the "this code runs in agents" confirm, and the server refuses without
+  it.** Import stayed disabled until the box was ticked. A write request with `code_confirmed`
+  removed was refused `400 CODE_NOT_CONFIRMED`, and nothing was written. With the confirm, it was
+  imported. The server's refusal was tried for this tool import only, not for a fork.
+- The leak scan found 0 hits. Teardown left nothing of this run (details below).
+
+One finding, not an acceptance failure: #990 (`registry edit`'s `Next:` line suggests
+`agent set-ref` for a service version, which then exits 2).
+
+### What changed (console, lane B)
+
+| PR | Merged | Content |
+|---|---|---|
+| #976 | f0606ef | Registry ▸ Import: review, then "Import as REF" with the reviewed digest; the three-tier confirm for tool, service, eval, MCP and runtime versions (`CODE_NOT_CONFIRMED`) and the "steers the agent" note for prompts and knowledge |
+| #981 | d1cea3b | Fork any version from outside the project registry, under another name, with the same code confirm |
+
+The full suite was not re-run for this addendum.
+
+### Wheel and sandbox
+
+- **Wheel:** from `main` at d123d4f, exported with `git archive` and built with
+  `python -m build --wheel` (`agentbreeder-3.0.0a2-py3-none-any.whl`, sha256
+  `812928ea8ab178bde654cbf1770f90370c18f2624245c56c8cefac8ebfef7f25`). The same wheel was used for
+  the M6 record.
+- **Sandbox:** as for the CLI half: `env -i`, a fresh sandbox `HOME` (0700) with `TMPDIR` inside
+  it, `PIP_NO_CACHE_DIR=1`, a fresh Python 3.12 venv with only the wheel and `[eval]`, and a Docker
+  context `sandbox` in the sandbox `HOME`. Only the `GEMINI_API_KEY` line of `~/.env` was copied, by
+  a script, into a 0600 file for `services up`. It was never printed, and was deleted at teardown.
+- **Project:** `new agent m9c --model gemini --dir <P>` (exit 0, 1.1 s). In the console it is
+  `proj`. A separate directory `<S>`, outside the project, held `registry new prompt team-voice`
+  (its `prompt.md` replaced by one line ending "(M9a console import check)") and
+  `registry new tool m9c-lookup` (as scaffolded).
+- `services up <P> --environment dev --env-file <key> --yes` (exit 0, 70.1 s) started postgres
+  and litellm, for the build.
+
+A wrapper saved each `agentbreeder` command's stdout, stderr, exit code, start time and wall time.
+Times are UTC.
+
+### The console (Playwright against the real stack)
+
+`agentbreeder up --no-browser --port 8092` ran from the sandbox wheel. Playwright (Python,
+`playwright==1.64.1`, system Chrome) used the one-time link and took full-page screenshots. It
+also saved every `/registry/import` and `/registry/fork` request body with its status and coded
+error. A one-time link works once, so `up` was started once per script, four times in all. The
+first script stopped at the scope picker, because it looked for the agent's name (`m9c (dev)`),
+but the console names the project after its directory (`proj (dev)`). That run had already added
+the project, and nothing else. A second script stopped after part A: the "Move agent to this
+version" card is not on the page of a prompt the agent does not use yet (below). The third script
+ran parts B and C, and the fourth part D.
+
+**Part A: import a prompt by path (02:49:24–02:49:33).** `#/registry/import`, the version
+directory `<S>/prompt-team-voice`:
+
+| Step | Result |
+|---|---|
+| **Review import** | "Review: prompt/team-voice@0.1.0", "Imports 2 files into this project's registry as prompt/team-voice@0.1.0."; From `<S>/prompt-team-voice`; Into "project", `<P>/registry/prompt/team-voice/0.1.0`; Version hash `sha256:9ef23efa…7bfbb`; both files' text; "A prompt version steers the agent: review it before an agent uses it." No code confirm |
+| **Import as prompt/team-voice@0.1.0** | "Imported prompt/team-voice@0.1.0 into this project's registry. An agent uses it only after its agent.yaml references it and a release passes." and a link, Open prompt/team-voice |
+| Open prompt/team-voice | the version list: `0.1.0`, latest, Root project, Verify ✓ Passed, "not used"; the files; Edit 0.1.0 |
+
+The two requests: the review `{path}` and the write `{path, digest: sha256:9ef23efa…}`. Both were
+answered 200 with `prompt/team-voice@0.1.0`.
+
+**Resolves (CLI, 02:51:42–02:55:20).**
+
+| Step | Command | Exit | Time | Result |
+|---|---|---|---|---|
+| A1 | `registry list --project <P>` | 0 | 1.9 s | `prompt/team-voice@0.1.0` and `tool/m9c-lookup@0.1.0` in `<P>/registry` |
+| A2 | `registry verify --project <P>` | 0 | 2.6 s | "OK: every registry version passed its safety and manifest checks", and the built-in corruption check |
+| A3 | `agent set-ref --project <P> prompt/m9c-prompt@0.1.0 prompt/team-voice@0.1.0` | 0 | 1.4 s | the diff: `-prompt: {ref: prompt/m9c-prompt@0.1.0}` / `+prompt: {ref: prompt/team-voice@0.1.0}` |
+| A4 | `build <P>/agent.yaml --stack <P> --environment dev` | 0 | 184.7 s | "Lock: … agent.lock (updated)". The lock now pins `prompt/team-voice@0.1.0` at `sha256:9ef23efa…7bfbb`, the digest of the console's review, where it had pinned `prompt/m9c-prompt@0.1.0` |
+| A5 | `docker run --rm --entrypoint sh <image> -c 'grep -r …'` (host shell) | not saved | not timed (output only) | `/app/artifacts/prompt/team-voice/prompt.md`, holding the imported line |
+
+Afterwards, the console's page for `prompt/team-voice` (part D) showed "declared in agent.yaml;
+locked in agent.lock" and "The project's agent.yaml uses this version."
+
+The move was made with the CLI's `agent set-ref`, not in the console. The console's "Move agent to
+this version" card shows on a version of a name the agent already uses (as M10 used it, from
+`hello-prompt@0.1.0` to `0.1.1`). It is not on another name's page, so it did not show for
+`team-voice` (the second script stopped waiting for it).
+
+**Part B: import a tool: the confirm, and the server's refusal (02:50:32–02:50:45).**
+`#/registry/import`, `<S>/tool-m9c-lookup`:
+
+| Step | Result |
+|---|---|
+| **Review import** | "Review: tool/m9c-lookup@0.1.0", "Imports 3 files …" (`manifest.yaml`, `src/tool_m9c_lookup.py`, `tool.yaml`); the fieldset **"This code runs in agents"**: "A tool version is code. Building and releasing an agent that uses it runs this code as you, with the stack's model key and database. The eval gate is a quality gate, not a security review."; the box "I reviewed this code and trust it to run in agents", unticked. **Import as tool/m9c-lookup@0.1.0 was disabled** |
+| Tick the box | the button enabled |
+| Click Import, with Playwright removing `code_confirmed` from the write request on its way out | the request `{path, digest}` was answered **400 `CODE_NOT_CONFIRMED`** "Confirm that you reviewed this code: it runs in agents"; the page said "Tick the box to confirm you reviewed this code, then import." and kept the review. Nothing was written: the next write of the same version succeeded, where an existing version is `VERSION_EXISTS` |
+| Click Import again, unmodified | `{path, digest, code_confirmed: true}`, 200: "Imported tool/m9c-lookup@0.1.0 into this project's registry. …" |
+
+The refusal comes from the server's own check, not the browser's: the page had the box ticked,
+and only the request was changed.
+
+**Part C: fork a built-in service version (02:50:48–02:51:14).**
+`#/registry/services/postgres-pgvector`, where the versions are `1.2.0` (latest), `1.1.0` and
+`1.0.0`, all built in. The starter's `stack.yaml` uses `1.1.0`.
+
+| Step | Result |
+|---|---|
+| The **Fork** card on `1.2.0` | **Fork into this project as 1.2.1** |
+| Review | "Review: fork 1.2.0 → 1.2.1", "Copies 3 files into this project's registry as service/postgres-pgvector@1.2.1; only the manifest's version line changes." (`files/init.sh`, `manifest.yaml`, `service.yaml`); the "This code runs in agents" fieldset (for a fork: "Forking copies this service version unchanged into a version the project owns. …"); **Fork as 1.2.1 disabled** until the box was ticked |
+| Tick, **Fork as 1.2.1** | the write `{ref: service/postgres-pgvector@1.2.0, version: 1.2.1, digest, code_confirmed: true}`, 200, `service/postgres-pgvector@1.2.1`. The script's screenshot came 2 s before this answer, so the page's own message after the fork was not captured; the new version is in part D and the CLI list |
+| Fork under another name `m9c-pg`, review | "Review: fork 1.2.0 → service/m9c-pg@1.2.0", "… only the manifest's name line changes."; the same confirm fieldset and box (the button's state was not recorded) |
+| Tick, **Fork as service/m9c-pg@1.2.0** | 200, `service/m9c-pg@1.2.0`, and the console opened `#/registry/services/m9c-pg`: `1.2.0`, latest, Root project, ✓ Passed |
+
+**Editable (CLI, 02:55:25–02:55:33).**
+
+| Step | Command | Exit | Time | Result |
+|---|---|---|---|---|
+| C1 | `registry edit service/postgres-pgvector@1.2.1 --set files/init.sh <edited copy> --project <P>` | 0 | 0.7 s | the diff of `files/init.sh` (one added comment line) and the manifest's version line; `service/postgres-pgvector@1.2.2 sha256:72db6f56…dcc2 … (from service/postgres-pgvector@1.2.1)` |
+| C2 | `registry list service/postgres-pgvector --project <P>` | 0 | 0.9 s | `1.2.1` and `1.2.2` in `<P>/registry`; `1.0.0`, `1.1.0` and `1.2.0` built in |
+| C3 | `agent set-ref --project <P> --dry-run service/postgres-pgvector@1.2.1 service/postgres-pgvector@1.2.2`: the arguments of the `Next:` line C1 printed, with `--project` and `--dry-run` added | **2** | 2.3 s | `[REF_NOT_DECLARED] agent.yaml does not declare service/postgres-pgvector@1.2.1 in a ref field`: services are referenced from `stack.yaml`. Filed as #990 |
+
+The forked service was not used by `services up` here. The CLI half already ran an edited fork
+under `services up` (B08 and C01 above).
+
+**Part D: the registry after (02:56:01–02:56:29).**
+
+| Page | Result |
+|---|---|
+| `#/registry/prompts/team-voice` | `0.1.0`, project, ✓ Passed, "declared in agent.yaml; locked in agent.lock" |
+| `#/registry/services/postgres-pgvector` | `1.2.2` latest and `1.2.1`, Root project, ✓ Passed; `1.2.0`, `1.1.0` and `1.0.0` built in |
+| `#/registry/tools/m9c-lookup` | `0.1.0`, project, ✓ Passed; Functions: `echo_m9c_lookup(text: str) -> str` |
+
+The screenshots (15, plus 2 where the first and second scripts stopped) are not committed or attached to #825,
+because they show the sandbox's absolute paths.
+
+### Acceptance, the console half
+
+| Check | Result |
+|---|---|
+| Importing a prompt from another directory by path in the console, and it resolves | **PASS** (part A; then A3 to A5: the lock pins the review's digest and the image holds the text) |
+| Forking a built-in service version into an editable project copy | **PASS** (part C: `1.2.1` and `service/m9c-pg@1.2.0`; C1 edited `1.2.1` into `1.2.2`) |
+| Forking one under `--as NAME` (the console's "Fork under another name") | **PASS** (part C: `service/m9c-pg@1.2.0`, its page opened) |
+| Importing a tool asks for the "this code runs in agents" confirm, and the server refuses without it | **PASS** (part B: the button disabled until ticked; the write without `code_confirmed` refused `400 CODE_NOT_CONFIRMED`; the refusal was tried for the tool import only) |
+| Chrome click-through, GIF attached to #825 | **not run** (Playwright screenshots instead; nothing attached, because they show sandbox paths) |
+
+A model key was used only by `services up`. No model call was made: `build` does not call the
+model, and `release` was not run.
+
+### Leak scan and teardown
+
+- **Leak scan:** before teardown, a stdlib script searched 122 files: every saved output (the
+  console's `up` output, the Playwright logs and the request log included), the console's state
+  directory, the logs of the stack's 2 containers and `<P>/deploy`. It looked for the literal,
+  base64 and URL-quoted forms of every `~/.env` value of 12 or more characters (6) and of every
+  stored secret in the 8 files under the sandbox's `~/.agentbreeder` `secrets` paths, and for
+  `/Users/`. **0 hits.** The counts were printed to a saved file.
+- **Teardown:** the console was stopped; `services down <P> --purge --yes` (exit 0, 8.7 s) removed
+  the stack, its volume and its state; the agent image A4 built was removed with `docker rmi`;
+  the key file was deleted.
+- **What was left:** nothing of this run. Compared with the snapshot taken before the run, the
+  lists differed only by another session's objects: a stack `kbhelper-7631f4a8` (two containers,
+  created 02:50:00 and 02:50:10, its volume and three networks) and one agent container with its
+  image (created 02:56:08 and 02:55:36). Their names and labels are not this run's (`m9c-f5ddd98c`), and they were left alone.
