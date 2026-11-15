@@ -431,6 +431,14 @@ th[scope="row"] { color: var(--foreground); }
 .trace-list > li.trace-item { padding: 8px 0; border-bottom: 1px solid var(--control-border); overflow-wrap: anywhere; }
 .trace-list > li.trace-item:last-child { border-bottom: 0; }
 
+/* Container events under a project's services on Home (#821). */
+.events-row td { background: var(--card); }
+.events-row ul.events { margin: 6px 0; }
+.events-row li.event-error { color: var(--destructive); }
+.events-row li.event-warning { color: var(--warning); }
+.events-row p { margin: 4px 0; }
+.events-row p.notice-row { color: var(--warning); }
+
 /* LLM cost (#906) */
 .cost-total strong { font-size: 1.25rem; }
 .cost-controls { align-items: flex-end; margin-bottom: 8px; }

@@ -353,9 +353,9 @@ def test_the_ring_keeps_five_minutes(tmp_path):
     feeds = usage.Usage(Runner(jobs.CenterState(tmp_path), tmp_path), clock=lambda: now[0])
     feed = usage.Feed()
     for _ in range(3):
-        feeds._line(feed, json.dumps(SAMPLE))
+        feeds.on_line(feed, json.dumps(SAMPLE))
         now[0] += 100
-    feeds._line(feed, json.dumps(DISK))
+    feeds.on_line(feed, json.dumps(DISK))
     feeds._trim(feed, now[0])  # the first is exactly 300 s old: kept
     assert len(feed.samples) == 3
     feeds._trim(feed, now[0] + 1)

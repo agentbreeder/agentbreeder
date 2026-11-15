@@ -15,17 +15,26 @@ const NONE = Object.freeze({ data: null, error: null });
  * last data.
  */
 export function useUsage(projectId, active) {
+  return usePoll(projectId ? `/api/projects/${projectId}/usage` : null, active, USAGE_EVERY);
+}
+
+/**
+ * Ask for a polled route (`poll=True` on the server: usage, watch) every `every` ms while `active`
+ * and the tab is visible, as `useUsage` does. A new path starts from nothing, so one project's
+ * answer never shows under another.
+ */
+export function usePoll(path, active, every) {
   const { client } = useConsole();
   const [state, setState] = useState(NONE);
   useEffect(() => {
-    setState(NONE); // another project's samples never show under this one
-    if (!active || !projectId) return undefined;
+    setState(NONE);
+    if (!active || !path) return undefined;
     let live = true;
     let timer = null;
     let inFlight = false;
     const schedule = () => {
       clearTimeout(timer);
-      timer = setTimeout(run, USAGE_EVERY);
+      timer = setTimeout(run, every);
     };
     async function run() {
       if (inFlight || !live) return;
@@ -33,7 +42,7 @@ export function useUsage(projectId, active) {
       inFlight = true;
       clearTimeout(timer);
       try {
-        const reply = await client.request(`/api/projects/${projectId}/usage`);
+        const reply = await client.request(path);
         if (live) setState({ data: reply.data, error: reply.error });
       } catch (error) {
         // A session that ended or a console that stopped is the app's phase to show; it unmounts
@@ -55,7 +64,7 @@ export function useUsage(projectId, active) {
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [projectId, active]);
+  }, [path, active, every]);
   return state;
 }
 

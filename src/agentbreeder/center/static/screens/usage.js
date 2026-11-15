@@ -12,7 +12,8 @@ import {
 } from "../lib/usage.js";
 import { Card, Table, Text, useConsole } from "../ui/components.js";
 import { useView } from "../ui/data.js";
-import { Spark, StatusChip, useUsage } from "../ui/usage.js";
+import { Spark, StatusChip, usePoll, useUsage } from "../ui/usage.js";
+import { WATCH_EVERY, eventText, eventTime, eventTone, newestId, shownEvents, watchNote, watchProblem } from "../lib/watch.js";
 import { html, useEffect, useRef } from "../ui/preact.js";
 
 export const VM_NOTE = "CPU and memory are of the Docker VM (Docker Desktop runs containers in one): CPU is a share of one of its cores, so a busy container can pass 100%, and memory is out of what the VM lets the container use.";
@@ -22,6 +23,7 @@ const INTERNAL = "Reached by agents on the stack network, not from this machine"
 // are spaced and capped per page visit (a crash-looping container must not keep a page alive).
 export const REREAD_GAP = 30000;
 export const MAX_REREADS = 3;
+const EVENTS_NOTE = "Container events come from agentbreeder watch: a container that exited by itself or became unhealthy, and when it started again. A stop, a release, a remove or Stop services is not an event. Exits and failing health checks are also stored for agentbreeder events.";
 const COLUMNS = ["Service", "Project", "Status", "Host ports", "CPU (of the Docker VM)", "Memory (of the Docker VM)", "Network", "Block IO"];
 
 /** Home's services table across every registered project. */
@@ -31,6 +33,7 @@ export function HomeServices({ projects }) {
       ${projects.map((project) => html`<${ProjectRows} key=${project.id} project=${project} />`)}
     <//>
     <p class="muted small">${VM_NOTE} ${IO_NOTE} The sparklines show the last five minutes, kept in this console's memory only.</p>
+    <p class="muted small">${EVENTS_NOTE}</p>
   <//>`;
 }
 
@@ -47,6 +50,21 @@ function ProjectRows({ project }) {
   const names = Object.keys(all);
   const anyUp = names.some((name) => serviceUp(all[name]));
   const usage = useUsage(project.id, anyUp);
+  const watch = usePoll(`/api/projects/${project.id}/watch`, anyUp, WATCH_EVERY);
+  const newest = newestId(watch);
+  const seenEvent = useRef(null);
+  const watched = Boolean(watch.data);
+  useEffect(() => {
+    // The first answer is the baseline (events from before this page opened); after it, a new
+    // event reads the status chips again, once per event, not per poll.
+    if (!watched) return;
+    if (seenEvent.current === null) {
+      seenEvent.current = newest;
+    } else if (newest > seenEvent.current) {
+      seenEvent.current = newest;
+      reload();
+    }
+  }, [newest, watched]);
   const samples = (usage.data && usage.data.samples) || [];
   const window = (usage.data && usage.data.window) || WINDOW;
   const mismatch = statusMismatch(services.data && services.data.services, samples, serviceUp);
@@ -69,7 +87,33 @@ function ProjectRows({ project }) {
   return html`
     ${problem ? note(problem, "notice-row") : null}
     ${names.map((name) => html`<${ServiceRow} key=${name} project=${project} name=${name} info=${all[name]} usage=${usage} samples=${samples} window=${window} />`)}
+    ${anyUp ? html`<${EventsRow} project=${project} watch=${watch} />` : null}
   `;
+}
+
+/**
+ * The project's container events under its services: the newest few, newest first, each with its
+ * time and a word for what happened (colour is never the only cue), or why none are watched.
+ */
+function EventsRow({ project, watch }) {
+  const problem = watchProblem(watch);
+  const { events, more } = shownEvents(watch);
+  const id = `events-${project.id}`;
+  return html`<tr class="events-row">
+    <td colspan=${COLUMNS.length}>
+      <strong id=${id}>Container events, <${Text} value=${project.name} /></strong>
+      ${problem ? html`<p class="notice-row small"><${Text} value=${problem} /></p>` : null}
+      ${events.length
+        ? html`<ul class="plain events" aria-labelledby=${id}>
+            ${events.map((event) => html`<li key=${event.id} class=${eventTone(event) ? `event-${eventTone(event)}` : ""}>
+              <span class="muted small"><${Text} value=${eventTime(event)} /></span> <${Text} value=${eventText(event)} />
+            </li>`)}
+          </ul>`
+        : html`<p class="muted small">None since this console started watching.</p>`}
+      ${more ? html`<p class="muted small">${more} older not shown; run <code>agentbreeder events</code> for the stored ones.</p>` : null}
+      <p class="muted small"><${Text} value=${watchNote(watch)} /></p>
+    </td>
+  </tr>`;
 }
 
 /** A link into a scoped screen of `project`: it sets the scope, then opens the screen. */
