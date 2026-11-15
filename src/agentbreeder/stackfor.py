@@ -93,9 +93,12 @@ LITELLM_EMBEDDING = """\
 """
 POSTGRES = "service/postgres-pgvector@1.1.0"
 LITELLM_TAIL = """\
+litellm_settings:
+  turn_off_message_logging: true   # spend logs keep tokens/cost, not prompts or replies
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   database_url: os.environ/DATABASE_URL
+  store_prompts_in_spend_logs: false
 """
 
 
