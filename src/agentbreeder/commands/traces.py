@@ -161,6 +161,8 @@ def _report(args) -> phoenix_traces.Report:
     rows, values = _state(args.state_dir)
     show = phoenix_traces.Shown(redaction.Redactor([*values, phoenix.key]))
     report = phoenix_traces.Report(phoenix.url)
+    if phoenix.key_name != phoenix_traces.READ_KEY:
+        report.notes.append(phoenix_traces.FALLBACK_NOTE)
     if args.trace is not None:
         if args.project is not None:
             projects = [args.project]

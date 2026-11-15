@@ -158,6 +158,7 @@ agentbreeder services start|stop|restart [DIR] NAME [--yes] [--json]   # one con
 | `service/postgres-pgvector@1.1.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | as 1.0.0, plus `roles` (list) and `roles_database` | as 1.0.0, plus `roles.<name>`: a URL for a role that can connect only to `roles_database`, owns only a schema of its own name and has no other rights until `init_sql` grants them. `postgres` and `template1` are closed to applications. |
 | `service/postgres-pgvector@1.0.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | `databases` (list), `init_sql` (file, ≤ 64 KiB, no `\` meta-commands), `init_sql_database` | `databases.<name>`: a URL with that database's own role (never the superuser) |
 | `service/litellm@1.0.0` | LiteLLM 1.106.2 proxy, `provides: gateway/litellm` | `config` (file, required; reviewed: allow-listed keys, each provider key only to its provider) | `url`; `master_key` (operator only) |
+| `service/phoenix@1.1.0` | as 1.0.0 | none | as 1.0.0, plus `read_key` (operator only): a personal API key of the VIEWER user `agentbreeder-reader`, minted by `bootstrap` with the ingest key. `traces` reads with it; Phoenix refuses writes made with it. Moving a stack from 1.0.0 runs the bootstrap again on the same data, which mints a new ingest key too (the old one is not revoked, as when 1.0.0 mints again). Back on 1.0.x, `traces` ignores a stored read key and uses the ingest key. |
 | `service/phoenix@1.0.0` | Arize Phoenix 21.0.0 with auth on, data in a wired Postgres database | none | `url` (host only); `ingest_key` (services only, minted by `bootstrap`) |
 | `service/echo@1.0.0` | A tiny HTTP test service | `label` | `url`, `token`, `link` |
 
@@ -203,8 +204,11 @@ outputs:
   `no-new-privileges`, a size-capped `/tmp`, and (if declared) up to four more `tmpfs` paths.
   `AGENTBREEDER_SERVICE` holds the service's own name on the stack network.
 - **`init`** runs after every healthy start and must be idempotent. **`bootstrap`** runs once per
-  data identity (again after its volume, or a wired service's volume, is new); its stdout becomes
-  the secret named by `writes_secret`.
+  data identity (again after its volume, or a wired service's volume, is new, or when a secret it
+  writes is missing); its stdout becomes the secret named by `writes_secret`. A bootstrap that
+  writes 2–4 secrets names them in `writes_secrets` instead and prints one JSON object with
+  exactly those names as keys, each a non-empty one-line string (else `ONESHOT_OUTPUT`, which
+  never quotes the output).
 - **Built from source:** the build context is the hashed version directory. The Dockerfile is a
   strict subset: digest-pinned `FROM`, no `ARG`, `ADD`, build secrets or SSH. The image is tagged
   with the version hash.

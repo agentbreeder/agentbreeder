@@ -380,6 +380,22 @@
    "exec": false,
    "sha256": "dee720d680a1e39d24ee72a680e0a8e5b1ba6f60c8c245596077336abefc3926"
   },
+  "builtin_registry/service/phoenix/1.1.0/files/bootstrap.py": {
+   "exec": true,
+   "sha256": "0cd01606433437c6e56511db254e53594ea187a06a1f0d97db555721a5044c52"
+  },
+  "builtin_registry/service/phoenix/1.1.0/files/start.py": {
+   "exec": true,
+   "sha256": "e90579d4f10ed427a88127463bcd33d25ca076f49fc452957c50e472e0a13c4b"
+  },
+  "builtin_registry/service/phoenix/1.1.0/manifest.yaml": {
+   "exec": false,
+   "sha256": "de1517733ee412d51de9d0924086ad0379198c7514acae593f5c465ee841a5d4"
+  },
+  "builtin_registry/service/phoenix/1.1.0/service.yaml": {
+   "exec": false,
+   "sha256": "364ca1b73903d106e0548e864434cee87fd3ed9bb45b8e1a29644a02a7e19e0d"
+  },
   "builtin_registry/service/playwright-mcp/1.0.0/manifest.yaml": {
    "exec": false,
    "sha256": "cd14acab5b4577cc2b06e9363e575ae51b303e2c29edb02b51ea25fb8f78605b"

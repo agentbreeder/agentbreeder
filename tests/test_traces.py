@@ -522,7 +522,7 @@ def stack(tmp_path, monkeypatch):
     project.mkdir()
     root = tmp_path / "stacks"
     monkeypatch.setenv("AGENTBREEDER_STACKS_DIR", str(root))
-    services = {"phoenix": SimpleNamespace(ref="service/phoenix@1.0.0")}
+    services = {"phoenix": SimpleNamespace(ref="service/phoenix@1.1.0")}
     monkeypatch.setattr(engine, "load", lambda path: SimpleNamespace(services=services))
     state = StackState("demo", project, root)
     state.record_port("phoenix", "http", 6006)
@@ -534,13 +534,65 @@ def stack(tmp_path, monkeypatch):
         state_dir=state.directory / "envs" / "dev" / "state",
         directory=state.directory,
         services=services,
+        root=root,
     )
 
 
 def test_locate_reads_port_and_key(stack):
     found = phoenix_traces.locate(stack.project, stack.state_dir)
     assert found.url == "http://127.0.0.1:6006" and found.key == KEY
+    assert found.key_name == phoenix_traces.INGEST_KEY  # phoenix 1.0.x: no read key
     assert KEY not in repr(found)
+
+
+READ = "eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiVklFV0VSIn0.c2ln"
+
+
+def write_read_key(stack, value: bytes = f"{READ}\n".encode()):
+    from agentbreeder.services.state import StackState
+
+    state = StackState("demo", stack.project, stack.root)
+    try:
+        state.write_secret("phoenix", "read-key", value, "bootstrap")
+    finally:
+        state.close()
+
+
+def test_locate_prefers_the_read_key(stack):
+    write_read_key(stack)
+    found = phoenix_traces.locate(stack.project, stack.state_dir)
+    assert found.key == READ and found.key_name == phoenix_traces.READ_KEY
+    assert READ not in repr(found) and KEY not in repr(found)
+
+
+def test_a_read_key_left_from_1_1_is_ignored_on_1_0(stack):
+    write_read_key(stack)
+    stack.services["phoenix"] = SimpleNamespace(ref="service/phoenix@1.0.0")
+    found = phoenix_traces.locate(stack.project, stack.state_dir)
+    assert found.key == KEY and found.key_name == phoenix_traces.INGEST_KEY
+
+
+def test_locate_with_only_a_read_key(stack):
+    write_read_key(stack)
+    (stack.directory / "service-secrets" / "phoenix" / "ingest-key").unlink()
+    assert phoenix_traces.locate(stack.project, stack.state_dir).key == READ
+
+
+@pytest.mark.parametrize("value", [b"two words", b"\n", b"\xff"])
+def test_a_malformed_read_key_never_falls_back(stack, value):
+    write_read_key(stack, value)
+    with pytest.raises(TracesError, match="malformed") as error:
+        phoenix_traces.locate(stack.project, stack.state_dir)
+    assert error.value.code == "TRACES_NO_PHOENIX"
+
+
+def test_an_unrecorded_read_key_file_is_refused(stack):
+    path = stack.directory / "service-secrets" / "phoenix" / "read-key"
+    path.write_bytes(f"{READ}\n".encode())  # not written by `services up`
+    path.chmod(0o600)
+    with pytest.raises(TracesError) as error:
+        phoenix_traces.locate(stack.project, stack.state_dir)
+    assert error.value.code == "SECRET_NOT_OWNED"
 
 
 def test_locate_needs_a_stack(stack, tmp_path):
@@ -569,7 +621,7 @@ def test_locate_without_port_or_key(stack):
     state.close()
     stack.services["phoenix"] = stack.services.pop("phoenix2")
     (stack.directory / "service-secrets" / "phoenix" / "ingest-key").unlink()
-    with pytest.raises(TracesError, match="no ingest key"):
+    with pytest.raises(TracesError, match="has no key yet"):
         phoenix_traces.locate(stack.project, stack.state_dir)
 
 
@@ -628,6 +680,28 @@ def test_list_json(phoenix, wired, capsys):
     data = json.loads(out)
     assert data["schema_version"] == 1 and data["phoenix"] == phoenix.url
     assert [t["trace_id"] for t in data["traces"]] == ["1" * 32]  # D2 is removed
+    assert KEY not in out + err
+
+
+def test_read_key_has_no_note(phoenix, wired, capsys):
+    phoenix.projects = {"support": [*turn("1" * 32, 1, D1)]}
+    code, out, err = run(["--state-dir", str(wired.state_dir), "--json"], capsys)
+    assert code == 0, err
+    assert phoenix_traces.FALLBACK_NOTE not in json.loads(out)["notes"]
+    assert "ingest key" not in err
+
+
+def test_ingest_key_fallback_is_a_note(phoenix, wired, capsys, monkeypatch):
+    located = Phoenix(phoenix.url, KEY, phoenix_traces.INGEST_KEY)
+    monkeypatch.setattr(phoenix_traces, "locate", lambda project, state: located)
+    phoenix.projects = {"support": [*turn("1" * 32, 1, D1)]}
+    code, out, err = run(["--state-dir", str(wired.state_dir), "--json"], capsys)
+    assert code == 0, err
+    data = json.loads(out)
+    assert data["notes"][0] == phoenix_traces.FALLBACK_NOTE
+    assert [t["trace_id"] for t in data["traces"]] == ["1" * 32]  # still read
+    code, out, err = run(["--state-dir", str(wired.state_dir)], capsys)
+    assert code == 0 and f"NOTE: {phoenix_traces.FALLBACK_NOTE}" in err
     assert KEY not in out + err
 
 

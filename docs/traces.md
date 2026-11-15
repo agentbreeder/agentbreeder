@@ -21,11 +21,14 @@ awaiting approval). `--last N` (1–200, default 20) applies per deployment. `--
 - **Phoenix:** the stack's single `service/phoenix@*` service, on its loopback host port
   (`http://127.0.0.1:<port>`, from the stack state). `--stack DIR` is required: without a stack
   there is no Phoenix (`TRACES_NO_PHOENIX`).
-- **Key:** the stack's stored `ingest-key`, the system API key Phoenix's bootstrap mints. In
-  Phoenix it is **admin-equivalent**: it could also write or delete. `traces` only sends it with
-  `GET` to that loopback URL. It never prints it, never follows a redirect, and never uses a
-  proxy (`HTTP_PROXY` is ignored). A read-only VIEWER key (phoenix@1.1.0) is a planned
-  follow-up.
+- **Key:** the stack's stored `read-key`. From `service/phoenix@1.1.0` on, the bootstrap mints
+  it as a personal API key of the VIEWER user `agentbreeder-reader`, and Phoenix refuses every
+  write made with it (#925). A stack on phoenix 1.0.x has no read key, so `traces` uses the
+  stored `ingest-key` instead: the system API key, which is **admin-equivalent** in Phoenix (it
+  could also write or delete). The answer then carries a note in `notes` (and `NOTE:` on stderr
+  in text mode) saying so; move the stack to `service/phoenix@1.1.0` and run `services up` to
+  mint the read key. Either key is only sent with `GET` to that loopback URL. `traces` never
+  prints it, never follows a redirect, and never uses a proxy (`HTTP_PROXY` is ignored).
 - **Known limit:** the port is the one `services up` recorded. Only the host is fixed, not the
   listener. If Phoenix is stopped and another local process takes that port, the key goes to it.
   This is the same exposure as the other stack keys the CLI uses on loopback (the gateway master
@@ -136,4 +139,3 @@ The console's Try it and eval report viewer use `traces --trace TRACE_ID --stack
 - Traces of eval runs linked from `release` in the CLI. The console's eval report viewer opens
   a case's trace (see [command-center.md](command-center.md)).
 - Message content (`--content`).
-- A read-only Phoenix key.
