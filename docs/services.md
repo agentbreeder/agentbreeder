@@ -165,6 +165,25 @@ agentbreeder services start|stop|restart [DIR] NAME [--yes] [--json]   # one con
 Phoenix's UI: sign in as `admin@localhost` with the password in the stack state at
 `service-secrets/<service>/admin-password`.
 
+### Gateway config review
+
+`up` reviews a `service/litellm` config before any key reaches it, and refuses anything else with
+`GATEWAY_CONFIG_UNSAFE`, naming the location only (config values are never echoed):
+
+- Only allow-listed keys per section; no custom endpoints (`api_base`, `base_url`, headers) or
+  callbacks.
+- Every `model_list[].litellm_params.model` is `PROVIDER/MODEL` with `PROVIDER` one of `anthropic`,
+  `gemini`, `openai`, `openrouter` (#1031). Other prefixes (`vertex_ai/`, `bedrock/`, `azure/`,
+  `ollama/`, …) and bare names (`gpt-4o`) are refused, because LiteLLM would fall back to the
+  provider SDK's default credential chain, which on a cloud host can reach the machine's own
+  identity. More providers are planned in #1025, each with explicit credentials.
+- `api_key` is absent or `os.environ/<the provider's own key>`; `os.environ/` is otherwise allowed
+  only for `general_settings.master_key` (`LITELLM_MASTER_KEY`) and `database_url` (`DATABASE_URL`).
+- Prompt and reply logging stays off (#1028). If present, `litellm_settings.turn_off_message_logging`
+  must be `true`, `litellm_settings.set_verbose` must be `false` (its debug log prints request
+  bodies), and `general_settings.store_prompts_in_spend_logs` must be `false`, each as a YAML
+  boolean. There is no operator opt-in; spend logs keep tokens and cost, not messages.
+
 ## Writing a service
 
 `agentbreeder registry new service NAME` scaffolds a version under `./registry/service/`:

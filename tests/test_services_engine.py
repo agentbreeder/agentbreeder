@@ -74,7 +74,9 @@ def write_project(project: Path, stack=None, gateway=None) -> Path:
     (version / "files" / "index.html").write_text("gw\n")
     (project / "gw").mkdir(exist_ok=True)
     (project / "gw" / "config.yaml").write_text(
-        yaml.safe_dump({"model_list": [{"model_name": "m1", "litellm_params": {"model": "x"}}]})
+        yaml.safe_dump(
+            {"model_list": [{"model_name": "m1", "litellm_params": {"model": "gemini/x"}}]}
+        )
     )
     (project / "stack.yaml").write_text(yaml.safe_dump(stack or STACK))
     # Registry versions are immutable once locked; these tests edit them in place.
@@ -325,7 +327,7 @@ def test_gateway_config_is_part_of_the_grant(env):
         instance.close()
     gateway = seen[0]["gateway_config"]
     assert len(gateway["sha256"]) == 64
-    assert gateway["providers"] == {"m1": "unknown (no key)", "m2": "gemini (GEMINI_API_KEY)"}
+    assert gateway["providers"] == {"m1": "gemini (no key)", "m2": "gemini (GEMINI_API_KEY)"}
     assert grant is None or grant != seen[0]
     with pytest.raises(ServiceError, match="GRANT_NOT_CONFIRMED"):
         config.write_text(config.read_text() + "\n# edited\n")
@@ -475,7 +477,7 @@ def test_locked_mode_refuses_a_stale_lock(env):
         yaml.safe_dump(
             {
                 "model_list": [
-                    {"model_name": "m1", "litellm_params": {"model": "y"}},
+                    {"model_name": "m1", "litellm_params": {"model": "gemini/y"}},
                 ]
             }
         )
@@ -739,7 +741,9 @@ def test_cli_up_update_accepts_an_edited_file_param(env, fake_docker, capsys, mo
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
     assert cli.main(["services", "up", str(env), "--environment", "dev", "--yes"]) == 0
     config = env / "gw" / "config.yaml"
-    config.write_text(config.read_text().replace("model: x", "model: y"))
+    edited = config.read_text().replace("model: gemini/x", "model: gemini/y")
+    assert edited != config.read_text()
+    config.write_text(edited)
     capsys.readouterr()
     assert cli.main(["services", "up", str(env), "--environment", "dev", "--yes"]) == 2
     assert "services up --update" in capsys.readouterr().err
@@ -938,7 +942,7 @@ def test_changing_a_binding_needs_reconfirmation(env):
         assert grant["bindings"]["ECHO_TOKEN"] == "echo.minted"
         text = grant_text(grant)
         assert "secret ECHO_TOKEN <- echo.minted" in text and "Eval database" in text
-        assert "keys go only to their provider" in text and "m1: unknown (no key)" in text
+        assert "keys go only to their provider" in text and "m1: gemini (no key)" in text
         origins = {svc["name"]: svc["origin"] for svc in grant["services"]}
         assert origins == {"echo": "built-in", "gateway": "project"}
         # A project gateway is project code: the config review can't bind what it does.

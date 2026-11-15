@@ -264,9 +264,9 @@ def _model(**params):
         {**_model(), "general_settings": {"disable_spend_logs": {"x": 1}}},
         _model(timeout={"api_base": "h"}),
         # Model names are printed in the grant: no control characters or spoofed lines.
-        {"model_list": [{"model_name": "m\nGateway ok", "litellm_params": {"model": "x"}}]},
-        {"model_list": [{"model_name": "m\x1b[2K", "litellm_params": {"model": "x"}}]},
-        {"model_list": [{"model_name": "m", "litellm_params": {"model": "x"}, "extra": 1}]},
+        {"model_list": [{"model_name": "m\nGateway ok", "litellm_params": {"model": "gemini/x"}}]},
+        {"model_list": [{"model_name": "m\x1b[2K", "litellm_params": {"model": "gemini/x"}}]},
+        {"model_list": [{"model_name": "m", "litellm_params": {"model": "gemini/x"}, "extra": 1}]},
         {"model_list": [{"model_name": "m", "model_info": {"k": "os.environ/GEMINI_API_KEY"}}]},
     ],
 )
