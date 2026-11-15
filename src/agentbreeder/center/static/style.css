@@ -430,3 +430,7 @@ th[scope="row"] { color: var(--foreground); }
 /* Traces tab (#907): one deployment's recent traces, each with its span tree on request. */
 .trace-list > li.trace-item { padding: 8px 0; border-bottom: 1px solid var(--control-border); overflow-wrap: anywhere; }
 .trace-list > li.trace-item:last-child { border-bottom: 0; }
+
+/* LLM cost (#906) */
+.cost-total strong { font-size: 1.25rem; }
+.cost-controls { align-items: flex-end; margin-bottom: 8px; }
