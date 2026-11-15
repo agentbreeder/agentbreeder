@@ -27,6 +27,7 @@ from agentbreeder.egress.host import egress_dir, write_private_json
 from agentbreeder.egress.protocol import MAC_HEADER, NONCE_HEADER, response_authentic
 from agentbreeder.manifest import Manifest
 from agentbreeder.operator_config import OperatorConfig, OperatorConfigError, read_private
+from agentbreeder.runtime import await_binding
 from agentbreeder.store import DeploymentError
 
 # Multi-arch index digest for python:3.12-slim, pinned (bump deliberately, never float).
@@ -419,7 +420,10 @@ class Boundary:
         self.runtime.command("container", "start", record["container"])
 
     def endpoint(self, record: dict) -> str:
-        info = self._inspect("container", self.names(record)["sidecar"])
+        name = self.names(record)["sidecar"]
+        info = self._inspect("container", name)
+        # Docker Desktop may not have published the port yet just after start (#991).
+        info = await_binding(lambda: self._inspect("container", name), info, INGRESS_PORT)
         try:
             binding = info["NetworkSettings"]["Ports"][f"{INGRESS_PORT}/tcp"][0]
             port = int(binding["HostPort"])

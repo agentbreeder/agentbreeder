@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 
 from agentbreeder.manifest import Manifest
 from agentbreeder.store import DeploymentError
@@ -237,6 +238,40 @@ def stop_follow(process: subprocess.Popen, grace: float = 2.0) -> None:
     _running(process)  # drops what is gone
     if process.stdout is not None:
         process.stdout.close()
+
+
+# Docker Desktop can report a started container's published port as `[]` for a moment after
+# `container start` returns (#978, #991). Wait this long, re-inspecting, before the endpoint is
+# judged. Used for the agent container (deployment.py) and the egress sidecar (boundary.py).
+BINDING_WAIT_SECONDS = 5.0
+BINDING_POLL_SECONDS = 0.25
+
+
+def binding_pending(info: dict, port: int) -> bool:
+    """A running container whose port is published but not yet bound: the key is absent, null or
+    an empty list. Anything else (a binding, even a wrong one, or a stopped container) is for the
+    caller's endpoint check to judge at once."""
+    try:
+        if info["State"]["Running"] is not True:
+            return False
+        ports = info["NetworkSettings"]["Ports"]
+    except (KeyError, TypeError):
+        return False
+    if ports is None:
+        return True
+    return isinstance(ports, dict) and ports.get(f"{port}/tcp") in (None, [])
+
+
+def await_binding(inspect: Callable[[], dict | None], info: dict | None, port: int) -> dict | None:
+    """Re-inspect, for at most BINDING_WAIT_SECONDS, while the port binding is pending. Returns
+    the last inspect result (None if the container is gone); errors from `inspect` propagate."""
+    deadline = time.monotonic() + BINDING_WAIT_SECONDS
+    while info is not None and binding_pending(info, port):
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(BINDING_POLL_SECONDS)
+        info = inspect()
+    return info
 
 
 class Docker:
