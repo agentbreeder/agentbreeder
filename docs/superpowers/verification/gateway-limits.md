@@ -1,0 +1,216 @@
+# #1019 verification: gateway budget, rpm, retries and fallback on a live LiteLLM
+
+Status: **partial, verified from `main`** (89cf804, after #1016 merged, 2026-11-15, macOS 13.7.8
+x86_64, Docker Desktop engine 27.5.1, LiteLLM 1.106.2 from `service/litellm@1.0.0`). Results on a
+live gateway with real provider calls:
+- **Budget:** a deployment key with `max_budget` 0.0001 was refused (LiteLLM `422 budget_exceeded`)
+  after its first turn. **`invoke` and the console do not show this as a budget error.** Both
+  report `502 The model service is unavailable; please try again`.
+- **rpm:** with `rpm: 2`, the third and fourth direct calls in a minute got `429 throttling_error`
+  (`retry-after: 60`). An `invoke` started at the cap, right after those 429s, did not fail. It
+  took 67.6 s and then answered. A 429 through `invoke` in a fresh window was not tried.
+- **Retry:** seen. With two deployments behind one alias, one of them broken, 4 of 20 calls were
+  answered after `x-litellm-attempted-retries: 1`. **Cooldown:** not seen consistently; see the
+  table.
+- **Fallback:** Northwind's `support-model` → `support-model-openrouter` worked with the real
+  OpenRouter key under the production deployment's scoped key, both for direct calls and for a
+  real `invoke` turn. That key gets **403** when it asks for `support-model-openrouter` directly.
+  So a fallback reaches an alias the key is not granted (**#1033**).
+
+The opt-in Docker test the issue asks for was **not added**. This PR is a record only, and the
+test belongs in a code PR. The leak scan found 0 hits, and Docker was torn down to the pre-run
+snapshot, with one exception: a pre-existing image was removed (see Leak scan and teardown).
+
+This is on `main`, not in a published preview.
+
+## Why `support-model-openrouter` is not in `environment.models`
+
+This was found by reading the code, then checked live:
+- `services up` prints `WARNING: gateway config serves aliases the environment doesn't grant:
+  ['support-model-openrouter']`. It comes from `services/lock.py`, which warns about every alias
+  the gateway config serves that `environment.models` does not list. Northwind's `stack.yaml`
+  lists `support-model`, `support-embedding` and `support-judge`. The fallback alias exists only in
+  `stack/litellm/config.yaml` (`model_list` and `litellm_settings.fallbacks`).
+- The deployment key's `models` come from `build.py`: the agent's `model.alias`, plus each
+  knowledge version's embedding alias (`support-model`, `support-embedding`). Fallback targets are
+  not added. `deployment.py` mints the key with that list (`gateway_keys.LiteLLM.mint`).
+- Live, LiteLLM 1.106.2 serves the fallback anyway (below). Northwind does not need the grant for
+  the fallback to work. The open question is whether it should: today `environment.models` and
+  the key's `models` do not limit what a fallback can reach. Filed as **#1033**; the fix (grant
+  the alias and check that fallback targets are granted, or document it) belongs to a code lane.
+  The example was not edited.
+
+## Wheel from main (clean sandbox)
+
+`main` at 89cf804, no tracked changes. The wheel was built with `python -m build --wheel`
+(`agentbreeder-3.0.0a2-py3-none-any.whl`, sha256
+`ffe84b9090146ac4df97a3b885156b5328086c3ae785b4218dc3d86821ea5902`) and installed with `[eval]` into a
+fresh Python 3.12 venv. Every command ran under `env -i` with a fresh `HOME`, `TMPDIR` inside
+the sandbox, `PIP_NO_CACHE_DIR=1` and `USER=demo`. The sandbox was in `/tmp`, not in a path that
+names the OS user. A Docker context was created inside the sandbox `HOME`, since AgentBreeder
+refuses `DOCKER_HOST`. Only the key lines each run needed were copied from `~/.env` into 0600 files
+in the sandbox `HOME`: Gemini, Tavily and OpenRouter for Northwind, and Gemini for the starter.
+The files were deleted after the runs.
+
+Gateway calls were made with a small Python script. It reads the deployment's own key file
+(`state/deployments/<id>/secrets/llm-gateway-key`), sends one short chat completion ("Reply with
+the single word: ok", `max_tokens` 20) to the stack's LiteLLM, and saves the status, the
+`x-litellm-*` headers, the model that served it and the error's type, code and message. It never
+saves the key or the reply. Spend rows were read with `psql` in the stack's Postgres
+(`LiteLLM_SpendLogs`).
+
+### S1: Northwind (fallback, retry, cooldown)
+
+| Step | Command (UTC start) | Exit | Time | Result |
+|---|---|---|---|---|
+| 1 | `example northwind <NW>` | 0 | 0.6 s | |
+| 2 | `services up <NW> --environment dev --env-file <keys> --yes` (22:14:01) | 0 | 253.8 s | 5 services; the `support-model-openrouter` warning above |
+| 3 | `release <NW>/agent.yaml --stack <NW> --environment dev` (22:18:19) | 0 | 186.0 s | `61/61 evals passed`, first attempt; production `05b1c96f…` |
+| 4 | direct calls with the production key, config unchanged (22:21:45) | | | table below |
+| 5 | sandbox-only config edit: `support-model` → `gemini/gemini-0-no-such-model`; `services up … --update` (22:22:22) | 0 | 55.0 s | only `litellm` recreated |
+| 6 | 6 direct calls to `support-model` (22:23:18–22:23:39) | | | all 200, served by the fallback |
+| 7 | config edit: primary back to `gemini/gemini-3.8-flash` with `timeout: 0.01`; `--update` (22:24:12) | 0 | 58.1 s | |
+| 8 | 8 calls with fallback, then 6 with `disable_fallbacks: true` (22:25:11–22:26:31) | | | table below |
+| 9 | config edit: a second, healthy `support-model` deployment beside the 10 ms one; `--update` (22:26:49) | 0 | 53.1 s | |
+| 10 | 20 calls with `disable_fallbacks: true`, with a 35 s pause after the 14th (22:27:48–22:28:54) | | | table below |
+| 11 | config edit: primary `gemini/gemini-0-no-such-model` again; `--update` (22:29:18) | 0 | 65.3 s | |
+| 12 | `invoke northwind-support "How do I reset my password?" --json` (22:30:24) | 0 | 10.8 s | 200, a correct reply citing Account and security; `model: support-model`, `cost_usd` 0.00144525 |
+| 13 | `remove 05b1c96f… --local`, `services down <NW> --purge --yes` | 0, 0 | 1.9 s, 13.2 s | |
+
+The `--update` steps changed only the sandbox copy's `stack/litellm/config.yaml`. `services up`
+refuses a changed path ref with `HASH_MISMATCH` unless `--update` is given.
+
+**Step 4, config unchanged (production key, granted `support-model` and `support-embedding`):**
+
+| Call | Status | What came back |
+|---|---|---|
+| `support-model` | 200 | `x-litellm-model-group: support-model`, Gemini API base, `attempted-retries 0`, `attempted-fallbacks 0`, `x-litellm-key-max-budget: 25.0` (Northwind's `budget_usd`) |
+| `support-model-openrouter`, asked for directly | **403** | `key_model_access_denied`: "The requested model 'support-model-openrouter' is not available for this API key" |
+| `support-model` with `mock_testing_fallbacks: true` | 400 | "Mock testing request params are disabled on this proxy" (so a client cannot use LiteLLM's mock parameters) |
+
+A chat call to `support-embedding` was also sent by mistake. It is an embedding alias, so the 404
+it got says nothing about limits.
+
+**Step 6, primary broken (unknown model id):** all 6 calls returned 200, with
+`x-litellm-model-group: support-model-openrouter`, `attempted-fallbacks: 1`, `attempted-retries:
+0` and served model `google/gemini-3.8-flash`, in 1.6 to 12.2 s. The spend log has 6 `success`
+rows for `support-model-openrouter` / `openrouter/google/gemini-3.8-flash` under the production
+key's alias (`agentbreeder-05b1c96f…`), at about $0.000065 each. In that window (22:23:18 to
+22:23:39) the failed primary attempts have no rows of their own. LiteLLM does not retry a 404 (`attempted-retries` 0).
+
+**Step 8, primary times out (10 ms):** with fallbacks on, all 8 calls were served by
+`support-model-openrouter` (`attempted-fallbacks: 1`) in 4.0 to 14.2 s. Step 6's calls took 1.6
+to 2.6 s, apart from one at 12.2 s. With `disable_fallbacks: true`, all 6 returned **408**
+`litellm.Timeout` ("Timeout passed=0.01, time taken=0.011 seconds") in 2.4 to 3.1 s, though each
+attempt failed in about 0.01 s. The extra time fits a retry after `retry_after: 1`, but the
+headers on an error do not show the retry count, so this is not proof. None of these calls ever
+got "No deployments available": LiteLLM did not cool down an alias that has only one deployment.
+
+**Step 10, one broken (10 ms) and one healthy deployment behind `support-model`, fallbacks off**
+(`num_retries: 1`, `allowed_fails: 3`, `cooldown_time: 30`):
+
+| Calls | Outcome |
+|---|---|
+| 1, 9, 11, 15 | 200 from the healthy deployment with `x-litellm-attempted-retries: 1`: the first try failed, the retry succeeded. **This is the retry, seen.** |
+| 2, 10 | 408 in about 0.1 s, with no retry headers |
+| 3–8, 12–14, 16–20 | 200 from the healthy deployment with `attempted-retries: 0` |
+
+Cooldown: after call 2's failure, calls 3 to 8 all went straight to the healthy deployment, which
+is what a cooldown would do. But call 9 reached the broken deployment again 10 s after call 2,
+sooner than the 30 s `cooldown_time`. Call 11, right after call 10's failure, reached the broken
+deployment first too (`attempted-retries: 1`). LiteLLM 1.106.2 does not expose its cooldown list to
+a client, and its log level here is `WARNING`. **Cooldown is recorded as not seen consistently.**
+Why calls 2 and 10 got no retry was not looked into.
+
+**Step 12, a real agent turn with the primary broken:** the turn answered. Its chat call is in
+the spend log as `support-model-openrouter` / `openrouter/google/gemini-3.8-flash`, `success`,
+0.001445, under the production key, the same as the runtime's `cost_usd`. Its embedding call went to
+`support-embedding` (Gemini) as usual. The `invoke` output names `support-model` and does not say
+that a fallback served the turn.
+
+### S2: gemini starter (budget and rpm)
+
+`new agent lim-gem --model gemini` (the starter: `chat` and `judge` aliases, ceilings $5 and 60
+rpm).
+
+| Step | Command (UTC start) | Exit | Time | Result |
+|---|---|---|---|---|
+| 1 | `services up <G> --environment dev --env-file <key> --yes` (22:31:55) | 0 | 77.7 s | |
+| 2 | `release <G>/agent.yaml --stack <G> --environment dev` (22:33:13) | 0 | 36.8 s | `2/2 evals passed`; production `6e4961c6…` |
+| 3 | `agent.yaml`: `model.budget_usd: 0.0001`; `build` (22:33:57) | 0 | 1.3 s | `model_access.budget_usd: 0.0001` in the deploy manifest |
+| 4 | `deploy deploy/lim-gem.deploy.yaml --local …` | 2 | | `[DEPLOYMENT_ERROR] Agent name already has a different spec; remove it first` (seen in the terminal; the saved output was overwritten by step 5's retry under the same name) |
+| 5 | `remove 6e4961c6… --local`, then the same `deploy` (22:34:13) | 0, 0 | 1.8 s, 9.2 s | `449e60ed…` ready |
+| 6 | `invoke lim-gem "When is support open?" --json`, 3 times (22:34:23–22:34:32) | 0, 1, 1 | 7.7, 1.5, 1.0 s | 200 with a correct reply ($0.00015375); then **502** `{"error": "The model service is unavailable; please try again"}` twice |
+| 7 | a direct call with that key (22:34:41) | | | **422** `budget_exceeded`: "Budget has been exceeded! Key=agentbreeder-449e60ed… (sk-...XXXX) Current cost: 0.00015375…, Max budget: 0.0001" |
+| 8 | console: `up --no-browser`, add the project, the agent's Try it, send "When is support open?" (22:35:26) | | 2.6 s | "No usable reply: The agent answered 502: The model service is unavailable; please try again [AGENT_ERROR]. The agent may have run this turn; sending it again is a second turn." |
+| 9 | `agent.yaml`: `rpm: 2` instead of the budget; `build`, `remove 449e60ed…`, `deploy` (22:35:45) | 0, 0, 0 | 1.1, 2.0, 7.2 s | `134a3cb8…` ready |
+| 10 | 4 direct calls with that key (22:36:02–22:36:05) | | | 200, 200, then **429** twice: `throttling_error`, "Limit type: requests. Current limit: 2, Remaining: 0", `retry-after: 60` |
+| 11 | `invoke … --json`, twice, straight after step 10 (22:36:05) | 0, 0 | **67.6 s**, 3.2 s | both 200 with correct replies; the first waited out the rpm window |
+| 12 | `remove 134a3cb8… --local`, `services down <G> --purge --yes`, `docker rmi` of the image this run built | 0, 0 | 1.9 s, 6.9 s | |
+
+How each limit reaches the user:
+- **Budget:** the budget is checked before each call, against the spend so far. The first turn
+  therefore ran and went over (0.000154 against 0.0001). Every turn after it fails. The runtime
+  turns LiteLLM's 422 into a generic 502, so neither `invoke` nor the console Try it names the
+  budget, and both suggest trying again, which cannot help until the 30-day `budget_duration`
+  resets. The cause is visible only in the agent container's log (LiteLLM's `BadRequestError` text,
+  read live with `docker logs` and not saved) or with a direct gateway call.
+- **rpm:** the agent did not fail; the turn was only slow (67.6 s, about the 60 s window). That its
+  model client waited and retried is inferred from the timing. No 429 or rate-limit message reached
+  `invoke`. A live `docker logs` grep of the agent container for 429, rate or retry found nothing
+  (not saved).
+- LiteLLM's budget message includes the last 4 characters of the virtual key (`sk-...XXXX`, masked
+  here). It is in the saved direct-call result, and the agent container's log carried it too (read
+  live, not saved). The 429 message names the key's SHA-256
+  token hash. Whether `agentbreeder logs` redacts either was not checked: `logs lim-gem` was
+  refused with `ID_INVALID` (it takes a deployment ID), and the container was removed before it
+  was run again.
+
+## Acceptance (from the issue)
+
+| Check | Result |
+|---|---|
+| A key with a tiny budget is refused once spent (coded error surfaced by invoke/console) | **Partial.** Refused once spent: PASS (LiteLLM 422 `budget_exceeded` after the first turn). Coded error in invoke and the console: **FAIL**: both show a generic 502 "model service is unavailable" (`AGENT_ERROR` in the console) |
+| An rpm cap returns 429 | **PASS** for direct calls (429, `retry-after: 60`). Through `invoke`, the cap delays the turn (67.6 s) rather than returning 429 |
+| A retry/cooldown actually happens | **Partial.** Retry: PASS (`x-litellm-attempted-retries: 1`, then success). Cooldown: not seen consistently |
+| A forced primary failure falls back to the second alias under the deployment's scoped key | **PASS** (real OpenRouter key; 6 direct calls and one `invoke` turn), with the finding that the key is not granted that alias (#1033) |
+| Decide and fix the Northwind `environment.models` grant (or document why not) | **Cause found, not fixed:** the fallback works without the grant; whether to grant it and check fallback targets is #1033, for a code lane |
+| Opt-in Docker test | **Not added** (this PR is a record; the test belongs in a code PR) |
+| Verification record `docs/superpowers/verification/gateway-limits.md` | This file |
+
+Flows that need a model key ran here: Northwind with `gemini/gemini-3.8-flash` and
+`openrouter/google/gemini-3.8-flash` through LiteLLM, and the starter with
+`gemini/gemini-3.8-flash`.
+
+## Browser click-through
+
+Playwright with Chrome against the real stack: one screenshot of the starter's Try it after the
+budget was spent (S2 step 8). It was kept in the sandbox and not committed. No Claude in Chrome
+GIF was made.
+
+## Leak scan and teardown
+
+- Every saved output (284 files: command output, the gateway-call results, the spend-log reads,
+  the console log and screenshot) was scanned for each `~/.env` value of 12 or more characters (7
+  values, plain, base64 and URL-encoded) and for `/Users/`: **0 hits**. The deployment keys were
+  never written to an output: the call script reads them and prints only status and headers.
+  The key files were deleted, and no AgentBreeder process was left running.
+- Docker was compared with the snapshot taken before S1. Containers, volumes and networks match
+  it. Images: each image a run built was removed by ID (the S2 starter image). One exception:
+  S1's teardown removed `5aeee5ee947e`, the Northwind agent image. That build gives the same image
+  ID every time (it matches the #907 record), and the image was **already in the pre-run
+  snapshot**, so this teardown removed an image the run did not create. The coordinator told the
+  owner. Later teardowns removed only images missing from the snapshot.
+- A container outside AgentBreeder (`supabase_db_norulestrends`) was in the pre-run snapshot and
+  had gone by the end of S1. No command in this run touches it. The coordinator found no destroy
+  event for it, its volumes are intact, and it was reported to the owner.
+
+## Notes
+
+- Costs here are LiteLLM's estimates, not a bill. The whole session (both records) spent well under
+  $1 on the provider keys.
+- The S1 config edits were made only in the sandbox copy of Northwind. The example in the repo is
+  unchanged.
+- Code-lane candidates, sent to the coordinator: #1033 (a fallback is not limited by the key's
+  `models`); the runtime maps `budget_exceeded` (and other gateway 4xx) to a generic 502;
+  `invoke` does not show that a fallback served a turn. The last two have no issue yet.
