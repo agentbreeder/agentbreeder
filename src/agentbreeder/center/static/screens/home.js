@@ -1,10 +1,11 @@
 // Home: what this console runs on (doctor; Docker's own state is the page blocker), the guided path of the project in scope (#820), the
-// registered projects, and adding one (Create starter, Northwind, an existing directory, or an
+// services of every registered project with their usage (#822), the registered projects, and adding one (Create starter, Northwind, an existing directory, or an
 // agent.yaml alone, #823).
 
 import { Action, Card, Notice, Table, Text, useConsole } from "../ui/components.js";
 import { Checklist } from "../ui/guide.js";
 import { OnboardAgentFile } from "../ui/onboard.js";
+import { HomeServices } from "./usage.js";
 import { html, useState } from "../ui/preact.js";
 import { jobLabel } from "../lib/format.js";
 import { starterNameProblem } from "../lib/guide.js";
@@ -41,6 +42,7 @@ export function Home() {
       : null}
     <${Notice} notice=${notice} onDismiss=${() => setNotice(null)} />
     ${project ? html`<${Checklist} project=${project} key=${project.id} />` : null}
+    ${projects.length ? html`<${HomeServices} projects=${projects} />` : null}
     ${projects.length
       ? html`<${Card} title="Projects">
           <${Table} label="Projects" columns=${["Project", "Environment", "Last job", ""]}>

@@ -1,5 +1,5 @@
 // One stack service (#822, M6): its configuration from `services status --json`, a link to its
-// logs, and Start / Stop / Restart. Each button is one `services ACTION DIR NAME --json` short write
+// logs, Start / Stop / Restart (the Overview tab) and its usage (the Usage tab, part 4). Each button is one `services ACTION DIR NAME --json` short write
 // on the server; a stop or restart while deployments use the stack asks first (SERVICE_IN_USE),
 // then sends the request again with `yes`. Refusals (PORT_BUSY, SERVICES_BUSY, ...) are the CLI's
 // message as it wrote it.
@@ -10,9 +10,10 @@ import { ACTIONS, actionReason, cancelledText, doneText, inUseConfirm } from "..
 import { Action, Actions, Card, Notice, Text, ViewState, useConfirm, useConsole } from "../ui/components.js";
 import { useView } from "../ui/data.js";
 import { LogsLink } from "./logs.js";
+import { UsageTab } from "./usage.js";
 import { html, useEffect, useRef, useState } from "../ui/preact.js";
 
-function ServiceDetail({ project, name }) {
+function ServiceDetail({ project, name, tab }) {
   const { client, busyReason, docker } = useConsole();
   const base = `/api/projects/${project.id}`;
   const [services, reload] = useView(`${base}/services`, project.id);
@@ -86,7 +87,9 @@ function ServiceDetail({ project, name }) {
   return html`
     ${dialog}
     <p><a href=${href("/services")}>All services</a> · <${LogsLink} kind="service" name=${name} label=${`Logs of ${name}`} /></p>
-    <${Notice} notice=${notice} onDismiss=${() => setNotice(null)} />
+    <${Tabs} name=${name} tab=${tab} />
+    ${tab === "usage" ? html`<${UsageTab} project=${project} name=${name} info=${info} />` : null}
+    ${tab === "overview" ? html`<${Notice} notice=${notice} onDismiss=${() => setNotice(null)} />
     <${Card} title="Config" busy=${services.loading}>
       ${info
         ? html`<dl class="facts">
@@ -103,16 +106,41 @@ function ServiceDetail({ project, name }) {
       <div ref=${controls}><${Actions} disabled=${busy}>
         ${ACTIONS.map(([action, label]) => html`<${Action} key=${action} tone=${action === "start" ? "primary" : "secondary"} disabled=${info ? actionReason(info, action) : "Reading the service…"} onClick=${() => run(action)}>${label}<//>`)}
       <//></div>
-    <//>
+    <//>` : null}
   `;
 }
 
-/** Keyed by name, so another service starts with a fresh notice. */
+/** The detail's tabs: [key, label]. Overview is the service's own address. */
+export const SERVICE_TABS = [
+  ["overview", "Overview"],
+  ["usage", "Usage"],
+];
+
+function tabHref(name, key) {
+  return key === "overview" ? href("/services/:name", { name }) : href("/services/:name/:tab", { name, tab: key });
+}
+
+function Tabs({ name, tab }) {
+  return html`<nav class="agent-tabs" aria-label="Service sections">
+    <ul>${SERVICE_TABS.map(([key, label]) => html`<li key=${key}><a href=${tabHref(name, key)} aria-current=${key === tab ? "page" : undefined}>${label}</a></li>`)}</ul>
+  </nav>`;
+}
+
+/**
+ * Keyed by project and name, so another service starts with a fresh notice and usage. One screen for both tabs (the tab
+ * is a route parameter), so switching tabs keeps focus on the tab link.
+ */
 function ServiceScreen({ project, params }) {
-  return html`<${ServiceDetail} key=${params.name} project=${project} name=${params.name} />`;
+  const tab = params.tab || "overview";
+  if (!SERVICE_TABS.some(([key]) => key === tab)) {
+    return html`<p>A service has no "<${Text} value=${tab} />" tab. <a href=${href("/services/:name", { name: params.name })}>Open its overview</a>.</p>`;
+  }
+  return html`<${ServiceDetail} key=${`${project.id}:${params.name}`} project=${project} name=${params.name} tab=${tab} />`;
 }
 
 /** For screens/index.js: the detail sits under the Services entry in the sidebar. */
+const DETAIL = { title: (params) => `Service ${params.name}`, section: "/services/:name", navAs: "/services", scoped: true, screen: ServiceScreen };
 export const SERVICE_ROUTES = [
-  { pattern: "/services/:name", title: (params) => `Service ${params.name}`, section: "/services/:name", navAs: "/services", scoped: true, screen: ServiceScreen },
+  { pattern: "/services/:name", ...DETAIL },
+  { pattern: "/services/:name/:tab", ...DETAIL },
 ];
