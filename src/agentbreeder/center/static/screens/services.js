@@ -1,6 +1,6 @@
 // Services: the project's stack, the grant review that starts it, and its registries.
 
-import { consentMissing, consentNames, driftedServers, planServers, repinCommand } from "../lib/mcp.js";
+import { consentMissing, consentNames, driftedServers, pinsCommand, pinsProblem, planServers, repinCommand, repinServers } from "../lib/mcp.js";
 import { href } from "../lib/router.js";
 import { visible } from "../lib/text.js";
 import { portsText, serviceState, serviceUp } from "../lib/format.js";
@@ -68,7 +68,7 @@ export function Services({ project }) {
         ${rows.length ? html`<${Action} tone="secondary" disabled=${!busy && stopped && "The services are stopped."} onClick=${stop}>Stop services<//>` : null}
       <//>
     <//>
-    ${plan && plan.grant ? html`<${Grant} key=${plan.review} plan=${plan} project=${project} status=${services.data} busy=${busy} onStart=${start} onError=${setNotice} />` : null}
+    ${plan && plan.grant ? html`<${Grant} key=${plan.review} plan=${plan} project=${project} status=${services.data} busy=${busy} client=${client} onStart=${start} onError=${setNotice} />` : null}
     <${Registries} view=${registry} />
   `;
 }
@@ -79,7 +79,7 @@ function Ports({ info }) {
   return serviceUp(info) ? html`<${Text} value=${text} />` : html`<span class="muted"><${Text} value=${text} /></span>`;
 }
 
-function Grant({ plan, project, status, busy, onStart, onError }) {
+function Grant({ plan, project, status, busy, client, onStart, onError }) {
   const grant = plan.grant;
   const needed = grant.keys.filter((key) => !key.stored);
   const stored = grant.keys.filter((key) => key.stored);
@@ -88,6 +88,10 @@ function Grant({ plan, project, status, busy, onStart, onError }) {
   // MCP consent (#831): a new review is a new form (the key), so nothing ticked carries over.
   const [ticked, setTicked] = useState(() => new Set());
   const missing = consentMissing(servers, ticked);
+  // The repin review (#964): read on request, never carried over (a new review is a new form).
+  const [pins, setPins] = useState({ summary: null, reading: false, problem: "", reviewed: false });
+  const drifted = driftedServers(status);
+  const repinReady = Boolean(drifted.length && pins.reviewed && pins.summary && pins.summary.changes);
   const tick = (name, on) => {
     const next = new Set(ticked);
     if (on) next.add(name);
@@ -110,7 +114,9 @@ function Grant({ plan, project, status, busy, onStart, onError }) {
       return;
     }
     const allow = consentNames(servers, ticked);
-    onStart("services-up", { digest: grant.digest, ...(allow.length ? { allow_project_mcp: allow } : {}) }, Object.keys(keys).length ? keys : undefined);
+    // Only while the review is on screen: drift that cleared since unmounts it (#964).
+    const repin = repinReady ? { pins_digest: pins.summary.digest } : {};
+    onStart("services-up", { digest: grant.digest, ...(allow.length ? { allow_project_mcp: allow } : {}), ...repin }, Object.keys(keys).length ? keys : undefined);
   };
   return html`<${Card} title="What will run">
     <${Changes} before=${plan.accepted_text} after=${grant.text} />
@@ -122,8 +128,8 @@ function Grant({ plan, project, status, busy, onStart, onError }) {
         <input type="password" autocomplete="new-password" id=${`key-${key.name}`} onInput=${(event) => { values.current[key.name] = event.currentTarget.value; }} />`)}
       ${stored.length ? html`<p class="muted">Already stored: <${Text} value=${stored.map((key) => key.name).join(", ")} />. Enter a value through the CLI to replace one.</p>` : null}
       <p class="muted small">Keys go to the stack's private state and are never shown again.</p>
-      ${servers.length ? html`<${McpReview} servers=${servers} ticked=${ticked} onTick=${tick} drifted=${driftedServers(status)} project=${project} />` : null}
-      <${Action} type="submit" disabled=${busy || missing}>Confirm and start<//>
+      ${servers.length ? html`<${McpReview} servers=${servers} ticked=${ticked} onTick=${tick} drifted=${drifted} project=${project} pins=${pins} setPins=${setPins} client=${client} />` : null}
+      <${Action} type="submit" disabled=${busy || missing || (pins.reading && "Reading the repin review…")}>${repinReady ? "Confirm, repin and start" : "Confirm and start"}<//>
     </form>
   <//>`;
 }
@@ -135,7 +141,7 @@ function Grant({ plan, project, status, busy, onStart, onError }) {
  * accepted for built-in servers and the allowed ones (trust on first use); a changed definition
  * is never accepted here (#964).
  */
-function McpReview({ servers, ticked, onTick, drifted, project }) {
+function McpReview({ servers, ticked, onTick, drifted, project, pins, setPins, client }) {
   return html`<fieldset class="mcp-review">
     <legend>MCP servers</legend>
     <p class="muted small">Each runs behind its own relay, which holds the credential; agents never do. After the relays start, the tools each server serves for the first time are pinned as they are now (trust on first use) for built-in servers and the ones allowed below; the job log shows every definition pinned. See <a href=${href("/mcp")}>MCP grants</a> for the pins and grants.</p>
@@ -154,8 +160,54 @@ function McpReview({ servers, ticked, onTick, drifted, project }) {
               : `Allow mcp.${row.server}, a ${row.origin} version: pin its tools on first use. Its effect labels are untrusted.`} /></label>`}
       </li>`)}
     </ul>
-    ${drifted.length ? html`<p class="notice warn" role="status">Pinned tools changed upstream on <${Text} value=${drifted.map((name) => `mcp.${name}`).join(", ")} />. Starting keeps them hidden; review the change in a terminal: <code><${Text} value=${repinCommand(project.path, project.environment)} /></code></p>` : null}
+    ${drifted.length ? html`<${Repin} drifted=${drifted} project=${project} pins=${pins} setPins=${setPins} client=${client} />` : null}
   </fieldset>`;
+}
+
+/**
+ * Repin changed MCP tool definitions (#964): `services pins --json`, run, checked and rendered by
+ * the server (each relay probes its upstream; up to 3 minutes per relay). The text shown is the
+ * server's; the tick binds this start to that review's digest, and `services up` pins only if
+ * the live definitions still match it (PINS_CHANGED otherwise, pins unchanged).
+ */
+function Repin({ drifted, project, pins, setPins, client }) {
+  const read = async () => {
+    setPins({ summary: null, reading: true, problem: "", reviewed: false });
+    try {
+      const reply = await client.request(`/api/projects/${project.id}/mcp/pins`, { body: {} });
+      setPins({ summary: reply.error ? null : reply.data, reading: false, problem: reply.error ? pinsProblem(reply.error) : "", reviewed: false });
+    } catch (error) {
+      if (error.kind === "session") throw error;
+      setPins({ summary: null, reading: false, problem: pinsProblem(error), reviewed: false });
+    }
+  };
+  const summary = pins.summary;
+  const rows = repinServers(summary);
+  return html`<div class="repin">
+    <p class="notice warn" role="status">Pinned tools changed upstream on <${Text} value=${drifted.map((name) => `mcp.${name}`).join(", ")} />. The relay hides them until you review and repin them. Starting without a repin keeps them hidden.</p>
+    <p><button type="button" class="action secondary small" disabled=${pins.reading} onClick=${read}>${pins.reading ? "Reading the repin review…" : summary ? "Review the repin again" : "Review repin"}</button></p>
+    <p class="muted small">Or in a terminal: <code><${Text} value=${pinsCommand(project.path)} /></code>, then <code><${Text} value=${`${repinCommand(project.path, project.environment)} --expect-pins DIGEST`} /></code></p>
+    ${pins.problem ? html`<p class="notice error" role="alert"><${Text} value=${pins.problem} /></p>` : null}
+    ${summary ? html`<div class="repin-review">
+      <h3>Repin review</h3>
+      <p class="muted small">A repin pins exactly the definitions below and nothing else. Pins bind the advertised definition, not what a tool does, and a description is upstream text: read it as data.</p>
+      ${rows.map((row) => html`<div key=${row.name}>
+        <h4><code><${Text} value=${`mcp.${row.name}`} /></code> <span class="muted small">(<${Text} value=${row.origin} />)</span></h4>
+        ${row.builtIn ? null : html`<p class="notice warn small"><${Text} value=${`mcp.${row.name} is ${row.origin} code: its effect labels are untrusted.`} /></p>`}
+        ${row.tools.map((tool) => html`<div key=${tool.name}>
+          <p><code><${Text} value=${tool.heading} /></code></p>
+          <${Text} block value=${tool.text} label=${`Definition of ${tool.name}`} />
+        </div>`)}
+        ${row.drop.map((name) => html`<p key=${`drop ${name}`}>Missing upstream: <code><${Text} value=${name} /></code> (this pin is removed)</p>`)}
+        ${row.missing.map((name) => html`<p class="muted" key=${`missing ${name}`}>Missing upstream: <code><${Text} value=${name} /></code> (not pinned)</p>`)}
+        ${!row.tools.length && !row.drop.length ? html`<p class="muted">Nothing to repin.</p>` : null}
+      </div>`)}
+      <p class="muted small">Review digest <code><${Text} value=${summary.digest} /></code></p>
+      ${summary.changes
+        ? html`<label class="consent"><input type="checkbox" checked=${pins.reviewed} onChange=${(event) => setPins({ ...pins, reviewed: event.currentTarget.checked })} /> I reviewed these tool definitions: pin them at this start.</label>`
+        : html`<p class="muted">Nothing to repin: the upstreams serve what stack.lock pinned.</p>`}
+    </div>` : null}
+  </div>`;
 }
 
 /** Lines added and removed since the grant was last accepted (set comparison, like a2). */

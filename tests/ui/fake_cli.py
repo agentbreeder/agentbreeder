@@ -124,6 +124,9 @@ DEFAULT = {
     # "truncated", ...); {"error": {code, message}} refuses it (exit 2). The window echoes the
     # argv's --since/--until. Every call's argv is appended to `cost-calls.jsonl`.
     "cost": {},
+    # `services pins DIR --json` (#964): an answer is printed as is; {"error": {code, message}}
+    # refuses it (exit 2); null refuses with MCP_RELAY_NOT_RUNNING. "seconds" delays the answer.
+    "pins": None,
 }
 
 TOOL_CALLS = [
@@ -712,6 +715,17 @@ def logs(argv: list[str], data: dict) -> int:
     return 0
 
 
+def pins(data: dict) -> int:
+    """`services pins DIR --json` (#964): the scenario's answer, or its refusal."""
+    answer = data["pins"] or {"error": {"code": "MCP_RELAY_NOT_RUNNING", "message": "not running"}}
+    time.sleep(float(answer.get("seconds", 0)))
+    if "error" in answer:
+        print(f"[{answer['error']['code']}] {answer['error']['message']}", file=sys.stderr)
+        return 2
+    print(json.dumps({key: value for key, value in answer.items() if key != "seconds"}))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     data = scenario()
     head = argv[:2]
@@ -832,6 +846,8 @@ def main(argv: list[str]) -> int:
         return knowledge_status(argv, data)
     elif argv and argv[0] == "cost":
         return cost(argv, data)
+    elif head == ["services", "pins"]:
+        return pins(data)
     elif argv and argv[0] == "doctor":
         checks = data["doctor"]
         if "--only" in argv:  # `--only docker`: the blocker's check

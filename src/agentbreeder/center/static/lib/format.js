@@ -107,6 +107,11 @@ export function jobOutcome(job) {
   if (job.state === "interrupted") {
     return { tone: "warn", text: `${label} was interrupted. Check Deployments for a leftover candidate and remove it.` };
   }
+  // A reviewed repin (#964) whose definitions changed after the review: `services up` refused
+  // only the pins, after the rest of the start ran.
+  if (job.kind === "services-up" && (job.lines || []).some((line) => typeof (line && line.text) === "string" && line.text.startsWith("[PINS_CHANGED] "))) {
+    return { tone: "warn", text: "The MCP tool definitions changed since your review: pins unchanged, the rest of Start ran. Review the repin again." };
+  }
   if (job.kind === "release") {
     return { tone: "error", text: job.exit_code === 5 ? "The eval gate failed. Production is unchanged." : "The release failed. See its log." };
   }

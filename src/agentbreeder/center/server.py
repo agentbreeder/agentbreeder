@@ -45,6 +45,7 @@ from agentbreeder.center import (
     logfollow,
     mcpgrants,
     onboard,
+    pinsreview,
     registryimport,
     toollog,
     tryit,
@@ -63,6 +64,7 @@ from agentbreeder.center.files import (
 )
 from agentbreeder.center.instance import AlreadyRunning, SingleInstance, remove_leftovers
 from agentbreeder.center.jobs import (
+    DIGEST,
     ENVIRONMENT,
     KEY_NAME,
     Busy,
@@ -102,7 +104,7 @@ STARTER_NAME = re.compile(r"^[a-z]([a-z0-9-]{0,29}[a-z0-9])?$")
 GUIDE_TIMEOUT = 60  # `next` runs doctor's checks and one `compose ps`
 # `build`'s `lock: "update"` drops --locked after "Move agent to this version" (#826).
 OPTIONS = {
-    "services-up": ("digest", "allow_project_mcp"),
+    "services-up": ("digest", "allow_project_mcp", "pins_digest"),
     "remove": ("deployment", "target"),
     "build": ("lock",),
 }
@@ -208,6 +210,9 @@ class Center:
         self.usage = usage_feeds.Usage(self.runner)  # one `services usage --follow` per project
         self.log_follows = logfollow.LogFollows(self.runner)  # M5: a tab's `logs --follow`
         self.watch = watch_feeds.Watch(self.runner)  # one `watch --record` per project (#821)
+        # The last verified repin review per project (#964): only its digest, in memory, under
+        # `self.lock`. Consumed by the start that uses it; a restart loses it.
+        self.pins_reviews: dict[str, str] = {}
 
     @property
     def origin(self) -> str:
@@ -1049,6 +1054,63 @@ class Center:
         summary, problem = mcpgrants.grant_answer(result["data"], request)
         return envelope(summary, problem)
 
+    def mcp_pins(self, project: dict, body: object) -> dict:
+        """The repin review (#964): `services pins DIR --json`, uncached and tracked (a timeout
+        or shutdown stops the whole group, including the `docker compose exec` that holds the
+        CLI's write lock), its stdout capped. The answer is checked and rendered by
+        `pinsreview.verify`; only then is its digest kept, replacing any earlier one. A failed
+        read keeps none: the earlier review is gone too."""
+        if body not in (None, {}):
+            raise BadRequest("Send an empty JSON object", "PINS_REVIEW_INVALID")
+        self.recheck(project)
+        with self.lock:
+            self.pins_reviews.pop(project["id"], None)
+        files = self.reads.stack_mcp(project["path"])
+        if files.get("data") is None:
+            return files
+        relays = len(files["data"].get("servers") or [])
+        result = self.runner.read(
+            pinsreview.pins_argv(project),
+            timeout=pinsreview.timeout(relays),
+            cache=False,
+            track=True,
+            max_bytes=pinsreview.MAX_BYTES,
+            loads=pinsreview.loads,
+        )
+        problem = result.get("error") or {}
+        if problem.get("code") == "SERVICES_BUSY":
+            return envelope(None, error("SERVICES_BUSY", SERVICES_BUSY_TEXT))
+        if problem.get("code") == "OUTPUT_TOO_LARGE":
+            message = (
+                "The review is larger than the console shows (2 MiB); review it in a terminal: "
+                + pinsreview.terminal_command(project)
+            )
+            return envelope(None, error("PINS_REVIEW_TOO_LARGE", message))
+        if result["data"] is None or result.get("stale"):
+            return envelope(None, result.get("error") or pinsreview.INVALID)
+        summary, invalid = pinsreview.verify(result["data"])
+        if summary is None:
+            return envelope(None, invalid)
+        with self.lock:
+            self.pins_reviews[project["id"]] = summary["digest"]
+        return envelope(summary)
+
+    def _take_pins_review(self, project: dict, digest: object) -> str:
+        """The start's half of the repin (#964): pop the stored review and compare, as one step,
+        so two starts can't both use it and a page can't post a digest the server never showed."""
+        if not isinstance(digest, str) or not DIGEST.fullmatch(digest):
+            raise BadRequest("Review the repin first", "PINS_EXPECT_INVALID")
+        with self.lock:
+            stored = self.pins_reviews.pop(project["id"], None)
+        if stored != digest:
+            raise BadRequest(pinsreview.STALE, "PINS_REVIEW_STALE")
+        return stored
+
+    def _restore_pins_review(self, project: dict, digest: str) -> None:
+        """A refusal before the job launched: put the review back, unless a newer one is there."""
+        with self.lock:
+            self.pins_reviews.setdefault(project["id"], digest)
+
     def mcp_tools(self, project: dict, ref: registry.Ref) -> dict:
         """The tools an `mcp/` version declares (#831), from `registry show --json` (cached as
         the registry browser's reads are), parsed by `mcpgrants.declared_tools`."""
@@ -1103,6 +1165,18 @@ class Center:
             keys = {str(k): str(v) for k, v in keys.items() if v}
             if len(keys) > 16 or not all(KEY_NAME.fullmatch(name) for name in keys):
                 raise BadRequest("Invalid key name")
+        pins = None
+        if kind == "services-up" and "pins_digest" in options:
+            pins = self._take_pins_review(project, options["pins_digest"])
+        try:
+            return self._start_checked(project, kind, options, keys)
+        except BaseException:
+            if pins is not None:
+                self._restore_pins_review(project, pins)
+            raise
+
+    def _start_checked(self, project: dict, kind: str, options: dict, keys) -> str:
+        """`start_job` after the repin review was taken: the pre-launch checks, then the job."""
         on_success = None
         if kind == "services-up":
             preview = self.plan(project)
@@ -1440,6 +1514,10 @@ def _mcp_grant(request: Request) -> dict:
     return request.center.mcp_grant(request.project(), request.body)
 
 
+def _mcp_pins(request: Request) -> dict:
+    return request.center.mcp_pins(request.project(), request.body)
+
+
 def _mcp_tools(request: Request) -> dict:
     return request.center.mcp_tools(request.project(), _query_ref(request, "ref"))
 
@@ -1687,6 +1765,12 @@ ROUTES: tuple[Route, ...] = (
         rf"/api/projects/{PROJECT_ID}/mcp/grant",
         _mcp_grant,
         "/api/projects/0123456789ab/mcp/grant",
+    ),
+    Route(
+        "POST",
+        rf"/api/projects/{PROJECT_ID}/mcp/pins",
+        _mcp_pins,
+        "/api/projects/0123456789ab/mcp/pins",
     ),
     Route(
         "POST",

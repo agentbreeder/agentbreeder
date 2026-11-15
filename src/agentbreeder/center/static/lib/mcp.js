@@ -5,7 +5,7 @@
 //
 // Stable exports: RELAY_STATES, TOOL_STATES, serverRows, grantRows, repinCommand, shellWord,
 // shortHash; for grant and revoke (part 2): grantProblem, grantWriteProblem, grantChoices, grantedTools,
-// grantSteps.
+// grantSteps; for the repin review (#964): pinsCommand, pinsProblem, repinServers.
 
 /** `services status --json` `mcp.<server>.state`, in words. */
 export const RELAY_STATES = {
@@ -243,6 +243,52 @@ export function consentMissing(servers, ticked) {
   const chosen = ticked instanceof Set ? ticked : new Set();
   const row = servers.find((item) => !item.builtIn && !chosen.has(item.server));
   return row ? `Allow mcp.${row.server} (${row.origin} code) first.` : "";
+}
+
+// -- the repin review (`services pins --json`, checked and rendered by the server, #964) ----------
+
+/** The terminal read that shows the same review (`services pins`). */
+export function pinsCommand(path) {
+  return `agentbreeder services pins ${text(path) ? shellWord(path) : "DIR"}`;
+}
+
+/** Refusals of the review read a person can act on, in fixed words (others: the CLI's message). */
+const PINS_WORDS = {
+  MCP_PINS_NEED_UP: "A server has tools to pin for the first time (or a changed version). Start services first, then review the repin.",
+  MCP_RELAY_NOT_RUNNING: "A relay of this stack is not running. Start services first, then review the repin.",
+  PINS_REVIEW_STALE: "This repin review is no longer current. Review it again.",
+};
+
+/** A review read's problem as text. */
+export function pinsProblem(problem) {
+  if (!problem) return "";
+  const code = typeof problem.code === "string" ? problem.code : "";
+  const words = code && Object.hasOwn(PINS_WORDS, code) ? PINS_WORDS[code] : "";
+  return words || text(problem.message) || "The review could not be read.";
+}
+
+/**
+ * The server's checked review as rows to show: {name, origin, builtIn, state, tools: [{name,
+ * heading, text}], drop, missing}. The server rendered every line; nothing here parses or
+ * re-serializes a definition.
+ */
+export function repinServers(summary) {
+  const servers = Array.isArray(summary && summary.servers) ? summary.servers : [];
+  return servers.filter(object).map((server) => ({
+    name: text(server.name),
+    origin: text(server.origin),
+    builtIn: server.built_in === true,
+    state: text(server.state),
+    tools: (Array.isArray(server.tools) ? server.tools : []).filter(object).map((tool) => ({
+      name: text(tool.name),
+      heading: tool.change === "changed"
+        ? `changed ${text(tool.name)}  ${text(tool.pinned)} -> ${text(tool.sha256)}`
+        : `new ${text(tool.name)}  ${text(tool.sha256)}`,
+      text: names(tool.lines).join("\n"),
+    })),
+    drop: names(server.drop),
+    missing: names(server.missing),
+  }));
 }
 
 /** The servers `services status` reports with changed or missing pinned tools. */

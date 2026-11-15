@@ -229,7 +229,9 @@ definitions, the base pins and the identities are exactly those reviewed (R2).
 The console server drives the CLI as child processes, as for `plan --json` and `services up`.
 
 1. **Entry.** The MCP screen shows drift from `services status --json`, as today. "Review repin"
-   replaces the terminal hint when some server is in `drift`. The terminal command stays shown as
+   replaces the terminal hint when some server is in `drift`. (Implementation note, console
+   half: the review sits in the services review, which the MCP screen links to, because the
+   start needs that review's grant digest, consent ticks and keys.) The terminal command stays shown as
    an alternative. On `MCP_PINS_NEED_UP` the screen says "Start services first, then review".
 2. **Read.**
    - It is a POST behind the same token, Origin and Host checks as job starts. It makes relays

@@ -357,6 +357,13 @@ def argv_for(kind: str, project: dict, options: dict) -> list[str]:
             "--expect-grant",
             digest,
         ]
+        # A reviewed repin (#964): always with the digest of the review the console showed;
+        # the console has no TTY, so never `--repin` alone.
+        pins = options.get("pins_digest")
+        if pins is not None:
+            if not DIGEST.fullmatch(str(pins)):
+                raise BadRequest("Review the repin first", "PINS_EXPECT_INVALID")
+            argv += ["--repin", "--expect-pins", pins]
         # Consent for MCP servers that are not built in (#831), checked against the plan before
         # the job (`mcpgrants.consent_names`); the names are checked again here, at the argv.
         for name in options.get("allow_project_mcp") or []:
@@ -434,6 +441,105 @@ class WriteBusy(Exception):
     def __init__(self, key: str, reason: str):
         super().__init__(key)
         self.key, self.reason = key, reason
+
+
+class OutputTooLarge(Exception):
+    """A capped read's stdout passed its limit; its process group was stopped."""
+
+
+MAX_READ_STDERR = 64 * 1024  # a capped read keeps this much stderr (its `[CODE]` line)
+
+
+def _communicate_capped(
+    process: subprocess.Popen,
+    input: str | None,
+    timeout: float,
+    max_bytes: int,  # noqa: A002
+) -> tuple[str, str]:
+    """`communicate` for a binary-piped child in its own process group, reading stdout as it
+    comes: past `max_bytes` the group is stopped (OutputTooLarge); past `timeout` too
+    (TimeoutExpired). stderr is drained to the end and kept up to MAX_READ_STDERR. Invalid UTF-8
+    in stdout decodes to lone surrogates (`surrogateescape`), which no JSON parse or UTF-8
+    encode accepts later: it fails as unreadable, never as a crash here."""
+    out, err = bytearray(), bytearray()
+    over = threading.Event()
+
+    def drain(stream, sink: bytearray, cap: int, stop: bool) -> None:
+        try:
+            while chunk := stream.read1(65536):
+                room = cap - len(sink)
+                if len(chunk) > room:
+                    sink.extend(chunk[: max(room, 0)])
+                    if stop:
+                        over.set()
+                        return
+                    continue  # stderr: keep draining so the child never blocks, keep nothing
+                sink.extend(chunk)
+        except (OSError, ValueError):
+            return
+
+    def feed() -> None:
+        try:
+            process.stdin.write(input.encode("utf-8"))
+            process.stdin.close()
+        except (OSError, ValueError):
+            pass
+
+    threads = [
+        threading.Thread(target=drain, args=(process.stdout, out, max_bytes, True)),
+        threading.Thread(target=drain, args=(process.stderr, err, MAX_READ_STDERR, False)),
+    ]
+    if input is not None and process.stdin:
+        threads.append(threading.Thread(target=feed))
+    for thread in threads:
+        thread.daemon = True  # a stuck pipe never holds the console's exit
+        thread.start()
+    deadline = time.monotonic() + timeout
+    try:
+        while not over.is_set():
+            try:
+                process.wait(timeout=0.05)
+                break
+            except subprocess.TimeoutExpired:
+                if time.monotonic() >= deadline:
+                    raise
+        if not over.is_set():
+            # Exited: what it printed is in the pipes. A grandchild that inherited them must not
+            # hold this read: after 1 s the rest of the group is stopped.
+            for thread in threads[:2]:
+                thread.join(timeout=1.0)
+            if any(thread.is_alive() for thread in threads[:2]):
+                _signal_group(process, signal.SIGKILL)
+                for thread in threads[:2]:
+                    thread.join(timeout=1.0)
+                if any(thread.is_alive() for thread in threads[:2]):
+                    raise subprocess.TimeoutExpired(process.args, timeout)
+        if over.is_set():
+            raise OutputTooLarge
+    except BaseException:
+        _stop_process(process, 1.0)
+        _close_drained(process, threads)
+        raise
+    _close_drained(process, threads)
+    return out.decode("utf-8", errors="surrogateescape"), err.decode("utf-8", errors="replace")
+
+
+def _close_drained(process: subprocess.Popen, threads: list[threading.Thread]) -> None:
+    """Close the pipes whose thread has ended. A thread still in `read1` holds its reader's lock
+    (a process that left the group, `setsid`, keeps the pipe open), and `close()` would wait for
+    it: that pipe is left to its daemon thread, which ends when the pipe closes."""
+    streams = [process.stdout, process.stderr, process.stdin]
+    for index, stream in enumerate(streams):
+        if stream is None:
+            continue
+        if index < len(threads):
+            threads[index].join(timeout=0.2)
+            if threads[index].is_alive():
+                continue
+        try:
+            stream.close()
+        except (OSError, ValueError):
+            pass
 
 
 def _stop_process(process: subprocess.Popen, grace: float | None = None) -> None:
@@ -1191,6 +1297,8 @@ class Runner:
         track: bool = False,
         input: str | None = None,  # noqa: A002 (subprocess's own name)
         empty_codes: Sequence[int] = (),
+        max_bytes: int | None = None,
+        loads: Callable[[str], object] = json.loads,
     ) -> dict:
         """Run a read-only command that prints JSON; on failure, keep the last good answer.
         `ok_codes`: exit codes whose JSON is still the answer (`registry used-by` and `registry
@@ -1201,7 +1309,12 @@ class Runner:
         without it stdin is /dev/null. `empty_codes`: exit codes that mean "nothing there"
         (`logs --failed` exits 1 when no tail is saved), answered `{data: None, error: None}`
         and never cached; with a Python traceback on stderr it is an error as usual. Nothing
-        here writes the input or the answer anywhere."""
+        here writes the input or the answer anywhere. `max_bytes` (with `track=True`): stdout is
+        read as it comes and the process group is stopped once it passes the cap
+        (OUTPUT_TOO_LARGE), instead of buffering all of it (#964). `loads`: the JSON parser (a
+        strict one refuses duplicate keys)."""
+        if max_bytes is not None and not track:
+            raise ValueError("max_bytes needs track=True (the process group is stopped)")
         cache_key = key or " ".join(argv)
         if not cache:
             cache_key = f"uncached {uuid.uuid4().hex}"
@@ -1221,9 +1334,9 @@ class Runner:
                 stdin=subprocess.DEVNULL if input is None else subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
+                text=max_bytes is None,  # capped: bytes, so the cap counts bytes
+                encoding="utf-8" if max_bytes is None else None,
+                errors="replace" if max_bytes is None else None,
                 start_new_session=track,
             )
         except OSError:
@@ -1231,8 +1344,18 @@ class Runner:
         if track:
             self.adopt(process)
         try:
-            stdout, stderr = process.communicate(input=input, timeout=timeout)
+            if max_bytes is not None:
+                stdout, stderr = _communicate_capped(process, input, timeout, max_bytes)
+            else:
+                stdout, stderr = process.communicate(input=input, timeout=timeout)
+        except OutputTooLarge:
+            return self._stale(
+                cache_key,
+                error("OUTPUT_TOO_LARGE", f"The command printed more than {max_bytes} bytes"),
+            )
         except subprocess.TimeoutExpired:
+            if max_bytes is not None:  # `_communicate_capped` stopped the group already
+                return self._stale(cache_key, error("TIMEOUT", "The command timed out"))
             if track:
                 _stop_process(process, 1.0)  # its whole group
             else:
@@ -1256,8 +1379,8 @@ class Runner:
         if process.returncode not in ok_codes:
             return self._stale(cache_key, cli_error(stderr, process.returncode))
         try:
-            answer = {"data": json.loads(stdout), "error": None, "stale": False}
-        except ValueError:
+            answer = {"data": loads(stdout), "error": None, "stale": False}
+        except (ValueError, RecursionError):
             if process.returncode:  # an allowed failure exit without JSON: its `[CODE]` line
                 return self._stale(cache_key, cli_error(stderr, process.returncode))
             return self._stale(

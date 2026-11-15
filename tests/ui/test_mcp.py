@@ -343,3 +343,105 @@ def test_the_mcp_services_review_has_no_serious_axe_findings(scheme_page, consol
     scheme_page.get_by_role("button", name="Review and update").click()
     scheme_page.get_by_role("group", name="MCP servers").wait_for()
     assert blocking(scheme_page, "services review with MCP") == []
+
+
+# -- repin from the console (#964): the review read, checked and rendered by the server -----------
+
+DRIFT = {"github": {"state": "drift", "changed": ["get_me"], "missing": []}}
+OLD_DEF = {"name": "get_me", "description": "Who am I", "inputSchema": {"type": "object"}}
+NEW_DEF = {**OLD_DEF, "description": "Who am I \u202e now", "limit": 1.0}
+
+
+def pins_answer() -> dict:
+    """A `services pins --json` answer as the CLI builds it (`mcp_stack.pins_review`)."""
+    from types import SimpleNamespace
+
+    from agentbreeder.services import mcp_stack
+
+    entry = SimpleNamespace(
+        identity=lambda: {"ref": "mcp/github@1.0.0", "origin": "built-in", "upstream": "u"},
+        origin="built-in",
+    )
+    lock = SimpleNamespace(mcp={"github": {"tools": {"get_me": mcp_stack.tool_hash(OLD_DEF)}}})
+    live = {"sha256": mcp_stack.tool_hash(NEW_DEF), "definition": NEW_DEF}
+    previous = {"get_me": {"sha256": mcp_stack.tool_hash(OLD_DEF), "definition": OLD_DEF}}
+    review = mcp_stack.pins_review(
+        "stack-1",
+        {"github": entry},
+        lock,
+        {"github": {"tools": {"get_me": live}, "missing": []}},
+        {"github": previous},
+    )
+    return {
+        "schema_version": 1,
+        "stack": "stack-1",
+        "digest": mcp_stack.pins_review_digest(review.document),
+        "review": review.document,
+        "servers": review.details,
+    }
+
+
+def open_repin(page, console, **scenario):
+    console.scenario(
+        plan_mcp=[BUILT_IN], keys=KEYS, mcp_status=DRIFT, services=RUNNING, **scenario
+    )
+    project = gh_reader(console)  # a valid stack with one `mcp:` server
+    sign_in(page, console, project=False)
+    page.get_by_label("Absolute path").fill(str(project))
+    page.get_by_role("button", name="Add project").click()
+    page.wait_for_url("**/#/services")
+    page.get_by_role("button", name="Review and update").click()
+    page.get_by_role("button", name="Review repin").click()
+
+
+def test_a_reviewed_repin_starts_with_the_digest(page, console):
+    answer = pins_answer()
+    open_repin(page, console, pins=answer)
+    review = page.get_by_role("group", name="MCP servers")
+    expect(review).to_contain_text("changed get_me")
+    definition = review.get_by_label("Definition of get_me")
+    expect(definition).to_contain_text("\\u202e")  # bidi control shown escaped, never applied
+    expect(definition).to_contain_text("1.0")  # the server's text, not re-serialized
+    expect(review).to_contain_text(answer["digest"])
+    tick = review.get_by_role("checkbox", name=re.compile("I reviewed these tool definitions"))
+    expect(page.get_by_role("button", name="Confirm and start")).to_be_enabled()
+    tick.check()
+    page.get_by_role("button", name="Confirm, repin and start").click()
+    argv = started_argv(page)
+    at = argv.index("--repin")
+    assert argv[at : at + 3] == ["--repin", "--expect-pins", answer["digest"]]
+
+
+def test_an_unticked_review_starts_without_a_repin(page, console):
+    open_repin(page, console, pins=pins_answer())
+    page.get_by_role("group", name="MCP servers").get_by_text("changed get_me").wait_for()
+    page.get_by_role("button", name="Confirm and start").click()
+    assert "--repin" not in started_argv(page)
+
+
+def test_a_review_read_problem_is_said_plainly(page, console):
+    error = {"code": "MCP_PINS_NEED_UP", "message": "x"}
+    open_repin(page, console, pins={"error": error})
+    expect(page.get_by_role("alert")).to_contain_text("Start services first, then review")
+    expect(page.get_by_role("checkbox", name=re.compile("I reviewed"))).to_have_count(0)
+
+
+def test_an_answer_that_fails_its_check_is_never_shown(page, console):
+    answer = pins_answer()
+    answer["servers"]["github"]["changed"]["get_me"]["definition"]["limit"] = 2
+    open_repin(page, console, pins=answer)
+    expect(page.get_by_role("alert")).to_contain_text("does not match its contract")
+    expect(page.get_by_text("changed get_me")).to_have_count(0)
+
+
+def test_start_waits_for_the_review_read(page, console):
+    open_repin(page, console, pins={**pins_answer(), "seconds": 2})
+    expect(page.get_by_role("button", name="Confirm and start")).to_be_disabled()
+    expect(page.get_by_role("button", name="Reading the repin review…")).to_be_disabled()
+    expect(page.get_by_role("button", name="Confirm and start")).to_be_enabled(timeout=10000)
+
+
+def test_the_repin_review_has_no_serious_axe_findings(scheme_page, console):  # noqa: F811
+    open_repin(scheme_page, console, pins=pins_answer())
+    scheme_page.get_by_text("changed get_me").wait_for()
+    assert blocking(scheme_page, "repin review") == []

@@ -83,3 +83,10 @@ test("tool guidance names the install command and the restart", () => {
   assert.match(text, /restart agentbreeder up/);
   assert.match(toolGuidance("kubectl", {}), /not on the console's PATH/);
 });
+
+test("a services-up job refused for changed pins says to review the repin again (#964)", () => {
+  const lines = [{ seq: 1, text: "Starting" }, { seq: 2, text: "[PINS_CHANGED] the MCP tool definitions or pins differ" }];
+  assert.deepEqual(jobOutcome({ kind: "services-up", state: "failed", exit_code: 2, lines }), { tone: "warn", text: "The MCP tool definitions changed since your review: pins unchanged, the rest of Start ran. Review the repin again." });
+  assert.match(jobOutcome({ kind: "services-up", state: "failed", exit_code: 2, lines: [{ seq: 1, text: "x [PINS_CHANGED] y" }, null] }).text, /^Start services failed|failed/);
+  assert.match(jobOutcome({ kind: "services-up", state: "failed", exit_code: 1 }).text, /failed/);
+});
