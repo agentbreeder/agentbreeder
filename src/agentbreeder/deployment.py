@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -64,6 +65,38 @@ DEFAULT_RPM = 60
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+# Docker Desktop can report a started container's published port as `[]` for a moment after
+# `container start` returns (#978). Wait this long, re-inspecting, before `endpoint` decides.
+BINDING_WAIT_SECONDS = 5.0
+BINDING_POLL_SECONDS = 0.25
+
+
+def _binding_pending(info: dict, manifest: Manifest) -> bool:
+    """A running container whose port is published but not yet bound: the key is absent, null or
+    an empty list. Anything else (a binding, even a wrong one, or a stopped container) is for
+    `endpoint` to judge at once."""
+    try:
+        if info["State"]["Running"] is not True:
+            return False
+        ports = info["NetworkSettings"]["Ports"]
+    except (KeyError, TypeError):
+        return False
+    if ports is None:
+        return True
+    return isinstance(ports, dict) and ports.get(f"{manifest.port}/tcp") in (None, [])
+
+
+def _await_binding(runtime, record: dict, info: dict, manifest: Manifest) -> dict | None:
+    """Re-inspect, for at most BINDING_WAIT_SECONDS, while the port binding is pending."""
+    deadline = time.monotonic() + BINDING_WAIT_SECONDS
+    while info is not None and _binding_pending(info, manifest):
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(BINDING_POLL_SECONDS)
+        info = runtime.inspect(record)
+    return info
 
 
 class DeploymentService:
@@ -514,6 +547,8 @@ class DeploymentService:
             if not info["State"]["Running"]:
                 runtime.start(info)
             info = runtime.inspect(record)
+            if manifest.target != "kubernetes":
+                info = _await_binding(runtime, record, info, manifest)
             if info is None:
                 raise DeploymentError("Container disappeared before health verification")
             endpoint = runtime.endpoint(info, manifest)
