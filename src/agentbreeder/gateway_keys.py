@@ -288,6 +288,14 @@ _PARAMS = {
 _MODEL_NAME = re.compile(r"[A-Za-z0-9._:/-]{1,128}")
 _FALLBACKS = {"fallbacks", "context_window_fallbacks"}
 _GENERAL_ENV = {"master_key": _ENV + "LITELLM_MASTER_KEY", "database_url": _ENV + "DATABASE_URL"}
+# Prompt and reply logging stays off (#1028): when present, each key must hold exactly this
+# boolean. There is no operator opt-in; a stack that needs message logs is a new design.
+_LOGGING = {
+    ("litellm_settings", "turn_off_message_logging"): True,
+    ("litellm_settings", "set_verbose"): False,  # debug logs print request bodies
+    ("general_settings", "store_prompts_in_spend_logs"): False,
+}
+_PROVIDER_LIST = ", ".join(sorted(PROVIDER_KEYS))
 
 
 @dataclass
@@ -366,6 +374,14 @@ def config_review(path: Path) -> ConfigReview:
         for key in value:
             if key not in keys:
                 raise _unsafe(path, f"{section}.{key}" if str(key).isidentifier() else section)
+    for (section, key), expected in _LOGGING.items():
+        value = (data.get(section) or {}).get(key, expected)
+        if type(value) is not bool or value is not expected:
+            raise GatewayError(
+                "GATEWAY_CONFIG_UNSAFE",
+                f"{path.name}: {section}.{key} must be {str(expected).lower()} "
+                "(prompt and reply logging stays off)",
+            )
     general = data.get("general_settings") or {}
     for key, expected in _GENERAL_ENV.items():
         if key in general:
@@ -391,15 +407,21 @@ def config_review(path: Path) -> ConfigReview:
         if not isinstance(info, dict) or not all(map(_scalar, [*params.values(), *info.values()])):
             raise _unsafe(path, f"{where} value (plain values only)")
         model = params.get("model")
-        provider = model.split("/", 1)[0] if isinstance(model, str) and "/" in model else None
+        provider, _, rest = model.partition("/") if isinstance(model, str) else ("", "", "")
+        if provider not in PROVIDER_KEYS or not rest:
+            # Unknown prefixes and bare names fall back to the provider SDK's default credential
+            # chain, which on a cloud host can reach the machine's own identity (#1031).
+            raise _unsafe(
+                path,
+                f"{where}.litellm_params.model (use PROVIDER/MODEL, PROVIDER one of: "
+                f"{_PROVIDER_LIST})",
+            )
         key = params.get("api_key")
         if key is not None:
-            expected = PROVIDER_KEYS.get(provider)
-            if expected is None or key != _ENV + expected:
+            if key != _ENV + PROVIDER_KEYS[provider]:
                 raise _unsafe(path, f"{where}.litellm_params.api_key (use the provider's own key)")
             allowed_env.add(f"{where}.litellm_params.api_key")
-        label = provider if provider in PROVIDER_KEYS else "unknown"
-        providers[name] = f"{label} ({key[len(_ENV) :] if key else 'no key'})"
+        providers[name] = f"{provider} ({key[len(_ENV) :] if key else 'no key'})"
         aliases.add(name)
     for section, keys in _SECTIONS.items():
         for key, value in (data.get(section) or {}).items() if keys else ():

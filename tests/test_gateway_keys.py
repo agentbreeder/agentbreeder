@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+import yaml
 from conftest import v2_manifest_data
 
 from agentbreeder import gateway_keys, secret_files
@@ -311,3 +313,135 @@ def test_generated_key_file_name_is_reserved(minting, state, runtime):
             Manifest.model_validate(data), local=True
         )
     assert error.value.code == "SECRET_RESERVED"
+
+
+# --- config_review: unknown providers (#1031) and prompt logging (#1028) -----------------------
+
+ROOT = Path(__file__).parents[1]
+# Every gateway config shipped in the repo keeps its review result byte for byte (#1025 spec AC1).
+GOLDEN_CONFIGS = {
+    "src/agentbreeder/examples/northwind/stack/litellm/config.yaml": (
+        {
+            "support-model": "gemini (GEMINI_API_KEY)",
+            "support-model-openrouter": "openrouter (OPENROUTER_API_KEY)",
+            "support-judge": "gemini (GEMINI_API_KEY)",
+            "support-embedding": "gemini (GEMINI_API_KEY)",
+        },
+        "cce4700401140175cedeebeca3a7bd600bc96bdd2d1559d7d5bf7bb881de114b",
+    ),
+    "tests/fixtures/mcp_github_project/stack/litellm/config.yaml": (
+        {"chat": "gemini (GEMINI_API_KEY)", "judge": "gemini (GEMINI_API_KEY)"},
+        "20b7b9543799e509e1c27dd7303cfabb3cc037293152a7784799523504b06f10",
+    ),
+}
+
+
+def _config(tmp_path, data):
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(data))
+    return path
+
+
+def _entry(model, **params):
+    return {"model_name": "m", "litellm_params": {"model": model, **params}}
+
+
+@pytest.mark.parametrize("relative", sorted(GOLDEN_CONFIGS))
+def test_shipped_gateway_configs_keep_their_review(relative):
+    providers, sha256 = GOLDEN_CONFIGS[relative]
+    review = gateway_keys.config_review(ROOT / relative)
+    assert review.providers == providers
+    assert review.aliases == set(providers)
+    assert review.sha256 == sha256
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"model": "vertex_ai/gemini-2.5-flash"},  # ADC / metadata server on a cloud VM
+        {"model": "bedrock/anthropic.claude-3-haiku"},  # AWS default credential chain
+        {"model": "azure/gpt-4o"},
+        {"model": "ollama/llama3"},
+        {"model": "custom/x"},
+        {"model": "Gemini/x"},  # provider prefixes are matched exactly
+        {"model": " gemini/x"},
+        {"model": "gemini /x"},
+        {"model": "gemini/"},
+        {"model": "gpt-4o"},  # bare names: LiteLLM guesses the provider
+        {"model": "claude-3-5-sonnet"},
+        {"model": "x"},
+        {"model": "/x"},
+        {"model": ""},
+        {"model": 3},
+        {"model": None},
+        {},  # no model at all
+    ],
+)
+def test_config_review_refuses_unknown_providers_and_bare_names(tmp_path, params):
+    path = _config(tmp_path, {"model_list": [{"model_name": "m", "litellm_params": params}]})
+    with pytest.raises(GatewayError) as caught:
+        gateway_keys.config_review(path)
+    assert caught.value.code == "GATEWAY_CONFIG_UNSAFE"
+    message = str(caught.value)
+    assert "model_list[0].litellm_params.model" in message
+    assert "anthropic, gemini, openai, openrouter" in message
+    for value in ("vertex_ai", "bedrock", "gpt-4o", "claude", "llama3"):
+        assert value not in message  # config values are never echoed
+
+
+def test_config_review_refuses_a_model_list_entry_without_params(tmp_path):
+    path = _config(tmp_path, {"model_list": [{"model_name": "m"}]})
+    with pytest.raises(GatewayError) as caught:
+        gateway_keys.config_review(path)
+    assert caught.value.code == "GATEWAY_CONFIG_UNSAFE"
+
+
+@pytest.mark.parametrize("provider", sorted(gateway_keys.PROVIDER_KEYS))
+def test_config_review_accepts_each_known_provider_with_or_without_its_key(tmp_path, provider):
+    key = gateway_keys.PROVIDER_KEYS[provider]
+    data = {
+        "model_list": [
+            {
+                "model_name": "a",
+                "litellm_params": {"model": f"{provider}/x", "api_key": f"os.environ/{key}"},
+            },
+            {"model_name": "b", "litellm_params": {"model": f"{provider}/vendor/y"}},
+        ]
+    }
+    review = gateway_keys.config_review(_config(tmp_path, data))
+    assert review.providers == {"a": f"{provider} ({key})", "b": f"{provider} (no key)"}
+
+
+@pytest.mark.parametrize(
+    "section, key, value",
+    [
+        ("litellm_settings", "turn_off_message_logging", False),
+        ("litellm_settings", "turn_off_message_logging", None),
+        ("litellm_settings", "turn_off_message_logging", "true"),  # a string, not a boolean
+        ("litellm_settings", "turn_off_message_logging", 1),
+        ("general_settings", "store_prompts_in_spend_logs", True),
+        ("general_settings", "store_prompts_in_spend_logs", None),
+        ("general_settings", "store_prompts_in_spend_logs", "false"),
+        ("general_settings", "store_prompts_in_spend_logs", 0),
+        ("litellm_settings", "set_verbose", True),  # debug logs print request bodies
+        ("litellm_settings", "set_verbose", "yes"),
+    ],
+)
+def test_config_review_refuses_prompt_logging(tmp_path, section, key, value):
+    data = {"model_list": [_entry("gemini/x")], section: {key: value}}
+    with pytest.raises(GatewayError) as caught:
+        gateway_keys.config_review(_config(tmp_path, data))
+    assert caught.value.code == "GATEWAY_CONFIG_UNSAFE"
+    must = "true" if key == "turn_off_message_logging" else "false"
+    assert f"{section}.{key} must be {must}" in str(caught.value)
+
+
+def test_config_review_accepts_prompt_logging_off_or_unset(tmp_path):
+    data = {
+        "model_list": [_entry("gemini/x")],
+        "litellm_settings": {"turn_off_message_logging": True, "set_verbose": False},
+        "general_settings": {"store_prompts_in_spend_logs": False},
+    }
+    assert gateway_keys.config_review(_config(tmp_path, data)).aliases == {"m"}
+    unset = {"model_list": [_entry("gemini/x")], "litellm_settings": {"drop_params": True}}
+    assert gateway_keys.config_review(_config(tmp_path, unset)).aliases == {"m"}
