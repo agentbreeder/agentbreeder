@@ -478,10 +478,10 @@ tools, and changes a grant (see the next section).
   origin or upstream (which also drops the pins) shows at `services up`, in its review.
 - **Upstream drift**, from `services status --json` (`mcp`): a pinned tool that changed upstream
   is shown as hidden until repinned, one missing upstream as refused by the relay, and tools
-  served upstream but never pinned are listed. Repinning is reviewed in a terminal
-  (`agentbreeder services up DIR --environment ENV --repin`, which the screen names with the
-  project's path and environment); the console can't accept a
-  changed definition yet (#964). A relay that is not running, or could not be checked, says so
+  served upstream but never pinned are listed. A repin is reviewed in **Services** (Review and
+  update, then Review repin; see "Repin" below), or in a terminal with `agentbreeder services
+  pins DIR` and `services up DIR --environment ENV --repin --expect-pins DIGEST`, which the screen
+  names with the project's path. A relay that is not running, or could not be checked, says so
   and claims nothing about its pins.
 - **Grants per agent** (`environment.agents.AGENT.mcp`): each agent's tools per server, a tool
   not pinned yet marked. A grant takes effect at the next `services up`, and an agent uses a tool
@@ -575,10 +575,8 @@ The credential is a key like any other in the form. **Confirm and start** runs t
   host.
 - **Pins.** After the relays start, `--yes` accepts first pins and new tools for built-in and
   allowed servers, as it does in a terminal (trust on first use). The job log shows every tool
-  definition pinned. A **changed** definition is never accepted from the console: the relay
-  keeps that tool hidden, and the review names `agentbreeder services up DIR --environment ENV
-  --repin` to run in a terminal. Bringing repin to the console is #964 (a pin-diff read and an
-  `--expect-pins` digest, with its own security review).
+  definition pinned. A **changed** definition is accepted only through the reviewed repin below;
+  without it the relay keeps that tool hidden.
 - **What the CLI still refuses** is shown as the job's failure: a narrowed grant still held by a
   deployment (`MCP_GRANT_IN_USE`), and an undeclared tool in a grant (`MCP_TOOL_UNDECLARED`).
 - `agentbreeder up --yes` with a project directory now starts a stack whose MCP servers are all
@@ -597,6 +595,52 @@ Tested:
 
 Not run: a real `services up` of an MCP stack from the console (Docker and a
 `GITHUB_MCP_TOKEN`), batched with the M15 acceptance.
+
+### Repin (#964, console half)
+
+When `services status` reports a server in `drift`, the services review offers **Review repin**
+(spec `docs/superpowers/specs/2026-11-14-mcp-repin-expect-pins.md` §7). It sits in the services
+review, not on the MCP screen, because a repin is a `services up`: it needs the grant digest, the
+consent ticks and the keys of that review. The MCP screen links there.
+
+- **Read.** `POST /api/projects/ID/mcp/pins` (the session, Origin and Host checks of every POST;
+  a web page can't make the relays contact their upstreams). The server runs `services pins DIR
+  --json`, uncached and tracked (a timeout or shutdown stops the whole process group, including
+  the `docker compose exec` that holds the CLI's write lock), with a timeout of 60 s plus 180 s
+  per relay and stdout capped at 2 MiB (`PINS_REVIEW_TOO_LARGE`, naming the terminal command).
+  The JSON parser refuses duplicate keys, NaN and Infinity. While it runs, Start is disabled.
+- **Check.** Before anything is kept or shown, every definition must hash (`tool_hash`) to its
+  pin, the display part must match the hashed `review` document (new and changed equal `accept`,
+  `drop` equal, origin equal, the old pin equal, a previous definition hashing to it), and the
+  digest must be that document's. Any failure is `PINS_REVIEW_INVALID`, never a 500. Only then
+  is the digest kept, per project, in memory; a new read (or a failed one) replaces it.
+- **Show.** The server renders each definition with the CLI's own `review_lines` and
+  `review_diff` (ASCII-escaped sorted JSON, long strings wrapped with `↩`, a unified diff, "diff
+  too large" or "previous definition unavailable"); a test keeps the copies equal to the CLI's.
+  The browser sets the lines as text and never parses a definition, so `1.0` stays `1.0`. A
+  dropped pin says "this pin is removed"; a server that isn't built in carries the untrusted
+  `effect` warning. The tick "I reviewed these tool definitions" turns Start into "Confirm, repin
+  and start"; a new read clears it.
+- **Start.** `services-up` takes a `pins_digest` option. Under the console's lock and in one
+  step the stored review is popped and compared (`PINS_REVIEW_STALE` when there is none or it
+  differs), so two starts can't both use it and a page can't post a digest the server never
+  showed. A refusal before the job launches (the grant changed, a busy project) puts it back,
+  unless a newer review is there. The argv gets `--repin --expect-pins DIGEST` after
+  `--expect-grant`, never `--repin` alone.
+- **Outcome.** If the definitions changed after the review, `services up` refuses only the pins
+  (`[PINS_CHANGED]`) after the rest of Start ran; the job's result says so and asks for a new
+  review. On success the job log shows what was repinned and under which digest.
+
+Tested: server tests (the copies equal the CLI's on hard inputs; 22 ways an answer can disagree
+with its own review; the capped read answers, stops past its cap (exactly at it), stops a
+grandchild on timeout, stays bounded when a process left the group, drains a stderr flood, keeps
+the CLI's `[CODE]`, and a byte that isn't UTF-8 is an invalid review; the read's arguments; a
+failed read keeps nothing; the review is used
+once, restored after a pre-launch refusal and never over a newer one; eight concurrent starts
+take it once), JS tests, and Playwright with a scripted `services pins`: a ticked review starts
+with the digest, an unticked one without a repin, a refused read and a failing answer show
+nothing to tick, Start waits for the read, axe in light and dark. Not run against live relays
+(Docker and a `GITHUB_MCP_TOKEN`), batched with the M15 acceptance.
 
 ### The Audit view (#824, part 2): on `main`, not in a published preview
 
@@ -1363,8 +1407,8 @@ they do for a CLI user.
 - **Approvals are not in the UI.** A second person's verified identity is what a single-user session
   cannot provide. A job that needs one shows the command.
 - **Stacks with MCP servers** start from the services review only with consent for every server
-  that is not built in (`--allow-project-mcp`), and never accept a changed tool definition
-  (`--repin` stays in a terminal until #964).
+  that is not built in (`--allow-project-mcp`), and accept a changed tool definition only through
+  a reviewed repin bound to its digest (`--repin --expect-pins`, #964).
 
 ## What protects the local server
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { RELAY_STATES, TOOL_STATES, consentMissing, consentNames, driftedServers, planServers, grantChoices, grantProblem, grantRows, grantWriteProblem, grantSteps, grantedTools, repinCommand, serverRows, shellWord, shortHash } from "../../src/agentbreeder/center/static/lib/mcp.js";
+import { RELAY_STATES, TOOL_STATES, consentMissing, consentNames, driftedServers, planServers, grantChoices, grantProblem, grantRows, grantWriteProblem, grantSteps, grantedTools, pinsCommand, pinsProblem, repinCommand, repinServers, serverRows, shellWord, shortHash } from "../../src/agentbreeder/center/static/lib/mcp.js";
 
 const PIN = `sha256:${"a".repeat(64)}`;
 const OTHER = `sha256:${"b".repeat(64)}`;
@@ -231,4 +231,40 @@ test("an oauth_refresh server names where its minted access token goes", () => {
   const [row] = planServers({ grant: { mcp: [oauth] } });
   assert.equal(row.accessTokenTo, "https://api.githubcopilot.com:443");
   assert.equal(planServers({ grant: { mcp: [BUILT_IN] } })[0].accessTokenTo, "");
+});
+
+// -- the repin review (#964) --
+
+test("the repin review rows come from the server's rendered lines, never parsed here", () => {
+  const summary = {
+    stack: "s",
+    digest: "c".repeat(64),
+    changes: true,
+    servers: [
+      { name: "github", origin: "built-in", built_in: true, state: "drift", tools: [
+        { name: "get_me", change: "changed", pinned: "aaaaaaaaaaaaaaaa", sha256: "bbbbbbbbbbbbbbbb", lines: ["--- pinned", "+++ upstream now", "-  \"a\": 1.0", "+  \"a\": 1"] },
+        { name: "list", change: "new", pinned: "", sha256: "dddddddddddddddd", lines: ["{", "}"] },
+        null,
+      ], drop: ["gone"], missing: ["never"], same: [] },
+      { name: "notes", origin: "project", built_in: "yes", tools: "x", drop: [1], missing: null },
+      "junk",
+    ],
+  };
+  const rows = repinServers(summary);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[0].tools.map((tool) => tool.heading), ["changed get_me  aaaaaaaaaaaaaaaa -> bbbbbbbbbbbbbbbb", "new list  dddddddddddddddd"]);
+  assert.equal(rows[0].tools[0].text, '--- pinned\n+++ upstream now\n-  "a": 1.0\n+  "a": 1');
+  assert.deepEqual([rows[0].drop, rows[0].missing, rows[0].builtIn], [["gone"], ["never"], true]);
+  assert.deepEqual([rows[1].builtIn, rows[1].tools, rows[1].drop, rows[1].missing], [false, [], [], []]);
+  assert.deepEqual(repinServers(null), []);
+});
+
+test("repin review problems and the terminal command", () => {
+  assert.match(pinsProblem({ code: "MCP_PINS_NEED_UP", message: "x" }), /^A server has tools to pin for the first time/);
+  assert.match(pinsProblem({ code: "MCP_RELAY_NOT_RUNNING" }), /Start services first/);
+  assert.equal(pinsProblem({ code: "PINS_REVIEW_TOO_LARGE", message: "too big" }), "too big");
+  assert.equal(pinsProblem({ code: "toString" }), "The review could not be read.");
+  assert.equal(pinsProblem(null), "");
+  assert.equal(pinsCommand("/p/a b"), "agentbreeder services pins '/p/a b'");
+  assert.equal(pinsCommand(""), "agentbreeder services pins DIR");
 });

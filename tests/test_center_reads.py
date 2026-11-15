@@ -50,6 +50,8 @@ ALLOWED = {
     "agentbreeder.center.edits",
     # MCP grant and revoke (#831): pure request/answer checks; imports registry, strict_yaml.
     "agentbreeder.center.mcpgrants",
+    # Repin review (#964): strict parse, hash checks and review text; imports only mcpgrants.
+    "agentbreeder.center.pinsreview",
     # Agents (#823): pure shaping of `list --all` and `audit list` answers.
     "agentbreeder.center.agents",
     # The tool execution log (#828): pure query and answer checks; imports only registry and
