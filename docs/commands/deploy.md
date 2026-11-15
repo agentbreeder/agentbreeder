@@ -33,6 +33,6 @@ A package is a record, not a credential, and is not signed. Deploy refuses a pac
 
 When Docker cannot bind a host port during a local deploy, the deployment fails with the error `[PORT_BUSY] port N is already in use on this machine; stop what uses it, then run the command again` (in `status` and the `--json` result's `error`) instead of Docker's generic refusal. Local deploys publish an ephemeral loopback port, so this is rare (on `main`, not in a published preview).
 
-Docker Desktop can report a started container's published port as empty for a moment. A local deploy re-inspects the container for up to 5 seconds while the port is still unbound, then fails with `Container is not running with one loopback HTTP binding` as before. A binding that is present but not on 127.0.0.1, or a container that stopped, fails at once (on `main`, not in a published preview).
+Docker Desktop can report a started container's published port as empty for a moment. A local deploy re-inspects the container for up to 5 seconds while the port is still unbound, then fails with `Container is not running with one loopback HTTP binding` as before. A binding that is present but not on 127.0.0.1, or a container that stopped, fails at once (on `main`, not in a published preview). A deploy with the opt-in egress sidecar waits the same way for the sidecar's ingress port, then fails with `Sidecar has no single loopback ingress binding` (on `main`, not in a published preview).
 
 Flags: `agentbreeder deploy --help`.
