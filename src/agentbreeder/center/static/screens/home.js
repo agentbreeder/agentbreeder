@@ -6,6 +6,7 @@ import { Action, Card, Notice, Table, Text, useConsole } from "../ui/components.
 import { Checklist } from "../ui/guide.js";
 import { OnboardAgentFile } from "../ui/onboard.js";
 import { HomeServices } from "./usage.js";
+import { HomeCost } from "./cost.js";
 import { html, useState } from "../ui/preact.js";
 import { jobLabel } from "../lib/format.js";
 import { starterNameProblem } from "../lib/guide.js";
@@ -43,6 +44,7 @@ export function Home() {
     <${Notice} notice=${notice} onDismiss=${() => setNotice(null)} />
     ${project ? html`<${Checklist} project=${project} key=${project.id} />` : null}
     ${projects.length ? html`<${HomeServices} projects=${projects} />` : null}
+    ${projects.length ? html`<${HomeCost} projects=${projects} />` : null}
     ${projects.length
       ? html`<${Card} title="Projects">
           <${Table} label="Projects" columns=${["Project", "Environment", "Last job", ""]}>

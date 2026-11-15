@@ -1135,6 +1135,45 @@ one, and axe in light and dark. Not yet run against a live Phoenix: the #907 acc
 turn on Northwind shows its tool calls, and an eval case's trace can be reached from the release
 report) is batched with the milestone checks.
 
+### LLM cost (#906, console half): on `main`, not in a published preview
+
+Home's **LLM cost** card shows one registered project's model spend: the project in scope first,
+with a **Project** picker when there are several. It shows the total with its currency, the calls
+and failed calls, the window in UTC days, the time it was read ("as of …"), and a table per model
+(the gateway alias and the provider model, calls, tokens in and out, spend). An agent's
+**Overview** has its own **LLM cost** card. It shows the agent's deployment keys (production,
+candidates and removed deployments, by name) with their target and state, the agent's total, and
+their models added up. Both cards pick a window of the last 7, 30 or 90 days, and **Refresh**
+reads again.
+
+The console runs `agentbreeder cost --stack DIR --environment ENV --since DAY --until DAY --json`
+([`docs/cost.md`](cost.md), [`docs/commands/cost.md`](commands/cost.md)) as an uncached child,
+at most two at once (`COST_BUSY` beyond that). The server works out the days from the window (the
+last N UTC days ending today); nothing from the browser reaches the argv but the window choice.
+
+- **It is LiteLLM's spend, not a bill.** The amounts are USD as LiteLLM computed them from its
+  model price list. Spend logs arrive about a minute after a call, so the newest calls can be
+  missing. Calls with no price, a partial read (`truncated`) and lists cut for the page (200 keys,
+  100 models) are said under the table.
+- **The gateway's master key stays with the CLI.** The console server never reads it. The answer
+  is checked again before the browser sees it: the window must be the one asked for, the currency
+  USD and the source LiteLLM's spend logs. Every count and amount is type-checked; one bad value
+  refuses the whole answer (`COST_INVALID`) rather than showing zero. Text from the gateway loses
+  its control and invisible characters, and unknown fields are dropped.
+- **A refusal shows as "Unavailable: reason" with the next step**: no gateway or master key
+  (`COST_NO_GATEWAY`) and a gateway that does not answer (`GATEWAY_UNREACHABLE`) name
+  `services up`, and an old state names `migrate`. Other codes show the CLI's message and the
+  `cost` command to run in a terminal.
+- Try it shows a turn's own cost (above). Budgets (`max_budget`) are not enforced: that is CLI work.
+
+Tested: server tests over a scripted `cost` (fixed argv, never cached, bad windows refused before
+the CLI, unknown fields dropped, control characters removed, eval and unknown keys, long lists
+cut and counted, bad counts, amounts, currencies, sources and windows refused, coded refusals, at
+most two reads at once), `llmcost.report`'s own answer and the real CLI's refusal passed through
+the same checks, and Playwright with a fake `cost` (Home's card, the window picker, Refresh, a
+refusal, no calls, an agent's own and removed deployments, axe in light and dark). Not yet run
+against a live gateway's spend logs.
+
 ### Docker-down blocker (#822, M6, first part): on `main`, not in a published preview
 
 While Docker is not reachable, every signed-in screen shows a blocker at the top of the page:

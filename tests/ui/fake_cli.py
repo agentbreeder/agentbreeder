@@ -120,6 +120,10 @@ DEFAULT = {
     # version's answer; {"error": {code, message}} refuses it (exit 2). Every call's argv is
     # appended to `knowledge-calls.jsonl` in the fake directory.
     "knowledge_status": {},
+    # `cost --json` (#906): keys of the answer to replace ("keys", "models", "total",
+    # "truncated", ...); {"error": {code, message}} refuses it (exit 2). The window echoes the
+    # argv's --since/--until. Every call's argv is appended to `cost-calls.jsonl`.
+    "cost": {},
 }
 
 TOOL_CALLS = [
@@ -308,6 +312,52 @@ def tool_log(argv: list[str], data: dict) -> int:
         "phantom_rows": 0,
         "notes": settings.get("notes", []),
         "calls": calls[:limit],
+    }
+    print(json.dumps(answer, indent=2))
+    return 0
+
+
+COST_MODEL = {
+    "model_group": "chat",
+    "model": "gemini/gemini-2.5-flash",
+    "calls": 7,
+    "failed": 1,
+    "prompt_tokens": 770,
+    "completion_tokens": 1400,
+    "cost_usd": 0.003108,
+    "unpriced": 0,
+}
+COST_KEY = {
+    "key_alias": "agentbreeder-" + "d1" * 16, "kind": "deployment", "id": "d1" * 16,
+    "name": "demo", "target": "local", "state": "ready", "environment": "dev",
+    **{k: v for k, v in COST_MODEL.items() if k not in ("model_group", "model")},
+    "models": [COST_MODEL],
+}  # fmt: skip
+
+
+def cost(argv: list[str], data: dict) -> int:
+    calls_file = Path(os.environ.get("AGENTBREEDER_FAKE_DIR", "")) / "cost-calls.jsonl"
+    with calls_file.open("a", encoding="utf-8") as calls:
+        calls.write(json.dumps(argv) + "\n")
+    settings = data["cost"]
+    if "error" in settings:
+        problem = settings["error"]
+        print(json.dumps({"schema_version": 1, "error": problem}))
+        print(f"[{problem['code']}] {problem['message']}", file=sys.stderr)
+        return 2
+    total = {k: v for k, v in COST_KEY.items() if k in COST_MODEL}
+    answer = {
+        "schema_version": 1,
+        "since": argv[argv.index("--since") + 1],
+        "until": argv[argv.index("--until") + 1],
+        "gateway": "litellm",
+        "currency": "USD",
+        "source": "litellm spend logs",
+        "truncated": False,
+        "keys": [COST_KEY],
+        "models": [COST_MODEL],
+        "total": {k: v for k, v in total.items() if k not in ("model_group", "model")},
+        **settings,
     }
     print(json.dumps(answer, indent=2))
     return 0
@@ -780,6 +830,8 @@ def main(argv: list[str]) -> int:
         return tool_log(argv, data)
     elif head == ["knowledge", "status"]:
         return knowledge_status(argv, data)
+    elif argv and argv[0] == "cost":
+        return cost(argv, data)
     elif argv and argv[0] == "doctor":
         checks = data["doctor"]
         if "--only" in argv:  # `--only docker`: the blocker's check
