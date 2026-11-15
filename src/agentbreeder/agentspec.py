@@ -7,8 +7,16 @@ every file is in `files[].content`), then the same without `--dry-run` to write 
 
 The spec (`SPEC_VERSION` 1, docs/commands/new.md) names the agent, the model provider and an
 optional model id (#905), the prompt text, the eval cases, picked `tool/` versions and `mcp/`
-servers with the tools to grant. `knowledge` is refused for now (`SPEC_UNSUPPORTED`): it needs an
-embedding alias and an index the generated stack does not have.
+servers with the tools to grant, and at most one pinned `knowledge/` version (#989).
+
+Knowledge: the runtime embeds with the alias the knowledge VERSION names (`embedding.alias`,
+`embedding.dimensions` in its manifest), so the generated stack serves that alias too, with the
+provider's embedding model (`EMBEDDINGS`; a provider without one is `SPEC_UNSUPPORTED`) and the
+version's dimensions, and lists it in `environment.models`. Postgres is
+`service/postgres-pgvector@1.2.0` for such a spec (the version Northwind's knowledge ran on;
+other specs keep the starter's 1.1.0). Its `init.sh` creates the `vector` extension in every
+database, and the `DATABASE_URL` binding (the `app` database's owner) creates the runtime's
+`kb_<name>_<version>` table in `public`, where `knowledge status` reads it.
 
 The project is the starter's (`newagent`), so the same checks, staging and rollback apply: the
 prompt text and the cases become `src/prompt/` and `src/evals/`, published as
@@ -40,7 +48,7 @@ import stat
 from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -72,8 +80,16 @@ MCP_TOOL = r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$"  # services.schema.MCP_TOOL
 # Combinations run end to end with this command (services up, release, invoke), as the sorted
 # names of the parts the spec uses beyond the model, prompt and evals every spec has. A provider
 # must also be verified (`PROVIDERS`).
+# Knowledge is not in it until a generated knowledge project has run end to end (#989).
 VERIFIED: frozenset[tuple[str, ...]] = frozenset({()})
 STACK_SERVICES = frozenset({"postgres", "litellm"})  # services the generated stack has
+# A provider's embedding model in the pinned LiteLLM 1.106.2 model map and its largest output
+# (`output_vector_size`). anthropic and openrouter have none there.
+EMBEDDINGS = {
+    "gemini": ("gemini/gemini-embedding-2", 3072),
+    "openai": ("openai/text-embedding-3-small", 1536),
+}
+KNOWLEDGE_POSTGRES = "service/postgres-pgvector@1.2.0"
 
 AGENT_HEAD = """\
 # The {name} agent, written by `agentbreeder new agent --from-spec` on {today}.
@@ -283,6 +299,14 @@ class Mcp(_Strict):
         return tools
 
 
+class Knowledge(_Strict):
+    """`agent.yaml`'s `knowledge` entry (agentfile.Knowledge), from a pinned registry ref."""
+
+    ref: str = Field(max_length=200)
+    top_k: int = Field(default=5, ge=1, le=20)
+    extra_searches: int = Field(default=1, ge=0, le=5)
+
+
 class Spec(_Strict):
     schema_version: Literal[1]
     name: str
@@ -292,7 +316,8 @@ class Spec(_Strict):
     prompt: Prompt
     evals: Evals
     tools: list[str] = Field(default_factory=list, max_length=50)
-    knowledge: list[Any] = Field(default_factory=list)  # refused unless empty (for now)
+    # runtime/adk 1.x retrieves from one knowledge set (agentfile.AgentFile.knowledge)
+    knowledge: list[Knowledge] = Field(default_factory=list, max_length=1)
     mcp: list[Mcp] = Field(default_factory=list, max_length=10)
 
 
@@ -440,6 +465,62 @@ def _servers(spec: Spec, directory: Path) -> tuple[dict[str, str], list[dict], l
     return servers, entries, keys
 
 
+def _knowledge(spec: Spec, directory: Path) -> tuple[list[dict], list[dict], tuple | None]:
+    """The ref entries, the summary's `knowledge` rows and the (alias, model, dimensions) the
+    stack serves for the picked knowledge version (None without one)."""
+    from agentbreeder import knowledge as kb
+
+    if not spec.knowledge:
+        return [], [], None
+    if spec.model not in EMBEDDINGS:
+        raise NewAgentError(
+            "SPEC_UNSUPPORTED",
+            f"knowledge needs an embedding model, and {spec.model} has none in the pinned "
+            f"LiteLLM model map; use {' or '.join(sorted(EMBEDDINGS))}",
+        )
+    model, largest = EMBEDDINGS[spec.model]
+    entry = spec.knowledge[0]
+    hit = _resolve(entry.ref, "knowledge", "knowledge[0].ref", directory)
+    # The registry's safe copy-and-hash first: it refuses links, hard links and non-regular
+    # files (a FIFO manifest would block a plain open) before anything is read here.
+    ref_entry = _ref_entry(hit, directory)
+    try:
+        manifest = registry.read_manifest(hit.path, hit.ref)
+        want = kb.expected(hit)
+    except (kb.KnowledgeError, registry.RegistryError) as error:
+        raise NewAgentError(error.code, newagent._bare(error)) from None
+    # What was read must be the version that was hashed (and is pinned in agent.lock).
+    if _version_digest(hit) != ref_entry["sha256"]:
+        raise NewAgentError("DIGEST_MISMATCH", f"{hit.ref} changed while it was read; try again")
+    # The runtime always chunks by paragraph into pgvector; refuse a version that says otherwise.
+    for key, value in (("store", "pgvector"), ("chunking", "paragraph")):
+        if manifest.get(key) not in (None, value):
+            raise NewAgentError("KNOWLEDGE_INVALID", f"{hit.ref}: {key} must be {value}")
+    if not stackfor.ALIAS.fullmatch(want.alias) or want.alias in ("chat", "judge"):
+        raise NewAgentError(
+            "ALIAS_UNSUPPORTED",
+            f"{hit.ref}: embedding.alias must be letters, digits, '.', '_' and '-' (at most 64), "
+            "and not chat or judge",
+        )
+    if want.dimensions > largest:
+        raise NewAgentError(
+            "SPEC_UNSUPPORTED",
+            f"{hit.ref}: embedding.dimensions is {want.dimensions}; {model} makes at most "
+            f"{largest}",
+        )
+    row = {
+        "ref": str(hit.ref),
+        "alias": want.alias,
+        "dimensions": want.dimensions,
+        "embedding_model": model,
+        "top_k": entry.top_k,
+        "extra_searches": entry.extra_searches,
+        "documents": want.documents,
+        "chunks": len(want.chunks),
+    }
+    return [ref_entry], [row], (want.alias, model, want.dimensions)
+
+
 # -- the plan ------------------------------------------------------------------------------------
 
 
@@ -453,6 +534,12 @@ def _agent_yaml(spec: Spec, today: date) -> str:
         threshold=json.dumps(spec.evals.threshold),
         retries=spec.evals.retries,
     )
+    if spec.knowledge:
+        text += "knowledge:\n" + "".join(
+            f"  - {{ref: {json.dumps(entry.ref)}, top_k: {entry.top_k}, "
+            f"extra_searches: {entry.extra_searches}}}\n"
+            for entry in spec.knowledge
+        )
     if spec.tools:
         text += "tools:\n" + "".join(f"  - {{ref: {json.dumps(ref)}}}\n" for ref in spec.tools)
     if spec.mcp:
@@ -479,6 +566,7 @@ def _check_agent(text: str, spec: Spec) -> None:
         ) from None
     expected = (
         spec.name,
+        [(entry.ref, entry.top_k, entry.extra_searches) for entry in spec.knowledge],
         list(spec.tools),
         [(entry.ref, list(entry.tools)) for entry in spec.mcp],
         spec.evals.threshold,
@@ -487,6 +575,7 @@ def _check_agent(text: str, spec: Spec) -> None:
     )
     got = (
         agent.name,
+        [(entry.ref, entry.top_k, entry.extra_searches) for entry in agent.knowledge],
         [entry.ref for entry in agent.tools],
         [(entry.ref, list(entry.tools)) for entry in agent.mcp],
         agent.evals.threshold if agent.evals else None,
@@ -498,7 +587,8 @@ def _check_agent(text: str, spec: Spec) -> None:
 
 
 def combination(spec: Spec) -> tuple[str, ...]:
-    return tuple(sorted(part for part, used in (("tools", spec.tools), ("mcp", spec.mcp)) if used))
+    parts = (("knowledge", spec.knowledge), ("tools", spec.tools), ("mcp", spec.mcp))
+    return tuple(sorted(part for part, used in parts if used))
 
 
 def plan(
@@ -517,23 +607,18 @@ def plan(
     newagent.check_inputs(spec.name, spec.model)
     if spec.name != name:
         raise NewAgentError("NAME_MISMATCH", "NAME must be the spec's `name`")
-    if spec.knowledge:
-        raise NewAgentError(
-            "SPEC_UNSUPPORTED",
-            "knowledge is not supported by the agent builder yet: the generated stack has no "
-            "embedding model or index",
-        )
     resolved = newagent.model_id_for(spec.model, spec.model_id)
     today = today or date.today()
     base = newagent.plan(name, spec.model, directory, today=today, model_id=resolved)
     target = base.directory
+    knowledge_refs, knowledge_rows, embedding = _knowledge(spec, target)
     refs = []
     for index, text in enumerate(spec.tools):
         refs.append(_ref_entry(_resolve(text, "tool", f"tools[{index}]", target), target))
     if len({entry["ref"].split("@")[0] for entry in refs}) != len(refs):
         raise NewAgentError("SPEC_INVALID", "tools: one version per tool")
     servers, mcp_refs, keys = _servers(spec, target)
-    refs += mcp_refs
+    refs = knowledge_refs + refs + mcp_refs
     agent_text = _agent_yaml(spec, today)
     _check_agent(agent_text, spec)
     review_by = (today + timedelta(days=REVIEW_DAYS)).isoformat()
@@ -549,6 +634,8 @@ def plan(
         written_by="--from-spec",
         mcp=servers,
         keys=tuple(keys),
+        embedding=embedding,
+        postgres=KNOWLEDGE_POSTGRES if embedding else stackfor.POSTGRES,
     )
     cases = "".join(
         json.dumps(case.model_dump(exclude_defaults=True), ensure_ascii=False) + "\n"
@@ -557,7 +644,8 @@ def plan(
     prompt = spec.prompt.text if spec.prompt.text.endswith("\n") else spec.prompt.text + "\n"
     if servers:
         stack["stack.yaml"] = _granted(stack["stack.yaml"], name, servers, spec)
-    _preflight(stack, name, resolved)
+    served = embedding[:2] if embedding else None
+    _preflight(stack, name, resolved, served)
     values = {"name": name, "version": VERSION}
     files = {
         "agent.yaml": agent_text,
@@ -577,6 +665,7 @@ def plan(
         cases=tuple(case.id for case in spec.evals.cases),
         lock_after_move=any(entry["root_kind"] == "path" for entry in refs),
         pinned={entry["ref"]: entry["sha256"] for entry in refs},
+        embedding=served,
     )
     parts = combination(spec)
     extra = {
@@ -588,6 +677,7 @@ def plan(
         "refs": refs,
         "runs_code": any(e["runs_code"] and e["root_kind"] != "builtin" for e in refs),
         "grants": grants,
+        "knowledge": knowledge_rows,
         "keys": [PROVIDERS[spec.model].key, *keys],
         "plan_sha256": plan_digest(built, refs),
     }
@@ -632,7 +722,9 @@ def plan_digest(plan: newagent.Plan, refs: list[dict]) -> str:
     return "sha256:" + hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
-def _preflight(files: dict[str, str], name: str, model_id: str) -> None:
+def _preflight(
+    files: dict[str, str], name: str, model_id: str, embedding: tuple[str, str] | None = None
+) -> None:
     """The rendered stack must load and its gateway config pass the review `services up`
     applies, so a preview that succeeds is one the write accepts."""
     import tempfile
@@ -652,7 +744,9 @@ def _preflight(files: dict[str, str], name: str, model_id: str) -> None:
             ) from None
         if name not in stack.environment.agents:  # a template bug
             raise NewAgentError("TEMPLATE_INVALID", "the generated stack names another agent")
-        newagent.check_gateway(root / stackfor.LITELLM_CONFIG, {"chat", "judge"}, model_id)
+        newagent.check_gateway(
+            root / stackfor.LITELLM_CONFIG, {"chat", "judge"}, model_id, embedding
+        )
 
 
 def summary(plan: newagent.Plan, extra: dict, dry_run: bool) -> dict:

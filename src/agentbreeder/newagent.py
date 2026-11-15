@@ -195,6 +195,9 @@ class Plan:
     lock_after_move: bool = False
     # ref -> sha256 of picked versions as previewed (`--from-spec`): agent.lock must agree.
     pinned: dict[str, str] = field(default_factory=dict)
+    # (alias, LiteLLM model) of a knowledge version's embedding alias (`--from-spec`), served
+    # beside `chat` and `judge`.
+    embedding: tuple[str, str] | None = None
 
     def summary(self, dry_run: bool) -> dict:
         """The `--json` shape: what is (or would be) written, without file content."""
@@ -215,7 +218,7 @@ class Plan:
             "model_id": self.model_id,
             "verified": PROVIDERS[self.model].verified,
             "runtime": RUNTIME,
-            "aliases": ["chat", "judge"],
+            "aliases": ["chat", "judge"] + ([self.embedding[0]] if self.embedding else []),
             "key": PROVIDERS[self.model].key,
             "review_by": self.review_by,
             "cases": list(self.cases) if self.cases is not None else [c["id"] for c in _cases()],
@@ -418,29 +421,36 @@ def _lock(project: Path, refs: list[str], search: list[Path] | None = None) -> N
     lock.save(project / "agent.lock")
 
 
-def check_gateway(config: Path, aliases: set[str], model_id: str) -> None:
+def check_gateway(
+    config: Path,
+    aliases: set[str],
+    model_id: str,
+    embedding: tuple[str, str] | None = None,
+) -> None:
     """A generated gateway config must pass the review `services up` applies and serve exactly
-    `aliases`, every one with `model_id` (also used by `--stack-for`)."""
+    `aliases`, every one with `model_id` (also used by `--stack-for`), plus the `embedding`
+    (alias, model) when given."""
     from agentbreeder import gateway_keys
     from agentbreeder.strict_yaml import StrictYamlError, load_file
 
     try:
         review = gateway_keys.config_review(config)
-        models = {
-            entry["litellm_params"]["model"]
-            for entry in load_file(config, 256 * 1024)["model_list"]
-        }
+        entries = load_file(config, 256 * 1024)["model_list"]
+        served = [(entry["model_name"], entry["litellm_params"]["model"]) for entry in entries]
     except (gateway_keys.GatewayError, StrictYamlError, OSError) as error:
         raise NewAgentError(
             "TEMPLATE_INVALID", f"the generated gateway config does not validate: {error}"
         ) from error
-    if review.aliases != aliases or models != {model_id}:
+    expected = {alias: model_id for alias in aliases}
+    if embedding is not None:
+        expected[embedding[0]] = embedding[1]
+    if review.aliases != set(expected) or len(served) != len(expected) or dict(served) != expected:
         raise NewAgentError(
             "TEMPLATE_INVALID", f"{config.name} does not serve the chosen model on every alias"
         )
 
 
-def _validate(project: Path, model_id: str) -> list[str]:
+def _validate(project: Path, model_id: str, embedding: tuple[str, str] | None = None) -> list[str]:
     """The written files must load as an agent and a stack, and the gateway config must serve
     `chat` and `judge` with `model_id`; returns the agent's refs."""
     from agentbreeder.agentfile import AgentFileError, load_agent_file
@@ -453,7 +463,7 @@ def _validate(project: Path, model_id: str) -> list[str]:
         raise NewAgentError(
             "TEMPLATE_INVALID", f"the starter does not validate: {error}"
         ) from error
-    check_gateway(project / "stack/litellm/config.yaml", {"chat", "judge"}, model_id)
+    check_gateway(project / "stack/litellm/config.yaml", {"chat", "judge"}, model_id, embedding)
     return agent.refs()
 
 
@@ -498,7 +508,7 @@ def create(plan: Plan) -> Plan:
             if str(ref) != expected:  # a template bug
                 raise NewAgentError("TEMPLATE_INVALID", f"published {ref}, expected {expected}")
             published[str(ref)] = digest
-        refs = _validate(staging, plan.model_id)
+        refs = _validate(staging, plan.model_id, plan.embedding)
         if not plan.lock_after_move:
             _lock(staging, refs)
             _check_pinned(staging, plan.pinned)
