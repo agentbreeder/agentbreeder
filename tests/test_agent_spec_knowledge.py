@@ -125,7 +125,7 @@ def test_a_knowledge_project(tmp_path, kb_root):
 
     assert extra["combination"] == {
         "parts": ["model", "prompt", "evals", "knowledge"],
-        "verified": False,
+        "verified": True,
     }
     assert extra["knowledge"] == [
         {
@@ -196,6 +196,31 @@ def test_openai_uses_its_embedding_model(tmp_path, kb_root):
     assert params["model"] == "openai/text-embedding-3-small"
     assert params["api_key"] == "os.environ/OPENAI_API_KEY"
     assert extra["knowledge"][0]["embedding_model"] == "openai/text-embedding-3-small"
+    # Only gemini was run end to end with knowledge (#833); openai is config-only.
+    assert extra["combination"]["verified"] is False
+
+
+def test_only_knowledge_alone_is_verified():
+    """The #833 run covered one knowledge version with gemini and no tools or MCP servers."""
+    assert agentspec.VERIFIED == frozenset({(), ("knowledge",)})
+    for parts in (("knowledge", "tools"), ("knowledge", "mcp"), ("knowledge", "mcp", "tools")):
+        assert parts not in agentspec.VERIFIED
+
+
+@pytest.mark.parametrize(
+    "extra_parts",
+    [
+        {"tools": ["tool/echo@0.1.0"]},
+        {"mcp": [{"ref": "mcp/github@1.0.0", "tools": ["get_me"]}]},
+    ],
+)
+def test_knowledge_with_tools_or_mcp_is_unverified(tmp_path, kb_root, extra_parts):
+    sources = tmp_path / "tool-sources"
+    registry.scaffold("tool", "echo", sources)
+    registry.publish(next(sources.iterdir()), kb_root)
+    _plan, extra = plan_for(tmp_path, with_knowledge() | extra_parts)
+    assert {"knowledge", *extra_parts} <= set(extra["combination"]["parts"])
+    assert extra["combination"]["verified"] is False
 
 
 def test_a_locked_build_carries_the_embedding_alias(tmp_path, kb_root, identity_env):
@@ -412,7 +437,7 @@ def test_cli_dry_run_json(tmp_path, kb_root, capsys):
     assert out["knowledge"][0]["alias"] == "help-embedding"
     assert out["combination"] == {
         "parts": ["model", "prompt", "evals", "knowledge"],
-        "verified": False,
+        "verified": True,
     }
     assert out["aliases"] == ["chat", "judge", "help-embedding"]
     stack = next(f for f in out["files"] if f["path"] == "stack.yaml")
@@ -428,8 +453,19 @@ def test_cli_text_output(tmp_path, kb_root, capsys):
     out = capsys.readouterr().out
     assert code == 0
     assert f"Knowledge: {REF} (2 documents, 3 chunks), embedded as help-embedding" in out
-    assert "(model + prompt + evals + knowledge) has not been run end to end" in out
+    assert "has not been run end to end" not in out  # verified since #833
     assert SECRET_PROMPT not in out
+
+
+def test_cli_text_output_openai_knowledge_is_unverified(tmp_path, kb_root, capsys):
+    path = write_spec(tmp_path, with_knowledge() | {"model": "openai"})
+    code = cli.main(
+        ["new", "agent", "helper", "--from-spec", str(path), "--dir", str(tmp_path / "helper")]
+        + ["--dry-run"]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "has not been run end to end" in out
 
 
 def test_cli_refusal_json(tmp_path, kb_root, capsys):

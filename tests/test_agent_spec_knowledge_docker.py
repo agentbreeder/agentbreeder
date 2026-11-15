@@ -191,7 +191,7 @@ def test_a_generated_knowledge_agent_releases_and_retrieves(tmp_path, sandbox):
     try:
         written = sandbox.json("new", "agent", "kbhelper", "--from-spec", str(_spec(sandbox)))
         assert written["knowledge"][0]["alias"] == "help-embedding"
-        assert written["combination"]["verified"] is False
+        assert written["combination"]["verified"] is True
 
         up = True
         sandbox.run(
