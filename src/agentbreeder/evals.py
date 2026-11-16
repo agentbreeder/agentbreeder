@@ -5,7 +5,11 @@ passes when every rule check passes AND the LLM judge scores correctness against
 answer at least CORRECTNESS_PASS. The judge goes through the operator's LiteLLM gateway with
 its own short-lived key (alias `agentbreeder-eval-<run>`), minted for the run and revoked after.
 
-Rule checks: sources_any, tools_include / tools_exclude, must_match / must_not_match.
+Rule checks: sources_any, tools_include / tools_exclude, must_match / must_not_match, and for
+sub-agents and skills (#1058, #1059) subagents_include / subagents_exclude,
+subagent_tools_include, skills_loaded / skills_not_loaded. Those read reply fields only a
+runtime with sub-agents or skills sends; without them the case fails, it never passes. A case
+may carry up to MAX_TAGS `tags`, reported per tag (and gated by `evals.tag_threshold`).
 The patterns run in a child process with a time limit (PATTERN_TIMEOUT), so a pattern that
 backtracks on a long reply fails its case instead of stalling `release`.
 A turn is a message string, or {"message": ..., "new_session": true} (same customer, new
@@ -48,6 +52,29 @@ _MATCHER = (
     "print(json.dumps([re.search(p, d['reply'], re.I) is not None for p in d['patterns']]))\n"
 )
 _OPENER = build_opener(ProxyHandler({}))
+# The `expect` keys a case may use; any other key is a typo that would silently pass.
+LIST_RULES = (
+    "sources_any",
+    "tools_include",
+    "tools_exclude",
+    "must_match",
+    "must_not_match",
+    "subagents_include",
+    "subagents_exclude",
+    "skills_loaded",
+    "skills_not_loaded",
+)
+EXPECT_KEYS = frozenset((*LIST_RULES, "subagent_tools_include"))
+TAG = re.compile(r"[a-z][a-z0-9_-]{0,31}")
+MAX_TAGS = 5
+SUBAGENT = re.compile(r"[a-z][a-z0-9_]{0,31}")  # agentfile.SUBAGENT_NAME
+SKILL = re.compile(r"[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?")  # a registry name
+NAMES = {
+    "subagents_include": SUBAGENT,
+    "subagents_exclude": SUBAGENT,
+    "skills_loaded": SKILL,
+    "skills_not_loaded": SKILL,
+}
 SCHEMA = {
     "type": "object",
     "properties": {"score": {"type": "number"}, "explanation": {"type": "string"}},
@@ -89,7 +116,7 @@ class EvalReport:
 
     def summary(self) -> dict:
         latencies = [r["latency_ms"] for r in self.results]
-        return {
+        summary = {
             "run_id": self.run_id,
             "endpoint": self.endpoint,
             "eval_set": self.eval_set,
@@ -104,6 +131,41 @@ class EvalReport:
             else 0.0,
             "p50_latency_ms": int(statistics.median(latencies)) if latencies else 0,
         }
+        tags = self.by_tag()
+        if tags:  # only for a tagged set, so an untagged one writes the same report
+            summary["tags"] = tags
+        return summary
+
+    def by_tag(self) -> dict[str, dict]:
+        """{tag: {cases, passed, pass_rate}} over tagged cases; empty when none is tagged."""
+        counts: dict[str, list[int]] = {}
+        for result in self.results:
+            for tag in result.get("tags") or []:
+                pair = counts.setdefault(tag, [0, 0])
+                pair[0] += 1
+                pair[1] += bool(result["passed"])
+        return {
+            tag: {"cases": cases, "passed": passed, "pass_rate": round(passed / cases, 4)}
+            for tag, (cases, passed) in sorted(counts.items())
+        }
+
+    def tags_below(self, threshold: float | None) -> list[str]:
+        """The tags whose pass rate is below `threshold` (none when it is None)."""
+        if threshold is None:
+            return []
+        return [
+            tag for tag, row in self.by_tag().items() if row["passed"] / row["cases"] < threshold
+        ]
+
+    def tag_gate(self, threshold: float | None) -> str | None:
+        """Why `evals.tag_threshold` fails this run, or None. A threshold over a run with no
+        tagged case fails closed instead of passing vacuously."""
+        if threshold is None:
+            return None
+        if not self.by_tag():
+            return "evals.tag_threshold is set, but no case is tagged"
+        low = self.tags_below(threshold)
+        return f"tag(s) {', '.join(low)} below {threshold:.0%}" if low else None
 
 
 def failed_cases(results: list[dict], redact=lambda text: text) -> list[dict]:
@@ -126,6 +188,101 @@ def failed_cases(results: list[dict], redact=lambda text: text) -> list[dict]:
         for result in results
         if not result.get("passed")
     ]
+
+
+def check_case(case: dict, where: str) -> None:
+    """A case's `expect` keys and `tags` (EVAL_INVALID names the line and key, not the value).
+    The rules added for sub-agents and skills are type-checked here; the older ones keep
+    their run-time handling."""
+    expect = case.get("expect", {})
+    if not isinstance(expect, dict):
+        raise EvalError("EVAL_INVALID", f"{where}: expect must be an object")
+    if set(expect) - EXPECT_KEYS:  # the key is eval-set text: named by position only
+        raise EvalError(
+            "EVAL_INVALID",
+            f"{where}: unknown expect rule (allowed: {', '.join(sorted(EXPECT_KEYS))})",
+        )
+    for key, pattern in NAMES.items():
+        if key in expect and not (
+            isinstance(expect[key], list)
+            and all(isinstance(v, str) and pattern.fullmatch(v) for v in expect[key])
+        ):
+            raise EvalError("EVAL_INVALID", f"{where}: expect.{key} must be a list of names")
+    if "subagent_tools_include" in expect:
+        value = expect["subagent_tools_include"]
+        if not (
+            isinstance(value, dict)
+            and all(
+                isinstance(k, str)
+                and SUBAGENT.fullmatch(k)
+                and isinstance(v, list)
+                and v
+                and all(isinstance(t, str) and t for t in v)
+                for k, v in value.items()
+            )
+        ):
+            raise EvalError(
+                "EVAL_INVALID",
+                f"{where}: expect.subagent_tools_include must map sub-agent names to tool lists",
+            )
+    if "tags" in case:
+        tags = case["tags"]
+        if not (
+            isinstance(tags, list)
+            and len(tags) <= MAX_TAGS
+            and len(set(map(str, tags))) == len(tags)
+            and all(isinstance(t, str) and TAG.fullmatch(t) for t in tags)
+        ):
+            raise EvalError(
+                "EVAL_INVALID",
+                f"{where}: tags must be at most {MAX_TAGS} distinct names "
+                "(lowercase letters, digits, _ and -)",
+            )
+
+
+def _reported(responses: list[dict], field: str) -> list | None:
+    """Every turn's `field` list joined, or None when a turn's reply lacks it (a runtime
+    without sub-agents or skills), so a rule that needs it fails."""
+    if not responses or not all(isinstance(r.get(field), list) for r in responses):
+        return None
+    return [item for r in responses for item in r[field] if isinstance(item, dict)]
+
+
+def _strings(value) -> set[str]:
+    """The string items of a reply list (anything else is ignored, never hashed)."""
+    return {item for item in value if isinstance(item, str)} if isinstance(value, list) else set()
+
+
+def _composition_checks(expect: dict, responses: list[dict], checks: dict[str, bool]) -> None:
+    """The sub-agent and skill rules (#1058 spec §9, #1059 spec §10)."""
+    if any(
+        k in expect for k in ("subagents_include", "subagents_exclude", "subagent_tools_include")
+    ):
+        ran = _reported(responses, "subagents")
+        if ran is None:
+            checks["reply_reports:subagents"] = False
+            ran = []
+        names = _strings([item.get("name") for item in ran])
+        for name in expect.get("subagents_include", []):
+            checks[f"consulted:{name}"] = name in names
+        for name in expect.get("subagents_exclude", []):
+            checks[f"did_not_consult:{name}"] = name not in names
+        for name, tools in expect.get("subagent_tools_include", {}).items():
+            called = set().union(
+                *(_strings(item.get("tools")) for item in ran if item.get("name") == name)
+            )
+            for tool in tools:
+                checks[f"called:{name}.{tool}"] = tool in called
+    if any(k in expect for k in ("skills_loaded", "skills_not_loaded")):
+        loaded = _reported(responses, "skills")
+        if loaded is None:
+            checks["reply_reports:skills"] = False
+            loaded = []
+        names = _strings([item.get("name") for item in loaded])
+        for name in expect.get("skills_loaded", []):
+            checks[f"loaded_skill:{name}"] = name in names
+        for name in expect.get("skills_not_loaded", []):
+            checks[f"did_not_load_skill:{name}"] = name not in names
 
 
 def _inside(directory: Path, name, field: str) -> Path:
@@ -159,6 +316,7 @@ def load_eval_set(directory: Path) -> EvalSet:
             raise EvalError(
                 "EVAL_INVALID", f"{cases_file.name}:{number} needs id, turns, reference"
             )
+        check_case(case, f"{cases_file.name}:{number}")
         cases.append(case)
     if not cases or len(cases) > MAX_CASES:
         raise EvalError("EVAL_INVALID", f"eval set must have 1..{MAX_CASES} cases")
@@ -285,6 +443,7 @@ def run_case(endpoint: str, run_id: str, case: dict, judge: Judge, attempt: int 
         checks[f"called:{tool}"] = tool in tools
     for tool in expect.get("tools_exclude", []):
         checks[f"did_not_call:{tool}"] = tool not in tools
+    _composition_checks(expect, [] if error else responses, checks)
     must_match = list(expect.get("must_match", []))
     must_not_match = list(expect.get("must_not_match", []))
     found = _search(must_match + must_not_match, reply)
@@ -301,7 +460,7 @@ def run_case(endpoint: str, run_id: str, case: dict, judge: Judge, attempt: int 
         except (HTTPError, URLError, TimeoutError, KeyError, ValueError, IndexError) as failure:
             explanation = f"judge failed: {type(failure).__name__}"
     checks["judge_correct"] = correctness >= CORRECTNESS_PASS
-    return {
+    result = {
         "case_id": case["id"],
         "category": case.get("category"),
         "attempts": attempt,
@@ -314,6 +473,9 @@ def run_case(endpoint: str, run_id: str, case: dict, judge: Judge, attempt: int 
         "trace_id": final.get("trace_id"),
         "tools": tools,
     }
+    if case.get("tags"):  # only when tagged, so an untagged set writes the same report
+        result["tags"] = list(case["tags"])
+    return result
 
 
 def reset_fixtures(eval_set: EvalSet, operator: OperatorConfig, environment: str, state: Path):

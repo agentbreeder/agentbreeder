@@ -262,7 +262,8 @@ def promote(
                     "message": f"{report.run_id} {summary['passed']}/{summary['cases']}",
                 }
             )
-            if report.pass_rate < agent.evals.threshold:
+            tag_failure = report.tag_gate(agent.evals.tag_threshold)
+            if report.pass_rate < agent.evals.threshold or tag_failure:
                 return _reject(
                     service,
                     previous,
@@ -270,7 +271,8 @@ def promote(
                     deployed,
                     audit,
                     details,
-                    f"{summary['passed']}/{summary['cases']} passed",
+                    f"{summary['passed']}/{summary['cases']} passed"
+                    + (f"; {tag_failure}" if tag_failure else ""),
                 )
         service.record("promote", "promoted", deployer, audit)
         result = details.get("eval")

@@ -372,7 +372,7 @@ def _keys(ctx: _Context) -> dict:
     # A key that only serves fallback targets of granted aliases enables only the fallback
     # route (#1033): optional, unless the project's agent asks for that alias itself.
     granted = set(ctx.stack.environment.models)
-    used = {ctx.agent.model.alias} if ctx.agent is not None else set()
+    used = set(ctx.agent.aliases()) if ctx.agent is not None else set()  # sub-agents' too
     fallback_only = {
         target
         for source, targets in review.fallbacks.items()

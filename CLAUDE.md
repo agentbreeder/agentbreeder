@@ -157,6 +157,13 @@ a Presidio `guardrails:` list; `stack.yaml` `environment.guardrails` and the ope
 (`GUARDRAILS_CHANGED`); keys under a required floor get `allowed_routes`. No manifest, JSON Schema or
 `SCHEMA_VERSION` change. Website: no change until release R. Cloud: a `CLAUDE.md` note only.
 
+**Sub-agents, #1058 AY (epic #1057), per side.** OSS (on `main`): `agent.yaml` gains optional
+`subagents:` (≤ 5, depth 1) and `limits:`, and `evals` gains `tag_threshold`; `build` refuses them
+until a runtime lists the `subagents` capability (`RUNTIME_NO_SUBAGENTS`). The deploy manifest,
+its JSON Schema and `SCHEMA_VERSION` are unchanged; a sub-agent only adds its alias to
+`model_access.aliases`. Eval cases gain sub-agent and skill rules and `tags`. Website: no change
+until release R. Cloud: a `CLAUDE.md` note only; it has no code that reads `agent.yaml`.
+
 ## 🎯 When Adding a New Feature
 
 1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?

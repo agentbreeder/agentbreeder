@@ -87,11 +87,74 @@ any other. **No runtime loads skills yet**, so `build` refuses an agent with `sk
 adds them (#1059). An agent file without `skills:` builds exactly as before; `validate --json`
 now prints `"skills": []` for it.
 
+## Sub-agents (on `main`, not in a published preview)
+
+`subagents:` (optional, at most 5) declares specialist agents that run in the **same container,
+turn and deployment** as the agent (#1058). The agent calls each one as a tool, `ask_<name>`,
+and always writes the reply itself; a sub-agent sees only the request the agent writes, never
+the conversation, the session state or the customer's saved notes.
+
+```yaml
+subagents:
+  - name: billing                 # ^[a-z][a-z0-9_]{0,31}$, unique; the agent's tool is ask_billing
+    description: "Refunds, invoices and payment questions."   # 1-500 characters; the agent's model reads it
+    model: {alias: billing-model, reasoning: medium, max_model_calls: 4}
+    prompt: {ref: prompt/billing-specialist@1.1.0}             # or {path: ...}
+    tools:                        # registry tools, at most 20; any ref, one version per name
+      - {ref: tool/refund-request@1.0.0}
+    mcp:                          # optional; a subset of the agent's own mcp: entry
+      - {ref: mcp/github@1.0.0, tools: [get_issue]}
+    knowledge: false              # true: may search the agent's knowledge set
+    max_calls_per_turn: 2         # 1-3: how often the agent may ask it in one turn
+limits:
+  turn_model_calls: 12            # 1-40, every agent together; only with subagents:
+```
+
+Rules (`validate` and `build` check them; messages name the field, never the value):
+
+- **Depth 1.** A sub-agent cannot have `subagents:` (`SUBAGENT_DEPTH`).
+- **One key.** `model.budget_usd` and `model.rpm` are refused on a sub-agent
+  (`SUBAGENT_FIELD_UNSUPPORTED`): the deployment has one gateway key, minted for the agent's alias,
+  each sub-agent's alias and the knowledge embedding alias (in that order, each once), and its
+  budget and rate limit cover every agent together. A sub-agent alias the environment does not
+  allow is denied by the gate (`MODEL_NOT_ALLOWED`), as for the agent's own alias.
+- **Customer notes stay the agent's.** A sub-agent listing `tool/customer-notes` is refused
+  (`SUBAGENT_NOTES`).
+- **MCP grants are per deployment.** Every server and tool in a sub-agent's `mcp:` must also be
+  in the agent's `mcp:` entry for that server (`SUBAGENT_MCP_UNGRANTED`), so the agent is offered
+  those tools too, and the manifest's `mcp_access` is the agent's list unchanged.
+- **`knowledge: true`** needs a top-level `knowledge:` entry. The agent's pre-retrieved passages
+  are not passed on; the sub-agent searches itself.
+- **One version per name.** The same ref in the agent and a sub-agent (or two sub-agents) is
+  placed and locked once; another version of the same name is refused, as is the same ref twice
+  in one agent.
+- **Turn cap.** Without `limits:`, a turn makes at most `min(40, model.max_model_calls + 6)`
+  model calls across every agent.
+- **Names** (`build`, `SUBAGENT_NAME_CLASH`): `ask_<name>` may not equal one of the agent's
+  function, MCP or built-in tool names, or the agent's own ADK name (`ask-billing` is
+  `ask_billing`); inside one sub-agent, two tools may not share a name.
+- **Runtime.** `build` refuses `subagents:` on a runtime whose `manifest.yaml` does not list the
+  `subagents` capability (`RUNTIME_NO_SUBAGENTS`), before the image is built. **No runtime runs
+  sub-agents yet**; a later `runtime/adk` version adds them.
+
+`build` writes `subagents` and `limits` into `agent.config.json` and `subagents` (names and
+aliases) into `deploy/<name>.build.json`, only when the file has sub-agents: an agent file
+without them builds the same bytes as before, and the deploy manifest has no new field (its
+`model_access.aliases` gains the sub-agent aliases). `validate --json` now prints
+`"subagents": []`, `"limits": null` and `evals.tag_threshold: null` for every agent file.
+`registry used-by` and `agent set-ref` read sub-agent refs too; `set-ref` moves a ref the agent
+shares with a sub-agent in every field at once. `new agent --stack-for` adds each sub-agent
+alias to the generated stack and refuses sub-agent tools, as it refuses the agent's.
+
+**Tool separation is not isolation.** Each agent is offered only its own tools, but registry
+tool code runs in one process with the deployment's privileges and secrets. Treat the
+deployment as able to do everything any of its agents can.
+
 ## Validation rules
 
 - **Strict YAML:** at most 64 KiB, unique keys, no anchors or aliases, and no unknown fields.
-- **Refs:** each ref must have the kind its field expects, an exact version, and may appear only
-  once.
+- **Refs:** each ref must have the kind its field expects and an exact version. One version per
+  `kind/name`: a ref may appear once per agent; the agent and its sub-agents may share one.
 - **Paths:** `prompt.path` must be a relative path inside the project. Its file is copied into
   the image as `prompt.md`.
 - **Tools:** two tool packages may not define the same Python module (`TOOL_MODULE_CONFLICT`).
@@ -286,7 +349,20 @@ agentbreeder release agent.yaml --rollback [--environment ENV]   # gate-checked 
 
 `eval` runs the agent's eval set (`eval/<name>@X.Y.Z`, verified against `agent.lock`) against a
 running endpoint. A case passes when every rule check passes (sources, tools, regex) and the LLM
-judge scores correctness at least 0.7. The judge calls the gateway alias from the eval manifest,
+judge scores correctness at least 0.7.
+
+A case's `expect` takes `sources_any`, `tools_include`, `tools_exclude`, `must_match` and
+`must_not_match`, and (on `main`, not in a published preview) for sub-agents and skills
+`subagents_include`, `subagents_exclude`, `subagent_tools_include` (`{billing: [refund_request]}`),
+`skills_loaded` and `skills_not_loaded`. Any other `expect` key is refused when the eval set is
+loaded (`EVAL_INVALID`), so a misspelt rule no longer passes silently. The sub-agent and skill
+rules read the reply's `subagents` and `skills` fields, which no runtime sends yet; until one
+does, a case using them fails (`reply_reports:subagents` or `reply_reports:skills`), never
+passes. Child tools stay in `tools`, so `tools_exclude` catches a forbidden tool whichever agent
+called it. A case may carry `tags` (at most 5, `^[a-z][a-z0-9_-]{0,31}$`): the report gains a
+per-tag pass rate (`tags`, only when a case is tagged), and `evals.tag_threshold` (0-1, off by
+default) fails `release` and `promote` when any tag is below it, even if the overall rate
+passes. The judge calls the gateway alias from the eval manifest,
 on its own key, which is revoked after the run and expires after 6 hours in case the run is
 killed. The eval set's `fixtures.sql` runs against the environment's `eval_database`, with that
 database's credentials, before the run and before each retry round. That needs
@@ -374,8 +450,8 @@ With `--json`, release adds these keys when they apply:
 - `warnings`: for example that production was not released through the gate.
 
 Production that already runs the built image counts as released only when the audit log has a
-`release/promoted` row for that image and manifest, at no lower a threshold and with the same
-eval set as now, and (on `main`) that row names a package still present in the project. Rows
+`release/promoted` row for that image and manifest, at no lower a threshold (and, when
+`evals.tag_threshold` is set, no lower a tag threshold) and with the same eval set as now, and (on `main`) that row names a package still present in the project. Rows
 written before packages existed do not count for `release`, which evaluates the image again and
 records a packaged release; `promote` still accepts them. Otherwise (for example after a plain `deploy` of the production manifest),
 release warns, evaluates the same image as a candidate, and on a pass records the release
