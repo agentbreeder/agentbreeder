@@ -121,7 +121,7 @@ def test_rpc_error():
 
 
 class _Echo(BaseHTTPRequestHandler):
-    """A v2 decision service for `tok`. `reply_key` None: an unauthenticated squatter."""
+    """A v2 decision service for `tok`. `reply_key` None: replies carry no MAC."""
 
     keys = PepKeys.from_token("tok")
     reply_key: bytes | None = keys.reply
@@ -595,8 +595,7 @@ def test_overlong_session_id_rejected_not_truncated(upstream):
     ids=["no-mac", "wrong-token", "request-key"],
 )
 def test_host_client_rejects_unauthenticated_decision_service(key, monkeypatch):
-    """A local process holding the decision port (Docker Desktop TCP mode) must not be able
-    to issue decisions: replies need a MAC under the reply key, which is never on the wire
+    """Replies are accepted only with a MAC under the reply key, which is never on the wire
     and differs from the request key."""
     monkeypatch.setattr(_Echo, "reply_key", key)
     server = HTTPServer(("127.0.0.1", 0), _Echo)

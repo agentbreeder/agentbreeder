@@ -17,6 +17,7 @@ from agentbreeder.egress.boundary import Boundary, BoundaryUnverified
 from agentbreeder.egress.host import egress_dir, make_server, write_private_json
 from agentbreeder.egress.protocol import (
     MAC_HEADER,
+    MAX_FUTURE_SKEW,
     NONCE_HEADER,
     PROTOCOL_VERSION,
     REPLAY_CAPACITY,
@@ -107,7 +108,7 @@ def test_verifier_accepts_once_then_refuses_replay():
     assert caught.value.code == "PEP_REPLAYED"
 
 
-@pytest.mark.parametrize("offset", [-31, 31, -10_000, 10_000])
+@pytest.mark.parametrize("offset", [-31, 6, 30, -10_000, 10_000])
 def test_verifier_refuses_clock_skew(offset):
     keys = PepKeys.from_token(TOKEN)
     _, headers = _signed(keys, now=NOW + offset)
@@ -118,7 +119,7 @@ def test_verifier_refuses_clock_skew(offset):
     assert caught.value.code == "PEP_CLOCK_SKEW"
 
 
-@pytest.mark.parametrize("offset", [-30, 0, 30])
+@pytest.mark.parametrize("offset", [-30, 0, 5])
 def test_verifier_accepts_inside_the_window(offset):
     keys = PepKeys.from_token(TOKEN)
     _, headers = _signed(keys, now=NOW + offset)
@@ -213,19 +214,34 @@ def test_verifier_refuses_other_versions(version):
 
 
 def test_a_restarted_service_refuses_requests_signed_before_it_started():
-    """The nonce cache is per process: a request captured within the window must not be
-    accepted again by a new service process."""
+    """The nonce cache is per process: each request is accepted at most once, also by a new
+    service process."""
     keys = PepKeys.from_token(TOKEN)
-    _, captured = _signed(keys, now=NOW - 5)
+    _, received = _signed(keys, now=NOW - 5)
     RequestVerifier(keys, clock=lambda: NOW, started=NOW - 10).verify(
-        "POST", "/decide", captured, b"{}"
+        "POST", "/decide", received, b"{}"
     )
     restarted = RequestVerifier(keys, clock=lambda: NOW)  # started now
     with pytest.raises(RequestRejected) as caught:
-        restarted.verify("POST", "/decide", captured, b"{}")
+        restarted.verify("POST", "/decide", received, b"{}")
     assert caught.value.code == "PEP_REPLAYED"
     _, fresh = _signed(keys, now=NOW)
     restarted.verify("POST", "/decide", fresh, b"{}")
+
+
+def test_after_a_restart_only_the_future_skew_bound_can_look_fresh():
+    """Documents the bound: a request dated at most MAX_FUTURE_SKEW ahead of the new process's
+    start is fresh to it once; anything dated further ahead is refused outright."""
+    keys = PepKeys.from_token(TOKEN)
+    restarted = RequestVerifier(keys, clock=lambda: NOW)
+    _, ahead = _signed(keys, now=NOW + MAX_FUTURE_SKEW)
+    restarted.verify("POST", "/decide", ahead, b"{}")
+    with pytest.raises(RequestRejected):
+        restarted.verify("POST", "/decide", ahead, b"{}")
+    _, beyond = _signed(keys, now=NOW + MAX_FUTURE_SKEW + 1)
+    with pytest.raises(RequestRejected) as caught:
+        restarted.verify("POST", "/decide", beyond, b"{}")
+    assert caught.value.code == "PEP_CLOCK_SKEW"
 
 
 def test_replay_cache_is_bounded_and_fails_closed():
@@ -244,22 +260,22 @@ def test_replay_cache_is_bounded_and_fails_closed():
 def test_unauthenticated_requests_never_enter_the_replay_cache():
     keys = PepKeys.from_token(TOKEN)
     verifier = RequestVerifier(keys, clock=lambda: NOW, started=0, capacity=1)
-    _, forged = _signed(PepKeys.from_token("guess"))
+    _, wrong = _signed(PepKeys.from_token("guess"))
     for _ in range(5):
         with pytest.raises(RequestRejected):
-            verifier.verify("POST", "/decide", forged, b"{}")
+            verifier.verify("POST", "/decide", wrong, b"{}")
     _, headers = _signed(keys)
     verifier.verify("POST", "/decide", headers, b"{}")  # still room for the real sidecar
 
 
-# -- a port squatter that records the sidecar's traffic ---------------------------------------
+# -- replies are accepted only from the holder of the token ---------------------------------------
 
 
-class _Recorder(BaseHTTPRequestHandler):
-    """Binds the decision port and answers "allow" with the best MAC it can compute from
-    everything it has seen: the full request, headers and body."""
+class _NoToken(BaseHTTPRequestHandler):
+    """A decision service without the token: it MACs its replies with keys built only from
+    what the request carries (headers and body)."""
 
-    captured: list = []
+    received: list = []
     strategy = "request-mac"
 
     def log_message(self, *args):
@@ -267,13 +283,12 @@ class _Recorder(BaseHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         body = self.rfile.read(int(self.headers["Content-Length"]))
-        self.captured.append((dict(self.headers.items()), body))
+        self.received.append((dict(self.headers.items()), body))
         nonce = self.headers.get(NONCE_HEADER, "")
-        data = json.dumps({"decision": "allow", "authorization": "Bearer attacker"}).encode()
+        data = json.dumps({"decision": "allow", "authorization": "Bearer other"}).encode()
         material = {
-            # replaying the request MAC as the reply MAC
             "request-mac": lambda: self.headers.get(REQUEST_MAC_HEADER, ""),
-            # every key a v1-style design would have used, built from what was on the wire
+            # keys built only from the request
             "hash-of-headers": lambda: response_mac(
                 hashlib.sha256(json.dumps(dict(self.headers.items())).encode()).digest(),
                 nonce,
@@ -300,14 +315,14 @@ class _Recorder(BaseHTTPRequestHandler):
 
 
 @pytest.mark.parametrize("strategy", ["request-mac", "hash-of-headers", "request-mac-as-key"])
-def test_squatter_with_request_traffic_cannot_forge_a_reply(strategy, monkeypatch):
-    monkeypatch.setattr(_Recorder, "captured", [])
-    monkeypatch.setattr(_Recorder, "strategy", strategy)
-    server = HTTPServer(("127.0.0.1", 0), _Recorder)
+def test_replies_without_the_token_are_never_accepted(strategy, monkeypatch):
+    monkeypatch.setattr(_NoToken, "received", [])
+    monkeypatch.setattr(_NoToken, "strategy", strategy)
+    server = HTTPServer(("127.0.0.1", 0), _NoToken)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     client = HostClient(f"http://127.0.0.1:{server.server_address[1]}", TOKEN)
     try:
-        for _ in range(3):  # several recorded exchanges do not help
+        for _ in range(3):  # repeated exchanges change nothing
             with pytest.raises(PepError, match="failed authentication") as caught:
                 client.post("/decide", {"server": "tools", "tool": "lookup"})
             assert caught.value.status == 503
@@ -321,7 +336,7 @@ def test_squatter_with_request_traffic_cannot_forge_a_reply(strategy, monkeypatc
         keys.request.hex(),
         keys.reply.hex(),
     )
-    for headers, body in _Recorder.captured:
+    for headers, body in _NoToken.received:
         wire = json.dumps(headers) + body.decode()
         assert not any(secret in wire for secret in secrets_on_wire)
         assert "Authorization" not in headers
@@ -363,7 +378,7 @@ def test_service_round_trip_and_replay(service_server):
     client = HostClient(f"http://127.0.0.1:{server.server_address[1]}", TOKEN)
     assert client.post("/decide", {"server": "s"}) == {"decision": "allow", "authorization": None}
     assert client.post("/health", {}) == {"revision": "r"}
-    # Replaying a recorded request verbatim is refused before any decision is made.
+    # The same signed request a second time is refused before any decision is made.
     keys = PepKeys.from_token(TOKEN)
     body = b'{"server": "s"}'
     import time

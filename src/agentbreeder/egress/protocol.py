@@ -152,16 +152,20 @@ def rpc_error(request_id, rpc_code: int, code: str, message: str, **data) -> byt
 # Decision protocol v2. The per-deployment token never leaves the sidecar: both sides derive
 # separate request and reply keys from it (HKDF-SHA256, RFC 5869), the sidecar authenticates
 # every request with the request key, and the service authenticates every reply with the reply
-# key, bound to that request's nonce, method and path. Holding the port and seeing request
-# traffic yields only MACs, never key material.
+# key, bound to that request's nonce, method and path. Only MACs travel on the wire, never key
+# material.
 PROTOCOL_VERSION = 2
 VERSION_HEADER = "X-AgentBreeder-Pep-Version"
 NONCE_HEADER = "X-AgentBreeder-Nonce"
 TIMESTAMP_HEADER = "X-AgentBreeder-Timestamp"
 REQUEST_MAC_HEADER = "X-AgentBreeder-Request-Mac"
 MAC_HEADER = "X-AgentBreeder-Mac"  # the reply MAC
-MAX_CLOCK_SKEW = 30  # seconds, either direction
-REPLAY_CAPACITY = 65536  # nonces live at most 2 x MAX_CLOCK_SKEW seconds
+MAX_CLOCK_SKEW = 30  # seconds a request may be old
+# Seconds a request may be dated ahead of the host. Kept small: it bounds how much of a
+# sidecar's own traffic from just before a service restart can still look fresh to the new
+# process (whose in-memory nonce cache starts empty).
+MAX_FUTURE_SKEW = 5
+REPLAY_CAPACITY = 65536  # nonces live at most MAX_CLOCK_SKEW + MAX_FUTURE_SKEW seconds
 _HKDF_SALT = b"agentbreeder decision protocol"
 _REQUEST_LABEL = b"agentbreeder decision request v2"
 _REPLY_LABEL = b"agentbreeder decision reply v2"
@@ -278,20 +282,23 @@ def signed_headers(keys: PepKeys, method: str, path: str, body: bytes, now: floa
 class RequestVerifier:
     """Host side: version, freshness, MAC, then single use of the nonce. Fails closed.
 
-    The nonce cache is in memory, so a restarted service also refuses every request signed
-    before it started: a request captured earlier cannot be replayed into the new process."""
+    The nonce cache is in memory and a request is accepted at most once per process. A new
+    process also refuses requests dated before it started; after a restart, only requests dated
+    at most MAX_FUTURE_SKEW ahead of the host can still look fresh."""
 
     def __init__(
         self,
         keys: PepKeys,
         clock=time.time,
         window: int = MAX_CLOCK_SKEW,
+        future: int = MAX_FUTURE_SKEW,
         capacity: int = REPLAY_CAPACITY,
         started: int | None = None,
     ):
         self.keys = keys
         self.clock = clock
         self.window = window
+        self.future = future
         self.capacity = capacity
         self.started = int(clock()) if started is None else started
         self.seen: dict[str, int] = {}
@@ -313,14 +320,14 @@ class RequestVerifier:
             raise RequestRejected("PEP_AUTH_FAILED")
         now = self.clock()
         signed = int(timestamp)
-        if abs(now - signed) > self.window:
+        if now - signed > self.window or signed - now > self.future:
             raise RequestRejected("PEP_CLOCK_SKEW")
         expected = request_mac(self.keys.request, method, path, timestamp, nonce, body)
         if not hmac.compare_digest(mac.encode(), expected.encode()):
             raise RequestRejected("PEP_AUTH_FAILED")
         if signed < self.started:
             raise RequestRejected("PEP_REPLAYED")  # signed before this process could see it
-        # Only authenticated nonces enter the cache, so unauthenticated traffic cannot fill it.
+        # Only authenticated nonces are cached.
         # An entry lives until its timestamp leaves the window, after which the skew check
         # alone refuses a replay.
         while self._expiries and self._expiries[0][0] < now:

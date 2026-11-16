@@ -417,8 +417,8 @@ HANDLER_TIMEOUT = 5  # seconds per decision-service connection
 
 _REFUSAL_HINTS = {
     ProtocolMismatch.code: "a sidecar from another release called the decision service; redeploy",
-    "PEP_CLOCK_SKEW": "the sidecar's clock is more than 30 s off the host's (Docker VM clock?)",
-    "PEP_AUTH_FAILED": "a request without a valid MAC (not this deployment's sidecar)",
+    "PEP_CLOCK_SKEW": "sidecar clock over 30 s behind or 5 s ahead of the host (Docker VM clock?)",
+    "PEP_AUTH_FAILED": "missing or invalid request MAC",
     "PEP_REPLAYED": "a replayed request, or one signed before this process started",
     "PEP_REPLAY_CACHE_FULL": "too many requests in the replay window",
 }

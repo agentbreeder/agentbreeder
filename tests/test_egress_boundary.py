@@ -469,9 +469,9 @@ def test_service_healthy_requires_authenticated_reply_and_live_pid(
         pin(revision="other")
         assert not boundary.service_healthy(RECORD)
         pin()
-        seen["key"] = None  # squatter: right revision, no MAC
+        seen["key"] = None  # right revision, no MAC
         assert not boundary.service_healthy(RECORD)
-        seen["key"] = PepKeys.from_token("guess").reply  # squatter: wrong key
+        seen["key"] = PepKeys.from_token("guess").reply  # wrong key
         assert not boundary.service_healthy(RECORD)
         seen["key"] = keys.request  # the request key never authenticates a reply
         assert not boundary.service_healthy(RECORD)

@@ -351,22 +351,22 @@ through its environment, never its command line) and is never sent. Both sides d
 request and reply keys from it with HKDF-SHA256; the host's `0600` pin stores those derived keys
 (not the token), and the request key in it can sign requests, so the pin's file mode is what
 protects it. Each request carries an HMAC over its method, path, body digest, a random nonce and a
-timestamp; the service refuses a timestamp more than 30 seconds off, a reused nonce, a request
-signed before the service process started, or a bad MAC (`401`, nothing decided; the service log
-names the code). If every call fails with `PEP_CLOCK_SKEW`, the Docker VM's clock has drifted from
-the host's (for example after sleep); calls resume once it resyncs. Right after the service
-restarts, a sidecar whose clock lags the host's sees `PEP_REPLAYED` for up to that lag. Each reply
-carries an HMAC under the reply key over the request's nonce, method and path, its status and body
-digest. Because any local process can bind a loopback port, the sidecar refuses unauthenticated
-replies (503, nothing forwarded) and `reconcile` only trusts a service that answers its own
+timestamp; the service refuses a timestamp more than 30 seconds old or 5 seconds ahead of the host,
+a reused nonce, a request signed before the service process started, or a bad MAC (`401`, nothing
+decided; the service log names the code). If every call fails with `PEP_CLOCK_SKEW`, the Docker
+VM's clock has drifted from the host's (for example after sleep); calls resume once it resyncs.
+Right after the service restarts, a sidecar whose clock lags the host's sees `PEP_REPLAYED` for up
+to that lag. Each reply carries an HMAC under the reply key over the request's nonce, method and
+path, its status and body digest. The sidecar accepts a reply only with a valid reply MAC
+(otherwise 503, nothing forwarded) and `reconcile` only trusts a service that answers its own
 challenge and is still the process it started. The MACs give integrity and authenticity, not
-confidentiality: a process holding the port can read a request's decision fields (server, tool,
-arguments digest) and drop it, which fails closed. A sidecar and a service from different protocol
-versions never decide together: the service answers `426 PEP_PROTOCOL_MISMATCH`, the sidecar
-refuses with `PEP_PROTOCOL_MISMATCH`, and a deployment whose pin predates v2 fails `reconcile` with
-`RUNTIME_BOUNDARY_UNVERIFIED`; redeploy it. The service bounds each connection to 5 seconds, so an
-idle client cannot stall it. Verified on Docker Desktop (macOS); the Linux socket path is
-unit-tested but not yet verified on a Linux host.
+confidentiality: a request's decision fields (server, tool, arguments digest) are not encrypted,
+and a request that gets no authentic reply fails closed. A sidecar and a service from different
+protocol versions never decide together: the service answers `426 PEP_PROTOCOL_MISMATCH`, the
+sidecar refuses with `PEP_PROTOCOL_MISMATCH`, and a deployment whose pin predates v2 fails
+`reconcile` with `RUNTIME_BOUNDARY_UNVERIFIED`; redeploy it. The service bounds each connection to
+5 seconds. Verified on Docker Desktop (macOS); the Linux socket path is unit-tested but not yet
+verified on a Linux host.
 
 **Limits.** The sidecar trusts the Docker engine and host; a Docker-socket user can still bypass
 it. Upstream responses are capped at 16 MiB; a stream that exceeds it ends with an explicit
