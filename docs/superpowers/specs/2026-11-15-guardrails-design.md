@@ -369,6 +369,17 @@ claimed, until G2 lands.
   match, for every action. `mint` builds its body from field and metadata allow-lists for every key,
   and adds `allowed_routes` (chat completions and embeddings) under a required floor, for deploy
   and eval judge keys. `DRIFT_GUARDRAILS` in `reconcile` moves to G2 with the runtime.
+- **G1b real-Docker run (2026-11-15).** `tests/test_guardrails_docker.py` passed (1 test, 7 min 12 s,
+  from an image cache holding only alpine) on macOS 13 (Intel), Docker Engine 27.5.1 (Docker
+  Desktop), linux/amd64, through `services up`
+  with the built-in Presidio and `service/litellm@1.1.0` refs and a scripted provider. All ten steps
+  held: input masking, an input block that the provider never sees, an output check, embeddings,
+  request overrides still checked, key routes, an agent container unable to reach Presidio by name
+  or IP, no seeded PII in the gateway or Presidio logs, fail closed with the analyzer stopped, and
+  `GUARDRAILS_CHANGED` after a guardrails edit. With a key limited to chat and embeddings, these
+  routes returned 403: `/openai/v1/chat/completions`, `/openai_passthrough/v1/chat/completions`,
+  `/v1/moderations`, `/v1/responses`, `/v1/messages`, `/v1/completions`, `/key/generate` and
+  `/key/update`; `/v1/chat/completions/extra` returned 404. Not run on arm64.
 - **G2:** `RUNTIME_GUARDRAILS_UNSUPPORTED`; runtime events and spans in the next free runtime version, coded block replies, reconcile
   drift, docs, and a recorded run against real Gemini.
 
