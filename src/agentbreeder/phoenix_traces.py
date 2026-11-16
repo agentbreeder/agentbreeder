@@ -40,6 +40,11 @@ from agentbreeder import safe_text
 
 SCHEMA_VERSION = 1
 ATTRIBUTE = "agentbreeder.deployment_id"
+# runtime/adk@1.3.0 marks a turn a gateway fallback served (#1039): the fallback count and the
+# aliases that answered, on the root span.
+FALLBACKS = "agentbreeder.fallbacks"
+SERVED_BY = "agentbreeder.served_by"
+ALIAS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 CANDIDATE_SUFFIX = "-candidate"
 PHOENIX_REF = "service/phoenix@"
 NO_READ_KEY = ("service/phoenix@1.0.",)  # versions whose bootstrap mints no read key
@@ -295,6 +300,13 @@ def _count(value) -> int | None:
     return number if 0 <= number < 10**12 else None
 
 
+def _aliases(value) -> list[str]:
+    """`agentbreeder.served_by` as gateway aliases (at most 10); anything else is dropped."""
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [a for a in value[:10] if isinstance(a, str) and ALIAS.fullmatch(a)]
+
+
 def _when(value) -> datetime | None:
     if not isinstance(value, str) or len(value) > 64:
         return None
@@ -468,6 +480,8 @@ def summarize(
         "status": "error" if any(s["status"] == "error" for s in spans) else "ok",
         "session_id": show(attributes.get("session.id")),
         "turn_id": show(attributes.get("agent.turn_id")),
+        "fallbacks": _count(attributes.get(FALLBACKS)),
+        "served_by": _aliases(attributes.get(SERVED_BY)),
         "models": models,
         "tokens": {"prompt": prompt, "completion": completion, "total": prompt + completion},
         "tool_calls": [

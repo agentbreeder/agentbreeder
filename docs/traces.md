@@ -130,6 +130,8 @@ The console's Try it and eval report viewer use `traces --trace TRACE_ID --stack
       "status": "error",
       "session_id": "s-1",
       "turn_id": "turn-1",
+      "fallbacks": 0,
+      "served_by": ["support-model"],
       "models": ["gemini-2.5-flash"],
       "tokens": {"prompt": 321, "completion": 70, "total": 391},
       "tool_calls": [
@@ -156,6 +158,12 @@ The console's Try it and eval report viewer use `traces --trace TRACE_ID --stack
   when a span under it carries one of the same counts (the same model call's), and null when it
   has no counts.
 - `incomplete` is `true` when the trace has no root span yet (see *A trace still arriving*).
+- `fallbacks` and `served_by` come from the root span's `agentbreeder.fallbacks` and
+  `agentbreeder.served_by`, which `runtime/adk@1.3.0` sets (#1039, on `main`, not in a published
+  preview): how many gateway fallbacks the turn's model calls took, and the aliases that answered.
+  `fallbacks` is null and `served_by` is `[]` for older runtimes, a turn with no gateway call, or
+  a root span that hasn't arrived yet. Only gateway aliases are kept (at most 10). The text output
+  adds `fallback: ALIAS` to a turn a fallback served.
 - `status` is `ok|error|unset` per span (a span with `tool.error` is `error`), and `ok|error`
   per trace.
 - `notes` explain empty results: a deployment whose agent has no Phoenix project yet, one that
