@@ -79,6 +79,14 @@ every tool of the built-in `mcp/github` and `mcp/playwright` through the relay t
 upstream, with a fake gateway asking for the tools (`tests/test_mcp_builtins_live.py`, #748,
 2026-11-09). The full `deploy` path with a real model is not verified yet.
 
+`skills:` (optional, at most 10, on `main`, not in a published preview) lists skills by registry
+ref, one version per name: `- {ref: skill/refund-policy@1.0.0}` (see
+[registry.md](registry.md#skills-on-main-not-in-a-published-preview)). The refs are locked like
+any other. **No runtime loads skills yet**, so `build` refuses an agent with `skills:`
+(`RUNTIME_NO_SKILLS`) before the image is built or the lock is written; a later runtime version
+adds them (#1059). An agent file without `skills:` builds exactly as before; `validate --json`
+now prints `"skills": []` for it.
+
 ## Validation rules
 
 - **Strict YAML:** at most 64 KiB, unique keys, no anchors or aliases, and no unknown fields.

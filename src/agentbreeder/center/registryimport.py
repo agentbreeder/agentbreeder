@@ -19,7 +19,8 @@ PATH is a host path typed in the browser, so it is the riskiest input here:
   bidi and invisible characters removed); `import_answer` checks that again and refuses an answer
   that is not, so the browser never gets raw control or bidi characters from here.
 
-Code-bearing kinds (`registry.CODE_KINDS`: tool, service, eval, mcp, runtime) take the three-tier
+Versions that are code (`registry.runs_code`: the tool, service, eval, mcp and runtime kinds, and a
+skill whose files hold scripts, decided from the staged files) take the three-tier
 confirm (`onboard.py`): the preview, the "this code runs in agents" checkbox, the button. The
 server learns the kind only from the CLI, so before a write it runs its own fresh dry run and
 refuses one of those kinds without `code_confirmed: true` (`Center.registry_import`). The confirm
@@ -29,8 +30,8 @@ is a UX control, not a boundary (spec §10.1 I1): an imported version takes effe
 `registry fork --json` prints the same object, so `Center.registry_fork` checks its answers with
 `import_answer` too (#825, part 2).
 
-Pure request and answer checks; imports only `registry` and `center.files` (on the server's
-allowlist, `tests/test_center_reads.py`).
+Pure request and answer checks; imports only `registry`, `strict_yaml` and `center.files` (on
+the server's allowlist, `tests/test_center_reads.py`).
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from agentbreeder import registry
+from agentbreeder import registry, strict_yaml
 from agentbreeder.center.files import BadRequest
 
 MAX_PATH = 4096
@@ -150,6 +151,24 @@ def _file(item: object) -> dict:
     return {key: item[key] for key in FILE_KEYS if key in item}
 
 
+def _skill_has_code(files: object) -> bool:
+    """Fail closed: a listed `scripts` entry, or a manifest that is missing, unreadable or
+    declares `scripts:` (as `skill_check.runs_code`, from the dry run's file list)."""
+    if not isinstance(files, list):
+        return True
+    by_path = {item.get("path"): item for item in files if isinstance(item, dict)}
+    if any(isinstance(p, str) and (p == "scripts" or p.startswith("scripts/")) for p in by_path):
+        return True
+    manifest = by_path.get("manifest.yaml")
+    text = manifest.get("text") if isinstance(manifest, dict) else None
+    if not isinstance(text, str):
+        return True
+    try:
+        return "scripts" in strict_yaml.load_text(text)
+    except (ValueError, RecursionError):
+        return True
+
+
 def import_answer(data: object, *, dry_run: bool) -> dict:
     """The CLI's `registry import --json` object, checked against the contract (docs/registry.md),
     or BadOutput. A dry run must list the staged files; a write must not."""
@@ -171,7 +190,15 @@ def import_answer(data: object, *, dry_run: bool) -> dict:
         raise BadOutput("root_kind is unknown")
     if data["dry_run"] is not dry_run:
         raise BadOutput("dry_run is not what was asked")
-    if data["runs_code"] is not registry.runs_code(ref.kind):
+    if ref.kind == registry.SKILL_KIND:
+        # The kind alone does not say (skills spec §5.2): the CLI decides from the staged
+        # files. A dry run's answer must agree with the files it lists; the write is bound to
+        # that dry run's digest, and the server asks the code confirm from its own dry run.
+        if not isinstance(data["runs_code"], bool):
+            raise BadOutput("runs_code is not true or false")
+        if dry_run and not data["runs_code"] and _skill_has_code(data.get("files")):
+            raise BadOutput("runs_code is false for a skill that lists scripts")
+    elif data["runs_code"] is not (ref.kind in registry.CODE_KINDS):
         raise BadOutput("runs_code does not match the kind")
     files: Any = data.get("files")
     if dry_run:

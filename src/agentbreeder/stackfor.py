@@ -219,7 +219,7 @@ def _refs(agent, directory: Path) -> tuple[dict, ...]:
                 "ref": text,
                 "kind": hit.ref.kind,
                 "root_kind": registry.root_kind(hit.root, directory),
-                "runs_code": registry.runs_code(hit.ref.kind),
+                "runs_code": registry.runs_code(hit.ref.kind, hit.path),
             }
         )
     return tuple(result)
