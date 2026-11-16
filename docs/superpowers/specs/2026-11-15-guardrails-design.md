@@ -640,6 +640,23 @@ The question: an environment-level floor plus agent-level guardrails from `agent
   The environment floor stays the `default_on` set from §4. An agent can add checks but cannot take
   any away. The agent's set would then join `guardrails_sha256` and the Cedar `guardrails` attribute.
   This needs its own spec delta before G1b.
+- **As built (#1053, owner decisions 2026-11-15 and 2026-11-16: policy engine, additive only, no
+  opt-out).** The config's `policies:` and `policy_attachments:` stay refused. Instead, deploy
+  uses the policy API with the master key: `POST /policies` (`policy_name` = the key alias,
+  `guardrails_add` only) and `POST /policies/attachments` (`keys: [alias]` only). It does this after
+  `/key/generate`, because LiteLLM 1.106.2 refuses an attachment naming a missing alias, and
+  before the key value is written. A failed attach revokes the key. Remove revokes the key, then
+  deletes the attachment and every version of the policy (`/policies/name/<alias>/all-versions`).
+  The proxy re-syncs DB policies into every worker, replacing what it held, so a delete takes
+  effect. Optional guardrails are `default_on: false` entries in the same reviewed list (they join
+  `guardrails_sha256`). The review refuses an optional BLOCK of an entity that any `default_on` or
+  other optional guardrail masks, because attached guardrails run after the globals.
+  `services up` records `optional` only when the setup checks pass. The gate denies other names
+  with `GUARDRAIL_UNDEFINED`, Cedar gets `agent:<name>`, and the mint audit records
+  `GUARDRAILS_EFFECTIVE`. `reconcile` reports `DRIFT_GUARDRAILS` when the deployment's policy is
+  missing, wider or different, or when any policy that can remove guardrails reaches the key.
+  An agent key cannot call the policy routes: they are not among the routes LiteLLM allows a
+  non-admin key, and the key's `allowed_routes` leaves them out as well.
 
 ### 12.9 Not run in G0
 

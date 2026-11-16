@@ -374,6 +374,9 @@ class Plan:
                         sorted(params.get("presidio_score_thresholds", {}).items())
                     ),
                     "timeout": params.get("timeout"),
+                    # Only when false (#1053), so stacks without agent guardrails keep their
+                    # grant digest.
+                    **({"default_on": False} if params.get("default_on") is False else {}),
                 }
                 for entry in review.guardrails
                 for params in (entry["litellm_params"],)
@@ -404,6 +407,23 @@ class Plan:
 
     def _guardrails_problem(self, review: gateway_keys.ConfigReview | None) -> str | None:
         """Why a floor on this stack would not work, or None (spec §4.2, §12.7)."""
+        problem = self._guardrails_setup_problem(review)
+        if problem or review is None:
+            return problem
+        try:
+            review.guardrails_effective(True)
+        except gateway_keys.GatewayError as error:
+            return (
+                str(error)
+                .removeprefix(f"[{error.code}] ")
+                .removeprefix("guardrails are required: ")
+            )
+        return None
+
+    def _guardrails_setup_problem(self, review: gateway_keys.ConfigReview | None) -> str | None:
+        """Why no guardrail on this stack would run as reviewed, or None: the built-in gateway
+        with the built-in Presidio services, LITELLM_LOG at WARNING or above and the §4.6
+        logging settings. Agent guardrails (#1053) need this, not a default_on check."""
         gateway = self.locked.stack.environment.gateway
         if review is None:
             return f"{gateway} has no config"
@@ -418,15 +438,7 @@ class Plan:
         level = self.environment(gateway).get("LITELLM_LOG", "")
         if level.upper() not in ("WARNING", "ERROR", "CRITICAL"):
             return f"{gateway} must set LITELLM_LOG to WARNING or above"
-        try:
-            review.guardrails_effective(True)
-        except gateway_keys.GatewayError as error:
-            return (
-                str(error)
-                .removeprefix(f"[{error.code}] ")
-                .removeprefix("guardrails are required: ")
-            )
-        return None
+        return review.logging_problem()
 
     def guardrails_record(self) -> dict | None:
         """What `services up` writes as the environment's `guardrails` (#1024 G1b): the stack's
@@ -458,6 +470,11 @@ class Plan:
         if review is not None:
             record["running_sha256"] = review.guardrails_sha256
             record["effective"] = [] if problem else review.effective()
+            # Agent guardrails (#1053): the optional ones a deployment may add, only when
+            # they would run as reviewed. Left out when none, so other stacks keep their grant.
+            optional = [] if self._guardrails_setup_problem(review) else review.optional()
+            if optional:
+                record["optional"] = optional
         return record
 
     def grant(self, environment: str) -> dict:
@@ -548,7 +565,8 @@ def _guardrails_lines(grant: dict) -> list[str]:
             if entry.get("timeout") is not None:
                 extra.append(f"timeout {entry['timeout']:g}s")
             suffix = f" ({'; '.join(extra)})" if extra else ""
-            lines.append(f"    {entry['name']} ({entry['mode']}): {entities}{suffix}")
+            scope = ", agents that name it" if entry.get("default_on") is False else ""
+            lines.append(f"    {entry['name']} ({entry['mode']}{scope}): {entities}{suffix}")
         logging = ", ".join(
             f"{k.split('.', 1)[1]} {str(v).lower()}"
             for k, v in config.get("guardrails_logging", {}).items()

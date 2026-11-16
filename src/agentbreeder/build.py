@@ -268,9 +268,9 @@ def _where(error: ValidationError) -> str:
 
 def template(agent: AgentFile, serving: dict, aliases: list[str]) -> DeployTemplate:
     """The deploy fields derived from the agent and its runtime only (spec §5.4): port,
-    health_path, aliases, budget_usd, rpm and mcp_access. It is environment-neutral, so a
-    released package can carry it; identity, secrets, the gateway, target and image are
-    `bind`'s, and the template schema has no field for them."""
+    health_path, aliases, budget_usd, rpm, mcp_access and guardrails (#1053). It is
+    environment-neutral, so a released package can carry it; identity, secrets, the gateway,
+    target and image are `bind`'s, and the template schema has no field for them."""
     try:
         return DeployTemplate.model_validate(
             {
@@ -280,6 +280,7 @@ def template(agent: AgentFile, serving: dict, aliases: list[str]) -> DeployTempl
                 "budget_usd": agent.model.budget_usd,
                 "rpm": agent.model.rpm,
                 "mcp_access": [{"ref": m.ref, "tools": list(m.tools)} for m in agent.mcp],
+                "guardrails": list(agent.guardrails) or None,
             }
         )
     except ValidationError as error:
@@ -320,6 +321,8 @@ def bind(
     data["model_access"] = access
     if fields["mcp_access"]:  # the manifest's mcp_access needs at least one entry
         data["mcp_access"] = fields["mcp_access"]
+    if fields.get("guardrails"):  # #1053: left out when the agent names none
+        data["guardrails"] = list(fields["guardrails"])
     try:
         Manifest.model_validate(data)  # generated manifests must satisfy the deploy contract
     except ValidationError as error:

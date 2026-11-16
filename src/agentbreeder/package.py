@@ -40,7 +40,7 @@ from pydantic import (
 
 from agentbreeder.agentfile import MAX_BYTES as AGENT_YAML_LIMIT
 from agentbreeder.agentfile import NAME_PATTERN
-from agentbreeder.manifest import _ALIAS, _ENVIRONMENT, McpAccess
+from agentbreeder.manifest import _ALIAS, _ENVIRONMENT, _GUARDRAIL, McpAccess
 from agentbreeder.registry import (
     KINDS,
     PACKAGE_KIND,
@@ -133,8 +133,11 @@ class DeployTemplate(_Strict):
     budget_usd: float | None = Field(gt=0, le=100000)
     rpm: int | None = Field(ge=1, le=100000)
     mcp_access: tuple[McpAccess, ...] = Field(max_length=10)
+    # Agent-level guardrails (#1053). None (left out of package.json) when the agent names
+    # none, so packages released before the field keep their bytes.
+    guardrails: tuple[str, ...] | None = Field(default=None, min_length=1, max_length=10)
 
-    @field_validator("aliases", "mcp_access", mode="before")
+    @field_validator("aliases", "mcp_access", "guardrails", mode="before")
     @classmethod
     def _listed(cls, value: object) -> object:
         # Built from Python lists (build, release) as well as JSON arrays.
@@ -150,6 +153,11 @@ class DeployTemplate(_Strict):
         servers = [entry.ref.split("@")[0] for entry in self.mcp_access]
         if len(set(servers)) != len(servers):
             raise ValueError("mcp_access names each MCP server once")
+        if self.guardrails is not None and (
+            any(not re.fullmatch(_GUARDRAIL, name) for name in self.guardrails)
+            or len(set(self.guardrails)) != len(self.guardrails)
+        ):
+            raise ValueError("guardrails must be unique gateway guardrail names")
         return self
 
 
@@ -175,7 +183,9 @@ class Package(_Strict):
 
     def to_bytes(self) -> bytes:
         """The canonical `package.json` bytes: field order as declared, two-space indent."""
-        return (json.dumps(self.model_dump(mode="json"), indent=2) + "\n").encode()
+        exclude = {"deploy": {"guardrails"}} if self.deploy.guardrails is None else None
+        data = self.model_dump(mode="json", exclude=exclude)
+        return (json.dumps(data, indent=2) + "\n").encode()
 
 
 def _no_duplicates(pairs: list[tuple[str, object]]) -> dict:

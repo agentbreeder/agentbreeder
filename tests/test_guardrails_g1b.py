@@ -114,7 +114,7 @@ def test_each_unlisted_guardrail_field_is_refused(tmp_path, field):
         ({"guardrail": "aporia"}, "presidio only"),
         ({"mode": "during_call"}, "mode"),
         ({"mode": "post_call_streaming"}, "mode"),
-        ({"default_on": False}, "default_on"),
+        ({"default_on": None}, "default_on"),  # false is an agent guardrail (#1053)
         ({"default_on": "true"}, "default_on"),
         ({"presidio_language": "es"}, "en only"),
         ({"pii_entities_config": {}}, "pii_entities_config"),

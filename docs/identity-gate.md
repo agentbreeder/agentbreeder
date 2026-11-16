@@ -171,9 +171,13 @@ environments:
       effective: [presidio:pre_call]
 ```
 
-This is the floor every deployment in the environment has to meet. A later slice lets `agent.yaml`
-add guardrails above the floor, never remove or weaken them. `services up` writes `running_sha256`
-and `effective` from the gateway config copy it mounts (see
+This is the floor every deployment in the environment has to meet. An `agent.yaml` can add
+guardrails above the floor (#1053), never remove or weaken them. `services up` lists the ones it
+may add in `optional`, and the gate denies any other name with `GUARDRAIL_UNDEFINED`, even in
+audit mode. The Cedar `guardrails` set then also holds `agent:<name>` for each one, so a bundle
+can require one, for example `resource.guardrails.contains("agent:agent-ip-block")`.
+
+`services up` writes `running_sha256` and `effective` from the gateway config copy it mounts (see
 [services.md](services.md#gateway-guardrails-preview)). With `required: true` the gate denies,
 even in audit mode:
 

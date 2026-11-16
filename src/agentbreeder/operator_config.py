@@ -138,6 +138,18 @@ class GuardrailsFloor(_Strict):
     effective: list[Literal["presidio:pre_call", "presidio:post_call"]] = Field(
         default_factory=list, max_length=2
     )
+    # The optional (not default_on) guardrails of the running config that agents may add in
+    # `agent.yaml` (#1053), written by `services up` only when they would run as reviewed.
+    optional: list[str] = Field(default_factory=list, max_length=50)
+
+    @field_validator("optional")
+    @classmethod
+    def guardrail_names(cls, value: list[str]) -> list[str]:
+        if any(not re.fullmatch(r"[A-Za-z0-9._:/-]{1,128}", name) for name in value) or len(
+            set(value)
+        ) != len(value):
+            raise ValueError("guardrails.optional lists unique guardrail names")
+        return value
 
     @model_validator(mode="after")
     def names_the_reviewed_hash(self):
@@ -145,8 +157,8 @@ class GuardrailsFloor(_Strict):
             raise ValueError("a required guardrails floor needs approved_sha256")
         if len(set(self.effective)) != len(self.effective):
             raise ValueError("guardrails.effective lists each check once")
-        if self.effective and self.running_sha256 is None:
-            raise ValueError("guardrails.effective comes with running_sha256")
+        if (self.effective or self.optional) and self.running_sha256 is None:
+            raise ValueError("guardrails.effective and optional come with running_sha256")
         return self
 
     @property
