@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import http.client
 import ipaddress
 import json
@@ -18,13 +17,17 @@ from agentbreeder.egress import probe as probe_module
 from agentbreeder.egress.protocol import (
     MAC_HEADER,
     NONCE_HEADER,
+    PROTOCOL_VERSION,
+    VERSION_HEADER,
     HostClient,
     PepError,
+    PepKeys,
+    RequestRejected,
+    RequestVerifier,
     arguments_digest,
     parse_request,
     response_mac,
     rpc_error,
-    token_matches,
 )
 from agentbreeder.egress.sidecar import (
     RateLimiter,
@@ -112,31 +115,35 @@ def test_parse_rejects_oversize_and_accepts_notification():
     assert request.notification and request.tool is None
 
 
-def test_rpc_error_and_token_match():
+def test_rpc_error():
     error = json.loads(rpc_error(7, -32003, "X", "no", held_call_id="h"))
     assert error["id"] == 7 and error["error"]["data"] == {"reason": "X", "held_call_id": "h"}
-    import hashlib
-
-    digest = hashlib.sha256(b"t").hexdigest()
-    assert token_matches("t", digest) and not token_matches("u", digest)
-    assert not token_matches(None, digest)
 
 
 class _Echo(BaseHTTPRequestHandler):
-    key: str | None = hashlib.sha256(b"tok").hexdigest()  # None: an unauthenticated squatter
+    """A v2 decision service for `tok`. `reply_key` None: an unauthenticated squatter."""
+
+    keys = PepKeys.from_token("tok")
+    reply_key: bytes | None = keys.reply
 
     def log_message(self, *args):
         pass
 
     def do_POST(self):  # noqa: N802
         body = self.rfile.read(int(self.headers["Content-Length"]))
-        status = 200 if self.headers["Authorization"] == "Bearer tok" else 401
+        try:
+            RequestVerifier(self.keys).verify("POST", self.path, self.headers, body)
+            status = 200
+        except RequestRejected:
+            status = 401
         data = json.dumps({"path": self.path, "body": json.loads(body)}).encode()
         self.send_response(status)
         self.send_header("Content-Length", str(len(data)))
-        if self.key:
+        self.send_header(VERSION_HEADER, str(PROTOCOL_VERSION))
+        if self.reply_key:
             nonce = self.headers[NONCE_HEADER]
-            self.send_header(MAC_HEADER, response_mac(self.key, nonce, status, data))
+            mac = response_mac(self.reply_key, nonce, "POST", self.path, status, data)
+            self.send_header(MAC_HEADER, mac)
         self.end_headers()
         self.wfile.write(data)
 
@@ -176,8 +183,9 @@ def test_host_client_fails_closed(tmp_path):
         HostClient("ftp://x", "t").post("/decide", {})
     server = HTTPServer(("127.0.0.1", 0), _Echo)
     threading.Thread(target=server.handle_request, daemon=True).start()
-    with pytest.raises(PepError, match="refused"):
+    with pytest.raises(PepError, match="refused") as caught:
         HostClient(f"http://127.0.0.1:{server.server_address[1]}", "wrong").post("/x", {})
+    assert caught.value.status == 503
     server.server_close()
 
 
@@ -582,12 +590,15 @@ def test_overlong_session_id_rejected_not_truncated(upstream):
 
 
 @pytest.mark.parametrize(
-    "key", [None, hashlib.sha256(b"guess").hexdigest()], ids=["no-mac", "wrong-key"]
+    "key",
+    [None, PepKeys.from_token("guess").reply, PepKeys.from_token("tok").request],
+    ids=["no-mac", "wrong-token", "request-key"],
 )
 def test_host_client_rejects_unauthenticated_decision_service(key, monkeypatch):
     """A local process holding the decision port (Docker Desktop TCP mode) must not be able
-    to issue decisions: replies need a MAC keyed by the token hash over the request nonce."""
-    monkeypatch.setattr(_Echo, "key", key)
+    to issue decisions: replies need a MAC under the reply key, which is never on the wire
+    and differs from the request key."""
+    monkeypatch.setattr(_Echo, "reply_key", key)
     server = HTTPServer(("127.0.0.1", 0), _Echo)
     threading.Thread(target=server.handle_request, daemon=True).start()
     try:
@@ -598,12 +609,14 @@ def test_host_client_rejects_unauthenticated_decision_service(key, monkeypatch):
         server.server_close()
 
 
-def test_response_mac_binds_nonce_status_and_body():
-    key = hashlib.sha256(b"tok").hexdigest()
-    mac = response_mac(key, "a" * 32, 200, b"{}")
-    assert mac != response_mac(key, "b" * 32, 200, b"{}")
-    assert mac != response_mac(key, "a" * 32, 409, b"{}")
-    assert mac != response_mac(key, "a" * 32, 200, b'{"decision":"allow"}')
+def test_response_mac_binds_nonce_request_status_and_body():
+    key = PepKeys.from_token("tok").reply
+    mac = response_mac(key, "a" * 32, "POST", "/decide", 200, b"{}")
+    assert mac != response_mac(key, "b" * 32, "POST", "/decide", 200, b"{}")
+    assert mac != response_mac(key, "a" * 32, "GET", "/decide", 200, b"{}")
+    assert mac != response_mac(key, "a" * 32, "POST", "/health", 200, b"{}")
+    assert mac != response_mac(key, "a" * 32, "POST", "/decide", 409, b"{}")
+    assert mac != response_mac(key, "a" * 32, "POST", "/decide", 200, b'{"decision":"allow"}')
 
 
 @pytest.mark.parametrize(

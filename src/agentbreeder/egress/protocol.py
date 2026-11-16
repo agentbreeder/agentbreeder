@@ -7,11 +7,13 @@ must equal the body; a missing header or a mismatch is a deny, never an inferred
 from __future__ import annotations
 
 import hashlib
+import heapq
 import hmac
 import http.client
 import json
 import secrets
 import socket
+import time
 from dataclasses import dataclass
 
 # Methods the PEP understands. Only tools/call is policy-evaluated; the rest carry no tool effect
@@ -147,8 +149,83 @@ def rpc_error(request_id, rpc_code: int, code: str, message: str, **data) -> byt
     ).encode()
 
 
+# Decision protocol v2. The per-deployment token never leaves the sidecar: both sides derive
+# separate request and reply keys from it (HKDF-SHA256, RFC 5869), the sidecar authenticates
+# every request with the request key, and the service authenticates every reply with the reply
+# key, bound to that request's nonce, method and path. Holding the port and seeing request
+# traffic yields only MACs, never key material.
+PROTOCOL_VERSION = 2
+VERSION_HEADER = "X-AgentBreeder-Pep-Version"
 NONCE_HEADER = "X-AgentBreeder-Nonce"
-MAC_HEADER = "X-AgentBreeder-Mac"
+TIMESTAMP_HEADER = "X-AgentBreeder-Timestamp"
+REQUEST_MAC_HEADER = "X-AgentBreeder-Request-Mac"
+MAC_HEADER = "X-AgentBreeder-Mac"  # the reply MAC
+MAX_CLOCK_SKEW = 30  # seconds, either direction
+REPLAY_CAPACITY = 65536  # nonces live at most 2 x MAX_CLOCK_SKEW seconds
+_HKDF_SALT = b"agentbreeder decision protocol"
+_REQUEST_LABEL = b"agentbreeder decision request v2"
+_REPLY_LABEL = b"agentbreeder decision reply v2"
+
+
+class ProtocolMismatch(ValueError):
+    """The other side, or the pin, speaks another decision-protocol version."""
+
+    code = "PEP_PROTOCOL_MISMATCH"
+
+
+class RequestRejected(Exception):
+    """A decision-service request that failed authentication. Nothing is decided."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def hkdf_sha256(ikm: bytes, info: bytes, salt: bytes = _HKDF_SALT, length: int = 32) -> bytes:
+    prk = hmac.new(salt, ikm, hashlib.sha256).digest()
+    output, block, counter = b"", b"", 1
+    while len(output) < length:
+        block = hmac.new(prk, block + info + bytes([counter]), hashlib.sha256).digest()
+        output += block
+        counter += 1
+    return output[:length]
+
+
+@dataclass(frozen=True, repr=False)
+class PepKeys:
+    request: bytes
+    reply: bytes
+
+    def __repr__(self) -> str:  # never print key material
+        return "PepKeys(<redacted>)"
+
+    @classmethod
+    def from_token(cls, token: str) -> PepKeys:
+        if not token:
+            raise ValueError("empty decision-service token")
+        ikm = token.encode()
+        return cls(hkdf_sha256(ikm, _REQUEST_LABEL), hkdf_sha256(ikm, _REPLY_LABEL))
+
+    def pin_fields(self) -> dict:
+        """What the host keeps in its 0600 pin: the derived keys, never the token."""
+        return {
+            "pep_protocol": PROTOCOL_VERSION,
+            "request_key": self.request.hex(),
+            "reply_key": self.reply.hex(),
+        }
+
+    @classmethod
+    def from_pin(cls, pin: dict) -> PepKeys:
+        if pin.get("pep_protocol") != PROTOCOL_VERSION:
+            raise ProtocolMismatch("The egress pin predates decision protocol v2; redeploy")
+        invalid = "The egress pin has no valid decision keys; redeploy"
+        try:
+            request, reply = bytes.fromhex(pin["request_key"]), bytes.fromhex(pin["reply_key"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ProtocolMismatch(invalid) from error
+        if len(request) != 32 or len(reply) != 32 or request == reply:
+            raise ProtocolMismatch(invalid)
+        return cls(request, reply)
 
 
 def valid_nonce(nonce: str | None) -> bool:
@@ -159,26 +236,103 @@ def valid_nonce(nonce: str | None) -> bool:
     )
 
 
-def response_mac(token_sha256: str, nonce: str, status: int, body: bytes) -> str:
-    """Authenticates a decision-service reply to the caller that sent `nonce`.
-
-    Keyed by the token hash, which the host keeps in its 0600 pin and the sidecar derives from
-    its token: a process that merely holds the loopback port (Docker Desktop TCP mode) can
-    neither answer health checks nor issue decisions."""
-    message = nonce.encode() + b"\n" + str(status).encode() + b"\n" + body
-    return hmac.new(token_sha256.encode(), message, hashlib.sha256).hexdigest()
+def _mac(key: bytes, *fields: str) -> str:
+    return hmac.new(key, "\n".join(fields).encode(), hashlib.sha256).hexdigest()
 
 
-def response_authentic(token_sha256: str, nonce: str, status: int, body: bytes, mac) -> bool:
-    expected = response_mac(token_sha256, nonce, status, body)
-    return isinstance(mac, str) and hmac.compare_digest(mac, expected)
+def _digest(body: bytes) -> str:
+    return hashlib.sha256(body).hexdigest()
 
 
-def token_matches(presented: str | None, expected_sha256: str) -> bool:
-    if not presented:
-        return False
-    digest = hashlib.sha256(presented.encode()).hexdigest()
-    return hmac.compare_digest(digest, expected_sha256)
+def request_mac(
+    key: bytes, method: str, path: str, timestamp: str, nonce: str, body: bytes
+) -> str:
+    return _mac(key, f"v{PROTOCOL_VERSION} request", method, path, timestamp, nonce, _digest(body))
+
+
+def response_mac(key: bytes, nonce: str, method: str, path: str, status: int, body: bytes) -> str:
+    """Authenticates a reply to the request that carried `nonce` (and `method`/`path`), so a
+    reply to one request, or to the unauthenticated `GET /healthz`, cannot answer another."""
+    return _mac(key, f"v{PROTOCOL_VERSION} reply", nonce, method, path, str(status), _digest(body))
+
+
+def response_authentic(
+    key: bytes, nonce: str, method: str, path: str, status: int, body: bytes, mac
+) -> bool:
+    expected = response_mac(key, nonce, method, path, status, body)
+    return isinstance(mac, str) and hmac.compare_digest(mac.encode(), expected.encode())
+
+
+def signed_headers(keys: PepKeys, method: str, path: str, body: bytes, now: float):
+    """Headers that authenticate one request; returns `(nonce, headers)`."""
+    nonce = secrets.token_hex(16)
+    timestamp = str(int(now))
+    return nonce, {
+        VERSION_HEADER: str(PROTOCOL_VERSION),
+        NONCE_HEADER: nonce,
+        TIMESTAMP_HEADER: timestamp,
+        REQUEST_MAC_HEADER: request_mac(keys.request, method, path, timestamp, nonce, body),
+    }
+
+
+class RequestVerifier:
+    """Host side: version, freshness, MAC, then single use of the nonce. Fails closed.
+
+    The nonce cache is in memory, so a restarted service also refuses every request signed
+    before it started: a request captured earlier cannot be replayed into the new process."""
+
+    def __init__(
+        self,
+        keys: PepKeys,
+        clock=time.time,
+        window: int = MAX_CLOCK_SKEW,
+        capacity: int = REPLAY_CAPACITY,
+        started: int | None = None,
+    ):
+        self.keys = keys
+        self.clock = clock
+        self.window = window
+        self.capacity = capacity
+        self.started = int(clock()) if started is None else started
+        self.seen: dict[str, int] = {}
+        self._expiries: list[tuple[int, str]] = []  # heap, so pruning is not O(cache)
+
+    def verify(self, method: str, path: str, headers, body: bytes) -> str:
+        if headers.get(VERSION_HEADER) != str(PROTOCOL_VERSION):
+            raise RequestRejected(ProtocolMismatch.code)
+        nonce, timestamp = headers.get(NONCE_HEADER), headers.get(TIMESTAMP_HEADER)
+        mac = headers.get(REQUEST_MAC_HEADER)
+        if (
+            not valid_nonce(nonce)
+            or not isinstance(timestamp, str)
+            or not timestamp.isascii()
+            or not timestamp.isdigit()
+            or len(timestamp) > 12
+            or not isinstance(mac, str)
+        ):
+            raise RequestRejected("PEP_AUTH_FAILED")
+        now = self.clock()
+        signed = int(timestamp)
+        if abs(now - signed) > self.window:
+            raise RequestRejected("PEP_CLOCK_SKEW")
+        expected = request_mac(self.keys.request, method, path, timestamp, nonce, body)
+        if not hmac.compare_digest(mac.encode(), expected.encode()):
+            raise RequestRejected("PEP_AUTH_FAILED")
+        if signed < self.started:
+            raise RequestRejected("PEP_REPLAYED")  # signed before this process could see it
+        # Only authenticated nonces enter the cache, so unauthenticated traffic cannot fill it.
+        # An entry lives until its timestamp leaves the window, after which the skew check
+        # alone refuses a replay.
+        while self._expiries and self._expiries[0][0] < now:
+            _, old = heapq.heappop(self._expiries)
+            self.seen.pop(old, None)
+        if nonce in self.seen:
+            raise RequestRejected("PEP_REPLAYED")
+        if len(self.seen) >= self.capacity:
+            raise RequestRejected("PEP_REPLAY_CACHE_FULL")
+        self.seen[nonce] = signed + self.window
+        heapq.heappush(self._expiries, (signed + self.window, nonce))
+        return nonce
 
 
 class _UnixConnection(http.client.HTTPConnection):
@@ -192,14 +346,31 @@ class _UnixConnection(http.client.HTTPConnection):
         self.sock.connect(self.path)
 
 
-class HostClient:
-    """Calls the host decision service. `address` is `unix:/path` or `http://host:port`."""
+_REFUSALS = frozenset(
+    {"PEP_AUTH_FAILED", "PEP_CLOCK_SKEW", "PEP_REPLAYED", "PEP_REPLAY_CACHE_FULL"}
+)
 
-    def __init__(self, address: str, token: str, timeout: float = DECISION_TIMEOUT):
+
+def _refusal_code(data: bytes) -> str:
+    try:
+        code = json.loads(data.decode()).get("code")
+    except (ValueError, AttributeError):
+        return "HOST_UNAVAILABLE"
+    return code if code in _REFUSALS else "HOST_UNAVAILABLE"
+
+
+class HostClient:
+    """Calls the host decision service. `address` is `unix:/path` or `http://host:port`.
+
+    Keeps only the derived keys; the token itself is never sent or stored here."""
+
+    def __init__(
+        self, address: str, token: str, timeout: float = DECISION_TIMEOUT, clock=time.time
+    ):
         self.address = address
-        self.token = token
-        self.key = hashlib.sha256(token.encode()).hexdigest()
+        self.keys = PepKeys.from_token(token)
         self.timeout = timeout
+        self.clock = clock
 
     def _connection(self) -> http.client.HTTPConnection:
         if self.address.startswith("unix:"):
@@ -210,32 +381,43 @@ class HostClient:
         return http.client.HTTPConnection(host, int(port), timeout=self.timeout)
 
     def post(self, path: str, body: dict) -> dict:
-        nonce = secrets.token_hex(16)
+        encoded = json.dumps(body).encode()
+        nonce, signed = signed_headers(self.keys, "POST", path, encoded, self.clock())
         try:
             connection = self._connection()
             try:
                 connection.request(
                     "POST",
                     path,
-                    body=json.dumps(body).encode(),
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {self.token}",
-                        NONCE_HEADER: nonce,
-                    },
+                    body=encoded,
+                    headers={"Content-Type": "application/json", **signed},
                 )
                 response = connection.getresponse()
                 data = response.read(64 * 1024)
                 mac = response.getheader(MAC_HEADER)
+                version = response.getheader(VERSION_HEADER)
             finally:
                 connection.close()
         except (OSError, ValueError, http.client.HTTPException) as error:
             raise PepError(
                 "HOST_UNAVAILABLE", "Decision service unavailable; call not forwarded", 503, -32005
             ) from error
+        if version != str(PROTOCOL_VERSION) or response.status == 426:
+            # Unauthenticated, so it only ever refuses: a sidecar and a decision service from
+            # different releases never decide anything together. Redeploy to match them.
+            raise PepError(
+                ProtocolMismatch.code,
+                "Decision service speaks another protocol version; call not forwarded",
+                503,
+                -32005,
+            )
+        if response.status == 401:
+            # Unauthenticated too, so only a known refusal code is surfaced, as a refusal.
+            code = _refusal_code(data)
+            raise PepError(code, f"Decision service refused the request ({code})", 503, -32005)
         if response.status != 200:
             raise PepError("HOST_UNAVAILABLE", "Decision service refused the request", 503, -32005)
-        if not response_authentic(self.key, nonce, response.status, data, mac):
+        if not response_authentic(self.keys.reply, nonce, "POST", path, 200, data, mac):
             raise PepError(
                 "HOST_UNAVAILABLE", "Decision service failed authentication", 503, -32005
             )

@@ -3,7 +3,6 @@ service (policy, held calls, audit-before-forward, credential broker) and held-c
 
 from __future__ import annotations
 
-import hashlib
 import http.client
 import json
 import socket
@@ -33,7 +32,9 @@ from agentbreeder.egress.host import (  # noqa: E402
 from agentbreeder.egress.protocol import (  # noqa: E402
     MAC_HEADER,
     NONCE_HEADER,
+    PepKeys,
     response_authentic,
+    signed_headers,
 )
 from agentbreeder.gate import GateDenied  # noqa: E402
 from agentbreeder.identity.transport import TransportError  # noqa: E402
@@ -67,7 +68,8 @@ class FakeBoundary:
 
     def write_pin(self, record, pin):
         self.calls.append("write_pin")
-        self.pins[record["id"]] = {**pin, "deployment": record["id"], "token_sha256": "x"}
+        keys = PepKeys.from_token("token").pin_fields()
+        self.pins[record["id"]] = {**pin, "deployment": record["id"], **keys}
         return "token"
 
     def set_serving(self, record, serving):
@@ -302,6 +304,34 @@ def test_reconcile_restores_or_fails_closed(boundary_env, state, runtime):
     assert item["compliance"] == "noncompliant:RUNTIME_BOUNDARY_UNVERIFIED"
     assert state.get(result["id"])["state"] == "failed"
     assert service.boundary.calls[-1] == "teardown"
+
+
+def test_reconcile_tears_down_a_deployment_with_a_pre_v2_pin(
+    boundary_env, state, runtime, tmp_path
+):
+    """Upgrade path: a pin written before decision protocol v2 is never restarted; reconcile
+    fails the deployment closed and tears it down, and a redeploy writes a new pin."""
+    from unittest.mock import Mock
+
+    from agentbreeder.egress.boundary import Boundary
+    from agentbreeder.egress.host import egress_dir, write_private_json
+
+    service, result = _deploy(state, runtime, boundary_env)
+    record = state.get(result["id"])
+    real = Boundary(runtime, tmp_path, Mock(), spawn=Mock())
+    directory = egress_dir(tmp_path, record["id"])
+    directory.mkdir(parents=True)
+    write_private_json(
+        directory / "pin.json", {"listen": "tcp", "port": 1, "token_sha256": "ab" * 32}
+    )
+    service.boundary.healthy = real.service_healthy(record)  # False: v1 pins are not trusted
+    service.boundary.start_service = lambda rec: real.start_service(rec)
+    [item] = service.reconcile(actor("dave"))
+    assert item["compliance"] == "noncompliant:RUNTIME_BOUNDARY_UNVERIFIED"
+    failed = state.get(result["id"])
+    assert failed["state"] == "failed" and "PEP_PROTOCOL_MISMATCH" in failed["error"]
+    assert service.boundary.calls[-1] == "teardown"
+    real.spawn.assert_not_called()
 
 
 # -- decision service ------------------------------------------------------------------------
@@ -555,7 +585,10 @@ def _request(server, method, path, body=None, token=None, headers=None, raw=None
 
     def client():
         connection = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
-        sent = {"Authorization": f"Bearer {token}"} if token else {}
+        sent = {}
+        if token:  # sign as a v2 sidecar holding `token`
+            keys = PepKeys.from_token(token)
+            _, sent = signed_headers(keys, method, path, body or b"", time.time())
         connection.request(method, path, body=body, headers={**sent, **(headers or {})})
         response = connection.getresponse()
         data = response.read()
@@ -575,7 +608,7 @@ def test_decision_http_handler(boundary_env, state, runtime, tmp_path):
     service, result = _deploy(state, runtime, boundary_env)
     decisions = _decisions(state, service, result)
     token = "t0k"
-    pin = {**decisions.pin, "token_sha256": hashlib.sha256(token.encode()).hexdigest()}
+    pin = {**decisions.pin, **PepKeys.from_token(token).pin_fields()}
     server, address = make_server(decisions, pin, tmp_path)
     server.timeout = 5
     assert address.startswith("tcp:")
@@ -608,7 +641,9 @@ def test_unix_socket_server_mode(boundary_env, state, runtime):
     (short / "sock").mkdir()
     try:
         server, address = make_server(
-            _decisions(state, service, result), {"token_sha256": "x", "listen": "unix"}, short
+            _decisions(state, service, result),
+            {**PepKeys.from_token("t").pin_fields(), "listen": "unix"},
+            short,
         )
         assert address == f"unix:{short}/sock/pep.sock"
         assert oct((short / "sock" / "pep.sock").stat().st_mode & 0o777) == "0o666"
@@ -862,8 +897,9 @@ def test_reconcile_tears_down_boundary_interrupted_in_starting(boundary_env, sta
 def test_healthz_is_minimal_and_mac_bound_to_nonce(boundary_env, state, runtime, tmp_path):
     service, result = _deploy(state, runtime, boundary_env)
     decisions = _decisions(state, service, result)
-    key = hashlib.sha256(b"t0k").hexdigest()
-    server, _ = make_server(decisions, {**decisions.pin, "token_sha256": key}, tmp_path)
+    keys = PepKeys.from_token("t0k")
+    key = keys.reply
+    server, _ = make_server(decisions, {**decisions.pin, **keys.pin_fields()}, tmp_path)
     server.timeout = 5
     try:
         raw: dict = {}
@@ -871,8 +907,12 @@ def test_healthz_is_minimal_and_mac_bound_to_nonce(boundary_env, state, runtime,
         status, body = _request(server, "GET", "/healthz", headers={NONCE_HEADER: nonce}, raw=raw)
         # Only the revision: no deployment id or operator digest to an unauthenticated caller.
         assert status == 200 and body == {"revision": decisions.pin["revision"]}
-        assert response_authentic(key, nonce, 200, raw["data"], raw["mac"])
-        assert not response_authentic(key, "cd" * 16, 200, raw["data"], raw["mac"])
+        assert response_authentic(key, nonce, "GET", "/healthz", 200, raw["data"], raw["mac"])
+        assert not response_authentic(
+            key, "cd" * 16, "GET", "/healthz", 200, raw["data"], raw["mac"]
+        )
+        # Bound to GET /healthz: it cannot answer an authenticated decision request.
+        assert not response_authentic(key, nonce, "POST", "/decide", 200, raw["data"], raw["mac"])
         raw.clear()
         _request(server, "GET", "/healthz", headers={NONCE_HEADER: "not-hex"}, raw=raw)
         assert raw["mac"] is None
@@ -886,7 +926,7 @@ def test_idle_connection_cannot_stall_decision_service(
     service, result = _deploy(state, runtime, boundary_env)
     decisions = _decisions(state, service, result)
     monkeypatch.setattr(host_module, "HANDLER_TIMEOUT", 0.3)
-    server, _ = make_server(decisions, {**decisions.pin, "token_sha256": "x"}, tmp_path)
+    server, _ = make_server(decisions, decisions.pin, tmp_path)
     server.timeout = 5
     idle = socket.create_connection(("127.0.0.1", server.server_address[1]))
     try:
