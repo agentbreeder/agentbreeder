@@ -24,6 +24,7 @@ from test_guardrails_docker import project as g1b_project  # noqa: F401  (fixtur
 from agentbreeder import gateway_keys
 from agentbreeder.gate import _agent_guardrails_failure
 from agentbreeder.operator_config import DeploymentContext, load_operator_config
+from agentbreeder.services.engine import load
 
 pytestmark = pytest.mark.skipif(
     os.getenv("AGENTBREEDER_DOCKER_TEST") != "1", reason="Opt-in real Docker test"
@@ -55,6 +56,7 @@ def project(g1b_project):  # noqa: F811
     stack = yaml.safe_load((root / "stack.yaml").read_text())
     stack["environment"]["guardrails"]["approved_sha256"] = approved
     (root / "stack.yaml").write_text(yaml.safe_dump(stack, sort_keys=False))
+    instance.stack = load(root)  # the Engine read stack.yaml when the G1b fixture built it
     return root, instance, approved
 
 

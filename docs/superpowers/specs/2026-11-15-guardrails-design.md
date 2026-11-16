@@ -657,6 +657,21 @@ The question: an environment-level floor plus agent-level guardrails from `agent
   missing, wider or different, or when any policy that can remove guardrails reaches the key.
   An agent key cannot call the policy routes: they are not among the routes LiteLLM allows a
   non-admin key, and the key's `allowed_routes` leaves them out as well.
+- **Real Docker (#1053, 2026-11-16, macOS, `tests/test_agent_guardrails_docker.py`, 125 s,
+  passed).** The stack is §12.3's plus an optional `agent-ip-block` (IP_ADDRESS BLOCK). There
+  are two keys minted as `deploy` does it: X attaches the guardrail and Y attaches nothing.
+  - The floor masked an email and blocked an SSN for both keys, and neither value reached the
+    provider.
+  - X's IP address was refused with 400 on chat, embeddings and streaming chat. Y's identical
+    call passed with 200 and reached the provider unchanged.
+  - Nine attempts to drop a level each got 400 for both the IP and the SSN, 18 out of 18. The
+    attempts were: `guardrails: []`, `metadata.guardrails`, `policies` and
+    `metadata.policies`, `disable_global_guardrails`, `opted_out_global_guardrails`, a spoofed
+    `user_api_key_alias`, tags in the body and the header, and `x-litellm-disable-guardrails`.
+  - Both keys got 403 on all five policy routes, 10 out of 10. These were create, attach, both
+    lists and delete.
+  - Detaching X's policy let X's IP through, and `guardrail_drift` then reported drift.
+  - No seeded PII appeared in the gateway or Presidio logs.
 
 ### 12.9 Not run in G0
 
