@@ -5,6 +5,10 @@ optionally quoted, plus comments and blank lines. Errors give the line number, n
 since a malformed line may hold a secret. Well-known cloud, VCS and CI credentials can't be
 imported: `services up` imports the names a repo's service entries declare, and a repo must not
 be able to pull, say, an AWS key out of the operator's environment.
+
+The model gateway's cloud credentials (`GATEWAY_ONLY`, #1025 D3) are refused here too. Only the
+built-in `gateway/litellm` service reads them, through `services.engine`, which alone passes
+`lookup(..., allow_gateway_only=True)`.
 """
 
 from __future__ import annotations
@@ -14,6 +18,8 @@ import os
 import re
 import stat
 from pathlib import Path
+
+from agentbreeder.gateway_providers import GATEWAY_ONLY
 
 MAX_BYTES = 64 * 1024
 VARIABLE = re.compile(r"[A-Z_][A-Z0-9_]{0,127}")
@@ -53,7 +59,9 @@ class EnvImportError(ValueError):
 
 
 def denied(name: str) -> bool:
-    return any(fnmatch.fnmatchcase(name, pattern) for pattern in DENYLIST)
+    """A name nothing but the built-in gateway may import: a well-known credential, or one of
+    the gateway's own cloud credentials (`GATEWAY_ONLY`)."""
+    return name in GATEWAY_ONLY or any(fnmatch.fnmatchcase(name, pattern) for pattern in DENYLIST)
 
 
 def _read(path: Path) -> str:
@@ -116,11 +124,23 @@ def parse_env_file(path: Path) -> dict[str, str]:
     return values
 
 
-def lookup(name: str, env_file: Path | None = None) -> str | None:
-    """The value of `name` from the process environment, else from `env_file`; None if unset."""
+def lookup(
+    name: str, env_file: Path | None = None, *, allow_gateway_only: bool = False
+) -> str | None:
+    """The value of `name` from the process environment, else from `env_file`; None if unset.
+
+    `allow_gateway_only` is an exact-name pass for the `GATEWAY_ONLY` names only: it skips both
+    the `GATEWAY_ONLY` rule and `DENYLIST` (whose `AZURE_*` would refuse `AZURE_OPENAI_*`) for
+    those names, and changes nothing for any other name (`AZURE_FOO` stays refused)."""
     if not VARIABLE.fullmatch(name):
         raise EnvImportError("IMPORT_NAME", f"Variable names must match {VARIABLE.pattern}")
-    if denied(name):
+    if not (allow_gateway_only and name in GATEWAY_ONLY) and denied(name):
+        if name in GATEWAY_ONLY:
+            raise EnvImportError(
+                "IMPORT_DENIED",
+                f"{name} is a model gateway credential: only the built-in service/litellm "
+                "gateway imports it",
+            )
         raise EnvImportError(
             "IMPORT_DENIED",
             f"{name} looks like a cloud, VCS or CI credential and can't be imported",

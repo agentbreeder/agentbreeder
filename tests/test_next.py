@@ -296,6 +296,43 @@ def test_keys_config_invalid_is_blocked(stacked, stacks):
     assert keys.reason.code == "KEYS_CONFIG_INVALID" and keys.state == "blocked"
 
 
+def test_keys_not_checked_for_a_gateway_version_this_release_does_not_ship(stacked, stacks):
+    # #1025: the config is reviewed for the gateway that runs it; a project or unknown
+    # version is not guessed at (`services up` still reviews it against the resolved spec).
+    text = (stacked / "stack.yaml").read_text()
+    changed = text.replace("service/litellm@1.0.0", "service/litellm@1.9.9")
+    assert changed != text
+    (stacked / "stack.yaml").write_text(changed)
+    keys = steps(guide_checks.compute(stacked, probe=probe(stacks)))["keys"]
+    assert keys.reason.code == guide.NOT_CHECKED
+    assert "service/litellm@1.9.9 is not a built-in gateway version" in keys.reason.message
+
+
+def test_gateway_only_keys_are_required_for_every_alias(stacked, stacks, monkeypatch):
+    # As `services up` (MODEL_CREDENTIAL_MISSING): an ungranted Vertex alias still needs its key.
+    from agentbreeder import gateway_providers
+
+    caps = gateway_providers.GatewayCaps(
+        "service/litellm@1.0.0",
+        frozenset({"GEMINI_API_KEY", "VERTEX_SERVICE_ACCOUNT_JSON"}),
+    )
+    monkeypatch.setattr(gateway_providers, "builtin_caps", lambda ref: caps)
+    config = stacked / "stack" / "litellm" / "config.yaml"
+    config.write_text(
+        CONFIG.replace(
+            "model_list:\n",
+            "model_list:\n"
+            "  - model_name: unused-vertex\n"
+            "    litellm_params: {model: vertex_ai/gemini-2.5-flash, "
+            "vertex_credentials: os.environ/VERTEX_SERVICE_ACCOUNT_JSON, "
+            "vertex_project: my-project-1, vertex_location: us-central1}\n",
+            1,
+        )
+    )
+    keys = steps(guide_checks.compute(stacked, probe=probe(stacks, environ={})))["keys"]
+    assert keys.data.required == ["GEMINI_API_KEY", "VERTEX_SERVICE_ACCOUNT_JSON"]
+
+
 def test_no_litellm_config_means_no_keys(stacked, stacks):
     text = (stacked / "stack.yaml").read_text()
     (stacked / "stack.yaml").write_text(

@@ -19,7 +19,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from agentbreeder import gateway_keys
+from agentbreeder import gateway_keys, gateway_providers
 from agentbreeder.lock import BUILTIN_LABEL, LOCK_VERSION, Lock, materialise
 from agentbreeder.registry import Ref, RegistryError
 from agentbreeder.services import mcp_stack, refs
@@ -178,6 +178,7 @@ def lock_stack(
     origins = {name: by_key[str(Ref.parse(ref))].source for name, ref in service_refs.items()}
     # Relays import the mcp versions' credentials: recorded like any service's imports.
     relays = _add_relays(stack, locked_mcp, specs, service_dirs, files, resolved, origins)
+    check_gateway_only(specs, origins, relays)
     imports = {name: _imports(spec) for name, spec in specs.items() if _imports(spec)}
     if imports != lock.imports:
         if mode == "locked":
@@ -188,7 +189,7 @@ def lock_stack(
         lock.imports = imports
         changed = True
 
-    warnings = _gateway_aliases(stack, specs, files)
+    warnings = _gateway_aliases(stack, specs, files, service_refs)
     hashes = {key: value["sha256"] for key, value in lock.entries.items()}
     stack = stack.model_copy(
         update={
@@ -228,6 +229,32 @@ def _add_relays(stack, locked_mcp, specs, service_dirs, files, resolved, origins
     return relays
 
 
+def reads_gateway_only(name: str, spec: ServiceSpec, origins: dict, relays: dict) -> bool:
+    """Whether service `name` may import the gateway's cloud credentials (#1025 D3): only the
+    packaged registry's `gateway/litellm` service, by its locked origin (never inferred from
+    `provides` or the name), and never an MCP relay (relays are recorded as built-in although
+    their secrets come from the project's MCP version)."""
+    return (
+        origins.get(name) == BUILTIN_LABEL
+        and name not in relays
+        and spec.provides == "gateway/litellm"
+    )
+
+
+def check_gateway_only(specs: dict[str, ServiceSpec], origins: dict, relays: dict) -> None:
+    """Refuse any service other than the built-in gateway declaring a `GATEWAY_ONLY` import:
+    a project service, a project version named `service/litellm`, a relay, or a built-in
+    service that is not the gateway."""
+    for name, spec in sorted(specs.items()):
+        names = sorted(set(_imports(spec)) & gateway_providers.GATEWAY_ONLY)
+        if names and not reads_gateway_only(name, spec, origins, relays):
+            raise ServiceError(
+                "IMPORT_GATEWAY_ONLY",
+                f"service {name} imports {', '.join(names)}: only the built-in "
+                "service/litellm gateway may import model gateway credentials",
+            )
+
+
 def _single_file(directory: Path) -> Path:
     """A file param is copied as a one-file directory (lock._copy_file); return the file."""
     if directory.is_file():
@@ -238,7 +265,7 @@ def _single_file(directory: Path) -> Path:
     return children[0]
 
 
-def _gateway_aliases(stack: Stack, specs, files) -> list[str]:
+def _gateway_aliases(stack: Stack, specs, files, service_refs) -> list[str]:
     """Every alias the environment grants must be served by the gateway's config (error);
     extra aliases in the config are only a warning. Every fallback target must be granted
     (#1033): LiteLLM serves a fallback under the caller's key, without checking the key's
@@ -248,7 +275,9 @@ def _gateway_aliases(stack: Stack, specs, files) -> list[str]:
     if config is None:
         raise ServiceError("GATEWAY_CONTRACT", "the gateway service needs a `config` file param")
     try:
-        review = gateway_keys.config_review(config)
+        review = gateway_keys.config_review(
+            config, gateway_providers.caps_from_spec(specs[gateway], service_refs[gateway])
+        )
     except gateway_keys.GatewayError as error:
         raise ServiceError(error.code, str(error)) from None
     served = review.aliases

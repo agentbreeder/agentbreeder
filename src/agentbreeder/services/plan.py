@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote
 
-from agentbreeder import gateway_keys
+from agentbreeder import gateway_keys, gateway_providers
 from agentbreeder.lock import BUILTIN_LABEL
 from agentbreeder.services import mcp_stack, refs
 from agentbreeder.services.lock import LockedStack
@@ -334,15 +334,31 @@ class Plan:
 
     # -- the grant --------------------------------------------------------------------------------
 
-    def _gateway_config(self) -> dict | None:
+    def gateway_caps(self) -> gateway_providers.GatewayCaps:
+        gateway = self.locked.stack.environment.gateway
+        return gateway_providers.caps_from_spec(
+            self.spec(gateway), self.locked.stack.services[gateway].ref
+        )
+
+    def gateway_review(self) -> gateway_keys.ConfigReview | None:
+        """The reviewed gateway config, for the gateway that runs it; None without one."""
         config = self.files.get(self.locked.stack.environment.gateway, {}).get("config")
         if config is None:
             return None
         try:
-            review = gateway_keys.config_review(config)
+            return gateway_keys.config_review(config, self.gateway_caps())
         except gateway_keys.GatewayError as error:
             raise ServiceError(error.code, str(error)) from None
-        return {"sha256": review.sha256, "providers": dict(sorted(review.providers.items()))}
+
+    def _gateway_config(self) -> dict | None:
+        review = self.gateway_review()
+        if review is None:
+            return None
+        section = {"sha256": review.sha256, "providers": dict(sorted(review.providers.items()))}
+        routes = review.grant_routes()
+        if routes:  # only for #1025 providers: other stacks keep their grant digest
+            section["routes"] = routes
+        return section
 
     def grant(self, environment: str) -> dict:
         stack = self.locked.stack

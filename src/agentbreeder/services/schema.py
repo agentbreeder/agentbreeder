@@ -14,6 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from agentbreeder.gateway_providers import GATEWAY_ONLY
 from agentbreeder.registry import Ref, RegistryError
 from agentbreeder.strict_yaml import StrictYamlError, load_file
 
@@ -434,6 +435,10 @@ class StackEnvironment(_Strict):
         for name in self.bindings:
             if not _matches(ENV_NAME, name):
                 raise ValueError(f"binding name {name!r} must be an uppercase variable name")
+            if name in GATEWAY_ONLY:  # never into an agent container (#1025 D3)
+                raise ValueError(
+                    f"[SECRET_RESERVED] binding name {name} is a model gateway credential"
+                )
         for name in self.agents:
             if not _matches(r"^[a-z0-9]([a-z0-9-]{0,51}[a-z0-9])?$", name):
                 raise ValueError(f"agent name {name!r} is invalid")

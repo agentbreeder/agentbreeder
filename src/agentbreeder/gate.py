@@ -9,6 +9,7 @@ from datetime import UTC, date, datetime
 
 from agentbreeder.audit import canonical
 from agentbreeder.deployer import Deployer
+from agentbreeder.gateway_providers import GATEWAY_ONLY
 from agentbreeder.identity import (
     AgentPrincipal,
     GroupGrant,
@@ -323,6 +324,13 @@ class IdentityGate:
         # Secrets are references only (manifest validation); local values are files checked by
         # the deployment preflight after this gate (secret_files.py). Nothing is read here.
         evaluated.append("secrets")
+        gateway_only = gateway_only_secrets(manifest)
+        if gateway_only:
+            return decision.deny(
+                "SECRET_RESERVED",
+                f"{', '.join(gateway_only)} may not be mounted: model gateway credentials are "
+                "for the built-in gateway only",
+            )
         environment = model.environments.get(context.environment)
         if environment is not None and environment.guardrails_required:
             reserved = sorted(set(manifest.secrets) & PROVIDER_KEY_NAMES)
@@ -439,6 +447,13 @@ class IdentityGate:
             manifest, principal, deployer, context, self.operator, decision
         )
         return decision
+
+
+def gateway_only_secrets(manifest: Manifest) -> list[str]:
+    """The manifest secrets named like the model gateway's cloud credentials (#1025 D3),
+    refused in every environment: those never go into an agent container. A naming check only,
+    like the guardrails floor's provider-key reservation."""
+    return sorted(set(manifest.secrets) & GATEWAY_ONLY)
 
 
 def image_digest(image: str) -> str:

@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import yaml
-from conftest import v2_manifest_data
+from conftest import GATEWAY_CAPS, v2_manifest_data
 
 from agentbreeder import gateway_keys, secret_files
 from agentbreeder.deployment import DeploymentService
@@ -349,7 +349,7 @@ def _entry(model, **params):
 @pytest.mark.parametrize("relative", sorted(GOLDEN_CONFIGS))
 def test_shipped_gateway_configs_keep_their_review(relative):
     providers, sha256 = GOLDEN_CONFIGS[relative]
-    review = gateway_keys.config_review(ROOT / relative)
+    review = gateway_keys.config_review(ROOT / relative, GATEWAY_CAPS)
     assert review.providers == providers
     assert review.aliases == set(providers)
     assert review.sha256 == sha256
@@ -358,15 +358,16 @@ def test_shipped_gateway_configs_keep_their_review(relative):
 @pytest.mark.parametrize(
     "params",
     [
-        {"model": "vertex_ai/gemini-2.5-flash"},  # ADC / metadata server on a cloud VM
-        {"model": "bedrock/anthropic.claude-3-haiku"},  # AWS default credential chain
-        {"model": "azure/gpt-4o"},
-        {"model": "ollama/llama3"},
         {"model": "custom/x"},
         {"model": "Gemini/x"},  # provider prefixes are matched exactly
+        {"model": "Vertex_AI/gemini-2.5-flash"},
         {"model": " gemini/x"},
         {"model": "gemini /x"},
         {"model": "gemini/"},
+        {"model": "gemini/caf\u00e9"},  # printable ASCII only (#1025)
+        {"model": "gemini/a\nb"},
+        {"model": "azure_ai/gpt-4o"},  # a separate LiteLLM provider, not azure
+        {"model": "azure_text/gpt-4o"},
         {"model": "gpt-4o"},  # bare names: LiteLLM guesses the provider
         {"model": "claude-3-5-sonnet"},
         {"model": "x"},
@@ -380,19 +381,41 @@ def test_shipped_gateway_configs_keep_their_review(relative):
 def test_config_review_refuses_unknown_providers_and_bare_names(tmp_path, params):
     path = _config(tmp_path, {"model_list": [{"model_name": "m", "litellm_params": params}]})
     with pytest.raises(GatewayError) as caught:
-        gateway_keys.config_review(path)
+        gateway_keys.config_review(path, GATEWAY_CAPS)
     assert caught.value.code == "GATEWAY_CONFIG_UNSAFE"
     message = str(caught.value)
     assert "model_list[0].litellm_params.model" in message
-    assert "anthropic, gemini, openai, openrouter" in message
-    for value in ("vertex_ai", "bedrock", "gpt-4o", "claude", "llama3"):
-        assert value not in message  # config values are never echoed
+    listed = (
+        "anthropic, azure, bedrock, gemini, ollama, ollama_chat, openai, openrouter, vertex_ai"
+    )
+    assert listed in message
+    for value in ("custom", "gpt-4o", "claude", "caf", "Vertex_AI", "azure_ai"):
+        assert value not in message.replace(listed, "")  # config values are never echoed
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "vertex_ai/gemini-2.5-flash",  # ADC / metadata server on a cloud VM
+        "bedrock/anthropic.claude-3-haiku",  # AWS default credential chain
+        "azure/gpt-4o",
+        "ollama/llama3",
+    ],
+)
+def test_config_review_refuses_credential_less_new_providers(tmp_path, model):
+    # #1031 still holds for the #1025 providers: no explicit credentials (or, for Ollama, no
+    # exact api_base) is refused, never routed through a default credential chain.
+    path = _config(tmp_path, {"model_list": [_entry(model)]})
+    with pytest.raises(GatewayError) as caught:
+        gateway_keys.config_review(path, GATEWAY_CAPS)
+    assert caught.value.code == "GATEWAY_CONFIG_UNSAFE"
+    assert "is required for" in str(caught.value)
 
 
 def test_config_review_refuses_a_model_list_entry_without_params(tmp_path):
     path = _config(tmp_path, {"model_list": [{"model_name": "m"}]})
     with pytest.raises(GatewayError) as caught:
-        gateway_keys.config_review(path)
+        gateway_keys.config_review(path, GATEWAY_CAPS)
     assert caught.value.code == "GATEWAY_CONFIG_UNSAFE"
 
 
@@ -408,7 +431,7 @@ def test_config_review_accepts_each_known_provider_with_or_without_its_key(tmp_p
             {"model_name": "b", "litellm_params": {"model": f"{provider}/vendor/y"}},
         ]
     }
-    review = gateway_keys.config_review(_config(tmp_path, data))
+    review = gateway_keys.config_review(_config(tmp_path, data), GATEWAY_CAPS)
     assert review.providers == {"a": f"{provider} ({key})", "b": f"{provider} (no key)"}
 
 
@@ -430,7 +453,7 @@ def test_config_review_accepts_each_known_provider_with_or_without_its_key(tmp_p
 def test_config_review_refuses_prompt_logging(tmp_path, section, key, value):
     data = {"model_list": [_entry("gemini/x")], section: {key: value}}
     with pytest.raises(GatewayError) as caught:
-        gateway_keys.config_review(_config(tmp_path, data))
+        gateway_keys.config_review(_config(tmp_path, data), GATEWAY_CAPS)
     assert caught.value.code == "GATEWAY_CONFIG_UNSAFE"
     must = "true" if key == "turn_off_message_logging" else "false"
     assert f"{section}.{key} must be {must}" in str(caught.value)
@@ -442,9 +465,9 @@ def test_config_review_accepts_prompt_logging_off_or_unset(tmp_path):
         "litellm_settings": {"turn_off_message_logging": True, "set_verbose": False},
         "general_settings": {"store_prompts_in_spend_logs": False},
     }
-    assert gateway_keys.config_review(_config(tmp_path, data)).aliases == {"m"}
+    assert gateway_keys.config_review(_config(tmp_path, data), GATEWAY_CAPS).aliases == {"m"}
     unset = {"model_list": [_entry("gemini/x")], "litellm_settings": {"drop_params": True}}
-    assert gateway_keys.config_review(_config(tmp_path, unset)).aliases == {"m"}
+    assert gateway_keys.config_review(_config(tmp_path, unset), GATEWAY_CAPS).aliases == {"m"}
 
 
 # -- fallbacks (#1033) ---------------------------------------------------------------------
@@ -456,7 +479,7 @@ def _models(*names):
 
 def test_config_review_returns_every_fallback_edge():
     review = gateway_keys.config_review(
-        ROOT / "src/agentbreeder/examples/northwind/stack/litellm/config.yaml"
+        ROOT / "src/agentbreeder/examples/northwind/stack/litellm/config.yaml", GATEWAY_CAPS
     )
     assert review.fallbacks == {"support-model": ["support-model-openrouter"]}
 
@@ -469,9 +492,11 @@ def test_config_review_merges_both_fallback_kinds(tmp_path):
             "context_window_fallbacks": [{"a": ["c", "b"]}],
         },
     }
-    review = gateway_keys.config_review(_config(tmp_path, data))
+    review = gateway_keys.config_review(_config(tmp_path, data), GATEWAY_CAPS)
     assert review.fallbacks == {"a": ["b", "c"], "b": ["c"]}
-    plain = gateway_keys.config_review(_config(tmp_path, {"model_list": _models("a")}))
+    plain = gateway_keys.config_review(
+        _config(tmp_path, {"model_list": _models("a")}), GATEWAY_CAPS
+    )
     assert plain.fallbacks == {}
 
 

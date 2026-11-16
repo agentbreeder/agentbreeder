@@ -340,7 +340,7 @@ def _gateway(ctx: _Context) -> tuple[str, str] | None:
 
 
 def _keys(ctx: _Context) -> dict:
-    from agentbreeder import gateway_keys
+    from agentbreeder import gateway_keys, gateway_providers
 
     if ctx.stack is None:
         return _not_checked("keys", "Create a project first")
@@ -350,8 +350,16 @@ def _keys(ctx: _Context) -> dict:
         return _step("keys", "done", data=empty)
     service, config = gateway
     path = ctx.project / config
+    # The config is reviewed for the gateway that runs it (#1025): a built-in version this
+    # release ships. A project version (or an unknown one) is not guessed at.
+    ref = ctx.stack.services[service].ref
+    caps = gateway_providers.builtin_caps(ref)
+    if caps is None:
+        return _not_checked(
+            "keys", f"{ctx.stack.services[service].ref} is not a built-in gateway version"
+        )
     try:
-        review = gateway_keys.config_review(path)
+        review = gateway_keys.config_review(path, caps)
     except (gateway_keys.GatewayError, OSError, ValueError) as error:
         code = getattr(error, "code", "GATEWAY_CONFIG_INVALID")
         return _step(
@@ -371,13 +379,15 @@ def _keys(ctx: _Context) -> dict:
         if source in granted
         for target in targets
     } - used
+    # Gateway-only credentials (#1025) are needed for every alias in the config, as `services
+    # up` refuses any that is missing (MODEL_CREDENTIAL_MISSING).
     required = sorted(
         {
-            match.group(1)
-            for alias, text in review.providers.items()
-            if alias in set(ctx.stack.environment.models)
-            and alias not in fallback_only
-            and (match := re.search(r"\(([A-Z_][A-Z0-9_]{0,127})\)$", text))
+            name
+            for alias, names in review.required_env.items()
+            for name in names
+            if (alias in granted and alias not in fallback_only)
+            or name in gateway_providers.GATEWAY_ONLY
         }
     )
     present = [k for k in required if ctx.probe.environ.get(k)]
