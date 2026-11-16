@@ -76,7 +76,7 @@ The first example is a project whose services are not up yet:
      "data": {"services": [
                 {"name": "postgres", "kind": "service", "state": "absent", "health": "none"},
                 {"name": "litellm", "kind": "service", "state": "absent", "health": "none"}],
-              "grant_recorded": false, "environment_written": false}},
+              "grant_recorded": false, "environment_written": false, "up_failure": null}},
     {"id": "build", "title": "Build", "required": true, "state": "todo",
      "reason": {"code": "NOT_BUILT", "message": "No build manifest at deploy/hello.build.json"},
      "fix": {"action": "build",
@@ -124,7 +124,7 @@ column, capitalised as shown in the examples), `required` (`false` only for `kub
 | `prerequisites` | yes | every required `doctor` check passes (the PATH check is advisory: `required: false` in `data.checks`) | **`PREREQUISITE_FAILED`** | none (the failing check's remedy is in `note`) |
 | `project` | yes | `agent.yaml` and `stack.yaml` exist in `DIR`, validate, and every ref resolves | `PROJECT_MISSING`, **`PROJECT_INVALID`**, **`REF_UNRESOLVED`** | `new-agent` or `example` for `PROJECT_MISSING` |
 | `keys` | yes | every provider key the stack's LiteLLM config names for the aliases `environment.models` lists (each such model's `api_key: os.environ/NAME`; a key only a fallback alias uses is optional: an alias outside `environment.models`, or a fallback target of a granted alias that the project's `agent.yaml` does not use as `model.alias` (#1033); never the generated `LITELLM_MASTER_KEY` or `DATABASE_URL`) is set in the environment of `next` or stored by an earlier `services up` | `KEYS_MISSING`, **`KEYS_CONFIG_INVALID`** | `set-keys` |
-| `services` | yes | every service and MCP relay container is `running` and not `unhealthy` (one `compose ps`), and `services up` has written this environment's operator config | **`SERVICES_UNREADABLE`**, `SERVICES_DOWN`, `SERVICES_UNHEALTHY`, `ENVIRONMENT_MISSING` | `services-up`, except none for `SERVICES_UNREADABLE` |
+| `services` | yes | every service and MCP relay container is `running` and not `unhealthy` (one `compose ps`), and `services up` has written this environment's operator config | **`SERVICES_UNREADABLE`**, `SERVICES_DOWN`, `SERVICES_UNHEALTHY`, `ENVIRONMENT_MISSING`, `SERVICES_UP_FAILED` | `services-up`, except none for `SERVICES_UNREADABLE` |
 | `build` | yes | `agent.yaml` has no `path:` ref, and `NAME.build.json` in the output directory was written for this environment and records the current `agent.yaml` and `agent.lock` hashes, and the lock's keys (`path:` keys included) are exactly the agent's refs | `REF_UNPINNED`, `LOCK_STALE`, `NOT_BUILT`, `BUILD_STALE` | `build` for `NOT_BUILT` and `BUILD_STALE`; none for `REF_UNPINNED` and `LOCK_STALE` |
 | `release` | yes | the active local production deployment is `ready`, runs the image and deploy manifest the current build wrote, **and** a matching `release/promoted` audit row exists | **`STATE_NEEDS_MIGRATION`**, **`APPROVAL_PENDING`**, **`PRODUCTION_DISABLED`**, `RELEASE_GATE_FAILED`, `NOT_RELEASED`, `PRODUCTION_STALE`, `NO_RELEASE_EVIDENCE`, `RELEASE_THRESHOLD_LOWERED`, `RELEASE_EVALSET_CHANGED`, `PRODUCTION_NOT_READY` | `release`, except none for the blocking codes |
 | `try` | yes | exactly when `release` is done (no request is sent) | only `NOT_CHECKED` | `invoke`, as a suggestion on the done step |
@@ -189,6 +189,14 @@ When several codes apply, the step reports the first in the table's order. Notes
 - `STATE_NEEDS_MIGRATION`: the local state is from an older version or an interrupted write left
   a journal; `command` is `agentbreeder migrate …`. `try` and `kubernetes` are then `NOT_CHECKED`.
 - `ENVIRONMENT_MISSING`: the stack was brought up for other environments, not this one.
+- `SERVICES_UP_FAILED`: the last confirmed `services up` for this environment failed before it
+  wrote the operator config (for example at the MCP pin probe, with its containers left
+  running), so the step says it failed instead of "has not run" (#1042). `message` names the
+  code and its cause (`MCP_PROBE_FAILED (UPSTREAM_AUTH)`); `fix.note` says what to do about the
+  cause in fixed words. `data.up_failure` is `{code, cause}` (`cause` may be null). A recorded
+  failure reopens the step even when an older `up` wrote the operator config; a later
+  successful `up` clears it. Only coded failures are recorded: an interrupted run is not. The
+  record keeps the codes only, never the error's message (on `main`, not in a published preview).
 - `KEYS_CONFIG_INVALID`: the LiteLLM config fails AgentBreeder's review (`services up` would
   refuse it); `message` names the field, never its value.
 - `PROJECT_INVALID` and `REF_UNRESOLVED`: `data.error_code` is the validator's code; `message`
@@ -253,7 +261,9 @@ reachable that way (use `forward`).
 - `services`: `services` (`name`; `kind`: `service` or `mcp-relay`; `state`: Compose's state or
   `absent`; `health`: `healthy`, `unhealthy`, `starting` or `none`), `grant_recorded` (a
   `services up` has completed for this stack; `next` does not recompute whether the grant has
-  changed since, because that needs the stack plan, which writes), `environment_written`.
+  changed since, because that needs the stack plan, which writes), `environment_written`,
+  `up_failure` (`{code, cause}` of the last confirmed `services up` of this environment when it
+  failed, else `null`; #1042).
 - `build`: `image` (the image ID built), `build_manifest`, `environment` (the one it was built
   for), `agent_yaml_current`, `lock_current`.
 - `release`: `production` (`id`, `image`, recorded `state`, `endpoint`, `manifest_current`) or

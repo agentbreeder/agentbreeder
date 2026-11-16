@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  auditTime, incompleteSentence, isCandidate, isNorthwind, jobLabel, jobOutcome, portsText,
+  CAUSE_WORDS, auditTime, incompleteSentence, isCandidate, isNorthwind, jobFailure, jobLabel, jobOutcome, portsText,
   reasonCodes, serviceState, serviceUp, toolGuidance, verifySentence,
 } from "../../src/agentbreeder/center/static/lib/format.js";
 
@@ -89,4 +89,30 @@ test("a services-up job refused for changed pins says to review the repin again 
   assert.deepEqual(jobOutcome({ kind: "services-up", state: "failed", exit_code: 2, lines }), { tone: "warn", text: "The MCP tool definitions changed since your review: pins unchanged, the rest of Start ran. Review the repin again." });
   assert.match(jobOutcome({ kind: "services-up", state: "failed", exit_code: 2, lines: [{ seq: 1, text: "x [PINS_CHANGED] y" }, null] }).text, /^Start services failed|failed/);
   assert.match(jobOutcome({ kind: "services-up", state: "failed", exit_code: 1 }).text, /failed/);
+});
+
+test("a coded failure names its code, cause and the CLI's next step (#1042)", () => {
+  const probe = { kind: "services-up", state: "failed", exit_code: 2, failure_code: "MCP_PROBE_FAILED", failure_message: "the github relay couldn't list upstream tools (UPSTREAM_AUTH); see `agentbreeder services logs mcp-github`" };
+  const outcome = jobOutcome(probe);
+  assert.equal(outcome.tone, "error");
+  assert.match(outcome.text, /^Start services failed \(exit 2\): MCP_PROBE_FAILED \(cause UPSTREAM_AUTH\)\. the github relay/);
+  assert.match(outcome.text, /agentbreeder services logs mcp-github`\./);
+  assert.ok(outcome.text.endsWith(CAUSE_WORDS.UPSTREAM_AUTH));
+  assert.deepEqual(jobFailure(probe), { code: "MCP_PROBE_FAILED", message: probe.failure_message, cause: "UPSTREAM_AUTH" });
+  const release = { kind: "release", state: "failed", exit_code: 3, failure_code: "DEPLOYER_UNVERIFIED", failure_message: "A verified deployer identity is required (agentbreeder login); production unchanged" };
+  assert.equal(jobOutcome(release).text, "The release failed: DEPLOYER_UNVERIFIED. A verified deployer identity is required (agentbreeder login); production unchanged.");
+  // The eval gate keeps its own words; a cause with no fixed words is named only.
+  assert.equal(jobOutcome({ ...release, exit_code: 5 }).text, "The eval gate failed. Production is unchanged.");
+  assert.equal(jobOutcome({ kind: "build", state: "failed", exit_code: 2, failure_code: "X_Y", failure_message: "set (HOME) first." }).text, "Build failed (exit 2): X_Y. set (HOME) first.");
+  assert.equal(jobOutcome({ ...probe, failure_message: "the x relay couldn't list upstream tools (NEW_CAUSE)" }).text, "Start services failed (exit 2): MCP_PROBE_FAILED (cause NEW_CAUSE). the x relay couldn't list upstream tools (NEW_CAUSE).");
+});
+
+test("only a plain code from a failed job is a failure (#1042)", () => {
+  assert.equal(jobFailure({ state: "failed", failure_code: "lower", failure_message: "m" }), null);
+  assert.equal(jobFailure({ state: "failed", failure_code: null }), null);
+  assert.equal(jobFailure({ state: "succeeded", failure_code: "PORT_BUSY", failure_message: "m" }), null);
+  assert.equal(jobFailure(null), null);
+  assert.deepEqual(jobFailure({ state: "failed", failure_code: "PORT_BUSY", failure_message: 7 }), { code: "PORT_BUSY", message: "", cause: null });
+  assert.equal(jobFailure({ state: "failed", failure_code: "PORT_BUSY", failure_message: "x".repeat(500) }).message.length, 300);
+  assert.equal(jobOutcome({ kind: "remove", state: "failed", exit_code: 2, failure_code: "__proto__" }).text, "Remove failed (exit 2). See its log.");
 });

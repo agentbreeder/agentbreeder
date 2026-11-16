@@ -101,6 +101,15 @@ def error(code: str, message: str) -> dict:
     return {"code": code, "message": message}
 
 
+def coded_failure(line: str) -> dict | None:
+    """A job's last output line as `{code, message}` when it is the CLI's own `[CODE] message`
+    (S-17: no other text), control characters removed and the message capped; else None."""
+    match = CODED.match(line.strip())
+    if not match:
+        return None
+    return {"code": match[1], "message": CONTROL.sub("", match[2])[:MAX_MESSAGE]}
+
+
 def cli_error(stderr: str, returncode: int) -> dict:
     """S-17: only the CLI's coded `[CODE] message` line reaches the browser, never free stderr
     (which can carry paths, tracebacks or a third party's text)."""
@@ -190,6 +199,12 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
             PRIMARY KEY (job, seq))""",
     ),
     2: ("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",),
+    # #1042: a failed job's coded `[CODE] message` line (the CLI's own, redacted as its log is),
+    # so the job row can say what failed without opening the log.
+    3: (
+        "ALTER TABLE jobs ADD COLUMN failure_code TEXT",
+        "ALTER TABLE jobs ADD COLUMN failure_message TEXT",
+    ),
 }
 SCHEMA_VERSION = max(MIGRATIONS)
 
@@ -307,12 +322,18 @@ class CenterState:
             self._write("DELETE FROM lines WHERE job=?", row["id"])
             self._write("DELETE FROM jobs WHERE id=?", row["id"])
 
-    def finish_job(self, identifier: str, state: str, code: int | None) -> None:
+    def finish_job(
+        self, identifier: str, state: str, code: int | None, failure: dict | None = None
+    ) -> None:
+        """`failure` is `{code, message}` from the CLI's `[CODE] message` line, or None."""
         self._write(
-            "UPDATE jobs SET state=?, exit_code=?, finished=? WHERE id=?",
+            "UPDATE jobs SET state=?, exit_code=?, finished=?, failure_code=?, failure_message=? "
+            "WHERE id=?",
             state,
             code,
             time.time(),
+            failure["code"] if failure else None,
+            failure["message"] if failure else None,
             identifier,
         )
 
@@ -936,9 +957,10 @@ class Runner:
         state = (
             "succeeded" if code == 0 else "waiting_approval" if code == EXIT_APPROVAL else "failed"
         )
+        failure = coded_failure(redact(last, values)) if state == "failed" else None
         for _attempt in range(2):
             try:
-                self.state.finish_job(identifier, state, code)
+                self.state.finish_job(identifier, state, code, failure)
                 break
             except Exception:
                 time.sleep(0.2)  # a second failure leaves it to the next start (interrupted)

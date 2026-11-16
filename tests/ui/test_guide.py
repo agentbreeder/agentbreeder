@@ -112,6 +112,17 @@ def test_a_step_button_opens_its_screen_never_runs_the_command(page, console):
     expect(page.get_by_role("heading", level=1)).to_contain_text("Services")
 
 
+def test_a_failed_services_up_is_not_called_never_run(page, console):
+    """#1042: after `services up` stopped at the MCP probe, Home says it failed, with its code,
+    cause and what to do, not "services up has not run"."""
+    console.scenario(guide="services-up-failed")
+    sign_in(page, console)
+    page.goto(f"{console.origin}/#/")
+    expect(checklist(page)).to_contain_text("failed: MCP_PROBE_FAILED (UPSTREAM_AUTH)")
+    expect(checklist(page)).to_contain_text("refused the credential")
+    expect(checklist(page)).not_to_contain_text("has not run")
+
+
 def test_the_keys_step_links_the_fixed_key_page_with_its_host(page, console):
     console.scenario(guide="keys")
     sign_in(page, console)

@@ -113,6 +113,15 @@ def _bootstrap_values(service: str, targets: tuple[str, ...], output: bytes) -> 
     return values
 
 
+# `stack.db` meta key (with `:ENV`) holding the last failed confirmed `up` (#1042).
+UP_FAILURE_KEY = "up_failure"
+
+
+def _cause(error: ServiceError) -> dict:
+    """`{"cause": CODE}` when the failure names one (#1042), else nothing."""
+    return {"cause": error.cause} if getattr(error, "cause", None) else {}
+
+
 @dataclass(frozen=True)
 class StackContext:
     stack_id: str
@@ -345,6 +354,50 @@ class Engine:
             )
         # Where this stack's project lives, for `list --all` and the console (guided §14.5).
         self.state.put(PROJECT_KEY, str(self.project))
+        try:
+            result = self._up_confirmed(
+                plan,
+                environment,
+                digest,
+                mode,
+                repin,
+                confirm_pins,
+                allow_project_mcp,
+                expect_pins,
+                env_file,
+            )
+        except ServiceError as error:
+            # `next` reports this run's failure, not "services up has not run" (#1042).
+            self._record_up(environment, error)
+            raise
+        self._record_up(environment, None)
+        return result
+
+    def _record_up(self, environment: str, error: ServiceError | None) -> None:
+        """The last confirmed `up` of `environment` in the stack's meta: on a failure its code
+        and cause only (never the message), cleared on success. Best effort: a meta write that
+        fails must not hide the run's own outcome."""
+        key = f"{UP_FAILURE_KEY}:{environment}"
+        try:
+            if error is None:
+                self.state.db.execute("DELETE FROM meta WHERE key=?", (key,))
+            else:
+                self.state.put(key, json.dumps({"code": error.code, "cause": error.cause}))
+        except Exception:  # noqa: BLE001 - the run's own error or result is what counts
+            pass
+
+    def _up_confirmed(
+        self,
+        plan,
+        environment,
+        digest,
+        mode,
+        repin,
+        confirm_pins,
+        allow_project_mcp,
+        expect_pins,
+        env_file,
+    ) -> dict:
         if self._pending_lock is not None:
             lock, path = self._pending_lock
             lock.save(path)
@@ -577,7 +630,7 @@ class Engine:
                     raise
                 # Pinned before: the relay keeps serving its last pins file; nothing new is
                 # trusted until a probe succeeds.
-                reports[server] = {"state": "unverified", "error": error.code}
+                reports[server] = {"state": "unverified", "error": error.code, **_cause(error)}
                 plan.locked.warnings.append(
                     f"mcp.{server}: couldn't check tool definitions upstream ({error.code}); "
                     "the relay keeps its existing pins"
@@ -872,7 +925,7 @@ class Engine:
             try:
                 report = mcp_stack.compare(pinned, self._probe(entry, create=False))
             except ServiceError as error:
-                result[server] = {"state": "unverified", "error": error.code}
+                result[server] = {"state": "unverified", "error": error.code, **_cause(error)}
                 continue
             missing = [m for m in report["missing"] if m in pinned]
             result[server] = {

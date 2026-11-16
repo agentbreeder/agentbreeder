@@ -1072,6 +1072,17 @@
         "environment_written": {
           "title": "Environment Written",
           "type": "boolean"
+        },
+        "up_failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UpFailure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -1250,6 +1261,34 @@
         "data"
       ],
       "title": "TryStep",
+      "type": "object"
+    },
+    "UpFailure": {
+      "description": "The last confirmed `services up` of the environment failed (#1042): its code and the\ncause it named, if any. Never the message.",
+      "properties": {
+        "code": {
+          "pattern": "^[A-Z][A-Z0-9_]{2,39}$",
+          "title": "Code",
+          "type": "string"
+        },
+        "cause": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Z][A-Z0-9_]{2,39}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cause"
+        }
+      },
+      "required": [
+        "code",
+        "cause"
+      ],
+      "title": "UpFailure",
       "type": "object"
     }
   },
