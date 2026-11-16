@@ -36,8 +36,8 @@ at most 256 KiB of UTF-8 JSON without duplicate keys or non-finite numbers. Its 
 echoed in errors.
 
 `verified` in the summary is true only for a combination that has been run end to end
-(`VERIFIED`); the CLI writes unverified ones too, and the console enables only verified ones
-(it refuses knowledge on its own, whatever `VERIFIED` says).
+(`VERIFIED`, with at most `VERIFIED_TOOLS` tools); the CLI writes unverified ones too, and the
+console enables only verified ones (it refuses knowledge on its own, whatever `VERIFIED` says).
 """
 
 from __future__ import annotations
@@ -81,9 +81,13 @@ MCP_TOOL = r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$"  # services.schema.MCP_TOOL
 # Combinations run end to end with this command (services up, release, invoke), as the sorted
 # names of the parts the spec uses beyond the model, prompt and evals every spec has. A provider
 # must also be verified (`PROVIDERS`).
-# One knowledge version alone was run end to end with gemini (#833); knowledge with tools or MCP
-# was not, so those combinations stay unverified.
-VERIFIED: frozenset[tuple[str, ...]] = frozenset({(), ("knowledge",)})
+# One knowledge version was run end to end with gemini alone and with one path tool, and one path
+# tool alone (#833); MCP was not, so any combination with MCP stays unverified. Every run had one
+# tool, so a spec with more tools is unverified too (`VERIFIED_TOOLS`).
+VERIFIED: frozenset[tuple[str, ...]] = frozenset(
+    {(), ("knowledge",), ("tools",), ("knowledge", "tools")}
+)
+VERIFIED_TOOLS = 1  # the most tools a verified spec has
 STACK_SERVICES = frozenset({"postgres", "litellm"})  # services the generated stack has
 # A provider's embedding model in the pinned LiteLLM 1.106.2 model map and its largest output
 # (`output_vector_size`). anthropic and openrouter have none there.
@@ -593,6 +597,16 @@ def combination(spec: Spec) -> tuple[str, ...]:
     return tuple(sorted(part for part, used in parts if used))
 
 
+def verified(spec: Spec) -> bool:
+    """Whether the spec's combination was run end to end: its parts (`VERIFIED`), at most
+    `VERIFIED_TOOLS` tools, and a verified provider."""
+    return (
+        combination(spec) in VERIFIED
+        and len(spec.tools) <= VERIFIED_TOOLS
+        and PROVIDERS[spec.model].verified
+    )
+
+
 def plan(
     name: str,
     spec_path: Path,
@@ -674,7 +688,7 @@ def plan(
         "spec_version": SPEC_VERSION,
         "combination": {
             "parts": ["model", "prompt", "evals", *parts],
-            "verified": parts in VERIFIED and PROVIDERS[spec.model].verified,
+            "verified": verified(spec),
         },
         "refs": refs,
         "runs_code": any(e["runs_code"] and e["root_kind"] != "builtin" for e in refs),
