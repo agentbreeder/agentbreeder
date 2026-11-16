@@ -1141,10 +1141,12 @@ Opening an agent from "All projects" switches the scope to its project. The deta
   deployment. Production running another image than the newest promoted or rolled-back one (for
   example after a plain `deploy`) shows "differs from the last release"; a failed run, or one with
   no outcome, is not counted as a release. A release that failed at promotion, after its evals passed, says so
-  under Production. Until the releases read first answers, Build, Candidate and Evals say "Loading releases…"
-  (and Identity and Production "Loading deployments…" until the deployments read answers), so a
-  step never says "No release recorded" before it knows (#1073). The identity strip's Identity check
-  says "Loading deployments…" for the same wait. Each step has an icon and a word, never
+  under Production. Until a read first answers, each step that depends on it says what it waits for (#1073).
+  Build and Evals wait on the releases, Identity on the deployments, and Candidate and Production on
+  both: "differs" and the failed-release note come from the releases. So a step never says
+  "No release recorded", "Not deployed" or "passed" before it knows. The identity strip's Identity check, the Overview's Production card and the Logs and
+  Traces tabs say "Loading deployments…" until the deployments read answers. Switching the project
+  scope with an agent open reads that project's agent afresh and never shows the other project's. Each step has an icon and a word, never
   colour alone. An agent deployed with a plain `deploy` and never released shows the first three
   steps as "not run".
 - **The identity strip** shows what `stack.yaml` declares for the agent

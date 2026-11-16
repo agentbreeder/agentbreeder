@@ -34,6 +34,8 @@ DEFAULT = {
     "audit_rows": [],
     # Seconds `audit list` waits before answering (a slow first read of releases, #1073).
     "audit_seconds": 0,
+    # Seconds a project's `list` waits before answering (a slow first read of deployments, #1073).
+    "list_seconds": 0,
     "audit_verify": {
         "ok": True,
         "rows": 0,
@@ -807,6 +809,7 @@ def main(argv: list[str]) -> int:
         }
         print(json.dumps({"schema_version": 1, **listing}))
     elif argv and argv[0] == "list":
+        time.sleep(float(data.get("list_seconds", 0)))
         print(json.dumps(data["deployments"]))
     elif head == ["audit", "list"]:
         time.sleep(float(data.get("audit_seconds", 0)))
