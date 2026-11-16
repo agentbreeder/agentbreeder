@@ -157,7 +157,10 @@ agentbreeder services start|stop|restart [DIR] NAME [--yes] [--json]   # one con
 | `service/postgres-pgvector@1.2.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | as 1.1.0, plus `console_database` | as 1.1.0, plus `console` (operator only): a URL for `agentbreeder_console`, which can connect only to `console_database` and has no rights until `init_sql` grants them. |
 | `service/postgres-pgvector@1.1.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | as 1.0.0, plus `roles` (list) and `roles_database` | as 1.0.0, plus `roles.<name>`: a URL for a role that can connect only to `roles_database`, owns only a schema of its own name and has no other rights until `init_sql` grants them. `postgres` and `template1` are closed to applications. |
 | `service/postgres-pgvector@1.0.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | `databases` (list), `init_sql` (file, ≤ 64 KiB, no `\` meta-commands), `init_sql_database` | `databases.<name>`: a URL with that database's own role (never the superuser) |
+| `service/litellm@1.1.0` | as 1.0.0, plus two optional url inputs, `presidio-analyzer` and `presidio-anonymizer`, for Presidio guardrails (#1024) | as 1.0.0 | as 1.0.0 |
 | `service/litellm@1.0.0` | LiteLLM 1.106.2 proxy, `provides: gateway/litellm` | `config` (file, required; reviewed: allow-listed keys, each provider key only to its provider) | `url`; `master_key` (operator only) |
+| `service/presidio-analyzer@1.0.0` | Microsoft Presidio analyzer 2.2.362 (multi-arch index pinned by digest), uid 1001, no egress, no auth, so its port is internal only | none | `url` (other services only) |
+| `service/presidio-anonymizer@1.0.0` | Microsoft Presidio anonymizer 2.2.362, as the analyzer | none | `url` (other services only) |
 | `service/phoenix@1.1.0` | as 1.0.0 | none | as 1.0.0, plus `read_key` (operator only): a personal API key of the VIEWER user `agentbreeder-reader`, minted by `bootstrap` with the ingest key. `traces` reads with it; Phoenix refuses writes made with it. Moving a stack from 1.0.0 runs the bootstrap again on the same data, which mints a new ingest key too (the old one is not revoked, as when 1.0.0 mints again). Back on 1.0.x, `traces` ignores a stored read key and uses the ingest key. |
 | `service/phoenix@1.0.0` | Arize Phoenix 21.0.0 with auth on, data in a wired Postgres database | none | `url` (host only); `ingest_key` (services only, minted by `bootstrap`) |
 | `service/echo@1.0.0` | A tiny HTTP test service | `label` | `url`, `token`, `link` |
@@ -199,6 +202,100 @@ Phoenix's UI: sign in as `admin@localhost` with the password in the stack state 
   hold only the manifest's aliases plus any `fallbacks` it lists. The gate and policy see only
   `model_access.aliases`; the audit log's `gateway_key` `minted` event lists every model the key
   holds (`GATEWAY_KEY_MODELS`).
+
+### Gateway guardrails (preview)
+
+A `service/litellm@1.1.0` config may hold a `guardrails:` list of Presidio PII checks (#1024 G1b).
+Wire the two Presidio services into the gateway:
+
+```yaml
+services:
+  analyzer: {ref: service/presidio-analyzer@1.0.0}
+  anonymizer: {ref: service/presidio-anonymizer@1.0.0}
+  litellm:
+    ref: service/litellm@1.1.0
+    with: {config: stack/litellm/config.yaml}
+    wire:
+      database-url: postgres.databases.litellm
+      presidio-analyzer: analyzer.url
+      presidio-anonymizer: anonymizer.url
+environment:
+  guardrails: {required: true, approved_sha256: <the guardrails sha256 up prints>}
+```
+
+```yaml
+# in the gateway config
+guardrails:
+  - guardrail_name: pii-block
+    litellm_params:
+      guardrail: presidio
+      mode: pre_call
+      default_on: true
+      pii_entities_config: {US_SSN: BLOCK, CREDIT_CARD: BLOCK}
+      timeout: 30
+  - guardrail_name: pii-mask
+    litellm_params:
+      guardrail: presidio
+      mode: pre_call
+      default_on: true
+      pii_entities_config: {EMAIL_ADDRESS: MASK, PHONE_NUMBER: MASK}
+      timeout: 30
+```
+
+The review refuses anything outside this allow-list with `GATEWAY_CONFIG_UNSAFE`:
+
+- `guardrail: presidio` only; `mode` is `pre_call`, `post_call` or `logging_only` (`during_call`
+  runs beside the provider call and is refused); `default_on: true`.
+- `pii_entities_config` maps Presidio entity names to `MASK` or `BLOCK`, and is not empty.
+  An entity that one guardrail masks may not be blocked by a later one: guardrails run in config
+  order, and a mask rewrites the text first, so the block would never fire.
+- `presidio_language: en`, `presidio_score_thresholds` per entity from 0 to 0.8, and `timeout`
+  from 1 to 60 seconds. Without a `timeout` a stalled analyzer fails the call after 300 s.
+- Everything else is refused, including `presidio_ad_hoc_recognizers`, `output_parse_pii`,
+  `apply_to_output`, `stream_scope`, `presidio_entities_deny_list`, `api_base`, `api_key`,
+  `callbacks` and any `os.environ/` value.
+
+`up` hashes the guardrails list plus four logging settings (`turn_off_message_logging`,
+`set_verbose`, `store_prompts_in_spend_logs`, `disable_error_logs`) of the config copy the gateway
+container mounts. An edit to `model_list` doesn't change it. The grant shows that sha256 and each
+guardrail's entities, and `up` writes `environments.<env>.guardrails` into the operator config
+with `running_sha256` and `effective` (`presidio:pre_call`, `presidio:post_call`; `logging_only`
+never counts). With `required: true`, `up` refuses (`GUARDRAILS_INEFFECTIVE`) unless:
+
+- the gateway is the built-in `service/litellm`, with its two Presidio inputs wired to the
+  built-in `service/presidio-analyzer` and `service/presidio-anonymizer` (a project service could
+  answer every analysis with nothing);
+- it logs at `LITELLM_LOG` `WARNING` or above (at `DEBUG` LiteLLM prints request bodies);
+- the config has a `default_on` `pre_call` guardrail with at least one entity;
+- `turn_off_message_logging: true` and `disable_error_logs: true` are set (the error-log table
+  stores request payloads).
+
+A config with `guardrails:` but without the built-in Presidio services wired is refused even when
+nothing is required. With `required: false`, `up` records `effective: []` for a floor that would
+not pass these checks, so setting `required` later by hand never verifies it. The review checks the
+shape of `pii_entities_config`, not which entities it names: whoever approves the sha256 owns
+the coverage (a typo such as `US_SNN` is not caught). The
+gate then compares `running_sha256` with `approved_sha256` (see
+[identity-gate.md](identity-gate.md#guardrails-floor)). Copy the sha256 `up` prints into
+`stack.yaml` after reviewing the guardrails, and run `up` again. A non-interactive
+`--expect-guardrails` flag is a follow-up.
+
+In an environment with a required floor, deploy and `eval` mint every key with LiteLLM
+`allowed_routes` set to `/v1/chat/completions`, `/chat/completions`, `/v1/embeddings` and
+`/embeddings`. The Presidio hook covers those. `/openai/*` passthrough runs the hook but forwards
+the unmasked body, and `/v1/moderations` is not checked at all. Key metadata is an allow-list of
+AgentBreeder's own fields, because LiteLLM reads `disable_global_guardrails` and
+`opted_out_global_guardrails` from it.
+
+Without a required floor, keys carry no `allowed_routes`, as before. Whether such a key can call
+LiteLLM's `/key/update` or `/key/generate` itself has not been tested.
+
+What is not covered: calls that bypass the gateway, tool-call arguments, tool definitions and
+image URLs inside a chat request, the request's `user` field (LiteLLM stores it as an end-user ID), what the agent itself stores (spans, sessions, turns), and
+detection quality (Presidio is pattern and NER based). On this LiteLLM digest a `pre_call`
+guardrail also checks the model's reply. Blocked turns reach the agent as the gateway's HTTP 400.
+Runtime support (coded block replies, events) is a later slice (G2), so nothing about guardrails
+is claimed until then. On `main`, not in a published preview.
 
 ## Writing a service
 

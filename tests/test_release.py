@@ -424,8 +424,11 @@ def test_load_eval_set_validation(tmp_path):
         evals.load_eval_set(good)
 
 
-def test_run_mints_and_revokes_judge_key(project, operator, state, tmp_path):
+@pytest.mark.parametrize("guarded", [False, True])
+def test_run_mints_and_revokes_judge_key(project, operator, state, tmp_path, guarded):
     from test_gateway_keys import MASTER, FakeGateway
+
+    from agentbreeder import gateway_keys
 
     gateway = FakeGateway()
     graded = []
@@ -439,6 +442,14 @@ def test_run_mints_and_revokes_judge_key(project, operator, state, tmp_path):
     operator.config["gateways"]["gw"].update({"url": gateway.url, "master_key": f"file:{master}"})
     # The judge key is granted the judge alias's granted fallback targets too (#1033).
     operator.config["environments"]["dev"]["fallbacks"] = {"support-judge": ["support-model"]}
+    if guarded:  # under a guardrails floor the judge key reaches chat + embeddings only (#1024)
+        sha = "e" * 64
+        operator.config["environments"]["dev"]["guardrails"] = {
+            "required": True,
+            "approved_sha256": sha,
+            "running_sha256": sha,
+            "effective": ["presidio:pre_call"],
+        }
     agent = Agent(reply="bye")
     eval_set = evals.EvalSet("golden", "1.0.0", "support-judge", CASES, None)
 
@@ -446,6 +457,9 @@ def test_run_mints_and_revokes_judge_key(project, operator, state, tmp_path):
         minted = [k for a, k in gateway.keys.items() if "eval-" in a]
         assert minted and minted[0]["duration"] == evals.JUDGE_KEY_DURATION
         assert minted[0]["models"] == ["support-judge", "support-model"]
+        assert minted[0].get("allowed_routes") == (
+            list(gateway_keys.GUARDED_ROUTES) if guarded else None
+        )
         graded.append(self.key)
         assert self.key.startswith("vk-") and self.alias == "support-judge"
         return 1.0, "ok"

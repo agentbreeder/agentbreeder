@@ -355,6 +355,20 @@ claimed, until G2 lands.
   - the `config_review` allow-list, single read and `guardrails_effective`;
   - `running_sha256` and the gate denies;
   - a real-Docker test with a scripted provider.
+- **G1b as built (2026-11-15).** A `service.yaml` holds one image, so Presidio ships as two
+  built-ins, `service/presidio-analyzer@1.0.0` and `service/presidio-anonymizer@1.0.0`, both
+  internal-only with no egress. `service/litellm@1.1.0` adds two optional url inputs feeding
+  `PRESIDIO_*_API_BASE`. D10 is (a) without the flag: `stack.yaml` `environment.guardrails:
+  {required, approved_sha256}`, the grant shows the guardrails sha256 and entities (only when the
+  config has guardrails, so other stacks keep their grant digest), and `services up` writes
+  `running_sha256` and `effective` into the operator floor. `--expect-guardrails` is a follow-up.
+  `GUARDRAILS_INEFFECTIVE` at `up` also covers a project-built gateway, `LITELLM_LOG` below
+  `WARNING` and unwired Presidio inputs; a config with `guardrails:` and no Presidio is refused even
+  when nothing is required. The gate denies `GUARDRAILS_UNVERIFIED` (no running hash, or no
+  effective `pre_call`) and `GUARDRAILS_CHANGED`; the Cedar set is `effective` when the hashes
+  match, for every action. `mint` builds its body from field and metadata allow-lists for every key,
+  and adds `allowed_routes` (chat completions and embeddings) under a required floor, for deploy
+  and eval judge keys. `DRIFT_GUARDRAILS` in `reconcile` moves to G2 with the runtime.
 - **G2:** `RUNTIME_GUARDRAILS_UNSUPPORTED`; runtime events and spans in the next free runtime version, coded block replies, reconcile
   drift, docs, and a recorded run against real Gemini.
 

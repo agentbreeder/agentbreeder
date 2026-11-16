@@ -1,0 +1,9 @@
+kind: service
+name: presidio-analyzer
+version: 1.0.0
+description: >-
+  Microsoft Presidio analyzer 2.2.362 (mcr.microsoft.com, multi-arch index pinned by digest)
+  for the gateway's PII guardrails (#1024): wire its `url` output to service/litellm@1.1.0's
+  `presidio-analyzer` input. Read-only root, no capabilities, the image's uid 1001, no egress.
+  It has no auth, so its port is internal: other stack services reach it, agent containers
+  and the host do not.

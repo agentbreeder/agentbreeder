@@ -334,15 +334,117 @@ class Plan:
 
     # -- the grant --------------------------------------------------------------------------------
 
-    def _gateway_config(self) -> dict | None:
+    def _review(self) -> gateway_keys.ConfigReview | None:
         config = self.files.get(self.locked.stack.environment.gateway, {}).get("config")
         if config is None:
             return None
         try:
-            review = gateway_keys.config_review(config)
+            return gateway_keys.config_review(config)
         except gateway_keys.GatewayError as error:
             raise ServiceError(error.code, str(error)) from None
-        return {"sha256": review.sha256, "providers": dict(sorted(review.providers.items()))}
+
+    def _gateway_config(self) -> dict | None:
+        review = self._review()
+        if review is None:
+            return None
+        shown = {"sha256": review.sha256, "providers": dict(sorted(review.providers.items()))}
+        if review.guardrails:  # only then: a stack without guardrails keeps its grant digest
+            shown["guardrails_sha256"] = review.guardrails_sha256
+            # Everything the hash covers, so the approver sees what they approve.
+            shown["guardrails"] = [
+                {
+                    "name": entry["guardrail_name"],
+                    "mode": params["mode"],
+                    "entities": dict(sorted(params["pii_entities_config"].items())),
+                    "thresholds": dict(
+                        sorted(params.get("presidio_score_thresholds", {}).items())
+                    ),
+                    "timeout": params.get("timeout"),
+                }
+                for entry in review.guardrails
+                for params in (entry["litellm_params"],)
+            ]
+            shown["guardrails_logging"] = dict(sorted(review.logging.items()))
+        return shown
+
+    # The litellm@1.1.0 inputs and the built-in each must be wired to (#1024 G1b): a project
+    # service answering `/analyze` with nothing would turn every check off.
+    PRESIDIO_INPUTS = {
+        "presidio-analyzer": "service/presidio-analyzer",
+        "presidio-anonymizer": "service/presidio-anonymizer",
+    }
+
+    def _presidio_problem(self, gateway: str) -> str | None:
+        wires = self.locked.stack.services[gateway].wire
+        for name, expected in self.PRESIDIO_INPUTS.items():
+            if name not in wires:
+                return f"{gateway} has no {name} wired (service/litellm@1.1.0 inputs)"
+            source = Reference.parse(wires[name], name).service
+            ref = self.locked.stack.services[source].ref
+            if (
+                not ref.startswith(expected + "@")
+                or self.locked.origins.get(source) != BUILTIN_LABEL
+            ):
+                return f"{gateway}'s {name} must be wired to the built-in {expected}"
+        return None
+
+    def _guardrails_problem(self, review: gateway_keys.ConfigReview | None) -> str | None:
+        """Why a floor on this stack would not work, or None (spec §4.2, §12.7)."""
+        gateway = self.locked.stack.environment.gateway
+        if review is None:
+            return f"{gateway} has no config"
+        if self.locked.origins.get(gateway) != BUILTIN_LABEL:
+            return (
+                f"{gateway} must be the built-in service/litellm "
+                "(a project gateway's image can't be reviewed)"
+            )
+        problem = self._presidio_problem(gateway)
+        if problem:
+            return problem
+        level = self.environment(gateway).get("LITELLM_LOG", "")
+        if level.upper() not in ("WARNING", "ERROR", "CRITICAL"):
+            return f"{gateway} must set LITELLM_LOG to WARNING or above"
+        try:
+            review.guardrails_effective(True)
+        except gateway_keys.GatewayError as error:
+            return (
+                str(error)
+                .removeprefix(f"[{error.code}] ")
+                .removeprefix("guardrails are required: ")
+            )
+        return None
+
+    def guardrails_record(self) -> dict | None:
+        """What `services up` writes as the environment's `guardrails` (#1024 G1b): the stack's
+        floor plus the hash and effective checks of the config copy the gateway mounts. None
+        when the stack sets no floor. Checks count as `effective` only when the floor would
+        work: the built-in gateway with the built-in Presidio services wired, LITELLM_LOG at
+        WARNING or above (DEBUG prints request bodies) and an effective pre_call check with the
+        logging settings. A required floor that would not work is refused
+        (GUARDRAILS_INEFFECTIVE); a floor not required records no effective checks, so setting
+        `required` later by hand never verifies."""
+        stack = self.locked.stack
+        floor = stack.environment.guardrails
+        review = self._review()
+        gateway = stack.environment.gateway
+        if review is not None and review.guardrails:
+            problem = self._presidio_problem(gateway)
+            if problem:
+                raise ServiceError(
+                    "GUARDRAILS_INEFFECTIVE", f"the {gateway} config has guardrails, but {problem}"
+                )
+        if floor is None:
+            return None
+        problem = self._guardrails_problem(review)
+        if problem and floor.required:
+            raise ServiceError("GUARDRAILS_INEFFECTIVE", f"guardrails are required: {problem}")
+        record = {"required": floor.required}
+        if floor.approved_sha256 is not None:
+            record["approved_sha256"] = floor.approved_sha256
+        if review is not None:
+            record["running_sha256"] = review.guardrails_sha256
+            record["effective"] = [] if problem else review.effective()
+        return record
 
     def grant(self, environment: str) -> dict:
         stack = self.locked.stack
@@ -405,6 +507,9 @@ class Plan:
         }
         if not grant["mcp"]:
             del grant["mcp"]  # a stack without MCP keeps the grant digest it had before #745
+        guardrails = self.guardrails_record()
+        if guardrails is not None:  # only then, so other stacks keep their grant digest
+            grant["guardrails"] = guardrails
         return grant
 
 
@@ -415,6 +520,40 @@ def _gateway_line(review: dict | None) -> list[str]:
         f"  config sha256 {review['sha256'][:16]}…; keys go only to their provider:",
         *(f"    {alias}: {route}" for alias, route in review["providers"].items()),
     ]
+
+
+def _guardrails_lines(grant: dict) -> list[str]:
+    config = grant.get("gateway_config") or {}
+    floor = grant.get("guardrails")
+    lines = []
+    if config.get("guardrails"):
+        lines.append(f"  guardrails sha256 {config['guardrails_sha256']} (Presidio):")
+        for entry in config["guardrails"]:
+            entities = ", ".join(f"{k} {v}" for k, v in entry["entities"].items())
+            extra = [f"threshold {k} {v:g}" for k, v in entry.get("thresholds", {}).items()]
+            if entry.get("timeout") is not None:
+                extra.append(f"timeout {entry['timeout']:g}s")
+            suffix = f" ({'; '.join(extra)})" if extra else ""
+            lines.append(f"    {entry['name']} ({entry['mode']}): {entities}{suffix}")
+        logging = ", ".join(
+            f"{k.split('.', 1)[1]} {str(v).lower()}"
+            for k, v in config.get("guardrails_logging", {}).items()
+        )
+        lines.append(f"    logging: {logging}")
+    if floor is not None:
+        approved = floor.get("approved_sha256")
+        state = (
+            "matches the running config"
+            if approved and approved == floor.get("running_sha256")
+            else "does NOT match the running config: deploys are denied (GUARDRAILS_CHANGED)"
+            if approved
+            else "none"
+        )
+        lines.append(
+            f"  guardrails floor: {'required' if floor['required'] else 'not required'}; "
+            f"approved sha256 {approved or 'none'} ({state})"
+        )
+    return lines
 
 
 def _project_gateway(grant: dict) -> list[str]:
@@ -642,6 +781,7 @@ def grant_text(grant: dict) -> str:
         f"Gateway {grant['gateway']}: models {', '.join(grant['models'])}; "
         f"ceilings ${ceilings['budget_usd']:g}, {ceilings['rpm']} rpm",
         *_gateway_line(grant.get("gateway_config")),
+        *_guardrails_lines(grant),
         *_project_gateway(grant),
         *_mcp_lines(grant),
         *_cluster_lines(grant),

@@ -104,8 +104,16 @@ def test_floor_is_accepted_and_optional(identity_env):
         {"required": True, "approved_sha256": "sha256:" + SHA},  # bare hex, as LiteLLM prints
         {"required": True, "approved_sha256": "A" * 64},
         {"required": "yes", "approved_sha256": SHA},
-        {"required": True, "approved_sha256": SHA, "running_sha256": SHA},  # G1b writes it
+        {"required": True, "approved_sha256": SHA, "running_sha256": "sha256:" + SHA},
+        # effective comes with the running hash it was found in (G1b, services up)
         {"required": True, "approved_sha256": SHA, "effective": ["presidio:pre_call"]},
+        {"required": True, "approved_sha256": SHA, "running_sha256": SHA, "effective": ["x"]},
+        {
+            "required": True,
+            "approved_sha256": SHA,
+            "running_sha256": SHA,
+            "effective": ["presidio:pre_call", "presidio:pre_call"],
+        },
     ],
 )
 def test_invalid_floor_fails_config_load(identity_env, floor):

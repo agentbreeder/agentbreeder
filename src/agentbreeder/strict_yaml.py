@@ -68,6 +68,20 @@ def load_text(text: str) -> dict:
 def load_file(path: Path, limit: int = 64 * 1024) -> dict:
     """Only a regular file is read: it is opened non-blocking, so a FIFO (in a shared registry
     root, say) is refused instead of blocking the open forever (#989)."""
+    return load_bytes(read_file(path, limit), path.name)
+
+
+def load_bytes(raw: bytes, name: str) -> dict:
+    """Parse bytes already read (a caller that hashes what it parsed reads once, #1024)."""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise StrictYamlError(f"{name} is not UTF-8") from error
+    return load_text(text)
+
+
+def read_file(path: Path, limit: int = 64 * 1024) -> bytes:
+    """The bytes of a regular file of at most `limit` bytes (see `load_file`)."""
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
     except OSError as error:
@@ -87,8 +101,4 @@ def load_file(path: Path, limit: int = 64 * 1024) -> dict:
         raise StrictYamlError(f"Cannot read {path}") from error
     if len(raw) > limit:
         raise StrictYamlError(f"{path.name} exceeds the {limit // 1024} KiB limit")
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise StrictYamlError(f"{path.name} is not UTF-8") from error
-    return load_text(text)
+    return raw
