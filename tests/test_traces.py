@@ -46,11 +46,12 @@ def span(trace, span_id, parent=None, name="s", kind="CHAIN", at=0, ms=10, statu
     }
 
 
-def turn(trace, at=0, deployment=None, error=False):
+def turn(trace, at=0, deployment=None, error=False, **extra):
     """A runtime-shaped trace: agent_turn > (LLM, TOOL)."""
     root_attributes = {"session.id": "s-1", "agent.turn_id": "t-1", "input.value": "secret msg"}
     if deployment:
         root_attributes[phoenix_traces.ATTRIBUTE] = deployment
+    root_attributes.update(extra)
     return [
         span(trace, "1" * 16, None, "agent_turn", "AGENT", at, 50, **root_attributes),
         span(
@@ -336,6 +337,30 @@ def test_summarize_builds_the_trace_shape():
     assert trace["deployment_id"] is None and trace["attribution"] is None
     text = json.dumps(trace)
     assert "secret msg" not in text and "input" not in text  # content never read out
+
+
+@pytest.mark.parametrize(
+    ("fallbacks", "served_by", "expected"),
+    [
+        (1, ["chat-or"], (1, ["chat-or"])),
+        (0, ["chat"], (0, ["chat"])),
+        (None, None, (None, [])),
+        ("1", "chat-or", (None, [])),
+        (True, ["chat", "https://api.example.com/v1", "a b", 7, "x" * 65], (None, ["chat"])),
+        (-1, ["openrouter/google/gemini"], (None, [])),
+        (2, [f"a{n}" for n in range(20)], (2, [f"a{n}" for n in range(10)])),
+    ],
+)
+def test_summarize_reads_the_fallback_attributes(fallbacks, served_by, expected):
+    """#1039: runtime/adk@1.3.0's `agentbreeder.fallbacks` and `agentbreeder.served_by` on the
+    root span; anything that is not a count or a list of aliases is dropped."""
+    extra = {}
+    if fallbacks is not None:
+        extra[phoenix_traces.FALLBACKS] = fallbacks
+    if served_by is not None:
+        extra[phoenix_traces.SERVED_BY] = served_by
+    trace = phoenix_traces.summarize("1" * 32, "support", turn("1" * 32, **extra), show())
+    assert (trace["fallbacks"], trace["served_by"]) == expected
 
 
 def test_summarize_redacts_and_flattens_untrusted_text():
@@ -720,6 +745,15 @@ def test_by_id_text(phoenix, wired, capsys):
     assert code == 0, err
     assert f"Deployment {D2} (exact), project support:" in out
     assert "tokens 100/30" in out and "tools: lookup" in out
+
+
+def test_a_fallback_turn_is_marked_in_the_text(phoenix, wired, capsys):
+    served = {phoenix_traces.FALLBACKS: 1, phoenix_traces.SERVED_BY: ["chat-or"]}
+    phoenix.projects = {"support": [*turn("2" * 32, 2, D2, **served), *turn("3" * 32, 3, D2)]}
+    code, out, err = run([D2, "--state-dir", str(wired.state_dir)], capsys)
+    assert code == 0, err
+    lines = [line for line in out.splitlines() if "tokens" in line]
+    assert ["fallback: chat-or" in line for line in lines] == [False, True]  # newest first
 
 
 def test_window_text_warns(phoenix, wired, capsys):

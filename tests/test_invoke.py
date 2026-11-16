@@ -223,6 +223,103 @@ def test_agent_error_exits_1_with_a_stripped_excerpt(state, agent, docker, capsy
     assert json.loads(capsys.readouterr().out)["status"] == 503
 
 
+TURN = "0123456789abcdef" * 2
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [
+        (402, "MODEL_BUDGET_EXCEEDED"),
+        (429, "MODEL_RATE_LIMITED"),
+        (502, "MODEL_ACCESS_DENIED"),
+        (502, "MODEL_REQUEST_REFUSED"),
+        (502, "MODEL_UNAVAILABLE"),
+    ],
+)
+def test_a_coded_model_error_shows_its_code_and_where_the_detail_is(
+    state, agent, docker, capsys, status, code
+):
+    """runtime/adk@1.3.0's coded model errors (#1030, #1034): the code, the runtime's message
+    (its next step) and the correlation id with the `logs` command that finds the detail."""
+    Agent.answer = (
+        status,
+        {"error": "Raise model.budget_usd in agent.yaml.", "code": code, "correlation_id": TURN},
+    )
+    identifier = deployment(state, "hello", agent)
+    docker.install(FakeDocker(endpoint=agent))
+    assert run(state, "hello", "hi") == 1
+    err = capsys.readouterr().err
+    assert err.startswith(f"[{code}] hello answered {status}: Raise model.budget_usd")
+    assert f"correlation id {TURN}" in err and f"logs {identifier} --state-dir" in err
+    assert run(state, "hello", "hi", "--json") == 1
+    response = json.loads(capsys.readouterr().out)["response"]
+    assert response["code"] == code and response["correlation_id"] == TURN
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"error": "x", "code": "SOMETHING_ELSE", "correlation_id": TURN},
+        {"error": "x", "code": ["MODEL_UNAVAILABLE"]},
+        {"error": "x", "code": {"a": 1}},
+        {"error": "x", "code": "MODEL_UNAVAILABLE\x1b[2J"},
+    ],
+)
+def test_an_unknown_or_hostile_code_is_agent_error(state, agent, docker, capsys, body):
+    Agent.answer = (502, body)
+    deployment(state, "hello", agent)
+    docker.install(FakeDocker(endpoint=agent))
+    assert run(state, "hello", "hi") == 1
+    err = capsys.readouterr().err
+    assert err.startswith("[AGENT_ERROR] hello answered 502: x") and "correlation" not in err
+
+
+def test_a_hostile_correlation_id_is_not_echoed(state, agent, docker, capsys):
+    Agent.answer = (
+        502,
+        {"error": "x", "code": "MODEL_UNAVAILABLE", "correlation_id": "a\x1b[31m"},
+    )
+    deployment(state, "hello", agent)
+    docker.install(FakeDocker(endpoint=agent))
+    assert run(state, "hello", "hi") == 1
+    err = capsys.readouterr().err
+    assert err.startswith("[MODEL_UNAVAILABLE]") and "correlation" not in err
+
+
+@pytest.mark.parametrize(
+    ("fallbacks", "served_by", "note"),
+    [
+        (1, ["chat-or"], "Note: a gateway fallback served this turn (served by chat-or)."),
+        (2, ["chat", "chat-or"], "(served by chat, chat-or)."),
+        (
+            1,
+            ["evil\x1b[2J", "https://x.example/v1", 7],
+            "Note: a gateway fallback served this turn.",
+        ),
+        (1, "chat-or", "Note: a gateway fallback served this turn."),
+        (0, ["chat"], None),
+        (None, [], None),
+        (True, ["chat"], None),
+        ("1", ["chat"], None),
+    ],
+)
+def test_a_fallback_turn_says_so(state, agent, docker, capsys, fallbacks, served_by, note):
+    """#1039: runtime/adk@1.3.0's `fallbacks` and `served_by` become a stderr note."""
+    Agent.answer = (
+        200,
+        {"reply": "ok", "session_id": "s1", "fallbacks": fallbacks, "served_by": served_by},
+    )
+    deployment(state, "hello", agent)
+    docker.install(FakeDocker(endpoint=agent))
+    assert run(state, "hello", "hi") == 0
+    captured = capsys.readouterr()
+    assert captured.out == "ok\n"
+    if note is None:
+        assert "fallback" not in captured.err
+    else:
+        assert note in captured.err and "\x1b" not in captured.err and "https" not in captured.err
+
+
 @pytest.mark.parametrize(
     "body",
     [b"not json", b"[1, 2]", b"x" * (invoke.MAX_RESPONSE + 2), {"no": "reply"}],

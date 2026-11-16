@@ -141,3 +141,15 @@ added up to USD 0.01493425; LiteLLM's spend log had 0.01493475 for that key's 9 
 rounding difference). The turn's figure evidently leaves out its knowledge embedding calls (that
 key's 7 cost 0.0000144 in all); this was not checked call by call. See
 [`agent-yaml.md`](agent-yaml.md#runtimeadk120).
+
+## A budget or rate limit reached (`runtime/adk@1.3.0`)
+
+When a deployment key's `max_budget` (from `model.budget_usd` or the environment's ceiling) is
+spent, LiteLLM refuses the next call with `budget_exceeded`. LiteLLM checks the budget before
+each call, against the spend so far, so the turn that crosses the budget still completes.
+`runtime/adk@1.3.0` (#1034, on `main`, not in a published preview) answers the refused turn with
+`MODEL_BUDGET_EXCEEDED` (HTTP 402), whose message says to raise `model.budget_usd` or wait for the
+budget period to reset. A rate limit (`rpm`) still hit after the runtime's bounded wait (10 s per
+turn) is `MODEL_RATE_LIMITED` (429, with `retry_after_s`). `1.2.0` and earlier answer both with a
+generic "unavailable, please try again" (502), and a rate-limited turn waits out the limit
+without saying so. See [`agent-yaml.md`](agent-yaml.md#runtimeadk130).

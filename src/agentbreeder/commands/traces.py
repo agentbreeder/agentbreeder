@@ -221,10 +221,18 @@ def _line(trace: dict) -> str:
             f"tokens {tokens['prompt']}/{tokens['completion']}",
             ", ".join(trace["models"]) or "-",
             f"tools: {tools}" if tools else "",
+            _fallback(trace),
             "(still arriving)" if trace.get("incomplete") else "",
         )
         if part
     )
+
+
+def _fallback(trace: dict) -> str:
+    """`fallback: ALIAS` when a gateway fallback served the turn (runtime/adk@1.3.0, #1039)."""
+    if not trace.get("fallbacks"):
+        return ""
+    return "fallback: " + (", ".join(trace.get("served_by") or []) or "yes")
 
 
 def _tree(trace: dict) -> list[str]:

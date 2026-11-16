@@ -21,6 +21,20 @@ from agentbreeder.agentfile import NAME_PATTERN
 
 NAMES = ("invoke",)
 SCHEMA_VERSION = 1
+# A failed model call's code from runtime/adk@1.3.0 (#1030, #1034); its fixed message carries the
+# next step. Any other answer is AGENT_ERROR.
+MODEL_CODES = frozenset(
+    {
+        "MODEL_BUDGET_EXCEEDED",
+        "MODEL_RATE_LIMITED",
+        "MODEL_ACCESS_DENIED",
+        "MODEL_REQUEST_REFUSED",
+        "MODEL_UNAVAILABLE",
+    }
+)
+TURN_ID = re.compile(r"[0-9a-f]{32}")
+# A gateway alias (the runtime reports only these in `served_by`, #1039).
+ALIAS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
 
 def register(commands) -> None:
@@ -178,16 +192,46 @@ def _invoke(store, args, message: str) -> int:
         )
         return 0 if ok else 1
     if not ok:
-        detail = answer.body.get("error", "no reply in the answer")
-        print(
-            f"[AGENT_ERROR] {record['name']} answered {answer.status}: "
-            f"{safe_text.excerpt(detail, 300)}",
-            file=sys.stderr,
-        )
+        print(_agent_error(record, answer, where), file=sys.stderr)
         return 1
     reply = answer.body["reply"].strip()
-    print(safe_text.visible(reply), flush=True)  # before the stderr note
+    print(safe_text.visible(reply), flush=True)  # before the stderr notes
+    served = _fallback_note(answer.body)
+    if served:
+        print(served, file=sys.stderr)
     session = answer.body.get("session_id")
     if isinstance(session, str) and invoke.ID.fullmatch(session):
         print(f"Session: {session} (continue with --session {session})", file=sys.stderr)
     return 0
+
+
+def _agent_error(record: dict, answer, where: hints.Where) -> str:
+    """`[CODE] NAME answered STATUS: message`: the runtime's model error code when it sent one of
+    MODEL_CODES (its message has the next step, and the correlation id finds the detail in the
+    agent's log), else AGENT_ERROR."""
+    body = answer.body
+    sent = body.get("code")
+    code = sent if isinstance(sent, str) and sent in MODEL_CODES else "AGENT_ERROR"
+    detail = body.get("error", "no reply in the answer")
+    line = f"[{code}] {record['name']} answered {answer.status}: {safe_text.excerpt(detail, 400)}"
+    correlation = body.get("correlation_id")
+    if code != "AGENT_ERROR" and isinstance(correlation, str) and TURN_ID.fullmatch(correlation):
+        logs = where.command("logs", record["id"])
+        line += f" (correlation id {correlation}; the detail is in `{logs}`)"
+    return line
+
+
+def _fallback_note(body: dict) -> str | None:
+    """A note when a gateway fallback served the turn (runtime/adk@1.3.0 `fallbacks` and
+    `served_by`, #1039); None otherwise or when the fields are missing or malformed."""
+    fallbacks = body.get("fallbacks")
+    if isinstance(fallbacks, bool) or not isinstance(fallbacks, int) or fallbacks <= 0:
+        return None
+    served = body.get("served_by")
+    aliases = [
+        a
+        for a in (served if isinstance(served, list) else [])[:10]
+        if isinstance(a, str) and ALIAS.fullmatch(a)
+    ]
+    by = f" (served by {', '.join(aliases)})" if aliases else ""
+    return f"Note: a gateway fallback served this turn{by}."

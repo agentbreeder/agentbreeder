@@ -189,8 +189,62 @@ which added up, within rounding, to LiteLLM's spend log for the key's chat calls
 
 Tool code runs in the agent's process, so a malicious tool can still change `cost_usd`, its own
 audit rows or the turn's record (it holds the agent's database connection). These fields are
-reliable for honest tools and against the model, not against hostile tool code. The
-`new agent` starter also uses `1.2.0` (its stack stays on `postgres-pgvector@1.1.0`).
+reliable for honest tools and against the model, not against hostile tool code.
+
+### `runtime/adk@1.3.0`
+
+On `main`, not in a published preview (#1030, #1034, #1039). `1.3.0` is `1.2.0` plus:
+
+- **Coded model errors.** A failed model call is answered with a fixed message, never the
+  gateway's or provider's text:
+  `{"error", "code", "correlation_id", "trace_id", "retry_after_s"}`. `correlation_id` is the
+  turn id. The detail (redacted, at most 500 characters) is only in the agent's log, on one
+  `model call failed: turn=<correlation_id> code=<code> …` line (`agentbreeder logs ID`), and in
+  the turn's record and `turn_failed` event.
+
+  | `code` | HTTP | When | Next step in the message |
+  |---|---|---|---|
+  | `MODEL_BUDGET_EXCEEDED` | 402 | the gateway refused the key's budget (`budget_exceeded`) | raise `model.budget_usd` (within the environment's ceiling) and deploy again, or wait for the budget period to reset |
+  | `MODEL_RATE_LIMITED` | 429, `Retry-After` | the gateway's rate limit, still hit after the runtime's bounded wait | wait (`retry_after_s`), or raise `model.rpm` |
+  | `MODEL_ACCESS_DENIED` | 502 | the gateway refused the key for the model (401/403) | check `environment.models` and deploy again |
+  | `MODEL_REQUEST_REFUSED` | 502 | another 4xx: sending it again won't help | the log line under `correlation_id` |
+  | `MODEL_UNAVAILABLE` | 502 | a 5xx, timeout or connection error, after retries | try again |
+
+- **Bounded retries.** The OpenAI client under LiteLLM no longer retries on its own: it waited
+  out a rate limit's `retry-after` (up to 120 s, twice) unseen. `1.3.0` retries a model call
+  itself, up to 3 attempts. It retries a 409, 500, 502 or 503 (connection errors included)
+  after a short backoff. It retries a rate limit only while the turn's waits add up to at most
+  10 s, so LiteLLM's 60 s `rpm` window gives `MODEL_RATE_LIMITED` at once (seen live: 0.8 s,
+  where `1.2.0` waited 67.6 s). It never retries a spent budget or a timeout (408, 504): the
+  provider may already have answered and billed the call. No retry starts in the last 40 s of
+  the turn's 170 s. Each reply has `rate_limit_wait_s`, the seconds the turn spent waiting on
+  rate limits.
+- **Fallbacks shown.** Each reply has `fallbacks` (how many fallbacks LiteLLM's
+  `x-litellm-attempted-fallbacks` header reported over the turn's model calls) and
+  `served_by` (the aliases that answered, from `x-litellm-model-group`). Only values shaped like
+  an alias are kept (letters, digits, `.`, `_` and `-`), so a provider model id with a `/` or an
+  API base is dropped. A gateway whose model groups are named like bare model ids would show
+  those names. Both are `null` and `[]` when
+  the turn made no gateway call. `model` is still the agent's own alias. The root `agent_turn`
+  span has `agentbreeder.fallbacks` and `agentbreeder.served_by`, and each `model_called` event
+  has the call's `served_by` and `fallbacks`. `invoke` prints a note, and `traces` shows
+  `fallback: ALIAS`.
+- **Log hygiene.** LiteLLM's masked key (`sk-...WXYZ`, also written with `…` or `***`) is
+  redacted wherever the runtime redacts text. SHA-256 token hashes are redacted in the
+  model-error detail and in the exception text and status of exported spans, which `traces`
+  shows. Any other failure of a turn is answered with a fixed 500 and logged as one redacted
+  `turn failed:` line, not as a traceback. ADK, MCP and LiteLLM
+  library log lines are one redacted line each, with no traceback, for every agent (in `1.2.0`
+  only for agents with `mcp:` servers). LiteLLM's "Give Feedback" banner is off.
+
+**Earlier versions (`1.2.0` and before).** Every failed model call returns
+`{"error": "The model service is unavailable; please try again"}` (502), or "busy" (429). There
+is no code, so a spent budget reads as "try again". The reply never carried the upstream text, but
+the stored turn error and ADK's logged traceback did, with LiteLLM's masked key fragment
+unredacted. A rate-limited turn could wait up to about two minutes without saying so.
+
+The `new agent` starter uses `1.3.0` (its stack stays on `postgres-pgvector@1.1.0`); Northwind
+stays on `1.2.0` until it is relocked with a full eval run.
 
 Agents built from `agent.yaml` can't yet run behind the opt-in MCP egress sidecar
 (`runtime_enforcement: mcp_http`): the deploy is refused with `MODEL_ACCESS_UNSUPPORTED`, because

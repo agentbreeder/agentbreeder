@@ -107,7 +107,7 @@ def test_a_gemini_prompt_and_evals_project(tmp_path):
     assert stack.mcp == {}
     lock = Lock.load(project / "agent.lock")
     assert set(lock.entries) == {
-        "runtime/adk@1.2.0",
+        "runtime/adk@1.3.0",
         "prompt/helper-prompt@0.1.0",
         "eval/helper-evals@0.1.0",
     }
