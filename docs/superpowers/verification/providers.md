@@ -1,8 +1,11 @@
 # #1020 verification: OpenAI, Anthropic and OpenRouter end to end
 
-Status: **partial, verified from `main`** (89cf804, after #1016 merged, 2026-11-15, macOS 13.7.8
+Status: **partial, verified from `main`** (re-run on f6709b2 at the end of this file: openai now
+passes, anthropic still blocked; first run on 89cf804, after #1016 merged, 2026-11-15, macOS 13.7.8
 x86_64, Docker Desktop engine 27.5.1, LiteLLM 1.106.2 from `service/litellm@1.0.0`). Per provider,
-from the starter (`new agent --model <p>` → `services up` → `release` → `invoke`):
+from the starter (`new agent --model <p>` → `services up` → `release` → `invoke`). The table and
+sections up to "Notes" are the **first run (89cf804)**. The openai rows are superseded by the
+re-run at the end (openai PASS, chat and embeddings); anthropic is still blocked there.
 
 | Provider | Model | Result |
 |---|---|---|
@@ -12,8 +15,8 @@ from the starter (`new agent --model <p>` → `services up` → `release` → `i
 | **anthropic** | `anthropic/claude-opus-5-5` (the default) | **Not verified, blocked by the key:** Anthropic refused every call, because the key is not scoped to a workspace |
 
 `Provider.verified` was **not** changed by this PR. The results were sent to the coordinator; a
-flip, if any, goes to a code lane. OpenAI embeddings (`--from-spec` with knowledge) were **not
-run**, since the OpenAI key has no credits. The leak scan found 0 hits, and Docker was torn down
+flip, if any, goes to a code lane. In the first run, OpenAI embeddings (`--from-spec` with
+knowledge) were **not run**, since the OpenAI key had no credits (they pass in the re-run). The leak scan found 0 hits, and Docker was torn down
 to the pre-run snapshot after each run.
 
 This is on `main`, not in a published preview.
@@ -112,13 +115,14 @@ should support a workspace header is a separate decision, and no issue has been 
 
 | Check | Result |
 |---|---|
-| For each provider: `new agent --model <p>` → services up → release (judge passes) → invoke, from a wheel of main, real calls, leak scan, teardown | **openrouter PASS** (with `google/gemini-3.8-flash`; `anthropic/claude-haiku-5.5` failed the gate on answer quality). **openai not verified** (the key has no credits). **anthropic not verified** (the key is not workspace-scoped) |
+| For each provider: `new agent --model <p>` → services up → release (judge passes) → invoke, from a wheel of main, real calls, leak scan, teardown | **Re-run (f6709b2): openai PASS; anthropic still not verified.** First run: **openrouter PASS** (with `google/gemini-3.8-flash`; `anthropic/claude-haiku-5.5` failed the gate on answer quality). **openai not verified** (the key has no credits). **anthropic not verified** (the key is not workspace-scoped) |
 | Flip `verified` only for the providers that passed | **Not done here**, by instruction: the results went to the coordinator for a code lane. Only openrouter qualifies |
-| Embeddings per `agentspec.EMBEDDINGS` checked for openai | **Not run**: the OpenAI key has no credits |
+| Embeddings per `agentspec.EMBEDDINGS` checked for openai | **Re-run: PASS** (`text-embedding-3-small`, 1536). First run: not run, the key had no credits |
 | Record `docs/superpowers/verification/providers.md`; docs and console builder copy updated | This file. The docs and console copy follow the flip, in the code lane |
 
-Flows that need a model key ran here: OpenRouter with the two models above. The OpenAI and
-Anthropic keys were sent, and both providers refused them.
+Flows that need a model key ran here. First run: OpenRouter with the two models above; the OpenAI
+and Anthropic keys were sent, and both providers refused them. Re-run: OpenAI (chat and
+embeddings) passed; Anthropic refused the key again.
 
 ## Browser click-through
 
@@ -136,10 +140,100 @@ Not run for this record. The console was not used for the provider runs.
 
 ## Notes
 
-- Costs are LiteLLM's estimates, not a bill: $0.0032 in all for the two OpenRouter runs. The
-  OpenAI and Anthropic calls failed and cost nothing.
+- Costs are LiteLLM's estimates, not a bill: $0.0032 in all for the two first-run OpenRouter runs.
+  In the first run the OpenAI and Anthropic calls failed and cost nothing.
 - A starter's eval set has two cases, so a release here shows that the path works, not how good
   the model is. The Haiku result shows that the choice of model can fail the gate.
 - `openai/gpt-5.6` is not an ID in OpenRouter's list (OpenRouter lists `openai/gpt-5.6-luna`,
   `-terra` and `-sol`). Whether OpenAI's own API accepts `gpt-5.6` was not tested, since the key
   had no credit.
+
+## Re-run 2026-11-15 (evening): OpenAI with credit, Anthropic retried
+
+The owner added credit to the OpenAI key and asked for one Anthropic retry with the current key.
+This used a new wheel from `main` at f6709b2 (after #1046), `agentbreeder-3.0.0a2-py3-none-any.whl`,
+sha256 `df05d9863d0e2fbfda5aabaff6bbd8ce5c6814e453cd3febf371fa3f6dc34460`, installed with `[eval]`
+into a fresh Python 3.12 venv. The sandbox was set up as above (`env -i`, fresh `HOME` and
+`TMPDIR`, `USER=demo`, a Docker context in the sandbox `HOME`, one 0600 key file per provider,
+deleted after the run).
+
+| Provider | Model | Result |
+|---|---|---|
+| **openai** | `openai/gpt-5.6` (the default) | **PASS**: release 2/2 (the judge's `json_schema` verdicts parsed), `invoke` 2/2 |
+| **openai embeddings** | `openai/text-embedding-3-small`, 1536 dimensions, via `--from-spec` with one knowledge version | **PASS**: indexed 4 of 4 chunks, release 2/2, `invoke` 2/2 with the answers from the articles |
+| anthropic | `anthropic/claude-opus-5-5` (the default) | **Not verified, same block as before:** Anthropic still refuses the key because it is not scoped to a workspace. Retried once, as instructed; no header or config change was made |
+
+### OpenAI (starter)
+
+| Step | Command (UTC start) | Exit | Time | Result |
+|---|---|---|---|---|
+| 1 | `new agent prov-openai --model openai` (01:55:20) | 0 | 0.6 s | `openai/gpt-5.6` on both aliases; it printed the config-only notice |
+| 2 | `services up` (01:55:29) | 0 | 52.1 s | |
+| 3 | `release` (01:56:21) | **0** | 46.6 s | `Released sha256:93017539…: 2/2 evals passed`. `hours`: correctness 1.0 on attempt 1; `unknown`: correctness 1.0 on attempt 1 ("correctly states that it does not know Acme's current stock price") |
+| 4 | `invoke prov-openai "When is support open?" --stack prov-openai --environment dev --json` (01:57:23) | 0 | 6.9 s | 200: "Acme support is open Monday through Friday, 9:00 AM to 5:00 PM Pacific Time." 1 model call, 80 in / 26 out, `cost_usd` 0.00084 |
+| 5 | `invoke prov-openai "What can you help me with?" …` (01:57:30) | 0 | 5.3 s | 200: a short description of what it helps with. 1 model call, 82 in / 46 out, `cost_usd` 0.001248 |
+| 6 | spend log (read under 30 s after step 5) | | | `chat`: 4 success (2 candidate eval turns, 2 production turns), 326 in / 132 out, $0.003944; `judge`: 2 success, 374 in / 84 out, $0.003176. No failures |
+| 7 | teardown (`remove ID --local`, `services down --purge --yes`, `docker rmi` of the one new image) | 0 | | containers, networks, volumes and images matched the pre-run snapshot |
+
+The first `invoke` attempt in this run left out `--stack` and got `NO_STATE` (exit 2). That was
+the script's mistake, not a product fault. Steps 4 and 5 are the corrected commands. The run
+script printed the exit codes and times to the terminal and did not save them to files. Teardown
+was checked each time by comparing the Docker state with the pre-run snapshot, also printed and
+not saved.
+
+So `openai/gpt-5.6` is a valid model ID on OpenAI's own API, and the judge's strict
+`json_schema` output works there.
+
+### OpenAI embeddings (`--from-spec` with knowledge)
+
+A sandbox-only knowledge version, `knowledge/acme-help@1.0.0` (two short Markdown articles:
+warranty 27 months from delivery; unused returns within 41 days, return shipping paid only for
+faulty items), was put in a registry named by `AGENTBREEDER_REGISTRY_PATH`. Its manifest names
+`embedding: {alias: acme-embedding, dimensions: 1536}`. The spec (0600) asked for `model: openai`,
+a short prompt, two eval cases (`warranty` must match `27`, `returns` must match `41`, each with a
+judge reference), `threshold: 1.0`, `retries: 1`, and that knowledge version with `top_k: 5`.
+
+| Step | Command (UTC start) | Exit | Time | Result |
+|---|---|---|---|---|
+| 1 | `new agent prov-openai-kb --from-spec <spec> --dry-run --json` | 0 | | combination `model, prompt, evals, knowledge` (`verified: false`), aliases `chat, judge, acme-embedding`, key `OPENAI_API_KEY`, `openai/text-embedding-3-small` 1536, 2 documents, 4 chunks |
+| 2 | the same without `--dry-run` (02:12:29) | 0 | | wrote the project; config-only notice for openai |
+| 3 | `services up` (02:12:30) | 0 | 46.1 s | |
+| 4 | `knowledge status knowledge/acme-help@1.0.0 --project <P> --environment dev` (02:13:16) | 0 | 7.3 s | `not_indexed`, 0 of 4 chunks ("the runtime indexes at the agent's first search") |
+| 5 | `release` (02:13:23) | **0** | 28.1 s | `Released sha256:4e13d69c…: 2/2 evals passed`. `warranty` and `returns`: correctness 1.0 on attempt 1 |
+| 6 | `knowledge status` again (02:13:51) | 0 | 0.7 s | `fresh`, chunks 4 indexed of 4, documents 2 of 2, `acme-embedding` 1536 |
+| 7 | `invoke … "How long is the warranty on an Acme kettle?"` (02:13:52) | 0 | 8.5 s | 200: "The warranty is **27 months from the delivery date**." 1 model call, 228 in / 16 out, with `sources` |
+| 8 | `invoke … "Who pays return shipping?"` (02:14:01) | 0 | 2.6 s | 200: "Acme pays return shipping only for faulty items." 1 model call, 222 in / 14 out |
+| 9 | spend log (read under 30 s after step 8) | | | `acme-embedding` (`openai/text-embedding-3-small`): 6 success, 110 tokens, $0.000002; `chat`: 4 success, 907 in / 76 out, $0.005148; `judge`: 2 success, 358 in / 75 out, $0.002932. No failures |
+| 10 | teardown | 0 | | snapshot matched |
+
+### Anthropic retry
+
+| Step | Command (UTC start) | Exit | Time | Result |
+|---|---|---|---|---|
+| 1 | `new agent prov-anthropic --model anthropic` (02:14:49) | 0 | | `anthropic/claude-opus-5-5` on both aliases |
+| 2 | `services up` (02:14:50) | 0 | 49.2 s | |
+| 3 | `release` (02:15:39) | 5 | 25.1 s | `Eval gate failed: 0/2 passed`. Both cases: `agent_responded` false, `HTTPError: 502` |
+| 4 | spend log | | | `chat`: 2 failure rows. No judge call was made |
+| 5 | teardown | 0 | | snapshot matched |
+
+The script's `invoke` calls for Anthropic also left out `--stack` (`NO_STATE`). They were moot,
+since the gate kept production empty.
+
+LiteLLM's log gives the same cause as before: "This API key is not scoped to a workspace, so this
+request must include the anthropic-workspace-id header with the ID of the workspace to use." The
+log was read during the run and not kept. As instructed, no header was added and `config_review`
+was not changed. Anthropic stays unverified until the owner supplies a workspace-scoped key, or
+decides whether AgentBreeder should support the header.
+
+### Re-run: acceptance, leak scan and what changes
+
+- openai (chat and embeddings) now qualifies for a `Provider.verified` flip. That flip goes to a
+  code lane, and the results were sent to the coordinator. This PR changes no code.
+- anthropic still does not qualify.
+- Leak scan: the re-run's saved outputs and project directories (85 files) were scanned for each
+  `~/.env` value of 12 or more characters (8 values, plain, base64 and URL-encoded) and for
+  `/Users/`: **0 hits**. The key files were deleted after the runs.
+- After each of the three runs, the containers, networks, volumes and images matched the pre-run
+  snapshot. Only the image each run built was removed.
+- Costs are LiteLLM's estimates, not a bill: about $0.015 in all for the two OpenAI runs. The
+  Anthropic calls failed and cost nothing.
