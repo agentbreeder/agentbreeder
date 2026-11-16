@@ -279,6 +279,10 @@ def run(args) -> int:
                 print(f"Removed volume {volume}")
             for image in result["images_removed"]:
                 print(f"Removed image {image}")
+            for network in result["networks_removed"]:
+                print(f"Removed network {network}")
+            for network in result["networks_left"]:
+                print(f"Kept network {network} (still in use; see docs/services.md)")
             if result["state_removed"]:
                 print(f"Removed state {result['state_removed']}")
         return 0
