@@ -340,6 +340,16 @@ claimed, until G2 lands.
   - Presidio image architectures.
 - **G1a (shared with #1023 P0):** the operator `guardrails` field, Cedar attributes and
   `SECRET_RESERVED` names.
+- **G1a as built (2026-11-15).** The owner dropped #1023 (no direct route to vendors; LiteLLM or
+  OpenRouter only), so `DIRECT_NO_GUARDRAILS` and the `LLM_PROVIDER_KEY` reserved name are gone.
+  The environment field is the **floor**, `guardrails: {required, approved_sha256}` (bare hex).
+  `running_sha256` and `effective` arrive in G1b together with `services up`, which writes them, so
+  nobody can record them by hand first. Until G1b a required floor denies every deploy
+  (`GUARDRAILS_UNVERIFIED`, never overridable). The Cedar `guardrails` set exists but is always
+  empty. `SECRET_RESERVED` covers the `PROVIDER_KEYS` names in `bindings` (config load) and
+  manifest `secrets` (gate). Planned later (owner, 2026-11-15): agent-level guardrails declared in
+  `agent.yaml` that may only add to the floor, never remove or weaken it, and that map to the
+  deployment key's mint. The manifest gets an agent `guardrails:` list in that slice, not before.
 - **G1b:**
   - `service/presidio@1.0.0` and `service/litellm@1.1.0`;
   - the `config_review` allow-list, single read and `guardrails_effective`;

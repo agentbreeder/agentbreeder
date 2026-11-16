@@ -150,6 +150,39 @@ Manifests can name only restriction bundle IDs, never paths or OCI references.
 Remote PDP URLs must be HTTPS or loopback HTTP. Decisions record policy IDs, digests/revisions,
 the operator config digest and the Cedar schema version.
 
+The Cedar `Agent` entity has a `guardrails` attribute (a set of strings such as
+`presidio:pre_call`) for the guardrails verified on the deployment's gateway route (#1024). OPA and
+AuthZEN receive it as `resource.properties.guardrails`. Nothing verifies a running gateway yet, so
+it is always empty, and a bundle can't rely on it until a later slice fills it. Adding it changed
+the schema version, so every revision digest changed once and approvals held from before have to be
+requested again. On `main`, not in a published preview.
+
+## Guardrails floor (not yet enforceable)
+
+An operator environment can declare a guardrails floor for model calls through the stack's gateway:
+
+```yaml
+environments:
+  prod:
+    guardrails: {required: true, approved_sha256: <64 hex>}   # the reviewed gateway guardrails hash
+```
+
+This is the floor every deployment in the environment has to meet. A later slice lets `agent.yaml`
+add guardrails above the floor, never remove or weaken them. This version runs no guardrails and
+can't check that a gateway runs them, so:
+
+- With `required: true`, the gate denies every deploy in that environment (`GUARDRAILS_UNVERIFIED`,
+  even in audit mode) until a later slice verifies the running gateway config against
+  `approved_sha256`.
+- With `required: true`, neither `bindings` nor a manifest's `secrets` may use a provider key name
+  (`GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`): the config
+  fails to load, or the gate denies with `SECRET_RESERVED`. This checks exact names only. A provider
+  key mounted under another name (`OPENAI_API_KEY_2`, `openai_api_key`) is not detected.
+- These denies come before identity resolution and policy, so the attempt's audit row names the
+  floor, not a later identity or policy code.
+
+On `main`, not in a published preview. Nothing here inspects model input or output.
+
 ## Maker-checker approvals
 
 A `require_approval` obligation (from policy, or `maker_checker.risk_tiers` matching the verified

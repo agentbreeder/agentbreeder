@@ -115,6 +115,30 @@ class KubernetesTarget(_Strict):
         return value
 
 
+# The provider credential names LiteLLM's config imports (gateway_keys.PROVIDER_KEYS). Kept here
+# because operator_config is imported by gateway_keys; a test keeps the two in step.
+PROVIDER_KEY_NAMES = frozenset(
+    {"GEMINI_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"}
+)
+
+
+class GuardrailsFloor(_Strict):
+    """The environment's guardrails floor (#1024): what every deployment's model calls through
+    the stack gateway must pass. Agent-level guardrails may later add to it, never remove or
+    weaken it. `approved_sha256` is the reviewed `guardrails_sha256` of the gateway config
+    (bare hex). No AgentBreeder version verifies a running gateway yet, so a required floor
+    denies every deploy (`GUARDRAILS_UNVERIFIED`) until #1024 G1b."""
+
+    required: bool = False
+    approved_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def names_the_reviewed_hash(self):
+        if self.required and self.approved_sha256 is None:
+            raise ValueError("a required guardrails floor needs approved_sha256")
+        return self
+
+
 class Environment(_Strict):
     targets: list[Literal["local", "kubernetes"]] = Field(min_length=1)
     # Required to deploy `target: kubernetes` in this environment.
@@ -138,6 +162,12 @@ class Environment(_Strict):
     network: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_.-]{0,127}$")
     # Stack MCP relays agents in this environment may be granted (spec §7).
     mcp_relays: dict[str, McpRelay] = Field(default_factory=dict, max_length=20)
+    # Guardrails floor for model calls through the stack gateway (#1024). Unset: none.
+    guardrails: GuardrailsFloor | None = None
+
+    @property
+    def guardrails_required(self) -> bool:
+        return self.guardrails is not None and self.guardrails.required
 
     @field_validator("network")
     @classmethod
@@ -165,6 +195,13 @@ class Environment(_Strict):
         for agent in self.agents.values():
             if not set(agent.mcp) <= set(self.mcp_relays):
                 raise ValueError("an agent's mcp grant names a relay the environment lacks")
+        if self.guardrails_required and set(self.bindings) & PROVIDER_KEY_NAMES:
+            # A provider key in the agent lets it call the provider around the gateway's
+            # guardrails. A naming check only: a key under another name is not detected.
+            raise ValueError(
+                "[SECRET_RESERVED] bindings may not use a provider key name when guardrails "
+                "are required"
+            )
         return self
 
     def key_models(self, aliases: list[str]) -> list[str]:
@@ -446,10 +483,18 @@ def load_operator_config(path: Path | None = None) -> OperatorConfig:
         model = OperatorModel.model_validate(raw if raw is not None else {})
     except ValidationError as error:
         fields = sorted({str(e["loc"][0]) for e in error.errors() if e["loc"]})
+        # Our own validators prefix a fixed [CODE]; input values never appear in it.
+        codes = sorted(
+            {m.group(1) for e in error.errors() if (m := _CODE.match(str(e.get("msg", ""))))}
+        )
+        suffix = f" [{', '.join(codes)}]" if codes else ""
         raise OperatorConfigError(
-            f"Invalid operator config field(s): {', '.join(fields) or 'document'}"
+            f"Invalid operator config field(s): {', '.join(fields) or 'document'}{suffix}"
         ) from error
     return OperatorConfig(model, _digest(data), candidate)
+
+
+_CODE = re.compile(r"^Value error, \[([A-Z][A-Z0-9_]{2,63})\] ")
 
 
 def resolve_credential(reference: str | None, base: Path | None) -> str | None:
