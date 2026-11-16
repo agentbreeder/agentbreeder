@@ -211,8 +211,9 @@ mode)**.
 
 - **The guided path (#820)** gains a **Conformance** step after Build, for code-mode projects only
   (C3). The step comes from `agentbreeder next --json`, as every guided-path step does (the console
-  adds none of its own); architecture spec §9.2 adds it to `next` in F8. Code mode is where the factory contract can fail at start-up. A failed step shows the
-  report's failing groups and links to the report on the project's agent detail (§6.3).
+  adds none of its own); architecture spec §9.2 adds it to `next` in F8. Code mode is where the
+  factory contract can fail at start-up. A failed step shows the report's failing groups and links
+  to the report on the project's agent detail (§6.1, §6.3).
 - **Agents built from `agent.yaml`** get conformance only on request.
 
 ## 6. The framework everywhere else
@@ -241,7 +242,8 @@ There is one component, **`FrameworkBadge`**, built on the neutral `.badge` styl
   - The filter's value and focus survive the 3-second refresh (#1073).
 - **Agent detail, Overview:** keeps the **Runtime** row (the ref) and adds a **Framework** row (the
   badge), and **Protocol** and **Capabilities** rows, all from the same resolved view (§8). A legacy
-  ADK version shows "1 (ADK, before the kit)".
+  ADK version shows "1 (ADK, before the kit)". A code-mode agent also has a **Conformance** row:
+  the newest report for its `code/` ref (§6.3), with failing groups expanded.
 
 ### 6.2 Try it, Traces, cost, evals, audit
 
@@ -277,10 +279,11 @@ These need no per-framework change, which is what protocol v1 is for.
     build" when a project's newest image of that runtime differs. Failing check groups are
     expanded, and each check's message is shown as text.
   - **Run conformance**, a job on one of the current project's **declared-mode** built images of this
-    runtime version (code-mode images are checked from their agent's detail, where their report is
-    shown), picked with a select of those images (agent name, built time, short digest). Its
-    disabled reasons are: "No image of this runtime version in this project. Build an agent on it
-    first.", the Docker-down notice, and "A conformance run is in progress."
+    runtime version (code-mode images are checked by the guided path's Conformance step, §5.3;
+    their report is shown on their agent's detail), picked with a select of those images (agent
+    name, built time, short digest). Its disabled reasons are: "No declared-mode image of this
+    runtime version in this project. Build an agent from `agent.yaml` on it first.", the
+    Docker-down notice, and "A conformance run is in progress."
   - Code-mode reports are shown on the project's own agent detail, keyed by the `code/` ref, never
     as the runtime's status.
 - **Registry ▸ Code** lists `code/` versions, with Fork and Import as for tools.
@@ -325,7 +328,7 @@ Every route here reads CLI output, or runs a CLI child, as today.
 | `GET /api/runtimes` | the same `runtimes` list on its own, for the Agents list and Overview |
 | `list --all --json` | each deployment gains `runtime` (manifest field, else label, else build record or package by digest, else `null`; architecture spec §11, F2a); additive, so `schema_version` stays 1 |
 | `GET /api/registry/runtime/NAME/VERSION` | the existing registry show, plus the newest conformance record |
-| `POST /api/projects/ID/conformance` | a new job: `agentbreeder conformance IMAGE --json`, where the image is one of the project's built images (never a free string). The CLI always writes the report to the **default** state directory, `~/.agentbreeder/conformance/<runtime>/<version>/<digest>.json` (declared mode) or `…/code/<name>/<version>/<digest>.json` (code mode), never a stack's, so Build and the runtime detail read one place |
+| `POST /api/projects/ID/conformance` | a new job: `agentbreeder conformance IMAGE --json`, where the image is one of the project's built images (never a free string). The CLI always writes the report to the **default** state directory, `~/.agentbreeder/conformance/<runtime>/<version>/<digest>.json` (declared mode) or `…/code/<name>/<version>/<digest>.json` (code mode), never a stack's, so Build and the runtime detail read one place. The agent detail reads a code-mode agent's newest `code/<name>/<version>` record through the project's agent read |
 
 Answers are allow-listed (`BAD_OUTPUT` otherwise), as today.
 
@@ -381,7 +384,8 @@ test.
 **Runtimes and the guided path**
 - the list and detail;
 - no report, a stale report, a failing report expanded;
-- Run conformance with no image of the runtime, the image picker, and as a job;
+- Run conformance with no declared-mode image of the runtime (a code-mode image is not offered),
+  the image picker, and as a job;
 - a code-mode report never changes the runtime's status;
 - the guided-path Conformance step passing and failing.
 
@@ -427,3 +431,4 @@ This needs architecture slice F3.
 | r2 | `frontend-design` + `ui-ux-pro-max` + `/architect` for §8 (Fable, read-only) | CHANGES REQUESTED, 1 blocker, 5 major; every r1 item confirmed in the body. Folded in: package resolution moved after the confirm, to Create (§5.2); `parts.runtimes` is the engine's resolved view, with `LEGACY_ADK` supplying ADK's name and limits (§4.1, §8); the deployment's runtime from architecture §11's three sources, with a ref-to-name lookup (§6.1, §8); conformance records in the default state directory, code-mode reports kept off runtime status, and a "Conformance failed" status (§4.1, §6.3, §8); code mode's CLI surface and the `next` step added to architecture §9.2; `SESSION_CUSTOMER_MISMATCH` dropped (§6.2, §9). Minors: confirm copy no longer reassures (§5.2); Overview sources and legacy wording (§6.1); Create's reason is its `Action` (§4.3); Version select label and announcement (§4.1); trace status region and default kept per tree (§6.2); image picker and its empty state (§6.3); missing states (§7); `version`, `profile` and `kit` fields (§8) |
 | r3 | All four lenses over both specs (Fable, read-only) | Cross-spec fixes made in the architecture spec (report location, manifest `runtime` field). Here: four status values (§4.1), provider-key names in `.env` and secrets (§5.2), the manifest field as the first runtime source (§6.1, §8) |
 | r4 | Narrow check of the r3 fixes (Fable, read-only) | **APPROVED** (no blocker or major). Minors folded in: a failed guided-path Conformance step links to the agent detail (§5.3, §7); the runtime detail's Run conformance picks declared-mode images only (§6.3) |
+| r4 delta | Fable, read-only, over the text folded in after r4 (head `097b292a`) | CHANGES REQUESTED (1 major, 4 minor), folded in: the code-mode run path is the guided-path step, not the agent detail (§6.3); declared-mode disabled reason and §9 case; a Conformance row on the agent detail and its read in §8; re-wrapped lines |
