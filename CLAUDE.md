@@ -163,6 +163,11 @@ the `service.yaml` field `reaches_host` (built-in gateway only), `new agent --mo
 (verified on macOS + Docker Desktop only, on `runtime/adk@1.3.0`; Linux and 1.4.0 not run) and the `cost` label `no price (local
 model)` (`local` in `--json`). No manifest, JSON Schema or `agent.lock` change. Website: no
 change until release R. Cloud: a `CLAUDE.md` note only.
+**Agent guardrails, #1053, per side.** OSS (on `main`): `agent.yaml` and the manifest gain an
+optional `guardrails` list (JSON Schema updated; digests, revisions and package bytes are unchanged
+when it is unset), `services up` writes `guardrails.optional`, and deploy attaches a LiteLLM policy
+to the key alias. Website: no change until release R. Cloud: a `CLAUDE.md` note only; it has no
+code reference to the manifest's `guardrails` or the operator config.
 
 **Sub-agents, #1058 AY (epic #1057), per side.** OSS (on `main`): `agent.yaml` gains optional
 `subagents:` (≤ 5, depth 1) and `limits:`, and `evals` gains `tag_threshold`; `build` refuses them

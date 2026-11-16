@@ -8,11 +8,20 @@ See docs/superpowers/specs/2026-11-07-agent-yaml-build-design.md §5.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
+from agentbreeder.manifest import _GUARDRAIL as GUARDRAIL_PATTERN
 from agentbreeder.registry import Ref, RegistryError
 from agentbreeder.strict_yaml import StrictYamlError, load_file
 
@@ -158,12 +167,27 @@ class AgentFile(_Strict):
     agent_events: Literal["postgres", "none"] = "postgres"
     traces: Literal["otlp", "none"] = "otlp"
     evals: Evals | None = None
+    # Agent-level guardrails (#1053): optional guardrails the environment's gateway config
+    # defines. They add to the environment floor and never remove or weaken it.
+    guardrails: list[str] = Field(default_factory=list, max_length=10)
     # Skills (#1059, skills spec §6): optional; an agent file without them is unchanged. Kept
-    # in its own block (lane C's #1053 adds `guardrails:` next to it).
+    # in its own block, separate from `guardrails:` (#1053).
     skills: list[RefEntry] = Field(default_factory=list, max_length=10)
     # Sub-agents (#1058): optional; an agent file without them is unchanged.
     subagents: list[SubAgent] = Field(default_factory=list, max_length=MAX_SUBAGENTS)
     limits: Limits | None = None
+
+    @field_validator("guardrails")
+    @classmethod
+    def _guardrail_names(cls, value: list[str]) -> list[str]:
+        if any(
+            not isinstance(name, str) or not re.fullmatch(GUARDRAIL_PATTERN, name)
+            for name in value
+        ):
+            raise ValueError("not a gateway guardrail name")
+        if len(set(value)) != len(value):
+            raise ValueError("duplicate guardrail")
+        return value
 
     @model_validator(mode="after")
     def _refs(self):

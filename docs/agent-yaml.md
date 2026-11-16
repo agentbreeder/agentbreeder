@@ -38,6 +38,15 @@ traces: otlp
 evals: {ref: eval/northwind-golden@1.0.1, threshold: 1.0, retries: 1}
 ```
 
+`guardrails:` (optional, at most 10, #1053) names agent guardrails that the environment's gateway
+config defines with `default_on: false`, for example `guardrails: [agent-ip-block]`. They run on
+this agent's model calls through the gateway (chat completions and embeddings) in addition to the
+environment floor, and never in place of it. A manifest with them may not mount a provider key
+name (`SECRET_RESERVED`). `build`
+copies them into the package's deploy template and the manifest's `guardrails`. At deploy, the
+gate refuses a name the environment doesn't offer (`GUARDRAIL_UNDEFINED`), and the deploy attaches
+them to the deployment's gateway key (see [services.md](services.md#agent-guardrails-1053-preview)).
+
 `mcp:` (optional, at most 10) lists MCP servers by registry ref only, with the tools the agent
 uses: `- {ref: mcp/github@1.0.0, tools: [list_issues]}`. `build` refuses tools the version's
 `mcp.yaml` doesn't declare (`MCP_TOOL_UNKNOWN`) and writes them into `agent.config.json` and the
@@ -85,7 +94,7 @@ ref, one version per name: `- {ref: skill/refund-policy@1.0.0}` (see
 any other. **No runtime loads skills yet**, so `build` refuses an agent with `skills:`
 (`RUNTIME_NO_SKILLS`) before the image is built or the lock is written; a later runtime version
 adds them (#1059). An agent file without `skills:` builds exactly as before; `validate --json`
-now prints `"skills": []` for it.
+now prints `"skills": []` for it (and `"guardrails": []` when it has no `guardrails:`).
 
 ## Sub-agents (on `main`, not in a published preview)
 
@@ -207,7 +216,7 @@ environments:
     ceilings: {budget_usd: 50, rpm: 300}                       # required with a gateway
     services: {traces_url: …, tools_proxy_url: …}            # → AGENTBREEDER_SERVICE_<NAME>
     bindings: {DATABASE_URL: secret://northwind-db}
-    # guardrails: {required: true, approved_sha256: …}       # floor; denies every deploy for now (identity-gate.md)
+    # guardrails: {required: true, approved_sha256: …}       # floor; `services up` adds running_sha256, effective, optional (identity-gate.md)
     agents:
       northwind-support:
         identity: {provider: demo, ref: support-agent, environment: dev}

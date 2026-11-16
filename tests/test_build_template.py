@@ -169,6 +169,7 @@ def test_template_holds_only_agent_and_runtime_fields(northwind):
         "budget_usd": 25.0,
         "rpm": 120,
         "mcp_access": [],
+        "guardrails": None,  # #1053; left out of package.json when None
     }
 
 

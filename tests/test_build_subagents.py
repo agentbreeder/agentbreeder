@@ -51,9 +51,13 @@ class ConfigBuilder:
 
 def _hashes(result, builder) -> dict:
     record = json.loads(result.build_record_path.read_text())
+    # The template as package.json writes it: an unset `guardrails` (#1053) is left out
+    # (`AgentPackage.to_bytes`), so the field alone does not change these hashes.
+    exclude = {"guardrails"} if result.deploy.guardrails is None else None
+    template = result.deploy.model_dump(mode="json", exclude=exclude)
     return {
         "config": _sha(builder.config),
-        "template": _sha(json.dumps(result.deploy.model_dump(mode="json"), sort_keys=True)),
+        "template": _sha(json.dumps(template, sort_keys=True)),
         "record": _sha(json.dumps(record, sort_keys=True)),
     }
 

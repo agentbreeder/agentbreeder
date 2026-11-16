@@ -134,7 +134,7 @@ def test_digest_ignores_unset_model_access():
 
     data = {"schema_version": 1, "name": "x", "image": "sha256:" + "a" * 64}
     manifest = Manifest.model_validate(data)
-    later = {"model_access", "mcp_access"}  # optional fields added after the first deploys
+    later = {"model_access", "mcp_access", "guardrails"}  # optional fields added later
     old = {k: v for k, v in json.loads(manifest.model_dump_json()).items() if k not in later}
     legacy = hashlib.sha256(json.dumps(old, separators=(",", ":")).encode()).hexdigest()
     assert manifest.digest() == legacy

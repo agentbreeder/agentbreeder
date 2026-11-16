@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from agentbreeder import gateway_providers
@@ -74,10 +74,100 @@ MINT_METADATA = frozenset({"agentbreeder", "deployment_id", "agent", "environmen
 GUARDED_ROUTES = ("/v1/chat/completions", "/chat/completions", "/v1/embeddings", "/embeddings")
 
 
-def key_routes(environment) -> list[str] | None:
-    """`GUARDED_ROUTES` for a key in an environment with a required guardrails floor."""
-    if environment is not None and environment.guardrails_required:
+def key_routes(environment, agent_guardrails=None) -> list[str] | None:
+    """`GUARDED_ROUTES` for a key in an environment with a required guardrails floor, or for
+    a deployment with agent-level guardrails (#1053: they run on these routes only)."""
+    if agent_guardrails or (environment is not None and environment.guardrails_required):
         return list(GUARDED_ROUTES)
+    return None
+
+
+# -- agent-level guardrails on LiteLLM's policy engine (#1053, spec §12.8) -----------------------
+# One policy per deployment, named like its key alias, that only ADDS guardrails, attached to
+# that alias only. The bodies are allow-lists: no `guardrails_remove`, `inherit`, `condition`,
+# `pipeline`, `scope`, `teams`, `models` or `tags`, so the policy can't weaken the floor or
+# reach another key. Only the master key can call these routes; agent keys are limited to
+# GUARDED_ROUTES.
+POLICY_FIELDS = frozenset({"policy_name", "description", "guardrails_add"})
+ATTACHMENT_FIELDS = frozenset({"policy_name", "keys"})
+POLICY_DESCRIPTION = "AgentBreeder agent guardrails (#1053)"
+
+
+def policy_body(key_alias: str, guardrails: list[str]) -> dict:
+    if not key_alias.startswith(PREFIX) or "*" in key_alias:
+        raise GatewayError("GATEWAY_POLICY", "a guardrail policy is for one deployment key")
+    if not guardrails or any(not _MODEL_NAME.fullmatch(g) for g in guardrails):
+        raise GatewayError("GATEWAY_POLICY", "a guardrail policy names gateway guardrails")
+    body = {
+        "policy_name": key_alias,
+        "description": POLICY_DESCRIPTION,
+        "guardrails_add": sorted(set(guardrails)),
+    }
+    attachment = {"policy_name": key_alias, "keys": [key_alias]}
+    if set(body) - POLICY_FIELDS or set(attachment) - ATTACHMENT_FIELDS:  # pragma: no cover
+        raise GatewayError("GATEWAY_POLICY", "a policy field outside the allow-list")
+    return {"policy": body, "attachment": attachment}
+
+
+def _matches(value: str, patterns) -> bool:
+    """LiteLLM's attachment match (`PolicyMatcher.matches_pattern`): exact, `*`, or a trailing
+    `*` as a prefix."""
+    for pattern in patterns or ():
+        if not isinstance(pattern, str):
+            continue
+        if pattern == "*" or pattern == value:
+            return True
+        if pattern.endswith("*") and value.startswith(pattern[:-1]):
+            return True
+    return False
+
+
+def guardrail_drift(
+    key_alias: str, expected: list[str], policies: list[dict], attachments: list[dict]
+) -> str | None:
+    """Why the gateway's policies for `key_alias` are not exactly `expected` added to the
+    floor, or None. Reported, never repaired (`reconcile`: DRIFT_GUARDRAILS)."""
+    by_name: dict[str, list[dict]] = {}
+    for policy in policies:
+        if isinstance(policy, dict) and isinstance(policy.get("policy_name"), str):
+            by_name.setdefault(policy["policy_name"], []).append(policy)
+    ours = [a for a in attachments if isinstance(a, dict) and a.get("policy_name") == key_alias]
+    for attachment in attachments:
+        if not isinstance(attachment, dict):
+            continue
+        # Blank keys mean every key to LiteLLM (`PolicyScope.get_keys` defaults to `*`); teams,
+        # models and tags may match any request, so they count as reaching too.
+        reaches = (
+            attachment.get("scope") == "*"
+            or not attachment.get("keys")
+            or _matches(key_alias, attachment.get("keys"))
+            or any(attachment.get(f) for f in ("teams", "models", "tags"))
+        )
+        if not reaches:
+            continue
+        for policy in by_name.get(str(attachment.get("policy_name")), []):
+            if policy.get("guardrails_remove") or policy.get("inherit") or policy.get("pipeline"):
+                # The policy name is gateway text: never printed.
+                return "a policy that can remove guardrails reaches the deployment's key"
+    if not expected:
+        return "an agent guardrail policy is attached" if ours else None
+    if (
+        len(ours) != 1
+        or ours[0].get("keys") != [key_alias]
+        # A `default` attachment is dropped whenever another attachment matches the key.
+        or any(ours[0].get(f) for f in ("teams", "models", "tags", "scope", "default"))
+    ):
+        return "the deployment's guardrail policy is not attached to its key only"
+    versions = [
+        p
+        for p in by_name.get(key_alias, [])
+        if p.get("version_status", "production") == "production"
+    ]
+    if len(versions) != 1:
+        return "the deployment's guardrail policy is missing"
+    policy = versions[0]
+    if policy.get("condition") or sorted(policy.get("guardrails_add") or []) != sorted(expected):
+        return "the deployment's guardrail policy does not add the agent's guardrails"
     return None
 
 
@@ -182,6 +272,72 @@ class LiteLLM:
     def revoke(self, key_alias: str) -> None:
         """Delete by alias. A missing alias is already revoked (404)."""
         self._call("POST", "/key/delete", {"key_aliases": [key_alias]})
+
+    def attach_guardrails(self, key_alias: str, guardrails: list[str]) -> None:
+        """Attach a policy that adds `guardrails` to the key `key_alias` (#1053). Mint the key
+        first: LiteLLM refuses an attachment naming a key alias that doesn't exist. Retries
+        replace an earlier attempt's policy."""
+        bodies = policy_body(key_alias, guardrails)
+        self.detach_guardrails(key_alias)
+        created = self._call("POST", "/policies", bodies["policy"])
+        if not isinstance(created, dict) or created.get("policy_name") != key_alias:
+            raise GatewayError("GATEWAY_POLICY", "LiteLLM did not create the guardrail policy")
+        attached = self._call("POST", "/policies/attachments", bodies["attachment"])
+        if not isinstance(attached, dict) or attached.get("keys") != [key_alias]:
+            raise GatewayError("GATEWAY_POLICY", "LiteLLM did not attach the guardrail policy")
+        problem = self.resolve_problem(key_alias, guardrails)
+        if problem:
+            raise GatewayError("GATEWAY_POLICY", problem)
+
+    def resolve_problem(self, key_alias: str, guardrails: list[str]) -> str | None:
+        """Why the gateway would not run `guardrails` for the key, or None: each must be a
+        guardrail the running gateway defines (LiteLLM's policy API accepts any name, and an
+        unknown one never runs), and the gateway's own resolution for the key alias must
+        include them (the serving worker's live view; service/litellm runs one worker)."""
+        listed = self._call("GET", "/guardrails/list", limit=SPEND_PAGE_LIMIT)
+        rows = (listed or {}).get("guardrails") if isinstance(listed, dict) else None
+        if not isinstance(rows, list):
+            raise GatewayError("GATEWAY_ERROR", "LiteLLM returned no guardrail list")
+        defined = {r.get("guardrail_name") for r in rows if isinstance(r, dict)}
+        if set(guardrails) - defined:
+            return "the running gateway does not define every agent guardrail"
+        resolved = self._call("POST", "/policies/resolve", {"key_alias": key_alias})
+        effective = (resolved or {}).get("effective_guardrails")
+        if not isinstance(effective, list) or set(guardrails) - set(effective):
+            return "the gateway does not resolve the agent guardrails for the key"
+        return None
+
+    def detach_guardrails(self, key_alias: str) -> None:
+        """Delete the deployment's policy and its attachments; missing ones are fine."""
+        if not key_alias.startswith(PREFIX) or "*" in key_alias:
+            raise GatewayError("GATEWAY_POLICY", "a guardrail policy is for one deployment key")
+        for attachment in self.policy_attachments():
+            if attachment.get("policy_name") == key_alias and attachment.get("attachment_id"):
+                identifier = quote(str(attachment["attachment_id"]), safe="")
+                self._call("DELETE", f"/policies/attachments/{identifier}")
+        self._call("DELETE", f"/policies/name/{quote(key_alias, safe='')}/all-versions")
+
+    def policies(self) -> list[dict]:
+        result = self._call("GET", "/policies/list", limit=SPEND_PAGE_LIMIT)
+        if result is None:  # 404: a gateway without the policy API holds no policies
+            return []
+        found = result.get("policies") if isinstance(result, dict) else None
+        if not isinstance(found, list):
+            raise GatewayError("GATEWAY_ERROR", "LiteLLM returned no policy list")
+        return [p for p in found if isinstance(p, dict)]
+
+    def policy_attachments(self) -> list[dict]:
+        result = self._call("GET", "/policies/attachments/list", limit=SPEND_PAGE_LIMIT)
+        if result is None:
+            return []
+        found = result.get("attachments") if isinstance(result, dict) else None
+        if not isinstance(found, list):
+            raise GatewayError("GATEWAY_ERROR", "LiteLLM returned no policy attachment list")
+        return [a for a in found if isinstance(a, dict)]
+
+    def guardrail_drift(self, key_alias: str, expected: list[str]) -> str | None:
+        drift = guardrail_drift(key_alias, expected, self.policies(), self.policy_attachments())
+        return drift or (self.resolve_problem(key_alias, expected) if expected else None)
 
     def describe(self, key_alias: str) -> dict | None:
         result = self._call(
@@ -411,11 +567,32 @@ class ConfigReview:
         found = []
         for entry in self.guardrails:
             params = entry["litellm_params"]
-            if params.get("mode") in ("pre_call", "post_call") and params.get(
-                "pii_entities_config"
+            if (
+                params.get("default_on") is True
+                and params.get("mode") in ("pre_call", "post_call")
+                and params.get("pii_entities_config")
             ):
                 found.append(f"presidio:{params['mode']}")
         return sorted(set(found))
+
+    def optional(self) -> list[str]:
+        """The guardrails an agent may add (#1053): `default_on: false`, pre_call or
+        post_call, with a non-empty entity map."""
+        return sorted(
+            entry["guardrail_name"]
+            for entry in self.guardrails
+            for params in (entry["litellm_params"],)
+            if params.get("default_on") is False
+            and params.get("mode") in ("pre_call", "post_call")
+            and params.get("pii_entities_config")
+        )
+
+    def logging_problem(self) -> str | None:
+        """The first §4.6 logging setting that is not as guardrails need it, or None."""
+        for (section, key), (expected, _) in _GUARDRAIL_LOGGING.items():
+            if self.logging.get(f"{section}.{key}") is not expected:
+                return f"set {section}.{key}: {str(expected).lower()}"
+        return None
 
     def guardrails_effective(self, required: bool) -> list[str]:
         """The effective set; with `required`, refuse (GUARDRAILS_INEFFECTIVE) a config with
@@ -429,12 +606,9 @@ class ConfigReview:
                 "guardrails are required: the gateway config needs a default_on pre_call "
                 "Presidio guardrail with at least one entity",
             )
-        for (section, key), (expected, _) in _GUARDRAIL_LOGGING.items():
-            if self.logging.get(f"{section}.{key}") is not expected:
-                raise GatewayError(
-                    "GUARDRAILS_INEFFECTIVE",
-                    f"guardrails are required: set {section}.{key}: {str(expected).lower()}",
-                )
+        problem = self.logging_problem()
+        if problem:
+            raise GatewayError("GUARDRAILS_INEFFECTIVE", f"guardrails are required: {problem}")
         return effective
 
 
@@ -481,11 +655,15 @@ def _fallbacks(path: Path, where: str, value, aliases: set[str], edges: dict) ->
 def _guardrails(path: Path, value) -> list[dict]:
     """Review the `guardrails:` list: Presidio only, allow-listed fields and values only, no
     `os.environ/` value (the caller's env scan refuses those), and no entity that one guardrail
-    masks and a later one blocks (a mask rewrites the text first, so the block never fires)."""
+    masks and a later one blocks (a mask rewrites the text first, so the block never fires).
+    `default_on: false` makes a guardrail optional (#1053): it runs only for the deployments
+    whose `agent.yaml` names it, after every `default_on` one (spec §12.8), so an optional
+    guardrail may not block an entity that any `default_on` or other optional one masks."""
     if not isinstance(value, list):
         raise GatewayError("GATEWAY_CONFIG", f"{path.name}: guardrails must be a list")
     names: set[str] = set()
     masked: set[str] = set()
+    optional: list[tuple[str, dict]] = []
     for index, entry in enumerate(value):
         where = f"guardrails[{index}]"
         if not isinstance(entry, dict) or set(entry) - _GUARDRAIL_ENTRY:
@@ -506,8 +684,8 @@ def _guardrails(path: Path, value) -> list[dict]:
             raise _unsafe(path, f"{where}.guardrail (presidio only)")
         if params.get("mode") not in _GUARDRAIL_MODES:
             raise _unsafe(path, f"{where}.mode (one of: {', '.join(_GUARDRAIL_MODES)})")
-        if params.get("default_on") is not True:
-            raise _unsafe(path, f"{where}.default_on (must be true)")
+        if type(params.get("default_on")) is not bool:
+            raise _unsafe(path, f"{where}.default_on (true, or false for an agent guardrail)")
         if params.get("presidio_language", "en") != "en":
             raise _unsafe(path, f"{where}.presidio_language (en only)")
         entities = params.get("pii_entities_config")
@@ -537,11 +715,24 @@ def _guardrails(path: Path, value) -> list[dict]:
             timeout = params["timeout"]
             if type(timeout) not in (int, float) or not low <= timeout <= high:
                 raise _unsafe(path, f"{where}.timeout (seconds, {low} to {high})")
-        if params["mode"] != "logging_only":
-            blocked = {k for k, v in entities.items() if v == "BLOCK"}
-            if blocked & masked:
-                raise _unsafe(path, f"{where}: blocks an entity an earlier guardrail masks")
-            masked |= {k for k, v in entities.items() if v == "MASK"}
+        if params["mode"] == "logging_only":
+            continue
+        if not params["default_on"]:
+            optional.append((where, entities))
+            continue
+        blocked = {k for k, v in entities.items() if v == "BLOCK"}
+        if blocked & masked:
+            raise _unsafe(path, f"{where}: blocks an entity an earlier guardrail masks")
+        masked |= {k for k, v in entities.items() if v == "MASK"}
+    # Optional guardrails run after the default_on ones, in the order a deployment's policy
+    # lists them: refuse a block that any default_on or other optional guardrail could mask.
+    for where, entities in optional:
+        blocked = {k for k, v in entities.items() if v == "BLOCK"}
+        others = set().union(
+            *({k for k, v in e.items() if v == "MASK"} for w, e in optional if w != where)
+        )
+        if blocked & (masked | others):
+            raise _unsafe(path, f"{where}: blocks an entity another guardrail masks")
     return [dict(entry) for entry in value]
 
 

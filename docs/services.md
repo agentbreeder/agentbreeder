@@ -354,7 +354,8 @@ guardrails:
 The review refuses anything outside this allow-list with `GATEWAY_CONFIG_UNSAFE`:
 
 - `guardrail: presidio` only; `mode` is `pre_call`, `post_call` or `logging_only` (`during_call`
-  runs beside the provider call and is refused); `default_on: true`.
+  runs beside the provider call and is refused); `default_on: true`, or `false` for an agent
+  guardrail (below).
 - `pii_entities_config` maps Presidio entity names to `MASK` or `BLOCK`, and is not empty.
   An entity that one guardrail masks may not be blocked by a later one: guardrails run in config
   order, and a mask rewrites the text first, so the block would never fire.
@@ -388,6 +389,61 @@ gate then compares `running_sha256` with `approved_sha256` (see
 [identity-gate.md](identity-gate.md#guardrails-floor)). Copy the sha256 `up` prints into
 `stack.yaml` after reviewing the guardrails, and run `up` again. A non-interactive
 `--expect-guardrails` flag is a follow-up.
+
+#### Agent guardrails (#1053, preview)
+
+A guardrail with `default_on: false` runs for no one by default. An agent adds it by naming it in
+`agent.yaml` (`guardrails: [agent-ip-block]`, see [agent-yaml.md](agent-yaml.md)). Agent
+guardrails only add to the floor. Nothing in `agent.yaml` can remove or weaken a `default_on`
+guardrail, and there is no opt-out.
+
+```yaml
+  - guardrail_name: agent-ip-block
+    litellm_params:
+      guardrail: presidio
+      mode: pre_call
+      default_on: false
+      pii_entities_config: {IP_ADDRESS: BLOCK}
+      timeout: 30
+```
+
+- The same allow-list applies. LiteLLM runs agent guardrails after every `default_on` one, so an
+  agent guardrail may not block an entity that a `default_on` guardrail, or another agent
+  guardrail, masks (`GATEWAY_CONFIG_UNSAFE`). A `logging_only` guardrail is never offered.
+- When the floor has an `approved_sha256`, agent guardrails need the running config to be the
+  approved one, even when the floor isn't required (`GUARDRAILS_CHANGED`).
+- The stack must declare `environment.guardrails` (`required: false` is enough). `up` then writes
+  `optional: [names]` into the operator config's `environments.<env>.guardrails`, but only when the
+  built-in gateway and Presidio services, `LITELLM_LOG` and the logging settings checked above are
+  in place. The grant marks each one "agents that name it". Its hash is part of
+  `guardrails_sha256`, so editing it changes the approved hash like any other guardrail.
+- The gateway config's own `policies:` and `policy_attachments:` sections stay refused. Deploy uses
+  LiteLLM's policy API (open source, unlike per-key guardrails, which need LiteLLM Enterprise). After
+  minting the deployment's key, deploy creates a policy named like the key alias
+  (`agentbreeder-<id>`) with `guardrails_add` only, and attaches it to that one key alias. It does
+  this before the key is written anywhere. It then checks two things: that the running gateway
+  defines each guardrail (`/guardrails/list`; LiteLLM's policy API accepts any name, and an unknown
+  one never runs), and that LiteLLM's own resolution for the key alias includes them
+  (`/policies/resolve`). If the attach or either check fails, the key is revoked and the deploy
+  fails (`GATEWAY_POLICY`). The checks see the serving worker's view, and `service/litellm` runs a
+  single worker. Remove, disable and `reconcile` revoke the key first and then delete the policy.
+- A deployment with agent guardrails always gets `allowed_routes` (below), even without a
+  required floor. LiteLLM treats the policy routes as admin routes, and the key's
+  `allowed_routes` leaves them out as well, so an agent key cannot change its policy. As under a required floor, its manifest may not mount a provider key name
+  (`SECRET_RESERVED`). This checks exact names only, so a key renamed to get around the gateway
+  is not detected.
+- `status --json` shows `guardrails: {floor, agent, effective, drift}`. `floor` is the
+  environment's verified floor now, not at deploy time. What the key was minted with is in the
+  mint's audit row, as `GUARDRAILS_EFFECTIVE` (the floor's verified checks plus `agent:<name>`). `reconcile` reports
+  `noncompliant:DRIFT_GUARDRAILS` when the deployment's policy is missing, attached more widely or
+  adds other guardrails, when the attachment is a `default` one, or when the gateway no longer
+  defines or resolves them. It does the same when a policy that can remove guardrails
+  (`guardrails_remove`, `inherit` or `pipeline`) reaches the key through `*`, a blank attachment
+  (LiteLLM reads no `keys` as every key), a matching alias pattern, teams, models or tags. This is
+  checked for deployments with agent guardrails, with each gateway's policy lists read once per
+  run. A policy can't remove a `default_on` guardrail on the pinned LiteLLM, so deployments with
+  only the floor aren't checked. `reconcile` reports drift but doesn't repair it: redeploy to
+  re-attach.
 
 In an environment with a required floor, deploy and `eval` mint every key with LiteLLM
 `allowed_routes` set to `/v1/chat/completions`, `/chat/completions`, `/v1/embeddings` and
