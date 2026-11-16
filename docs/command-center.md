@@ -1060,8 +1060,10 @@ It is a three-tier confirm:
    `AGENTBREEDER_REGISTRY_PATH`. The built-in MCP servers ship with AgentBreeder and do not ask.
    A form edit, a different pick included, clears the tick.
 3. **Create agent and add project** is on only for a combination run end to end
-   (`combination.verified`: today gemini with a prompt and evals; no combination with tools or
-   MCP servers has been run end to end yet). Otherwise the preview names what has not been run
+   (`combination.verified`: today gemini with a prompt and evals, alone or with one path tool, on
+   `main`, not in a published preview, #833, and openrouter with a prompt and evals alone,
+   #1020; no combination with two or more tools or with MCP servers has been run end to end
+   yet). Otherwise the preview names what has not been run
    (the provider, "a new agent with tools", "… with MCP servers") and says `agentbreeder new agent
    --from-spec` writes it anyway. Create sends the previewed `plan_sha256`; the server runs the dry
    run again with `--expect-digest`, refuses `COMBINATION_UNVERIFIED` or `CODE_CONFIRM_REQUIRED`
@@ -1082,12 +1084,14 @@ Tested on the server against the real `new agent --from-spec` (the argv, the spe
 and removal, preview, create, a changed plan, an unverified provider, bad requests; the code
 confirm's refusal with a stubbed plan; the pickers' list over a path registry, a symlinked and a
 broken version, servers whose `mcp.yaml` is a link or cannot be read, a picked path tool
-previewed as code and refused as unverified, the same tool created only after the code confirm
-once the CLI's answer is marked verified (simulated), a granted MCP server, an undeclared tool) and with Playwright and axe in light and dark, where the fake CLI hands
+with an MCP server previewed as code and refused as unverified, the same tool alone created
+only after the code confirm, a granted MCP server, an undeclared tool) and with Playwright and axe in light and dark, where the fake CLI hands
 `new agent --from-spec` to the real command (the code confirm box with a path tool, the MCP grant
-checkboxes). A built agent, with or without tools, has not yet been taken through `services up`
-and `release` from the console: that is the M17 verification. When that run adds a combination to
-`agentspec.VERIFIED`, Create turns on for it with no console change.
+checkboxes). A built agent with a tool has not yet been taken through `services up` and `release` from the
+console: that is the M17 verification. The same gemini spec with one path tool, alone and with one
+knowledge version, was run end to end through `new agent --from-spec` (#833), which put it in
+`agentspec.VERIFIED`. Create turned on for the tool-only spec with no console change; the form
+still refuses knowledge.
 
 ### Agents (#823, second part): on `main`, not in a published preview
 
