@@ -16,6 +16,7 @@ DEFAULTS = {
     "anthropic": "anthropic/claude-opus-5-5",
     "gemini": "gemini/gemini-3.8-flash",
     "openai": "openai/gpt-5.6",
+    "openrouter": "openrouter/google/gemini-3.8-flash",  # the model it ran with (#1020)
 }
 ROUTER = "openrouter/meta-llama/llama-4-maverick:free"
 
@@ -23,6 +24,14 @@ ROUTER = "openrouter/meta-llama/llama-4-maverick:free"
 @pytest.fixture(autouse=True)
 def clean_registry_path(monkeypatch):
     monkeypatch.delenv(registry.PATH_ENV, raising=False)
+
+
+@pytest.fixture
+def no_default(monkeypatch):
+    """A provider with no default model, so `--model-id` is required (no shipped provider has
+    one since openrouter got its default in #1020; the check stays for the next one)."""
+    provider = newagent.Provider(None, "OPENROUTER_API_KEY", False, segments=2)
+    monkeypatch.setitem(newagent.PROVIDERS, "openrouter", provider)
 
 
 def config(plan: newagent.Plan) -> dict:
@@ -45,12 +54,12 @@ def _probe(tmp_path, environ=None):
 # -- the table -----------------------------------------------------------------------------
 
 
-def test_each_provider_uses_the_key_the_gateway_allows_and_only_gemini_is_verified():
+def test_each_provider_uses_the_key_the_gateway_allows_and_gemini_and_openrouter_are_verified():
     assert set(newagent.PROVIDERS) == set(gateway_keys.PROVIDER_KEYS)
     for name, provider in newagent.PROVIDERS.items():
         assert provider.key == gateway_keys.PROVIDER_KEYS[name]
-        assert provider.model is None or provider.model.startswith(f"{name}/")
-    assert [n for n, p in newagent.PROVIDERS.items() if p.verified] == ["gemini"]
+        assert provider.model == DEFAULTS[name]
+    assert [n for n, p in newagent.PROVIDERS.items() if p.verified] == ["gemini", "openrouter"]
     assert set(guide_checks.KEY_URLS) == set(gateway_keys.PROVIDER_KEYS.values())
     assert all(url.startswith("https://") for url in guide_checks.KEY_URLS.values())
 
@@ -71,7 +80,7 @@ def test_default_model_and_key_fill_both_aliases(model, tmp_path):
     assert f"{key}=..." in plan.files["stack.yaml"]  # the comment names the key file entry
     summary = plan.summary(dry_run=True)
     assert (summary["model"], summary["model_id"], summary["key"]) == (model, DEFAULTS[model], key)
-    assert summary["verified"] is (model == "gemini")
+    assert summary["verified"] is (model in ("gemini", "openrouter"))
     path = tmp_path / "config.yaml"
     path.write_text(plan.files["stack/litellm/config.yaml"])
     review = gateway_keys.config_review(path)
@@ -101,7 +110,17 @@ def test_gemini_without_model_id_is_unchanged_by_905():
     assert explicit.files == plan.files
 
 
-def test_openrouter_needs_a_model_id():
+def test_openrouter_defaults_to_the_model_it_ran_end_to_end_with():
+    plan = newagent.plan("hello", "openrouter", today=TODAY)
+    assert plan.model_id == DEFAULTS["openrouter"]
+    assert {e["litellm_params"]["model"] for e in config(plan)["model_list"]} == {
+        DEFAULTS["openrouter"]
+    }
+    explicit = newagent.plan("hello", "openrouter", today=TODAY, model_id=DEFAULTS["openrouter"])
+    assert explicit.files == plan.files
+
+
+def test_a_provider_without_a_default_needs_a_model_id(no_default):
     with pytest.raises(newagent.NewAgentError) as error:
         newagent.plan("hello", "openrouter")
     assert error.value.code == "MODEL_ID_REQUIRED"
@@ -173,7 +192,9 @@ def test_a_gemini_model_id_overrides_the_default_and_an_equal_one_writes_the_sam
     assert same.published == default.published
 
 
-def test_dry_run_of_openrouter_without_a_model_id_is_refused(tmp_path, capsys):
+def test_dry_run_of_a_provider_without_a_default_and_no_model_id_is_refused(
+    tmp_path, capsys, no_default
+):
     code = cli.main(
         ["new", "agent", "hello", "--model", "openrouter", "--dir", str(tmp_path / "h")]
         + ["--dry-run"]
@@ -240,15 +261,33 @@ def test_cli_json_carries_the_model_id_and_verified(tmp_path, capsys):
     assert code == 0
     summary = json.loads(capsys.readouterr().out)
     assert summary["model"] == "openrouter" and summary["model_id"] == ROUTER
-    assert summary["key"] == "OPENROUTER_API_KEY" and summary["verified"] is False
+    assert summary["key"] == "OPENROUTER_API_KEY" and summary["verified"] is True
 
 
-@pytest.mark.parametrize(("model", "config_only"), [("openai", True), ("gemini", False)])
+@pytest.mark.parametrize(
+    ("model", "config_only"),
+    [("openai", True), ("anthropic", True), ("gemini", False), ("openrouter", False)],
+)
 def test_cli_text_says_when_a_provider_is_config_only(tmp_path, capsys, model, config_only):
     assert cli.main(["new", "agent", "hello", "--model", model, "--dir", str(tmp_path / "h")]) == 0
     out = capsys.readouterr().out
     assert ("is config-only" in out) is config_only
+    assert "not with this model id" not in out  # the default model is the one that ran
     assert f"Put {newagent.PROVIDERS[model].key}=<your key>" in out
+
+
+@pytest.mark.parametrize("model", ["gemini", "openrouter"])
+def test_cli_text_says_a_verified_provider_ran_with_its_default_only(tmp_path, capsys, model):
+    model_id = ROUTER if model == "openrouter" else "gemini/gemini-3.7-flash"
+    argv = ["new", "agent", "hello", "--model", model, "--model-id", model_id]
+    assert cli.main([*argv, "--dir", str(tmp_path / "h"), "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "is config-only" not in out
+    assert (
+        f"{model} has been run end to end with {DEFAULTS[model]}, not with this model id: the "
+        "eval gate may still fail on its answers." in out
+    )
+    assert model_id not in out
 
 
 @pytest.mark.parametrize(
@@ -258,7 +297,7 @@ def test_cli_text_says_when_a_provider_is_config_only(tmp_path, capsys, model, c
         (["--model", "anthropic", "--model-id", "openai/gpt-5.6"], "MODEL_ID_INVALID"),
     ],
 )
-def test_cli_refuses_model_ids_with_a_coded_json_error(tmp_path, capsys, argv, code):
+def test_cli_refuses_model_ids_with_a_coded_json_error(tmp_path, capsys, argv, code, no_default):
     exit_code = cli.main(
         ["new", "agent", "hello", *argv, "--dir", str(tmp_path / "hello"), "--json"]
     )
@@ -320,7 +359,7 @@ def _bare_agent(tmp_path, model="gemini", model_id=None):
 
 @pytest.mark.parametrize(
     ("model", "model_id"),
-    [("anthropic", None), ("openai", None), ("openrouter", ROUTER)],
+    [("anthropic", None), ("openai", None), ("openrouter", ROUTER), ("openrouter", None)],
 )
 def test_stack_for_writes_the_starters_gateway_for_each_provider(tmp_path, model, model_id):
     from agentbreeder import stackfor
@@ -338,11 +377,15 @@ def test_stack_for_writes_the_starters_gateway_for_each_provider(tmp_path, model
         == yaml.safe_load(stack_before)["environment"]
     )
     summary = result.summary(dry_run=False)
-    assert (summary["model_id"], summary["verified"]) == (resolved, False)
+    verified = newagent.PROVIDERS[model].verified
+    assert (summary["model_id"], summary["verified"]) == (resolved, verified)
+    assert verified is (model == "openrouter")
     assert summary["key"] == newagent.PROVIDERS[model].key
 
 
-def test_stack_for_refuses_openrouter_without_a_model_id_and_a_foreign_id(tmp_path):
+def test_stack_for_refuses_a_missing_model_id_without_a_default_and_a_foreign_id(
+    tmp_path, no_default
+):
     from agentbreeder import stackfor
 
     project, _ = _bare_agent(tmp_path)
@@ -357,15 +400,20 @@ def test_stack_for_refuses_openrouter_without_a_model_id_and_a_foreign_id(tmp_pa
 
 def test_stack_for_cli_json_and_config_only_text(tmp_path, capsys):
     project, _ = _bare_agent(tmp_path)
-    argv = ["new", "agent", "hello", "--model", "openrouter", "--model-id", ROUTER]
+    argv = ["new", "agent", "hello", "--model", "openai", "--model-id", "openai/gpt-5.4-mini"]
     argv += ["--stack-for", str(project / "agent.yaml"), "--dry-run"]
     assert cli.main([*argv, "--json"]) == 0
     summary = json.loads(capsys.readouterr().out)
-    assert summary["model_id"] == ROUTER and summary["verified"] is False
+    assert summary["model_id"] == "openai/gpt-5.4-mini" and summary["verified"] is False
     assert cli.main(argv) == 0
-    assert "openrouter is config-only" in capsys.readouterr().out
+    assert "openai is config-only" in capsys.readouterr().out
     assert cli.main([*argv[:4], "gemini", *argv[7:]]) == 0
-    assert "config-only" not in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "config-only" not in out and "not with this model id" not in out
+    assert cli.main([*argv[:4], "openrouter", "--model-id", ROUTER, *argv[7:]]) == 0
+    out = capsys.readouterr().out
+    assert "config-only" not in out
+    assert "openrouter has been run end to end with openrouter/google/gemini-3.8-flash" in out
 
 
 def test_stack_for_a_gateway_serving_another_model_is_a_template_bug(tmp_path, monkeypatch):

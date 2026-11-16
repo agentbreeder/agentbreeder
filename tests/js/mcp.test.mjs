@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { RELAY_STATES, TOOL_STATES, consentMissing, consentNames, driftedServers, planServers, grantChoices, grantProblem, grantRows, grantWriteProblem, grantSteps, grantedTools, pinsCommand, pinsProblem, relayLogsCommand, repinCommand, repinServers, serverRows, shellWord, shortHash } from "../../src/agentbreeder/center/static/lib/mcp.js";
+import { RELAY_STATES, TOOL_STATES, consentMissing, consentNames, driftedServers, planServers, choiceNote, grantChoices, grantProblem, grantRows, grantWriteProblem, grantSteps, grantedTools, pinsCommand, pinsProblem, relayLogsCommand, repinCommand, repinServers, serverRows, shellWord, shortHash } from "../../src/agentbreeder/center/static/lib/mcp.js";
 
 const PIN = `sha256:${"a".repeat(64)}`;
 const OTHER = `sha256:${"b".repeat(64)}`;
@@ -146,9 +146,26 @@ test("a grant offers the declared tools not granted yet", () => {
 
 test("a revoke offers the granted tools, also one no longer declared", () => {
   assert.deepEqual(grantChoices("revoke", DECLARED, ["get_me", "gone"]), [
-    { name: "get_me", effect: "read" },
-    { name: "gone", effect: "" },
+    { name: "get_me", effect: "read", declared: true },
+    { name: "gone", effect: "", declared: false },
   ]);
+  assert.deepEqual(grantChoices("grant", DECLARED, ["get_me"])[0], { name: "issue_read", effect: "read", declared: true });
+});
+
+test("before the declared tools are read, a revoke never says no longer declared (#1043)", () => {
+  const unread = grantChoices("revoke", null, ["get_me", "gone"]);
+  assert.deepEqual(unread, [
+    { name: "get_me", effect: "", declared: null },
+    { name: "gone", effect: "", declared: null },
+  ]);
+  assert.equal(choiceNote(unread[0], true), "checking the declared tools…");
+  assert.equal(choiceNote(unread[0], false), "declared tools unavailable");
+  const read = grantChoices("revoke", DECLARED, ["get_me", "gone"]);
+  assert.equal(choiceNote(read[0], false), "read");
+  assert.equal(choiceNote(read[1], false), "no longer declared");
+  assert.equal(choiceNote(read[1], true), "no longer declared");
+  assert.equal(choiceNote(null, false), "");
+  assert.equal(choiceNote({ name: "x", effect: 3, declared: true }, false), "");
 });
 
 test("an agent's current grant on one server", () => {

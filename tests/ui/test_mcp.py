@@ -293,6 +293,89 @@ def test_a_new_choice_clears_the_last_result(page, console):
     expect(card).not_to_contain_text("Granted search_repositories")
 
 
+def test_a_revoke_waits_for_the_declared_tools_before_saying_undeclared(page, console):
+    """#1043: while the server's declared tools are still loading, a granted tool is "checking",
+    never "no longer declared"; once they arrive, a declared tool shows its effect."""
+    console.scenario(services=RUNNING)
+    held = []
+    page.route(re.compile(r".*/mcp/tools\?ref=.*"), lambda route: held.append(route))
+    project = gh_reader(console)
+    sign_in(page, console, project=False)
+    page.get_by_label("Absolute path").fill(str(project))
+    page.get_by_role("button", name="Add project").click()
+    page.wait_for_url("**/#/services")
+    page.get_by_role("navigation", name="Console").get_by_role("link", name="MCP grants").click()
+    card = change_card(page)
+    card.get_by_role("radio", name="Revoke tools").check()
+    get_me = card.get_by_role("checkbox", name=re.compile(r"^get_me\b"))
+    expect(get_me).to_be_visible()
+    tools = card.locator("fieldset", has=page.get_by_text("Tools", exact=True))
+    expect(tools).to_have_attribute("aria-busy", "true")
+    expect(card).to_contain_text("checking the declared tools")
+    expect(card).not_to_contain_text("no longer declared")
+    assert held, "the declared-tools read was not held"
+    for route in held:
+        route.continue_()
+    expect(tools).to_have_attribute("aria-busy", "false")
+    expect(card).not_to_contain_text("checking the declared tools")
+    expect(card).not_to_contain_text("no longer declared")
+    expect(card.locator("label.check", has_text="get_me")).to_contain_text("read")
+
+
+def test_a_revoke_whose_declared_tools_fail_to_read_says_unavailable(page, console):
+    """#1043: a failed read of the declared tools is "declared tools unavailable", never
+    "no longer declared", and never "checking" forever."""
+    console.scenario(services=RUNNING)
+    page.route(
+        re.compile(r".*/mcp/tools\?ref=.*"),
+        lambda route: route.fulfill(
+            status=500,
+            content_type="application/json",
+            body=json.dumps({"data": None, "error": {"code": "BOOM", "message": "Down"}}),
+        ),
+    )
+    open_mcp(page, console)
+    card = change_card(page)
+    card.get_by_role("radio", name="Revoke tools").check()
+    expect(card.locator("label.check", has_text="get_me")).to_contain_text(
+        "declared tools unavailable"
+    )
+    expect(card).not_to_contain_text("no longer declared")
+    expect(card).not_to_contain_text("checking the declared tools")
+    card.get_by_role("radio", name="Grant tools").check()
+    expect(card).to_contain_text("The declared tools are unavailable")
+
+
+def test_the_grant_form_choices_line_up(scheme_page, console):  # noqa: F811
+    """#1043: each radio and checkbox sits at the start of its fieldset, with its text right next
+    to it (the text-input width made them drift), in light and dark."""
+    console.scenario(services=RUNNING)
+    open_mcp(scheme_page, console)
+    card = change_card(scheme_page)
+    card.get_by_role("radio", name="Revoke tools").check()
+    card.get_by_role("checkbox", name=re.compile(r"^get_me\b")).wait_for()
+    boxes = card.locator("fieldset.choices").evaluate_all(
+        """sets => sets.map(set => ({
+          legend: set.querySelector("legend").getBoundingClientRect().left,
+          inputs: [...set.querySelectorAll("label > input")].map(input => {
+            const box = input.getBoundingClientRect();
+            const label = input.parentElement.getBoundingClientRect();
+            return {left: box.left, width: box.width, label: label.left};
+          }),
+        }))"""
+    )
+    assert len(boxes) == 2
+    lefts = set()
+    for fieldset in boxes:
+        assert fieldset["inputs"], fieldset
+        for item in fieldset["inputs"]:
+            assert item["width"] < 40, item  # a native control, not a 440px text input
+            assert abs(item["left"] - item["label"]) < 8, item
+            lefts.add(round(item["left"]))
+        assert all(abs(i["left"] - fieldset["legend"]) < 16 for i in fieldset["inputs"]), fieldset
+    assert max(lefts) - min(lefts) <= 1, lefts  # both fieldsets start their controls alike
+
+
 # -- services up for MCP stacks (#831 part 3): the services review with consent ------------------
 
 BUILT_IN = {

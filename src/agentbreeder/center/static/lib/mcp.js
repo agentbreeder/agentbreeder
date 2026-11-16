@@ -4,7 +4,7 @@
 // is untrusted text; the screen renders it through <Text>. Nothing here touches the DOM.
 //
 // Stable exports: RELAY_STATES, TOOL_STATES, serverRows, grantRows, relayLogsCommand, repinCommand, shellWord,
-// shortHash; for grant and revoke (part 2): grantProblem, grantWriteProblem, grantChoices, grantedTools,
+// shortHash; for grant and revoke (part 2): grantProblem, grantWriteProblem, grantChoices, choiceNote, grantedTools,
 // grantSteps; for the repin review (#964): pinsCommand, pinsProblem, repinServers.
 
 /** `services status --json` `mcp.<server>.state`, in words. */
@@ -170,21 +170,34 @@ export function grantWriteProblem(problem) {
 }
 
 /**
- * The tools a form offers: to grant, the declared tools not granted yet; to revoke, the granted
- * tools (also one a newer version no longer declares). `declared` is [{name, effect}] or null
- * (unreadable: nothing to offer for a grant).
+ * The tools a form offers, each {name, effect, declared}: to grant, the declared tools not granted
+ * yet; to revoke, the granted tools (also one a newer version no longer declares). `declared` is
+ * [{name, effect}] or null (not read yet, or unreadable: nothing to offer for a grant, and a
+ * revoke's `declared` is null, unknown, rather than false, #1043).
  */
 export function grantChoices(verb, declared, granted) {
   const held = names(granted);
-  if (verb === "revoke") return held.map((name) => ({ name, effect: effectOf(declared, name) }));
-  return (Array.isArray(declared) ? declared : [])
+  const known = Array.isArray(declared);
+  if (verb === "revoke") {
+    return held.map((name) => {
+      const hit = known ? declared.find((tool) => object(tool) && tool.name === name) : null;
+      return { name, effect: hit ? text(hit.effect) : "", declared: known ? Boolean(hit) : null };
+    });
+  }
+  return (known ? declared : [])
     .filter((tool) => object(tool) && typeof tool.name === "string" && !held.includes(tool.name))
-    .map((tool) => ({ name: tool.name, effect: text(tool.effect) }));
+    .map((tool) => ({ name: tool.name, effect: text(tool.effect), declared: true }));
 }
 
-function effectOf(declared, name) {
-  const hit = (Array.isArray(declared) ? declared : []).find((tool) => object(tool) && tool.name === name);
-  return hit ? text(hit.effect) : "";
+/**
+ * The note beside an offered tool: its effect; for a revoke, "no longer declared" only once the
+ * declared tools were read and lack it, else a loading or unreadable note (#1043).
+ */
+export function choiceNote(tool, loading) {
+  if (!object(tool)) return "";
+  if (tool.declared === false) return "no longer declared";
+  if (tool.declared === null) return loading ? "checking the declared tools…" : "declared tools unavailable";
+  return text(tool.effect);
 }
 
 /** One agent's current grant on one server, from the `mcp` view's data. */

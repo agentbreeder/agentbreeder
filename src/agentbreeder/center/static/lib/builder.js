@@ -5,7 +5,7 @@
 
 import { caseProblems, parseCases, pyJson } from "./cases.js";
 import { starterNameProblem } from "./guide.js";
-import { PROVIDERS } from "./onboard.js";
+import { PROVIDERS, VERIFIED } from "./onboard.js";
 
 export const SPEC_VERSION = 1;
 export const MAX_PROMPT = 32 * 1024; // bytes, `agentspec.MAX_PROMPT`
@@ -186,7 +186,6 @@ export function formProblem(form, casesText) {
   const nameProblem = starterNameProblem(form.name.trim());
   if (nameProblem) return nameProblem === "Type a name first." ? "Type the agent's name first." : nameProblem;
   if (!PROVIDERS.includes(form.model)) return "Pick a model provider first.";
-  if (form.model === "openrouter" && !form.modelId.trim()) return "OpenRouter needs a model id, such as openrouter/<vendor>/<model>.";
   if (form.modelId.trim() && !MODEL_ID.test(form.modelId.trim())) return "A model id is letters, digits and . _ : / -, at most 128 characters.";
   if (!form.prompt.trim()) return "Write the agent's prompt first.";
   if (bytes(form.prompt) > MAX_PROMPT) return `The prompt is over ${MAX_PROMPT / 1024} KiB.`;
@@ -232,13 +231,13 @@ export function createBody(spec, preview, codeConfirmed) {
 
 /**
  * What has not been run end to end, as a sentence, or null when the combination is verified:
- * the provider (only gemini is), and the parts beyond the model, prompt and evals.
+ * the provider (unless it is one of `verified`), and the parts beyond the model, prompt and evals.
  */
-export function unverifiedText(preview, verifiedProvider = "gemini") {
+export function unverifiedText(preview, verified = VERIFIED) {
   if (!preview || preview.combination.verified) return null;
   const extra = preview.combination.parts.filter((part) => !BASE_PARTS.includes(part));
   const what = [];
-  if (preview.model !== verifiedProvider) what.push(`the ${preview.model} provider`);
+  if (!verified.includes(preview.model)) what.push(`the ${preview.model} provider`);
   const words = { tools: "tools", mcp: "MCP servers" };
   if (extra.length) what.push(`a new agent with ${extra.map((part) => words[part] || part).join(" and ")}`);
   const named = what.length ? what.join(", and ") : "this combination";

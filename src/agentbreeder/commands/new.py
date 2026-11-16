@@ -35,16 +35,17 @@ def register(commands) -> None:
         "--model",
         choices=sorted(newagent.PROVIDERS),
         help=(
-            "Model provider, called through LiteLLM (required, except with --from-spec); only "
-            "gemini has been run end to end, the others are config-only"
+            "Model provider, called through LiteLLM (required, except with --from-spec); "
+            "gemini and openrouter have been run end to end with their default models, "
+            "anthropic and openai are config-only"
         ),
     )
     agent.add_argument(
         "--model-id",
         metavar="ID",
         help=(
-            "LiteLLM model id, PROVIDER/... (default: the provider's own; openrouter needs one, "
-            "e.g. openrouter/<vendor>/<model>)"
+            "LiteLLM model id, PROVIDER/... (default: the provider's own, e.g. "
+            "openrouter/google/gemini-3.8-flash; openrouter ids are openrouter/<vendor>/<model>)"
         ),
     )
     where = agent.add_mutually_exclusive_group()
@@ -213,8 +214,7 @@ def _stack_for(args) -> int:
         lines.append(f"Code that runs in agents, not shipped with AgentBreeder: {refs}.")
     lines.append(f"The gate refuses deploys after review_by {summary['review_by']} (stack.yaml).")
     lines += [f"Warning: {warning}" for warning in summary["warnings"]]
-    if not summary["verified"]:
-        lines.append(_config_only(summary["model"]))
+    lines += _verification(summary)
     if args.dry_run:
         lines.append("Dry run: nothing was written.")
     else:
@@ -239,8 +239,7 @@ def _text(summary: dict, notes: list[str] | tuple[str, ...] = ()) -> str:
     )
     lines.append(f"The gate refuses deploys after review_by {summary['review_by']} (stack.yaml).")
     lines += notes
-    if not summary["verified"]:
-        lines.append(_config_only(summary["model"]))
+    lines += _verification(summary)
     if summary["dry_run"]:
         lines.append("Dry run: nothing was written.")
         return "\n".join(lines)
@@ -250,8 +249,21 @@ def _text(summary: dict, notes: list[str] | tuple[str, ...] = ()) -> str:
     return "\n".join(lines)
 
 
-def _config_only(model: str) -> str:
-    return (
-        f"{model} is config-only: this starter has not been run end to end with it (the eval "
-        "judge needs strict json_schema output)."
-    )
+def _verification(summary: dict) -> list[str]:
+    """What the summary's `verified` covers: the provider's gateway and judge path with its
+    default model, never how well another model answers the eval cases."""
+    from agentbreeder import newagent
+
+    model = summary["model"]
+    if not summary["verified"]:
+        return [
+            f"{model} is config-only: this starter has not been run end to end with it (the "
+            "eval judge needs strict json_schema output)."
+        ]
+    default = newagent.PROVIDERS[model].model
+    if summary["model_id"] != default:
+        return [
+            f"{model} has been run end to end with {default}, not with this model id: the eval "
+            "gate may still fail on its answers."
+        ]
+    return []

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  PROVIDERS, codeRefs, confirmProblem, formProblem, previewBody, rootText, shortDigest, writeBody,
+  DEFAULT_MODEL, PROVIDERS, VERIFIED, codeRefs, confirmProblem, formProblem, modelIdNote, previewBody, rootText, shortDigest, writeBody,
 } from "../../src/agentbreeder/center/static/lib/onboard.js";
 
 const form = { path: "/p/support/agent.yaml", name: "support", model: "gemini", modelId: "" };
@@ -11,6 +11,18 @@ const ref = (kind, root_kind, runs_code) => ({ ref: `${kind}/x@1.0.0`, kind, roo
 
 test("the providers are new agent's", () => {
   assert.deepEqual(PROVIDERS, ["anthropic", "gemini", "openai", "openrouter"]);
+  assert.deepEqual(VERIFIED, ["gemini", "openrouter"]);
+});
+
+test("a verified provider with another model id says only its default ran", () => {
+  assert.match(modelIdNote(true, "openrouter", "openrouter/a/b"), /default model, not with this model id/);
+  assert.doesNotMatch(modelIdNote(true, "openrouter", "openrouter/a/b"), /openrouter\/a\/b/);
+  assert.equal(modelIdNote(true, "openrouter", " "), null);
+  assert.equal(modelIdNote(true, "openrouter", null), null);
+  assert.equal(modelIdNote(true, "openrouter", " openrouter/google/gemini-3.8-flash "), null); // the default, typed
+  assert.equal(modelIdNote(true, "gemini", DEFAULT_MODEL.gemini), null);
+  assert.equal(modelIdNote(false, "openai", "openai/x"), null);
+  assert.equal(modelIdNote("yes", "openai", "openai/x"), null);
 });
 
 test("the form says what is missing, in order", () => {
@@ -20,7 +32,7 @@ test("the form says what is missing, in order", () => {
   assert.match(formProblem({ ...form, name: "" }), /name: in agent.yaml/);
   assert.match(formProblem({ ...form, name: "Support" }), /lowercase letter first/);
   assert.match(formProblem({ ...form, model: "mistral" }), /provider/);
-  assert.match(formProblem({ ...form, model: "openrouter" }), /OpenRouter needs a model id/);
+  assert.equal(formProblem({ ...form, model: "openrouter" }), null); // it has a default (#1020)
   assert.equal(formProblem({ ...form, model: "openrouter", modelId: "openrouter/a/b" }), null);
 });
 
