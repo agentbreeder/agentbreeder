@@ -48,12 +48,12 @@ function TraceList({ project, deployment, last }) {
   </div>`;
 }
 
-export function Traces({ project, name, rows }) {
+export function Traces({ project, name, rows, loading = false }) {
   const own = Array.isArray(rows) ? rows.filter((row) => row && agentName(row) === name && typeof row.id === "string") : [];
   const [chosen, setChosen] = useState("");
   const [last, setLast] = useState(DEFAULT_LAST);
   const deployment = own.some((row) => row.id === chosen) ? chosen : defaultDeployment(own, productionRow(own, name));
-  return html`<${Card} title="Traces">
+  return html`<${Card} title="Traces" busy=${loading}>
     ${own.length
       ? html`<div class="row">
             <label class="field">
@@ -70,7 +70,9 @@ export function Traces({ project, name, rows }) {
             </label>
           </div>
           <${TraceList} key=${`${deployment} ${last}`} project=${project} deployment=${deployment} last=${last} />`
-      : html`<p class="muted">No deployment of this agent in this project, so there are no traces to read.</p>`}
+      : loading
+        ? html`<p class="muted">Loading deployments…</p>`
+        : html`<p class="muted">No deployment of this agent in this project, so there are no traces to read.</p>`}
     <p class="muted small">From this stack's Phoenix (<code>agentbreeder traces</code>). Prompts, replies and tool arguments are never read. Error text in a span tree is the runtime's own and can quote what the agent was given.</p>
   <//>`;
 }
