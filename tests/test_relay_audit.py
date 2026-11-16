@@ -126,6 +126,43 @@ def test_a_lost_cursor_or_replaced_file_never_duplicates_rows(stack):
     assert len(rows(state)) == 3
 
 
+def test_a_file_replaced_on_the_same_inode_is_read_again(stack):
+    """Linux reuses a freed inode at once: unlink + create can give the old inode back. Rewriting
+    in place keeps the inode on every platform, so this reproduces it on macOS too."""
+    state, audit = stack
+    path = audit / "github.jsonl"
+    write(audit, record(1), record(2))
+    assert len(rows(state)) == 2
+    inode = path.stat().st_ino
+    path.write_bytes(b"".join(json.dumps(r).encode() + b"\n" for r in (record(3), record(4))))
+    assert path.stat().st_ino == inode
+    assert [r["context"]["correlation_id"][-1] for r in rows(state)] == ["4", "3", "2", "1"]
+    cursor = json.loads((state / relay_audit.CURSOR_FILE).read_text())
+    assert cursor["github"]["offset"] == path.stat().st_size
+
+
+@pytest.mark.parametrize("tail", ["kept", "missing"])
+def test_a_grown_file_past_the_tail_window_reads_only_new_lines(stack, monkeypatch, tail):
+    """Offsets beyond TAIL_BYTES read only the new lines; a cursor without a tail (or a wrong
+    one) reads the file again from 0 and still adds no duplicate rows."""
+    state, audit = stack
+    monkeypatch.setattr(relay_audit, "TAIL_BYTES", 64)
+    write(audit, record(1), record(2))
+    assert len(rows(state)) == 2
+    if tail == "missing":
+        cursor = json.loads((state / relay_audit.CURSOR_FILE).read_text())
+        del cursor["github"]["tail"]
+        (state / relay_audit.CURSOR_FILE).write_text(json.dumps(cursor))
+    parsed = []
+    real_parse = relay_audit.parse
+    monkeypatch.setattr(
+        relay_audit, "parse", lambda line, *a: parsed.append(line) or real_parse(line, *a)
+    )
+    write(audit, record(3))
+    assert [r["context"]["correlation_id"][-1] for r in rows(state)] == ["3", "2", "1"]
+    assert len(parsed) == (1 if tail == "kept" else 3)
+
+
 def test_a_partial_last_line_waits_for_its_newline(stack):
     state, audit = stack
     line = json.dumps(record(1)).encode()

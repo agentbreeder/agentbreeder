@@ -45,6 +45,7 @@ ACTION = "mcp_tool_call"
 INVALID_ACTION = "mcp_relay_record"
 LINE_MAX = 4096  # the relay's AUDIT_LINE_MAX
 READ_MAX = 4 * 1024 * 1024  # bytes per file per import; the rest waits for the next read
+TAIL_BYTES = 4096  # the bytes before a cursor offset whose digest tells a replaced file
 FILES_MAX = 64
 KEYS = frozenset(
     {
@@ -143,9 +144,11 @@ def _write_cursor(state_dir: Path, cursor: dict) -> None:
     os.replace(scratch, target)
 
 
-def _chunk(path: Path, position: dict) -> tuple[bytes, int, int]:
-    """New bytes from the recorded offset: (data, start offset, inode). A replaced or shorter
-    file starts again from 0 (ids already in the chain are skipped)."""
+def _chunk(path: Path, position: dict) -> tuple[bytes, int, int, bytes]:
+    """New bytes from the recorded offset: (data, start offset, inode, the bytes just before it).
+    A replaced or shorter file starts again from 0 (ids already in the chain are skipped). The
+    inode alone can't tell a replaced file (Linux reuses a freed inode at once), so the cursor
+    also keeps a digest of the TAIL_BYTES before its offset, which hold the last records' ids."""
     # O_NONBLOCK: a FIFO swapped in after the listing can't hang the read.
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
@@ -153,6 +156,7 @@ def _chunk(path: Path, position: dict) -> tuple[bytes, int, int]:
         if not stat.S_ISREG(info.st_mode):
             raise OSError("not a regular file")
         offset = position.get("offset") if isinstance(position, dict) else None
+        before = b""
         if (
             type(offset) is not int
             or offset < 0
@@ -160,11 +164,19 @@ def _chunk(path: Path, position: dict) -> tuple[bytes, int, int]:
             or offset > info.st_size
         ):
             offset = 0
+        elif offset:
+            before = os.pread(fd, min(offset, TAIL_BYTES), offset - min(offset, TAIL_BYTES))
+            if position.get("tail") != _digest(before):
+                offset, before = 0, b""
         os.lseek(fd, offset, os.SEEK_SET)
         data = os.read(fd, READ_MAX)
-        return data, offset, info.st_ino
+        return data, offset, info.st_ino, before
     finally:
         os.close(fd)
+
+
+def _digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 def parse(line: bytes, server: str, environment: str) -> dict | None:
@@ -254,7 +266,7 @@ def import_records(store) -> ImportReport:
         }
         for server, path in files:
             try:
-                data, start, inode = _chunk(path, cursor.get(server, {}))
+                data, start, inode, before = _chunk(path, cursor.get(server, {}))
             except OSError:
                 continue
             end = data.rfind(b"\n") + 1  # only whole lines; a partial last line waits
@@ -281,7 +293,8 @@ def import_records(store) -> ImportReport:
                     known.add(invalid_event.attempt_id)
             if end:
                 report.files.append(server)
-            cursor[server] = {"inode": inode, "offset": start + end}
+            tail = (before + data[:end])[-TAIL_BYTES:]
+            cursor[server] = {"inode": inode, "offset": start + end, "tail": _digest(tail)}
     try:
         _write_cursor(store.directory, cursor)
     except OSError:
