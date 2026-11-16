@@ -528,9 +528,10 @@ itself.
   `services up`, and that an agent uses a tool only when its `agent.yaml` asks for it. After a
   write the screen names the `services up` command, which Services runs from its review (next
   section).
-- **A revoke an active deployment still holds** is written and reported, with the CLI's next
-  steps. `services up` refuses to narrow the grant (`MCP_GRANT_IN_USE`) until you run
-  `agentbreeder remove ID --local --stack DIR`. An unreadable grant file names `reconcile`.
+- **A revoke an active deployment still holds** is written and reported: the next `services up`
+  takes the tool away from that deployment (the relay refuses it, `TOOL_NOT_GRANTED`), and the
+  agent must be released without it to deploy again (#1072). An unreadable grant file names
+  `reconcile`.
 - **Refusals a person can act on have fixed words**: an unknown agent (add it with its sponsor
   and review date by hand) or server, an undeclared or invalid tool, a rewrite that would change
   more of `stack.yaml` than the grant (`STACK_EDIT_AMBIGUOUS`: edit by hand), and a file that
@@ -582,8 +583,9 @@ The credential is a key like any other in the form. **Confirm and start** runs t
   allowed servers, as it does in a terminal (trust on first use). The job log shows every tool
   definition pinned. A **changed** definition is accepted only through the reviewed repin below;
   without it the relay keeps that tool hidden.
-- **What the CLI still refuses** is shown as the job's failure: a narrowed grant still held by a
-  deployment (`MCP_GRANT_IN_USE`), and an undeclared tool in a grant (`MCP_TOOL_UNDECLARED`).
+- **What the CLI still refuses** is shown as the job's failure: a dropped `mcp:` entry still used
+  by a deployment, or an unreadable grant file (`MCP_GRANT_IN_USE`), and an undeclared tool in a
+  grant (`MCP_TOOL_UNDECLARED`).
 - `agentbreeder up --yes` with a project directory now starts a stack whose MCP servers are all
   built in, as `services up --yes` does. A stack with any other server is not started, with the
   consent message, because `--yes` alone never allows one.

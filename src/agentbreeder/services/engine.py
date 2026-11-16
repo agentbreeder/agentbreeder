@@ -9,6 +9,7 @@ value stays in the stack state dir; nothing is written to the repo except `stack
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import socket
 import tempfile
@@ -527,9 +528,11 @@ class Engine:
     # -- MCP relays (spec §7) ---------------------------------------------------------------------
 
     def _check_in_use(self, plan: Plan) -> None:
-        """Refuse to drop an `mcp:` entry, or narrow a grant, that an active deployment uses.
-        Grant files exist only for active deployments (deploy writes, remove and reconcile
-        delete them)."""
+        """Refuse to drop an `mcp:` entry an active deployment uses (its relay would go), or to
+        start with an unreadable grant file. A narrowed grant is applied (#1072): the relay
+        intersects every grant file with the stack's grant, so the deployment loses the revoked
+        tools at once (`TOOL_NOT_GRANTED`, audited) and a warning names it. Grant files exist only
+        for active deployments (deploy writes, remove and reconcile delete them)."""
         root = self.state.directory / "grants"
         if not root.is_dir():
             return
@@ -544,12 +547,32 @@ class Engine:
                     allowed = set(demo.mcp.get(server, [])) if demo else set()
                     allowed &= set(entry.spec.tools) if entry else set()
                     tools = grant.get("tools") if isinstance(grant.get("tools"), list) else [None]
-                    if entry is None or not set(tools) <= allowed:
+                    readable = all(
+                        isinstance(tool, str) and re.fullmatch(mcp_kind.TOOL, tool)
+                        for tool in tools
+                    )
+                    if entry is None or not readable:
                         raise ServiceError(
                             "MCP_GRANT_IN_USE",
-                            f"an active deployment in {env_dir.name} uses mcp.{server} tools this "
-                            "stack.yaml drops; remove that deployment first (agentbreeder remove "
-                            "ID --local --stack .), or run `agentbreeder reconcile` if it is gone",
+                            f"an active deployment in {env_dir.name} uses mcp.{server}, which "
+                            "this stack.yaml drops, or holds an unreadable grant; remove that "
+                            "deployment first (agentbreeder remove ID --local --stack .), or "
+                            "run `agentbreeder reconcile` if it is gone",
+                        )
+                    lost = sorted(set(tools) - allowed)
+                    if lost:
+                        deployment = str(grant.get("deployment", ""))
+                        shown = deployment if re.fullmatch(r"[0-9a-f]{32}", deployment) else "?"
+                        name = (
+                            agent
+                            if isinstance(agent, str) and registry.NAME.fullmatch(agent)
+                            else "?"
+                        )
+                        plan.locked.warnings.append(
+                            f"mcp.{server}: agent {name}, deployment {shown} ({env_dir.name}), "
+                            "no longer has "
+                            f"{', '.join(lost)}; the relay refuses them (TOOL_NOT_GRANTED). "
+                            "Release the agent without them, or it can't be deployed again"
                         )
 
     def _remove_dropped_relays(self, plan: Plan, containers: dict) -> list[str]:

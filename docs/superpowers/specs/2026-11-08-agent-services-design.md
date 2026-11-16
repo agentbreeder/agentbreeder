@@ -588,8 +588,10 @@ ship marked `unverified` in their manifest description.
      so `preflight` and `release --rollback` see them.
    - The relay intersects each grant file's tools with its configured grant, so a narrowed grant
      takes effect at once.
-   - `up` refuses to drop an `mcp:` entry, or narrow a grant, while an active deployment uses it
-     (as `down` does).
+   - `up` refuses to drop an `mcp:` entry while an active deployment uses it (as `down` does).
+     A narrowed grant is applied even then: the owner reversed the earlier "refuse to narrow" on
+     2026-11-15 (#1072, r15). The relay refuses the revoked tools to that deployment at once, and
+     `up` warns, naming the agent and deployment.
 6. **Contracts.**
    - `Manifest.mcp_access` is excluded from `digest()` when unset, like `model_access`, so
      existing digests don't change.
@@ -1054,3 +1056,11 @@ r14 (slice 4e, #748, narrowed to GitHub and Playwright by the 2026-11-09 roadmap
   timeouts.
 - **Test fixtures:** the unit tests' project-local `mcp/github@1.0.0` now conflicts with the
   built-in (`REF_CONFLICT`, as designed), so `tests/test_mcp_stack.py` uses `mcp/github@0.1.0`.
+
+r15 (#1072, 2026-11-15; owner decision "Apply the revoke"): `mcp revoke` then `services up` failed (`MCP_GRANT_IN_USE`) while a
+deployment held the revoked tool, so the stack could not be brought up at all and the running
+agent kept the tool until it was removed. `up` now applies a narrowed grant: the relay already
+intersects each grant file with the stack's grant, so the deployment loses the tool at once
+(`TOOL_NOT_GRANTED`; once relay 1.0.2 from #1068, PR #1082, is merged, each refusal is also an audit row), and `up` adds a warning naming the
+agent, the deployment and the tools it lost. Dropping an `mcp:` entry in use, and an unreadable grant file,
+are still refused. Reviewed by Claude Sonnet (different model from the coder).

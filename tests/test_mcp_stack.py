@@ -451,13 +451,37 @@ def _active_grant(result, tools, agent=AGENT, server="github"):
     (directory / (hashlib.sha256(b"t").hexdigest() + ".json")).write_text(json.dumps(grant))
 
 
-def test_up_refuses_to_drop_or_narrow_an_mcp_grant_in_use(project):
+def test_up_applies_a_narrowed_grant_in_use_but_refuses_to_drop_its_entry(project):
+    """#1072: a revoke reaches the relay at the next `up`, even while a deployment holds the
+    tool (the relay intersects its grant file with the stack's grant); dropping the whole
+    `mcp:` entry would remove the relay under it, so that is still refused."""
     docker = RelayDocker()
     result, _ = run_up(project, docker)
     _active_grant(result, ["create_issue", "list_issues"])
     write_project(project, stack=stack(tools=("list_issues",)))
-    with pytest.raises(ServiceError, match="MCP_GRANT_IN_USE"):
-        run_up(project, docker)
+    result, _ = run_up(project, docker)
+    config = json.loads(
+        Path(
+            next(
+                v["source"]
+                for v in yaml.safe_load((stack_dir(result) / "compose.yaml").read_text())[
+                    "services"
+                ]["mcp-github"]["volumes"]
+                if v["target"] == "/run/params/config"
+            )
+        ).read_text()
+    )
+    assert config["agents"] == {AGENT: ["list_issues"]}
+    (warning,) = [w for w in result["warnings"] if "no longer has" in w]
+    assert warning.startswith(
+        f"mcp.github: agent {AGENT}, deployment {'d' * 32} (dev), no longer has create_issue"
+    )
+    assert "TOOL_NOT_GRANTED" in warning
+    write_project(project, stack=stack())
+    result, _ = run_up(project, docker)
+    assert not [
+        w for w in result["warnings"] if "no longer has" in w
+    ]  # granted again: nothing lost
     data = stack()
     del data["mcp"]
     data["environment"]["agents"][AGENT].pop("mcp")
@@ -466,6 +490,40 @@ def test_up_refuses_to_drop_or_narrow_an_mcp_grant_in_use(project):
         run_up(project, docker, allow=())
     write_project(project, stack=stack())
     run_up(project, docker)  # the same grant is fine
+
+
+def test_an_agent_dropped_from_the_stack_loses_every_tool_but_up_applies(project):
+    docker = RelayDocker()
+    result, _ = run_up(project, docker)
+    _active_grant(result, ["create_issue", "list_issues"])
+    data = stack()
+    data["environment"]["agents"][AGENT].pop("mcp")
+    write_project(project, stack=data)
+    result, _ = run_up(project, docker)
+    (warning,) = [w for w in result["warnings"] if "no longer has" in w]
+    assert "create_issue, list_issues" in warning
+
+
+def test_only_the_narrowed_server_warns(project):
+    docker = RelayDocker()
+    result, _ = run_up(project, docker)
+    _active_grant(result, ["create_issue", "list_issues"])
+    _active_grant(result, ["list_issues"], server="other")  # a server dir not in stack.yaml
+    write_project(project, stack=stack(tools=("list_issues",)))
+    with pytest.raises(ServiceError, match="MCP_GRANT_IN_USE"):
+        run_up(project, docker)  # the gone server still refuses
+    for path in (stack_dir(result) / "grants" / "dev" / "other").glob("*.json"):
+        path.unlink()
+    result, _ = run_up(project, docker)
+    assert [w.split(":")[0] for w in result["warnings"] if "no longer has" in w] == ["mcp.github"]
+
+
+def test_an_unreadable_grant_file_still_blocks_up(project):
+    docker = RelayDocker()
+    result, _ = run_up(project, docker)
+    _active_grant(result, ["list_issues", "../bad"])
+    with pytest.raises(ServiceError, match="MCP_GRANT_IN_USE"):
+        run_up(project, docker)
 
 
 def test_relay_is_reserved_and_never_shadowed(project):

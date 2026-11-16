@@ -405,8 +405,12 @@ reader. First pins still go through a plain `services up` (`MCP_PINS_NEED_UP`). 
 `agentbreeder mcp grant|revoke AGENT SERVER TOOL…` edits an agent's grant in `stack.yaml` for
 you; see [`mcp`](commands/mcp.md) (on `main`, not in a published preview).
 
-`up` refuses to drop an `mcp:` entry, or narrow a grant, while an active deployment uses it
-(`MCP_GRANT_IN_USE`). Grant files live in `~/.agentbreeder/stacks/<id>/grants/<env>/<server>/`.
+`up` refuses to drop an `mcp:` entry while an active deployment uses it, or to start with an
+unreadable grant file (`MCP_GRANT_IN_USE`). A narrowed grant (`mcp revoke`) is applied even while a
+deployment holds the tool: from that `up` on, the relay refuses the tool to it
+(`TOOL_NOT_GRANTED`), and `up` prints a warning naming the agent and deployment (#1072, on `main`, not in a
+published preview). Release the agent without the tool, or its next deploy is refused
+(`MCP_TOOL_NOT_GRANTED`). Grant files live in `~/.agentbreeder/stacks/<id>/grants/<env>/<server>/`.
 A changed imported credential recreates the relay; open sessions then get 404 and initialize
 again. `--allow-project-mcp` must name an `mcp:` entry (`MCP_UNKNOWN`). `agentbreeder services
 logs mcp-<name>` shows a relay's log lines.

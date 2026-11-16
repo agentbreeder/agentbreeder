@@ -207,9 +207,10 @@ export function grantedTools(files, agent, server) {
 }
 
 /**
- * What follows a reviewed or written change, as sentences and commands: a grant reaches the relay
- * at the next `services up`; a revoke still held by an active deployment is refused there
- * (MCP_GRANT_IN_USE) until that deployment is removed, or (an unreadable grant file) reconciled.
+ * What follows a reviewed or written change, as sentences and commands: a change reaches the relay
+ * at the next `services up`. A revoke still held by an active deployment applies there too
+ * (#1072): the relay refuses the tool from then on (a sentence, no command). An unreadable grant
+ * file blocks `services up` until it is reconciled.
  */
 export function grantSteps(summary, path, environment) {
   const dir = text(path) ? shellWord(path) : "DIR";
@@ -219,8 +220,8 @@ export function grantSteps(summary, path, environment) {
     if (!object(item)) continue;
     if (typeof item.deployment === "string") {
       steps.push({
-        text: `Deployment ${item.deployment} (${text(item.environment)}) still holds ${names(item.tools).join(", ")}. services up refuses to narrow the grant (MCP_GRANT_IN_USE) until it is removed:`,
-        command: `agentbreeder remove ${shellWord(item.deployment)} --local --stack ${dir}`,
+        text: `Deployment ${item.deployment} (${text(item.environment)}) still holds ${names(item.tools).join(", ")}. The next services up takes it away: the relay refuses it from then on (TOOL_NOT_GRANTED). Release the agent without it, or it can't be deployed again.`,
+        command: null,
       });
     } else {
       steps.push({
