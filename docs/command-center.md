@@ -976,11 +976,11 @@ Try it is also the **Try it** tab of the agent's detail (below), at the same add
 ### Onboard an agent.yaml alone (#823, third part): on `main`, not in a published preview
 
 Home's **Add a project** card has a fourth form, **An agent.yaml alone**: the path of an
-`agent.yaml` (or its directory), the agent's `name:` and a model provider (gemini or
-openrouter, which have been run end to end with their default models, or anthropic and openai,
-which are config-only), with an optional model id that replaces the default; with another model
-id for a verified provider, the preview says only the default has been run end to end
-(openrouter since #1020, on `main`, not in a published preview). It is a three-tier
+`agent.yaml` (or its directory), the agent's `name:` and a model provider (gemini, openai or
+openrouter, which have been run end to end with their default models, or anthropic, which is
+config-only), with an optional model id that replaces the default; with another model id for a
+verified provider, the preview says only the default has been run end to end (openrouter and
+openai since #1020, on `main`, not in a published preview). It is a three-tier
 confirm:
 
 1. **Preview** runs `agentbreeder new agent NAME --model PROVIDER [--model-id=ID]
@@ -1023,8 +1023,8 @@ verification.
 ### Build an agent (#833, M17): on `main`, not in a published preview
 
 Home's **Add a project** card links to **Build an agent** (`#/build`), a form beside a sticky
-preview. The form has the agent's name, the model provider (gemini and openrouter, the latter
-since #1020; anthropic and openai are marked "not run end to end") with an optional model id (a
+preview. The form has the agent's name, the model provider (gemini, openai and openrouter, the
+latter two since #1020; anthropic is marked "not run end to end") with an optional model id (a
 verified provider with another model id is created, with a note that only its default model has
 been run end to end), the prompt, the eval
 cases (the eval-set case editor's rows, without the cited-sources check, at most 100 cases), and,
