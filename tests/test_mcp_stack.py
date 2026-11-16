@@ -318,7 +318,11 @@ def test_probe_failure(project):
     run_up(project, docker)
     docker.probe_error = "UPSTREAM_ERROR"
     result, _ = run_up(project, docker)  # pinned before: keeps the old pins
-    assert result["mcp"]["github"] == {"state": "unverified", "error": "MCP_PROBE_FAILED"}
+    assert result["mcp"]["github"] == {
+        "state": "unverified",
+        "error": "MCP_PROBE_FAILED",
+        "cause": "UPSTREAM_ERROR",
+    }
     assert any("keeps its existing pins" in w for w in result["warnings"])
     docker.probe_error = "lower case or <html>"
     engine = Engine(project, docker=docker)
@@ -326,6 +330,53 @@ def test_probe_failure(project):
         assert engine.status()["mcp"]["github"]["state"] == "unverified"
     finally:
         engine.close()
+
+
+def _up_failure(project, docker):
+    engine = Engine(project, docker=docker)
+    try:
+        return engine.state.get("up_failure:dev")
+    finally:
+        engine.close()
+
+
+def test_a_failed_up_records_its_code_and_cause_for_next(project):
+    """#1042: a confirmed `up` that fails keeps its code and cause (never the message) for
+    `next`; a later success clears it. A probe error that is not a plain code is no cause."""
+    docker = RelayDocker()
+    docker.probe_error = "UPSTREAM_AUTH"
+    with pytest.raises(ServiceError) as caught:
+        run_up(project, docker)
+    assert caught.value.code == "MCP_PROBE_FAILED" and caught.value.cause == "UPSTREAM_AUTH"
+    assert json.loads(_up_failure(project, docker)) == {
+        "code": "MCP_PROBE_FAILED",
+        "cause": "UPSTREAM_AUTH",
+    }
+    docker.probe_error = "A B!"  # upper case, but not a code: named nowhere
+    with pytest.raises(ServiceError) as caught:
+        run_up(project, docker)
+    assert caught.value.cause is None and "(A B!)" not in str(caught.value)
+    assert json.loads(_up_failure(project, docker)) == {"code": "MCP_PROBE_FAILED", "cause": None}
+    docker.probe_error = None
+    run_up(project, docker)
+    assert _up_failure(project, docker) is None
+
+
+def test_a_failure_record_that_cannot_be_written_never_hides_the_error(project, monkeypatch):
+    docker = RelayDocker()
+    docker.probe_error = "UPSTREAM_AUTH"
+
+    def broken(self, key, value):
+        if key.startswith("up_failure:"):
+            raise OSError("disk full")
+        return original(self, key, value)
+
+    from agentbreeder.services.state import StackState
+
+    original = StackState.put
+    monkeypatch.setattr(StackState, "put", broken)
+    with pytest.raises(ServiceError, match="MCP_PROBE_FAILED"):
+        run_up(project, docker)
 
 
 @pytest.mark.parametrize(

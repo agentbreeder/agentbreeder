@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { RELAY_STATES, TOOL_STATES, consentMissing, consentNames, driftedServers, planServers, grantChoices, grantProblem, grantRows, grantWriteProblem, grantSteps, grantedTools, pinsCommand, pinsProblem, repinCommand, repinServers, serverRows, shellWord, shortHash } from "../../src/agentbreeder/center/static/lib/mcp.js";
+import { RELAY_STATES, TOOL_STATES, consentMissing, consentNames, driftedServers, planServers, grantChoices, grantProblem, grantRows, grantWriteProblem, grantSteps, grantedTools, pinsCommand, pinsProblem, relayLogsCommand, repinCommand, repinServers, serverRows, shellWord, shortHash } from "../../src/agentbreeder/center/static/lib/mcp.js";
 
 const PIN = `sha256:${"a".repeat(64)}`;
 const OTHER = `sha256:${"b".repeat(64)}`;
@@ -267,4 +267,21 @@ test("repin review problems and the terminal command", () => {
   assert.equal(pinsProblem(null), "");
   assert.equal(pinsCommand("/p/a b"), "agentbreeder services pins '/p/a b'");
   assert.equal(pinsCommand(""), "agentbreeder services pins DIR");
+});
+
+test("a relay's failed upstream check names its cause and the log to read (#1042)", () => {
+  const files = { servers: [{ name: "github", ref: "mcp/github@1.0.0", relay: "mcp-github", pins: {} }] };
+  const status = { services: { "mcp-github": { state: "running" } }, mcp: { github: { state: "unverified", error: "MCP_PROBE_FAILED", cause: "UPSTREAM_AUTH" } } };
+  const [row] = serverRows(files, status);
+  assert.equal(row.error, "MCP_PROBE_FAILED");
+  assert.equal(row.cause, "UPSTREAM_AUTH");
+  assert.match(row.causeText, /refused the credential/);
+  const odd = serverRows(files, { ...status, mcp: { github: { state: "unverified", error: "MCP_PROBE_FAILED", cause: "not a code" } } })[0];
+  assert.equal(odd.cause, "");
+  assert.equal(odd.causeText, "");
+  const unknown = serverRows(files, { ...status, mcp: { github: { state: "unverified", error: "MCP_PROBE_FAILED", cause: "NEW_CAUSE" } } })[0];
+  assert.equal(unknown.cause, "NEW_CAUSE");
+  assert.equal(unknown.causeText, "");
+  assert.equal(relayLogsCommand("/p/gh reader", "mcp-github"), "agentbreeder services logs '/p/gh reader' mcp-github");
+  assert.equal(relayLogsCommand("", "mcp-github"), "agentbreeder services logs DIR mcp-github");
 });

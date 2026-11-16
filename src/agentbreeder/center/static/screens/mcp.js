@@ -2,7 +2,7 @@
 // each agent's grants and each relay's state (part 1), and grant or revoke through `agentbreeder
 // mcp grant|revoke`, reviewed first (part 2). A grant takes effect at the next `services up`.
 
-import { grantChoices, grantedTools, grantProblem, grantRows, grantWriteProblem, grantSteps, pinsCommand, repinCommand, serverRows } from "../lib/mcp.js";
+import { relayLogsCommand, grantChoices, grantedTools, grantProblem, grantRows, grantWriteProblem, grantSteps, pinsCommand, repinCommand, serverRows } from "../lib/mcp.js";
 import { href } from "../lib/router.js";
 import { visible } from "../lib/text.js";
 import { Action, Actions, Card, Notice, Table, Text, ViewState, useConsole } from "../ui/components.js";
@@ -36,8 +36,9 @@ function Server({ server, project }) {
       <dt>Origin</dt><dd>${server.origin ? html`<${Text} value=${server.origin} />` : html`<span class="muted">not locked yet</span>`}</dd>
       <dt>Upstream</dt><dd>${server.upstream ? html`<code><${Text} value=${server.upstream} /></code>` : html`<span class="muted">not locked yet</span>`}</dd>
       <dt>Relay</dt><dd><code><${Text} value=${server.relay} /></code> <${Text} value=${server.relayState || "status unknown"} /> ${server.relayLogs ? html`<${LogsLink} kind="service" name=${server.relay} label=${`Logs of ${server.relay}`} />` : null}</dd>
-      <dt>Upstream check</dt><dd>${server.stateText ? html`<${Text} value=${server.stateText} />` : html`<span class="muted">unknown</span>`}${server.error ? html` <code><${Text} value=${server.error} /></code>` : null}</dd>
+      <dt>Upstream check</dt><dd>${server.stateText ? html`<${Text} value=${server.stateText} />` : html`<span class="muted">unknown</span>`}${server.error ? html` <code><${Text} value=${server.error} /></code>` : null}${server.cause ? html` (cause <code><${Text} value=${server.cause} /></code>)` : null}</dd>
     </dl>
+    ${server.error ? html`<p class="notice warn" role="status">${server.causeText ? html`<${Text} value=${server.causeText} /> ` : null}The relay's log says more: <code><${Text} value=${relayLogsCommand(project.path, server.relay)} /></code></p>` : null}
     ${server.ref && !server.lockCurrent ? html`<p class="notice warn" role="status">stack.lock has no pins for this version yet. The next <code>services up</code> asks to confirm the server and pins its tools.</p>` : null}
     ${server.state === "drift" ? html`<p class="notice warn" role="status">A pinned tool changed or went missing upstream. The relay hides it until you review and repin it: in <a href=${href("/services")}>Services</a>, choose Review and update, then Review repin. Or in a terminal: <code><${Text} value=${pinsCommand(project.path)} /></code>, then <code><${Text} value=${`${repinCommand(project.path, project.environment)} --expect-pins DIGEST`} /></code></p>` : null}
     ${server.tools.length

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -434,6 +435,10 @@ def read_pins(path: Path) -> dict:
     return tools if isinstance(tools, dict) else {}
 
 
+# A relay probe's error code, kept as the failure's cause (#1042): only a plain code.
+CAUSE = re.compile(r"[A-Z][A-Z0-9_]{2,39}")
+
+
 def valid_probe(server: str, output: str, declared) -> dict:
     """Parse the relay's probe output; anything unexpected is refused, never echoed."""
     try:
@@ -442,11 +447,12 @@ def valid_probe(server: str, output: str, declared) -> dict:
         document = None
     if not isinstance(document, dict) or document.get("server") != server:
         error = document.get("error") if isinstance(document, dict) else None
-        code = error if isinstance(error, str) and error.isupper() and len(error) < 40 else ""
+        code = error if isinstance(error, str) and CAUSE.fullmatch(error) else ""
         raise ServiceError(
             "MCP_PROBE_FAILED",
             f"the {server} relay couldn't list upstream tools{f' ({code})' if code else ''}; "
             f"see `agentbreeder services logs {relay_name(server)}`",
+            cause=code or None,
         )
     tools = document.get("tools")
     missing = document.get("missing")

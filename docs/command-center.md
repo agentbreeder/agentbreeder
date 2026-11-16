@@ -482,7 +482,10 @@ tools, and changes a grant (see the next section).
   update, then Review repin; see "Repin" below), or in a terminal with `agentbreeder services
   pins DIR` and `services up DIR --environment ENV --repin --expect-pins DIGEST`, which the screen
   names with the project's path. A relay that is not running, or could not be checked, says so
-  and claims nothing about its pins.
+  and claims nothing about its pins. A failed check names its code and cause
+  (`MCP_PROBE_FAILED (cause UPSTREAM_AUTH)`), says in fixed words what a known cause means (the
+  upstream refused the credential, timed out, answered with an error or an invalid answer, or
+  speaks an unsupported protocol) and gives the `services logs DIR mcp-NAME` command (#1042).
 - **Grants per agent** (`environment.agents.AGENT.mcp`): each agent's tools per server, a tool
   not pinned yet marked. A grant takes effect at the next `services up`, and an agent uses a tool
   only when its `agent.yaml` asks for it; the screen says both.
@@ -1412,6 +1415,27 @@ free stderr, the shared cap, the stored `job_failed` fields for coded, uncoded, 
 approval and gate exits, with a planted value never stored), with Playwright against a fake CLI
 (events on Home, a new event re-reading status, a failed watch, axe in light and dark), and with
 `node --test` for the wording. Not yet run against real services: that is the M5 acceptance.
+
+### Coded failures in job rows (#1042): on `main`, not in a published preview
+
+When a job fails and the CLI's last line is its own `[CODE] message`, the console keeps that
+line with the job (`failure_code`, `failure_message` on the job rows: redacted as the log is,
+control characters removed, the message capped at 300 characters; `center.sqlite3` schema version
+3, so an older console refuses that file afterwards with "upgrade AgentBreeder"). The job row then says the code, the cause an `MCP_PROBE_FAILED` message names in parentheses, and the CLI's
+message, which carries its own next step: "Start services failed (exit 2): MCP_PROBE_FAILED (cause
+UPSTREAM_AUTH). the github relay couldn't list upstream tools (UPSTREAM_AUTH); see `agentbreeder
+services logs mcp-github`.", followed by fixed words for a known cause. A release refused before
+any approval reads "The release failed: DEPLOYER_UNVERIFIED. A verified deployer identity is
+required (agentbreeder login); production unchanged.". An eval gate failure (exit 5) keeps its own
+words, and a failure with no coded line still says "See its log.". The Home checklist shows `next`'s
+`SERVICES_UP_FAILED` (the last confirmed `services up` of the environment failed, for example
+at the MCP probe) with its code, cause and note, not "services up has not run".
+
+Tested: server tests (the coded line kept on the job row and in the activity read, none for an
+uncoded failure or a success, redaction and the cap), JS tests of the wording, and UI tests over
+the fake CLI (a Start services job failing at the probe, a coded release failure, the MCP grants
+card's cause and log command, and the Home checklist). Not yet seen against a real failing relay
+in the console.
 
 ## How it stays the same engine
 

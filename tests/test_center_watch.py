@@ -478,6 +478,30 @@ def test_a_failed_job_stores_its_code_and_nothing_else(center, project, cookie, 
     assert shown[0]["message"] == "Job reconcile failed (exit 2) [RECONCILE_FAILED]"
 
 
+def test_a_failed_job_row_keeps_the_clis_coded_line(center, project, cookie, tmp_path):
+    """#1042: the job row carries the CLI's last `[CODE] message` line, so the console can say
+    what failed without the log; an uncoded failure and a success carry none."""
+    job = _job(center, project, cookie, "reconcile", "coded", tmp_path)
+    assert job["failure_code"] == "RECONCILE_FAILED"
+    assert job["failure_message"] == "it failed with " + PLANTED
+    recent = api(center, "GET", "/api/activity", None, cookie)[1]["data"]["recent"][0]
+    assert recent["failure_code"] == "RECONCILE_FAILED"
+    plain = _job(center, project, cookie, "build", "plain", tmp_path)
+    assert plain["failure_code"] is None and plain["failure_message"] is None
+    ok = _job(center, project, cookie, "reconcile", "ok", tmp_path)
+    assert ok["failure_code"] is None
+
+
+def test_a_coded_line_is_redacted_and_capped():
+    line = "[PORT_BUSY] key sk-secret-value \x1b[31mred " + "x" * 400
+    failure = jobs.coded_failure(jobs.redact(line, ["sk-secret-value"]))
+    assert failure["code"] == "PORT_BUSY"
+    assert "sk-secret-value" not in failure["message"] and "\x1b" not in failure["message"]
+    assert len(failure["message"]) == jobs.MAX_MESSAGE
+    assert jobs.coded_failure("Traceback: boom") is None
+    assert jobs.coded_failure("") is None
+
+
 def test_an_uncoded_failure_stores_no_code(center, project, cookie, tmp_path):
     _job(center, project, cookie, "build", "plain", tmp_path)
     (event,) = _stored(center)

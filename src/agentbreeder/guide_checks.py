@@ -462,7 +462,13 @@ def _services(ctx: _Context) -> dict:
     ctx.services_seen = True
     grant = state is not None and state.get("grant") is not None
     written = state is not None and ctx.environment in state.environments()
-    data = {"services": rows[:100], "grant_recorded": grant, "environment_written": written}
+    failure = _up_failure(state, ctx.environment)
+    data = {
+        "services": rows[:100],
+        "grant_recorded": grant,
+        "environment_written": written,
+        "up_failure": failure,
+    }
     fix = _fix(
         "services-up",
         hints.command("services", "up", ctx.project, "--environment", ctx.environment, "--yes"),
@@ -485,6 +491,20 @@ def _services(ctx: _Context) -> dict:
             fix,
             data,
         )
+    # A recorded failure reopens the step even over an older operator config: the last
+    # confirmed run did not finish, whatever an earlier one wrote (#1042).
+    if failure is not None:
+        cause = f" ({failure['cause']})" if failure["cause"] else ""
+        return _step(
+            "services",
+            "next",
+            _reason(
+                "SERVICES_UP_FAILED",
+                f"The last services up for {ctx.environment} failed: {failure['code']}{cause}",
+            ),
+            _up_failure_fix(ctx, failure, fix),
+            data,
+        )
     if not written:
         return _step(
             "services",
@@ -494,6 +514,57 @@ def _services(ctx: _Context) -> dict:
             data,
         )
     return _step("services", "done", data=data)
+
+
+_CODE = re.compile(r"[A-Z][A-Z0-9_]{2,39}")
+
+# What to do about a failed `services up`, by its cause (or code), in fixed words (#1042).
+_UP_FAILURE_NOTES = {
+    "UPSTREAM_AUTH": (
+        "The MCP server refused the credential: check its key, then run services up again"
+    ),
+    "UPSTREAM_TIMEOUT": (
+        "The MCP server did not answer in time: check it is reachable, then run services up again"
+    ),
+    "PINS_CHANGED": (
+        "The MCP tool definitions changed since the repin review: review the repin again "
+        "(services pins), then run services up with the new digest"
+    ),
+    "MCP_PROBE_FAILED": (
+        "A relay couldn't list its upstream tools: read its log (services logs), "
+        "then run services up again"
+    ),
+}
+
+
+def _up_failure(state, environment: str) -> dict | None:
+    """The last confirmed `services up` failure `stack.db` records for `environment`, or None
+    (none recorded, cleared by a success, or not a plain code and cause)."""
+    from agentbreeder.services.engine import UP_FAILURE_KEY
+
+    if state is None:
+        return None
+    try:
+        value = json.loads(state.get(f"{UP_FAILURE_KEY}:{environment}") or "null")
+    except Exception:  # noqa: BLE001 - an unreadable record is no record
+        return None
+    if not isinstance(value, dict):
+        return None
+    code, cause = value.get("code"), value.get("cause")
+    if not isinstance(code, str) or not _CODE.fullmatch(code):
+        return None
+    if not (cause is None or (isinstance(cause, str) and _CODE.fullmatch(cause))):
+        cause = None
+    return {"code": code, "cause": cause}
+
+
+def _up_failure_fix(ctx: _Context, failure: dict, fix: dict) -> dict:
+    note = _UP_FAILURE_NOTES.get(failure["cause"] or "") or _UP_FAILURE_NOTES.get(failure["code"])
+    return _fix(
+        "services-up",
+        fix["command"],
+        note or f"Fix what services up reported ({failure['code']}), then run it again",
+    )
 
 
 def _build(ctx: _Context) -> dict:
