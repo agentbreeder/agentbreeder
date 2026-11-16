@@ -391,6 +391,14 @@ def test_fold_on_the_real_changelog_only_adds_the_fragments(tmp_path):
     for line in before:  # every old line survives, in order
         added.remove(line)
     expected = [line for f in fragments for line in f.text.splitlines()]
+    # After a release the [Unreleased] section is empty, so the fold also adds the `### <Type>`
+    # heading of each fragment type that has none there yet (and only those).
+    unreleased = "\n".join(before).split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+    expected += [
+        f"### {changelog.TYPES[t]}"
+        for t in {f.type for f in fragments}
+        if f"### {changelog.TYPES[t]}" not in unreleased.splitlines()
+    ]
     assert sorted(line for line in added if line) == sorted(expected)
 
 
