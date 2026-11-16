@@ -563,6 +563,19 @@ _, listed = post({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, session)
 print(json.dumps(sorted(t["name"] for t in listed["result"]["tools"])))
 """
 
+# One `tools/call` of argv[1] with the deployment's own token (#1068). It prints only the
+# outcome ("result", or the relay's refusal reason), never the tool's result.
+RELAY_CALL = (
+    RELAY_LIST.rsplit("_, listed", 1)[0]
+    + r"""
+import sys
+call = {"name": sys.argv[1], "arguments": {}}
+_, reply = post({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": call}, session)
+error = reply.get("error") or {}
+print(json.dumps("result" if "result" in reply else (error.get("data") or {}).get("reason")))
+"""
+)
+
 
 @pytest.mark.skipif(
     os.getenv("AGENTBREEDER_DOCKER_TEST") != "1" or not os.getenv("GITHUB_MCP_TOKEN"),
@@ -610,6 +623,31 @@ def test_fixture_live_grant_and_revoke(tmp_path):  # pragma: no cover - live
         built = json.loads(run("build", str(root / "agent.yaml"), "--json", *stack).stdout)
         return run("deploy", built["manifest_path"], "--local", "--json", *stack, ok=False)
 
+    def container(deployment):
+        return next(
+            c
+            for c in subprocess.check_output(
+                ["docker", "ps", "--format", "{{.Names}}"], text=True
+            ).split()
+            if deployment[:8] in c
+        )
+
+    def called(deployment, tool):
+        out = subprocess.check_output(
+            ["docker", "exec", container(deployment), "python3", "-c", RELAY_CALL, tool], text=True
+        )
+        return json.loads(out.strip().splitlines()[-1])
+
+    def mcp_rows():
+        (state,) = (tmp_path / "stacks").glob("*/envs/dev/state")
+        rows = json.loads(run("audit", "list", "--state-dir", str(state), "--json").stdout)
+        assert json.loads(run("audit", "verify", "--state-dir", str(state), "--json").stdout)["ok"]
+        return [
+            (r["decision"], r["context"]["tool"], (r["reasons"] or [{}])[0].get("code"))
+            for r in reversed(rows)
+            if r["action"] == "mcp_tool_call"
+        ]
+
     def listed(deployment):
         name = next(
             c
@@ -637,6 +675,9 @@ def test_fixture_live_grant_and_revoke(tmp_path):  # pragma: no cover - live
         assert deployed.returncode == 0, deployed.stderr[-1500:]
         deployment = json.loads(deployed.stdout)["id"]
         assert listed(deployment) == ["get_me", "list_issues"]
+        # #1068: an allowed call and an ungranted one are audit rows.
+        assert called(deployment, "get_me") == "result"
+        assert called(deployment, "create_issue") == "TOOL_NOT_GRANTED"
 
         revoked = json.loads(
             run(
@@ -652,6 +693,12 @@ def test_fixture_live_grant_and_revoke(tmp_path):  # pragma: no cover - live
         )
         assert revoked["in_use"][0]["deployment"] == deployment
         assert up().returncode == 0  # #1072: the held revoke applies
+        assert called(deployment, "list_issues") == "TOOL_NOT_GRANTED"
+        assert mcp_rows() == [
+            ("allow", "get_me", None),
+            ("deny", None, "TOOL_NOT_GRANTED"),  # create_issue: by hash only
+            ("deny", None, "TOOL_NOT_GRANTED"),  # list_issues, revoked: no longer granted
+        ]
         run("remove", deployment, "--local", "--stack", str(root))
         deployment = None
         assert up().returncode == 0

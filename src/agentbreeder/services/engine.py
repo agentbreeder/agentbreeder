@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from agentbreeder import env_import, hints, registry, safe_text, secret_files
+from agentbreeder import env_import, hints, registry, relay_audit, safe_text, secret_files
 from agentbreeder import mcp as mcp_kind
 from agentbreeder.gateway_providers import GATEWAY_ONLY
 from agentbreeder.lock import BUILTIN_LABEL
@@ -33,6 +33,7 @@ from agentbreeder.services.schema import ServiceError, Stack, load_stack
 from agentbreeder.services.state import (
     PROJECT_KEY,
     StackState,
+    private_dir,
     services_lock,
     stack_id,
     stacks_root,
@@ -658,6 +659,9 @@ class Engine:
     def _relays(self, plan: Plan, environment: str) -> None:
         """Each relay's generated config, grants and pins mounts, and 0400 credentials."""
         grants = self.state.shared_dir("grants")
+        # 0700, owned by the operator (the relay runs as the operator's uid).
+        audit_dir = private_dir(self.state.directory / relay_audit.DIRECTORY)
+        private_dir(audit_dir / environment)
         for server, entry in sorted(plan.locked.mcp.items()):
             relay = entry.relay
             self.state.shared_dir("grants", environment, server)
@@ -682,6 +686,8 @@ class Engine:
             )
             write_private(pins / "pins.json", document, mode=0o444)
             plan.binds[relay] = [(grants, "/run/grants"), (pins, "/run/pins")]
+            # The relay appends one record per tools/call here; `audit list` imports them.
+            plan.writable_binds[relay] = [(audit_dir, "/run/audit")]
             plan.secret_modes[relay] = 0o400
 
     def _probe(self, entry, declared=None, create: bool = True) -> dict:

@@ -3,9 +3,9 @@
 // agent with a ready local production deployment links to Try it and shows its endpoint, and a
 // release row shows its eval run, linked to the eval report viewer (#932), and the report file
 // `release` wrote (#824). The agent's name opens its detail (#823); a candidate's row opens the
-// agent it belongs to.
+// agent it belongs to. An MCP relay tool call (#1068) names its server and tool.
 
-import { pageLabel, production, releaseEval, rowAgents } from "../lib/audit.js";
+import { mcpCall, pageLabel, production, releaseEval, rowAgents } from "../lib/audit.js";
 import { reportHref } from "../lib/evals.js";
 import { auditTime, incompleteSentence, reasonCodes, verifySentence } from "../lib/format.js";
 import { href } from "../lib/router.js";
@@ -38,6 +38,17 @@ function ReasonCell({ row, agent }) {
     ${run
       ? html`<div class="small">Evals ${run.passed}/${run.cases}, run <${RunLink} run=${run.run} agent=${agent && agent.name} />${run.report
           ? html`<br />Report <code><${Text} value=${run.report} /></code>`
+          : null}</div>`
+      : null}`;
+}
+
+/** The action; a relay tool call also names its server and tool, and its correlation id (#1068). */
+function ActionCell({ row }) {
+  const call = mcpCall(row);
+  return html`<${Text} value=${row.action} />
+    ${call
+      ? html`<div class="small"><${Text} value=${`${call.server} · ${call.tool}`} />${call.correlation
+          ? html`<br /><span class="muted" title="Also in the relay's log line">Correlation <code><${Text} value=${call.correlation.slice(0, 12)} /></code></span>`
           : null}</div>`
       : null}`;
 }
@@ -102,7 +113,7 @@ export function Audit({ project }) {
             ${rows.map((row, index) => html`<tr key=${row.seq}>
               <td class="nowrap">${auditTime(row.at)}</td>
               <td><${AgentCell} agent=${agents[index]} deployments=${deployments} newest=${newest[index]} /></td>
-              <td><${Text} value=${row.action} /></td>
+              <td><${ActionCell} row=${row} /></td>
               <td><${Text} value=${row.decision} /></td>
               <td><${Text} value=${row.enforcement_mode || ""} /></td>
               <td><${ReasonCell} row=${row} agent=${agents[index]} /></td>

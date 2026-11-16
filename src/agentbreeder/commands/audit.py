@@ -1,4 +1,7 @@
-"""`agentbreeder audit verify|list`: inspect and verify the local audit chain."""
+"""`agentbreeder audit verify|list`: inspect and verify the local audit chain.
+
+Both first import the MCP relay's new tool-call records for a stack environment's state
+(`relay_audit`, #1068); a failed import is a warning on stderr, never a failed read."""
 
 from __future__ import annotations
 
@@ -7,7 +10,7 @@ import re
 import sys
 from pathlib import Path
 
-from agentbreeder import cli
+from agentbreeder import cli, relay_audit
 from agentbreeder.store import Store
 
 NAMES = ("audit",)
@@ -43,6 +46,15 @@ def run(args) -> int:
 
 
 def _audit(store: Store, args) -> int:
+    report, warning = relay_audit.safe_import(store)
+    if warning:
+        print(f"Warning: {warning}", file=sys.stderr)
+    elif report and report.invalid:
+        print(
+            f"Warning: {report.invalid} MCP relay line(s) were not relay records and were not "
+            f"imported (recorded as {relay_audit.INVALID_ACTION} rows)",
+            file=sys.stderr,
+        )
     if args.audit_command == "verify":
         report = store.verify_audit()
         if args.json:
@@ -77,9 +89,18 @@ def _audit(store: Store, args) -> int:
             print(
                 f"{row['seq']:>5} {row['at']} {row['attempt_id'][:8]} {row['action']} "
                 f"{row['decision']} {reason} actor={row['actor']}"
-                f"{'' if row['actor_verified'] else ' (unverified)'}"
+                f"{'' if row['actor_verified'] else ' (unverified)'}{_tool(row)}"
             )
     return 0
+
+
+def _tool(row: dict) -> str:
+    """` mcp=<server>/<tool>` for a relay tool call (an ungranted tool by its hash prefix)."""
+    if row["action"] != relay_audit.ACTION or not isinstance(row.get("context"), dict):
+        return ""
+    context = row["context"]
+    tool = context.get("tool") or f"ungranted:{context.get('tool_sha256')}"
+    return f" mcp={context.get('server')}/{tool}"
 
 
 def _refuse(code: str, message: str) -> int:

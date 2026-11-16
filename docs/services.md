@@ -424,11 +424,11 @@ environment:
 
 Each `mcp:` entry gets its own relay container, `mcp-<name>` (with `_` in the name turned into
 `-`, so `mcp.my_tools` runs as `mcp-my-tools`), built from the built-in
-`service/mcp-relay@1.0.1` (standard-library Python on the pinned `python:3.12-slim`; 1.0.1 answers
+`service/mcp-relay@1.0.2` (standard-library Python on the pinned `python:3.12-slim`; 1.0.1 answers
 an unknown session with a bare 404, which the ADK client needs in order to reconnect after a
-relay restart). A `stack.lock` written before 1.0.1 still names `service/mcp-relay@1.0.0`, so
-`services up --locked` refuses it (`LOCK_STALE`). Run `services up` once without `--locked` to
-lock 1.0.1. Agents
+relay restart, and 1.0.2 writes an audit record for every tool call, below). A `stack.lock`
+written before 1.0.2 still names an older relay version, so `services up --locked` refuses it
+(`LOCK_STALE`). Run `services up` once without `--locked` to lock 1.0.2. Agents
 reach it at `http://mcp-<name>:8080/mcp` on the agents network. The relay holds the upstream
 credential as a 0400 file and runs as your uid. Agents hold only a per-deployment token, which
 deploy mints and the relay checks against a grant file named by the token's sha256. It re-reads
@@ -467,6 +467,42 @@ What the relay does:
 - It logs JSON lines with the deployment, method, tool, decision and latency. It never logs
   arguments, results, upstream error bodies or credentials. An ungranted tool name is logged as
   `ungranted` plus a hash.
+
+### What the audit log records about MCP tool calls
+
+Since `service/mcp-relay@1.0.2` (on `main`, not in a published preview), each `tools/call` from
+an authenticated deployment, forwarded or refused, is recorded in the stack environment's
+hash-chained audit log as an `mcp_tool_call` row (the exceptions are under **Limits**):
+
+- **Recorded:** a correlation id (the same id is in the relay's log line), the deployment, the
+  agent (as the row's actor, marked unverified: the relay checked the deployment's token, no
+  identity provider was asked), the server, the tool, the decision (`allow`, or the refusal code:
+  `TOOL_NOT_GRANTED`, `TOOL_DEFINITION_CHANGED`, `TOOL_MISSING_UPSTREAM`, `TOOL_NOT_PINNED`,
+  `RATE_LIMITED`, `UPSTREAM_ERROR`, `UPSTREAM_INVALID`), the relay's time and the latency. An
+  ungranted tool's name is recorded only as the relay's 16-character sha256 prefix (`tool` is
+  null).
+- **Not recorded:** arguments, results, upstream error bodies and credentials; `initialize`,
+  `tools/list`, `ping` and session requests; and refusals before the relay reads the request (a
+  bad or missing token, too many concurrent requests, a malformed body), which have no
+  deployment and are only in the relay's log. `allow` means the upstream returned a response,
+  not that the tool succeeded. An agent that disconnects while the reply streams is recorded as
+  `UPSTREAM_ERROR`, as in the relay's log.
+- **How it gets there:** the relay appends one JSON line per call to
+  `~/.agentbreeder/stacks/<id>/relay-audit/<env>/<server>.jsonl` (0700, bind-mounted read-write at
+  `/run/audit`; the relay's only writable mount). `agentbreeder audit list` and `audit verify`
+  import new lines first, through the same writer as every other audit row, so a call appears
+  the next time the log is read, including in the console's Audit view. Each line is checked
+  against the relay's record shape; lines that don't match are not imported, and one
+  `mcp_relay_record` row (`RELAY_RECORD_INVALID`) counts them. The row's id is a hash of those
+  lines, so the same lines read again, or repeated later, add no second row.
+- **Fail closed, for opening only:** the relay forwards a call only after it has opened the
+  record's file. If it can't, the call is refused with `AUDIT_UNAVAILABLE`; that refusal is in the
+  relay's log (`audit_unavailable`), not in the audit log, since the file couldn't be opened.
+- **Limits:** the record is written after the reply, so a call has no row if the relay is killed
+  mid-call or the write fails after the open (the relay logs `audit_write_failed`). The relay's
+  file is plain JSON lines until it is imported: deleting or editing it before `audit list` runs
+  leaves no trace in the chain. The chain detects corrupted or edited rows; whoever owns the state
+  can recompute it. This is a record of calls, not policy enforcement on arguments.
 
 A service upstream (`upstream.service`) must be the stack service with that ref. Every port of it
 must be `expose: internal`, and nothing else may wire to it. It joins a private network shared

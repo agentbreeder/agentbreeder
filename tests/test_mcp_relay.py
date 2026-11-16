@@ -1,4 +1,4 @@
-"""The built-in MCP relay (service/mcp-relay@1.0.1, relay/relay.py) against a mock upstream that
+"""The built-in MCP relay (service/mcp-relay@1.0.2, relay/relay.py) against a mock upstream that
 counts calls. Covers spec §7.4, §7.6 and §7.7 and acceptance criteria 10 and 11."""
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import pytest
 
 import agentbreeder
 
-ROOT = Path(agentbreeder.__file__).parent / "builtin_registry/service/mcp-relay/1.0.1"
+ROOT = Path(agentbreeder.__file__).parent / "builtin_registry/service/mcp-relay/1.0.2"
 CANARY = "ghp_CANARY_upstream_credential_0123456789"
 TOKEN_A = "a" * 64
 TOKEN_B = "b" * 64
@@ -282,6 +282,7 @@ class Harness:
         self.grants = tmp_path / "grants"
         self.secrets = tmp_path / "secrets"
         self.pins = tmp_path / "pins.json"
+        self.audit = tmp_path / "audit"
         self.secrets.mkdir(parents=True)
         (self.secrets / "token").write_text(CANARY + "\n")
         os.chmod(self.secrets / "token", 0o400)
@@ -304,7 +305,12 @@ class Harness:
     def start(self):
         self.relay = relay_mod.Relay(
             self.config,
-            {"grants": str(self.grants), "secrets": str(self.secrets), "pins": str(self.pins)},
+            {
+                "grants": str(self.grants),
+                "secrets": str(self.secrets),
+                "pins": str(self.pins),
+                "audit": str(self.audit),
+            },
         )
         self.relay.log_stream = self.log
         self.agents, self.admin = relay_mod.serve(self.relay, 0, 0)
@@ -380,6 +386,12 @@ class Harness:
 
     def logs(self) -> list[dict]:
         return [json.loads(line) for line in self.log.getvalue().splitlines()]
+
+    def records(self, environment="dev") -> list[dict]:
+        path = self.audit / environment / "github.jsonl"
+        if not path.exists():
+            return []
+        return [json.loads(line) for line in path.read_text().splitlines()]
 
 
 @pytest.fixture
@@ -807,6 +819,101 @@ def test_granted_call_passes_only_its_response_progress_and_logs(harness, upstre
     entry = [line for line in harness.logs() if line.get("method") == "tools/call"][-1]
     assert entry["tool"] == "list_issues" and entry["decision"] == "allow"
     assert entry["deployment"] == DEPLOYMENT_A
+
+
+# -- audit records (1.0.2, #1068) ---------------------------------------------------------------
+
+
+def test_each_tool_call_appends_one_audit_record_without_arguments_or_results(harness, upstream):
+    session, _ = harness.initialize()
+    harness.rpc("tools/list", session=session)  # not a call: no record
+    harness.rpc(
+        "tools/call",
+        {"name": "list_issues", "arguments": {"q": "SECRET-ARG"}},
+        id=5,
+        session=session,
+    )
+    harness.rpc("tools/call", {"name": "delete_repo"}, session=session)
+    harness.rpc("tools/call", {"name": "secret_tool_name"}, session=session)
+    assert eventually(lambda: len(harness.records()) == 3)
+    allowed, refused, hidden = harness.records()
+    assert set(allowed) == {
+        "v", "id", "ts", "relay", "server", "environment", "deployment", "agent", "tool",
+        "tool_sha256", "decision", "ms",
+    }  # fmt: skip
+    assert allowed["decision"] == "allow" and allowed["tool"] == "list_issues"
+    assert allowed["deployment"] == DEPLOYMENT_A and allowed["agent"] == "support"
+    assert allowed["environment"] == "dev" and allowed["server"] == "github"
+    assert allowed["relay"] == "1.0.2" and allowed["tool_sha256"] is None
+    assert refused["decision"] == "TOOL_NOT_GRANTED" and refused["tool"] is None
+    assert refused["tool_sha256"] == hashlib.sha256(b"delete_repo").hexdigest()[:16]
+    assert hidden["decision"] == "TOOL_NOT_GRANTED"
+    text = (harness.audit / "dev" / "github.jsonl").read_text()
+    for secret in ("SECRET-ARG", "ran list_issues", "secret_tool_name", "delete_repo", CANARY):
+        assert secret not in text
+    assert TOKEN_A not in text
+    # The correlation id joins the record to the relay's own log line.
+    ids = [x["correlation_id"] for x in harness.logs() if x.get("method") == "tools/call"]
+    assert ids == [r["id"] for r in harness.records()]
+    assert all(len(i) == 32 for i in ids) and len(set(ids)) == 3
+    assert oct(os.stat(harness.audit / "dev" / "github.jsonl").st_mode & 0o777) == "0o600"
+
+
+def test_unauthenticated_and_non_call_requests_write_no_record(harness, upstream):
+    harness.rpc("tools/call", {"name": "list_issues"}, token="c" * 64)
+    session, _ = harness.initialize()
+    harness.rpc("ping", session=session)
+    assert eventually(lambda: any(x.get("method") == "ping" for x in harness.logs()))
+    assert harness.records() == []
+
+
+def test_a_call_is_not_forwarded_when_its_record_cannot_be_written(harness, upstream):
+    harness.audit.write_text("not a directory")
+    session, _ = harness.initialize()
+    status, _, body = harness.rpc("tools/call", {"name": "list_issues"}, session=session)
+    assert status == 200 and json.loads(body)["error"]["data"]["reason"] == "AUDIT_UNAVAILABLE"
+    assert upstream.calls == {}
+    assert eventually(lambda: any(x.get("event") == "audit_write_failed" for x in harness.logs()))
+    assert any(x.get("event") == "audit_unavailable" for x in harness.logs())
+
+
+def test_a_symlinked_audit_file_is_refused(harness, upstream, tmp_path):
+    target = tmp_path / "elsewhere"
+    target.write_text("")
+    (harness.audit / "dev").mkdir(parents=True)
+    (harness.audit / "dev" / "github.jsonl").symlink_to(target)
+    session, _ = harness.initialize()
+    _, _, body = harness.rpc("tools/call", {"name": "list_issues"}, session=session)
+    assert json.loads(body)["error"]["data"]["reason"] == "AUDIT_UNAVAILABLE"
+    assert target.read_text() == "" and upstream.calls == {}
+
+
+def test_an_upstream_failure_is_recorded_with_its_code(harness, upstream):
+    session, _ = harness.initialize()
+    harness.relay.upstream = {"kind": "service", "url": "http://127.0.0.1:9/mcp"}
+    harness.rpc("tools/call", {"name": "list_issues"}, session=session)
+    assert eventually(lambda: len(harness.records()) == 1)
+    assert harness.records()[0]["decision"] == "UPSTREAM_ERROR"
+
+
+def test_a_granted_tool_named_ungranted_is_recorded_by_name(tmp_path, upstream):
+    h = Harness(tmp_path, upstream)
+    try:
+        grant = relay_mod.Grant(DEPLOYMENT_A, "support", "dev", "d" * 64, frozenset())
+        h.relay.audit(
+            grant, {"correlation_id": "e" * 32, "tool": "ungranted", "decision": "allow"}
+        )
+        (only,) = h.records()
+        assert only["tool"] == "ungranted" and only["tool_sha256"] is None
+    finally:
+        h.stop()
+
+
+def test_an_oversized_record_is_logged_not_written(harness):
+    grant = relay_mod.Grant(DEPLOYMENT_A, "a" * 5000, "dev", "d" * 64, frozenset())
+    harness.relay.audit(grant, {"correlation_id": "e" * 32, "decision": "allow"})
+    assert harness.records() == []
+    assert any(x.get("event") == "audit_write_failed" for x in harness.logs())
 
 
 def test_json_tool_call_reply_is_relayed_as_one_event(harness, upstream):
@@ -1621,5 +1728,5 @@ def test_unknown_session_is_a_bare_404(harness):
 
 
 def test_relay_reports_its_version():
-    assert relay_mod.VERSION == "1.0.1"
-    assert "version: 1.0.1" in (ROOT / "manifest.yaml").read_text()
+    assert relay_mod.VERSION == "1.0.2"
+    assert "version: 1.0.2" in (ROOT / "manifest.yaml").read_text()

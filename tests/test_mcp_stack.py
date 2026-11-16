@@ -170,6 +170,12 @@ def test_up_starts_a_relay_and_writes_mcp_relays(project, tmp_path):
     assert relay["read_only"] and relay["cap_drop"] == ["ALL"]
     mounts = {v["target"]: v for v in relay["volumes"]}
     assert {"/run/secrets", "/run/params/config", "/run/grants", "/run/pins"} <= set(mounts)
+    # Only the relay's audit records are writable (#1068): <stack>/relay-audit, 0700.
+    audit = mounts.pop("/run/audit")
+    assert audit["read_only"] is False and audit["type"] == "bind"
+    assert Path(audit["source"]) == root / "relay-audit"
+    assert stat.S_IMODE(Path(audit["source"]).stat().st_mode) == 0o700
+    assert stat.S_IMODE((root / "relay-audit" / "dev").stat().st_mode) == 0o700
     assert all(v["read_only"] for v in mounts.values())
     credential = Path(mounts["/run/secrets"]["source"]) / "token"
     assert credential.read_text() == CANARY
@@ -196,8 +202,8 @@ def test_up_starts_a_relay_and_writes_mcp_relays(project, tmp_path):
     entry = lock["mcp"]["github"]
     assert entry["origin"] == "project" and entry["upstream"] == "https://api.example.com:443"
     assert entry["tools"]["list_issues"] == mcp_stack.tool_hash(tool("list_issues"))
-    assert "service/mcp-relay@1.0.1" in lock["entries"]
-    assert lock["entries"]["service/mcp-relay@1.0.1"]["source"] == "builtin"
+    assert "service/mcp-relay@1.0.2" in lock["entries"]
+    assert lock["entries"]["service/mcp-relay@1.0.2"]["source"] == "builtin"
     assert lock["imports"]["mcp-github"] == ["GITHUB_MCP_TOKEN"]
     # Operator config.
     operator = load_operator_config(Path(result["operator_config"]))
@@ -527,16 +533,16 @@ def test_an_unreadable_grant_file_still_blocks_up(project):
 
 
 def test_relay_is_reserved_and_never_shadowed(project):
-    shadow = project / "registry" / "service" / "mcp-relay" / "1.0.1"
+    shadow = project / "registry" / "service" / "mcp-relay" / "1.0.2"
     shadow.mkdir(parents=True)
-    (shadow / "manifest.yaml").write_text("kind: service\nname: mcp-relay\nversion: 1.0.1\n")
+    (shadow / "manifest.yaml").write_text("kind: service\nname: mcp-relay\nversion: 1.0.2\n")
     (shadow / "service.yaml").write_text(yaml.safe_dump({"image": PY}))
     result, _ = run_up(project)
     lock = json.loads((project / "stack.lock").read_text())
-    builtin_hash = registry.copy_and_hash(registry.BUILTIN_ROOT / "service/mcp-relay/1.0.1")
-    assert lock["entries"]["service/mcp-relay@1.0.1"]["sha256"] == builtin_hash
+    builtin_hash = registry.copy_and_hash(registry.BUILTIN_ROOT / "service/mcp-relay/1.0.2")
+    assert lock["entries"]["service/mcp-relay@1.0.2"]["sha256"] == builtin_hash
     data = stack()
-    data["services"]["relay"] = {"ref": "service/mcp-relay@1.0.1"}
+    data["services"]["relay"] = {"ref": "service/mcp-relay@1.0.2"}
     write_project(project, stack=data)
     with pytest.raises(ServiceError, match="RELAY_RESERVED"):
         run_up(project)
@@ -754,12 +760,12 @@ def test_cli_up_flags_and_pin_prompt(project, monkeypatch, capsys):
 def test_a_lock_entry_cant_point_the_relay_elsewhere(project):
     """--locked loads a ref from its recorded source; for the relay only the built-in counts."""
     run_up(project)
-    shadow = project / "registry" / "service" / "mcp-relay" / "1.0.1"
+    shadow = project / "registry" / "service" / "mcp-relay" / "1.0.2"
     shadow.mkdir(parents=True)
-    (shadow / "manifest.yaml").write_text("kind: service\nname: mcp-relay\nversion: 1.0.1\n")
+    (shadow / "manifest.yaml").write_text("kind: service\nname: mcp-relay\nversion: 1.0.2\n")
     (shadow / "service.yaml").write_text(yaml.safe_dump({"image": PY}))
     data = json.loads((project / "stack.lock").read_text())
-    data["entries"]["service/mcp-relay@1.0.1"] = {
+    data["entries"]["service/mcp-relay@1.0.2"] = {
         "sha256": registry.copy_and_hash(shadow),
         "source": "registry",
     }
