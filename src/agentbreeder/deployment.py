@@ -622,9 +622,14 @@ class DeploymentService:
         key_alias = gateway_keys.alias(identifier)
         try:
             client = gateway_keys.client(self.operator, access.gateway)
+            # Granted fallback targets too (#1033): LiteLLM serves a fallback under the
+            # caller's key, so the key names every alias a turn can reach.
+            models = (
+                environment.key_models(access.aliases) if environment else list(access.aliases)
+            )
             key = client.mint(
                 key_alias,
-                list(access.aliases),
+                models,
                 float(budget),
                 int(rpm),
                 {
@@ -648,7 +653,11 @@ class DeploymentService:
                 "minted",
                 actor,
                 deployment_id=identifier,
-                reasons=[{"code": "GATEWAY_KEY", "message": key_alias}],
+                reasons=[
+                    {"code": "GATEWAY_KEY", "message": key_alias},
+                    # The models the key holds, fallback targets included (aliases only).
+                    {"code": "GATEWAY_KEY_MODELS", "message": ", ".join(models)},
+                ],
             )
         )
         return mount

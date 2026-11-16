@@ -510,7 +510,9 @@ itself.
   server's version declares and the agent doesn't have yet. The console reads them from that
   version's `mcp.yaml` (`registry show --json`, parsed as text and never run) and shows each
   one's `effect`. To revoke, it offers the agent's granted tools, including one a newer version
-  no longer declares. The CLI makes the real check (`MCP_TOOL_UNDECLARED`).
+  no longer declares. A tool is marked "no longer declared" only after the declared tools have
+  been read; until then it says "checking the declared tools", and "declared tools unavailable"
+  if they can't be read (#1043). The CLI makes the real check (`MCP_TOOL_UNDECLARED`).
 - **Review, then write exactly that**, as with "Move agent to this version". A dry run shows the
   diff and the tools the agent has after it. The write is bound to the digest of the
   `stack.yaml` it reviewed (`--expect-base`). If the file changed in between, the write is
@@ -971,8 +973,11 @@ Try it is also the **Try it** tab of the agent's detail (below), at the same add
 ### Onboard an agent.yaml alone (#823, third part): on `main`, not in a published preview
 
 Home's **Add a project** card has a fourth form, **An agent.yaml alone**: the path of an
-`agent.yaml` (or its directory), the agent's `name:` and a model provider (gemini, or anthropic,
-openai and openrouter, which are config-only), with an optional model id. It is a three-tier
+`agent.yaml` (or its directory), the agent's `name:` and a model provider (gemini or
+openrouter, which have been run end to end with their default models, or anthropic and openai,
+which are config-only), with an optional model id that replaces the default; with another model
+id for a verified provider, the preview says only the default has been run end to end
+(openrouter since #1020, on `main`, not in a published preview). It is a three-tier
 confirm:
 
 1. **Preview** runs `agentbreeder new agent NAME --model PROVIDER [--model-id=ID]
@@ -1015,8 +1020,10 @@ verification.
 ### Build an agent (#833, M17): on `main`, not in a published preview
 
 Home's **Add a project** card links to **Build an agent** (`#/build`), a form beside a sticky
-preview. The form has the agent's name, the model provider (gemini; anthropic, openai and
-openrouter are marked "not run end to end") with an optional model id, the prompt, the eval
+preview. The form has the agent's name, the model provider (gemini and openrouter, the latter
+since #1020; anthropic and openai are marked "not run end to end") with an optional model id (a
+verified provider with another model id is created, with a note that only its default model has
+been run end to end), the prompt, the eval
 cases (the eval-set case editor's rows, without the cited-sources check, at most 100 cases), and,
 under **Model calls and the eval gate**, model calls per turn (1 to 20), the pass threshold (0 to
 1) and retries (0 to 3). It starts with one example case to edit. Knowledge is not on the form
@@ -1054,8 +1061,9 @@ It is a three-tier confirm:
    A form edit, a different pick included, clears the tick.
 3. **Create agent and add project** is on only for a combination run end to end
    (`combination.verified`: today gemini with a prompt and evals, alone or with one path tool, on
-   `main`, not in a published preview, #833; no combination with two or more tools or with MCP
-   servers has been run end to end yet). Otherwise the preview names what has not been run
+   `main`, not in a published preview, #833, and openrouter with a prompt and evals alone,
+   #1020; no combination with two or more tools or with MCP servers has been run end to end
+   yet). Otherwise the preview names what has not been run
    (the provider, "a new agent with tools", "… with MCP servers") and says `agentbreeder new agent
    --from-spec` writes it anyway. Create sends the previewed `plan_sha256`; the server runs the dry
    run again with `--expect-digest`, refuses `COMBINATION_UNVERIFIED` or `CODE_CONFIRM_REQUIRED`

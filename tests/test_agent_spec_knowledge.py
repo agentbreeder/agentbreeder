@@ -206,6 +206,7 @@ def test_the_verified_combinations():
         {(), ("knowledge",), ("tools",), ("knowledge", "tools")}
     )
     assert agentspec.VERIFIED_TOOLS == 1
+    assert agentspec.TOOL_PROVIDERS == {"gemini"}  # openrouter ran without tools (#1020)
     assert not any("mcp" in parts for parts in agentspec.VERIFIED)
 
 

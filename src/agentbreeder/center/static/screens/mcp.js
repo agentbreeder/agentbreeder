@@ -2,7 +2,7 @@
 // each agent's grants and each relay's state (part 1), and grant or revoke through `agentbreeder
 // mcp grant|revoke`, reviewed first (part 2). A grant takes effect at the next `services up`.
 
-import { grantChoices, grantedTools, grantProblem, grantRows, grantWriteProblem, grantSteps, pinsCommand, repinCommand, serverRows } from "../lib/mcp.js";
+import { choiceNote, grantChoices, grantedTools, grantProblem, grantRows, grantWriteProblem, grantSteps, pinsCommand, repinCommand, serverRows } from "../lib/mcp.js";
 import { href } from "../lib/router.js";
 import { visible } from "../lib/text.js";
 import { Action, Actions, Card, Notice, Table, Text, ViewState, useConsole } from "../ui/components.js";
@@ -105,9 +105,15 @@ function ChangeGrant({ project, files, servers, onChanged }) {
   const base = `/api/projects/${project.id}`;
   const chosen = servers.find((item) => item.name === server);
   const ref = chosen ? chosen.ref : "";
-  const [declared] = useView(ref ? `${base}/mcp/tools?ref=${encodeURIComponent(ref)}` : null, project.id);
+  const declaredPath = ref ? `${base}/mcp/tools?ref=${encodeURIComponent(ref)}` : null;
+  const [declared] = useView(declaredPath, project.id);
   const granted = grantedTools(files, agent, server);
-  const choices = grantChoices(verb, declared.data, granted);
+  // Only this server's own read counts (#1043): data from another server's read, kept while a
+  // new read is in flight or after it failed, is "not read yet". A re-read of the same path
+  // keeps its data, so the list never flashes empty.
+  const declaredRows = declaredPath && declared.path === declaredPath ? declared.data : null;
+  const checking = Boolean(declaredPath) && declared.loading && declaredRows === null;
+  const choices = grantChoices(verb, declaredRows, granted);
   const busy = busyReason(project.id) || sending;
   // Any change of choice is a new form: a review of other choices never carries over.
   const reset = (apply) => (event) => { apply(event.currentTarget.value); setPicked([]); setReview(null); setNotice(null); setDone(null); };
@@ -154,17 +160,17 @@ function ChangeGrant({ project, files, servers, onChanged }) {
       <select id="grant-agent" value=${agent} onChange=${reset(setAgent)}>${agents.map((name) => html`<option key=${name} value=${name}>${visible(name)}</option>`)}</select>
       <label for="grant-server">MCP server</label>
       <select id="grant-server" value=${server} onChange=${reset(setServer)}>${servers.map((item) => html`<option key=${item.name} value=${item.name}>${visible(item.name)}</option>`)}</select>
-      <fieldset>
+      <fieldset class="choices">
         <legend>Change</legend>
-        <label><input type="radio" name="grant-verb" value="grant" checked=${verb === "grant"} onChange=${reset(setVerb)} /> Grant tools</label>
-        <label><input type="radio" name="grant-verb" value="revoke" checked=${verb === "revoke"} onChange=${reset(setVerb)} /> Revoke tools</label>
+        <label class="check"><input type="radio" name="grant-verb" value="grant" checked=${verb === "grant"} onChange=${reset(setVerb)} /> Grant tools</label>
+        <label class="check"><input type="radio" name="grant-verb" value="revoke" checked=${verb === "revoke"} onChange=${reset(setVerb)} /> Revoke tools</label>
       </fieldset>
-      <fieldset>
+      <fieldset class="choices" aria-busy=${checking ? "true" : "false"}>
         <legend>Tools</legend>
-        ${verb === "grant" && declared.error ? html`<p class="notice warn" role="status"><${Text} value=${declared.error.message || "The declared tools could not be read."} /></p>` : null}
+        ${verb === "grant" && declared.error && declared.path === declaredPath ? html`<p class="notice warn" role="status"><${Text} value=${declared.error.message || "The declared tools could not be read."} /></p>` : null}
         ${choices.length
-          ? choices.map((tool) => html`<label key=${tool.name}><input type="checkbox" checked=${picked.includes(tool.name)} onChange=${() => toggle(tool.name)} /> <code><${Text} value=${tool.name} /></code> <span class="muted small"><${Text} value=${tool.effect || "no longer declared"} /></span></label>`)
-          : html`<p class="muted"><${Text} value=${verb === "grant" ? (declared.loading ? "Reading the declared tools…" : "Every declared tool is granted already.") : "This agent has no tools on this server."} /></p>`}
+          ? choices.map((tool) => html`<label class="check" key=${tool.name}><input type="checkbox" checked=${picked.includes(tool.name)} onChange=${() => toggle(tool.name)} /> <code><${Text} value=${tool.name} /></code> <span class="muted small"><${Text} value=${choiceNote(tool, checking)} /></span></label>`)
+          : html`<p class="muted"><${Text} value=${verb === "grant" ? (checking ? "Reading the declared tools…" : declaredRows === null ? "The declared tools are unavailable, so there is nothing to grant." : "Every declared tool is granted already.") : "This agent has no tools on this server."} /></p>`}
       </fieldset>
     </div>
     <${Actions} disabled=${busy}>

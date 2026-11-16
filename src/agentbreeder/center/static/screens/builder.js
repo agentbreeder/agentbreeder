@@ -13,7 +13,7 @@ import {
   previewBody, unverifiedText,
 } from "../lib/builder.js";
 import { CHECKS, parseCases } from "../lib/cases.js";
-import { PROVIDERS, VERIFIED, codeRefs, rootText } from "../lib/onboard.js";
+import { PROVIDERS, VERIFIED, codeRefs, modelIdNote, rootText } from "../lib/onboard.js";
 import { Action, Card, Notice, Table, Text, nextId, useConsole } from "../ui/components.js";
 import { useView } from "../ui/data.js";
 import { html, useEffect, useMemo, useRef, useState } from "../ui/preact.js";
@@ -173,7 +173,9 @@ export function Builder() {
 
   const code = codeRefs(preview);
   const file = preview ? preview.files[Math.min(shown, preview.files.length - 1)] : null;
-  const unverified = unverifiedText(preview, VERIFIED);
+  const unverified = unverifiedText(preview);
+  // The model id the preview was made for (the form may have changed since).
+  const modelNote = preview && previewed.current ? modelIdNote(preview.combination.verified, previewed.current.model, previewed.current.model_id) : null;
   return html`<div class="builder">
     <${Card} title="The agent" busy=${busy}>
       <form class="stack" onSubmit=${(event) => { event.preventDefault(); if (!problem && !busy) showPreview(); }}>
@@ -183,9 +185,9 @@ export function Builder() {
         <p class="muted small" id=${`${ids.name}-rule`}>Lowercase letters, digits and dashes, starting with a letter.</p>
         <label for=${ids.model}>Model provider</label>
         <select id=${ids.model} value=${form.model} onChange=${edit("model")}>
-          ${PROVIDERS.map((provider) => html`<option value=${provider}>${provider}${provider === VERIFIED ? "" : " (not run end to end)"}</option>`)}
+          ${PROVIDERS.map((provider) => html`<option value=${provider}>${provider}${VERIFIED.includes(provider) ? "" : " (not run end to end)"}</option>`)}
         </select>
-        <label for=${ids.modelId}>Model id (optional; OpenRouter needs one)</label>
+        <label for=${ids.modelId}>Model id (optional; replaces the provider's default)</label>
         <input id=${ids.modelId} autocomplete="off" spellcheck="false" placeholder=${`${form.model}/…`} value=${form.modelId} onInput=${edit("modelId")} />
         <label for=${ids.prompt}>Prompt (the agent's instructions)</label>
         <textarea id=${ids.prompt} rows="8" placeholder="You are helper, an agent that…" value=${form.prompt} onInput=${edit("prompt")}></textarea>
@@ -214,7 +216,7 @@ export function Builder() {
         : html`
           ${stale ? html`<p class="notice warn" role="status">The form changed since this preview. Preview again before you create.</p>` : null}
           <p>Writes in <code><${Text} value=${preview.directory} /></code>. Gateway aliases <${Text} value=${preview.aliases.join(", ")} /> call <code><${Text} value=${preview.model_id} /></code>; the stack needs <code><${Text} value=${preview.keys.join(", ")} /></code>. The gate refuses deploys after review_by <${Text} value=${preview.review_by} />.</p>
-          ${unverified ? html`<p class="notice warn" role="status"><${Text} value=${unverified} /></p>` : html`<p class="muted small">Run end to end: <${Text} value=${preview.combination.parts.join(", ")} />.</p>`}
+          ${unverified ? html`<p class="notice warn" role="status"><${Text} value=${unverified} /></p>` : html`<p class="muted small">Run end to end: <${Text} value=${preview.combination.parts.join(", ")} />.${modelNote ? html` <${Text} value=${modelNote} />` : null}</p>`}
           <div class="file-tabs" role="group" aria-label="Files">
             ${preview.files.map((entry, index) => html`<button type="button" key=${entry.path} class="file-tab" aria-pressed=${index === shown ? "true" : "false"} aria-controls=${ids.file} onClick=${() => setShown(index)}><${Text} value=${entry.path} /></button>`)}
           </div>

@@ -250,6 +250,34 @@ def test_keys_missing_names_only_listed_aliases(stacked, stacks):
     assert "<your key>" in keys.fix.note
 
 
+def test_keys_for_a_granted_fallback_alias_stay_optional(stacked, stacks):
+    # #1033: Northwind grants its fallback alias; its key only enables the fallback route.
+    granted = STACK.replace(
+        "[support-model, support-judge]", "[support-model, support-judge, fallback]"
+    )
+    assert granted != STACK  # a string replace can silently no-op
+    (stacked / "stack.yaml").write_text(granted)
+    config = stacked / "stack" / "litellm" / "config.yaml"
+    config.write_text(CONFIG + "litellm_settings:\n  fallbacks: [{support-model: [fallback]}]\n")
+    keys = steps(guide_checks.compute(stacked, probe=probe(stacks, environ={})))["keys"]
+    assert keys.data.required == ["GEMINI_API_KEY"] and keys.data.missing == ["GEMINI_API_KEY"]
+
+
+def test_keys_for_a_fallback_alias_the_agent_uses_stay_required(stacked, stacks):
+    granted = STACK.replace(
+        "[support-model, support-judge]", "[support-model, support-judge, fallback]"
+    )
+    agent = (stacked / "agent.yaml").read_text()
+    uses_fallback = agent.replace("{alias: support-model}", "{alias: fallback}")
+    assert granted != STACK and uses_fallback != agent
+    (stacked / "stack.yaml").write_text(granted)
+    (stacked / "agent.yaml").write_text(uses_fallback)
+    config = stacked / "stack" / "litellm" / "config.yaml"
+    config.write_text(CONFIG + "litellm_settings:\n  fallbacks: [{support-model: [fallback]}]\n")
+    keys = steps(guide_checks.compute(stacked, probe=probe(stacks, environ={})))["keys"]
+    assert keys.data.required == ["GEMINI_API_KEY", "OPENROUTER_API_KEY"]
+
+
 def test_keys_stored_by_services_up_count(stacked, stacks):
     state, _ = bring_up(stacked, stacks)
     state.db.execute(

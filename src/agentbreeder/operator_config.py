@@ -122,6 +122,9 @@ class Environment(_Strict):
     # Model gateway grant for agents in this environment (agent.yaml builds, spec §10).
     gateway: str | None = Field(default=None, pattern=_GATEWAY)
     models: list[str] = Field(default_factory=list, max_length=50)
+    # The gateway config's fallbacks among granted models (`services up` writes them, #1033):
+    # a deployment key is also granted the fallback targets of its aliases.
+    fallbacks: dict[str, list[str]] = Field(default_factory=dict, max_length=50)
     ceilings: Ceilings | None = None
     # Non-secret service URLs passed to built agents as AGENTBREEDER_SERVICE_<NAME>.
     services: dict[str, str] = Field(default_factory=dict, max_length=20)
@@ -149,6 +152,10 @@ class Environment(_Strict):
         # the minted key would carry it: an environment that grants a gateway caps it.
         if self.gateway is not None and self.ceilings is None:
             raise ValueError("an environment with a gateway must set ceilings (budget_usd, rpm)")
+        granted = set(self.models)
+        for source, targets in self.fallbacks.items():
+            if source not in granted or not targets or not set(targets) <= granted:
+                raise ValueError("fallbacks name only models the environment grants")
         for name in self.mcp_relays:
             if not re.fullmatch(_MCP_SERVER, name):
                 raise ValueError("invalid mcp relay name")
@@ -159,6 +166,17 @@ class Environment(_Strict):
             if not set(agent.mcp) <= set(self.mcp_relays):
                 raise ValueError("an agent's mcp grant names a relay the environment lacks")
         return self
+
+    def key_models(self, aliases: list[str]) -> list[str]:
+        """`aliases` plus every fallback target reachable from them, in a stable order: what a
+        key for those aliases is granted, so a fallback LiteLLM serves under the key stays
+        inside the environment's grant."""
+        models = list(dict.fromkeys(aliases))
+        for alias in models:  # the list grows while it is walked: a breadth-first closure
+            for target in self.fallbacks.get(alias, ()):
+                if target not in models:
+                    models.append(target)
+        return models
 
     @field_validator("models")
     @classmethod

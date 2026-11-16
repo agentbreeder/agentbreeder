@@ -88,6 +88,9 @@ VERIFIED: frozenset[tuple[str, ...]] = frozenset(
     {(), ("knowledge",), ("tools",), ("knowledge", "tools")}
 )
 VERIFIED_TOOLS = 1  # the most tools a verified spec has
+# The providers a combination with a tool was run with (#833); openrouter ran model + prompt +
+# evals alone (#1020), so a tool on any other provider stays unverified.
+TOOL_PROVIDERS = frozenset({"gemini"})
 STACK_SERVICES = frozenset({"postgres", "litellm"})  # services the generated stack has
 # A provider's embedding model in the pinned LiteLLM 1.106.2 model map and its largest output
 # (`output_vector_size`). anthropic and openrouter have none there.
@@ -598,13 +601,12 @@ def combination(spec: Spec) -> tuple[str, ...]:
 
 
 def verified(spec: Spec) -> bool:
-    """Whether the spec's combination was run end to end: its parts (`VERIFIED`), at most
-    `VERIFIED_TOOLS` tools, and a verified provider."""
-    return (
-        combination(spec) in VERIFIED
-        and len(spec.tools) <= VERIFIED_TOOLS
-        and PROVIDERS[spec.model].verified
-    )
+    """Whether the spec's combination was run end to end: its parts (`VERIFIED`), a verified
+    provider, and for a spec with tools at most `VERIFIED_TOOLS` of them on a `TOOL_PROVIDERS`
+    provider."""
+    if combination(spec) not in VERIFIED or not PROVIDERS[spec.model].verified:
+        return False
+    return not spec.tools or (len(spec.tools) <= VERIFIED_TOOLS and spec.model in TOOL_PROVIDERS)
 
 
 def plan(

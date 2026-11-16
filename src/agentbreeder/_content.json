@@ -670,7 +670,7 @@
   },
   "examples/northwind/stack.yaml": {
    "exec": false,
-   "sha256": "3e6b7e82beede0dd86305733bc198141f615a6a4d2f0c9b50cb36137d06fc117"
+   "sha256": "35f37967d6f52567eca546297e867af5e86c52e72a9fc2e5cf66207641469f1c"
   },
   "examples/northwind/stack/.dockerignore": {
    "exec": false,
