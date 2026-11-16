@@ -298,7 +298,7 @@ Ollama running on the operator's own machine, with no key:
   LiteLLM, and a test listener on another host port received nothing. LiteLLM does honour a
   per-request `custom_llm_provider`, which re-routes an alias to another provider with the
   key the gateway holds for it. This is true for every provider, not only Ollama, and is a known
-  gap (#1025 §4.2).
+  gap (#1025 §4.2), tracked in #1105.
 
 The 1.2.0 launcher (spec §4.3) also passes LiteLLM only the variables its `service.yaml` sets,
 the image's own (`PATH`, `SSL_CERT_FILE`, `LITELLM_RELEASE_TAG`, four `PRISMA_*`) and its

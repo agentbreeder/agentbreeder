@@ -75,7 +75,8 @@ timeout was changed.
   key; the error came from the client, before any request. On a stack that imports
   `OPENAI_API_KEY`, a caller could send an alias's prompt to OpenAI's default endpoint on the
   operator's key. This applies equally to the four key providers; it is not specific to Ollama.
-  Reported to the coordinator as a D14 question (follow-up: a request filter or LiteLLM setting).
+  Recorded as a known gap for every provider (D14: ship with Ollama verified); the control is
+  tracked in #1105.
 - **Logs (§12.6).** `services logs` of the gateway (920 lines) and the container's raw log
   were scanned for the master key, the three Postgres role URLs and their passwords, and the
   probe's virtual key: 0 hits.
