@@ -258,9 +258,12 @@ def test_a_revoke_held_by_a_deployment_names_the_next_steps(page, console):
     project = open_mcp(page, console)
     card = review(page, "revoke", "get_me")
     warning = card.locator(".notice.warn")
-    expect(warning).to_contain_text("MCP_GRANT_IN_USE")
-    expect(warning).to_contain_text(f"agentbreeder remove {'d' * 32} --local --stack {project}")
-    expect(warning).to_contain_text("The revoke is still written.")
+    expect(warning).to_contain_text(f"Deployment {'d' * 32} (dev) still holds get_me")
+    expect(warning).to_contain_text("The next services up takes it away")
+    expect(warning).not_to_contain_text("MCP_GRANT_IN_USE")
+    expect(warning).not_to_contain_text(
+        f"agentbreeder remove {'d' * 32} --local --stack {project}"
+    )
 
 
 def test_the_grant_review_has_no_serious_axe_findings(scheme_page, console):  # noqa: F811

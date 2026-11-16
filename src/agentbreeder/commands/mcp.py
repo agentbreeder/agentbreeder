@@ -95,9 +95,10 @@ def run(args) -> int:
             continue
         print(
             f"In use: deployment {item['deployment']} ({item['environment']}) holds "
-            f"{', '.join(item['tools'])}; `services up` refuses this until it is removed"
+            f"{', '.join(item['tools'])}; the next `services up` takes it away (the relay "
+            "refuses it: TOOL_NOT_GRANTED). Release the agent without it, or it can't be "
+            "deployed again"
         )
-        print(hints.next_line("remove", item["deployment"], "--local", stack=args.project))
     environments = {item["environment"] for item in result["in_use"]}
     environment = environments.pop() if len(environments) == 1 else "ENV"
     print(hints.next_line("services", "up", args.project, environment=environment))
