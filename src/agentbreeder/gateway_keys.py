@@ -271,9 +271,20 @@ def _slim(row: dict) -> dict:
     request, so 50 pages of whole rows could hold gigabytes."""
     metadata = row.get("metadata")
     alias = metadata.get("user_api_key_alias") if isinstance(metadata, dict) else None
+    slim = {"user_api_key_alias": _slim_value(alias)}
+    # The two places LiteLLM records cached prompt tokens (#1056), as ints only.
+    extra = metadata.get("additional_usage_values") if isinstance(metadata, dict) else None
+    read = extra.get("cache_read_input_tokens") if isinstance(extra, dict) else None
+    if isinstance(read, int) and not isinstance(read, bool):
+        slim["additional_usage_values"] = {"cache_read_input_tokens": read}
+    usage = metadata.get("usage_object") if isinstance(metadata, dict) else None
+    details = usage.get("prompt_tokens_details") if isinstance(usage, dict) else None
+    cached = details.get("cached_tokens") if isinstance(details, dict) else None
+    if isinstance(cached, int) and not isinstance(cached, bool):
+        slim["usage_object"] = {"prompt_tokens_details": {"cached_tokens": cached}}
     return {
         **{key: _slim_value(row[key]) for key in _SPEND_FIELDS if key in row},
-        "metadata": {"user_api_key_alias": _slim_value(alias)},
+        "metadata": slim,
     }
 
 

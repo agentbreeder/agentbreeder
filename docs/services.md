@@ -346,8 +346,10 @@ What is not covered: calls that bypass the gateway, tool-call arguments, tool de
 image URLs inside a chat request, the request's `user` field (LiteLLM stores it as an end-user ID), what the agent itself stores (spans, sessions, turns), and
 detection quality (Presidio is pattern and NER based). On this LiteLLM digest a `pre_call`
 guardrail also checks the model's reply. Blocked turns reach the agent as the gateway's HTTP 400.
-Runtime support (coded block replies, events) is a later slice (G2), so nothing about guardrails
-is claimed until then. On `main`, not in a published preview.
+`runtime/adk@1.4.0` answers such a turn `MODEL_BLOCKED` (422) with a `guardrail_blocked` event
+([agent-yaml.md](agent-yaml.md#runtimeadk140)); it has not yet been run against a real Presidio
+gateway, so nothing about guardrails is claimed yet. The rest of G2 (reconcile drift, the
+runtime capability check) is still to come. On `main`, not in a published preview.
 
 ## Writing a service
 
