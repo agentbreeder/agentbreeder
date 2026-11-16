@@ -71,6 +71,12 @@
               "element": {
                 "type": "String"
               }
+            },
+            "guardrails": {
+              "type": "Set",
+              "element": {
+                "type": "String"
+              }
             }
           }
         }

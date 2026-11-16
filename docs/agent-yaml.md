@@ -136,6 +136,7 @@ environments:
     ceilings: {budget_usd: 50, rpm: 300}                       # required with a gateway
     services: {traces_url: …, tools_proxy_url: …}            # → AGENTBREEDER_SERVICE_<NAME>
     bindings: {DATABASE_URL: secret://northwind-db}
+    # guardrails: {required: true, approved_sha256: …}       # floor; denies every deploy for now (identity-gate.md)
     agents:
       northwind-support:
         identity: {provider: demo, ref: support-agent, environment: dev}

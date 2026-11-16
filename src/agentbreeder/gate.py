@@ -18,7 +18,7 @@ from agentbreeder.identity import (
     load_provider,
 )
 from agentbreeder.manifest import Manifest
-from agentbreeder.operator_config import DeploymentContext, OperatorConfig
+from agentbreeder.operator_config import PROVIDER_KEY_NAMES, DeploymentContext, OperatorConfig
 from agentbreeder.policy import PolicyDecision, PolicyEngine, PolicyError, PolicyRequest
 from agentbreeder.store import DeploymentError
 
@@ -188,6 +188,7 @@ class IdentityGate:
         extra: dict | None = None,
         tool_actions: list[str] | None = None,
         approval_required: list[str] | None = None,
+        guardrails: list[str] | None = None,
     ) -> PolicyRequest:
         if isinstance(principal, AgentPrincipal):
             principal_props = {
@@ -226,6 +227,10 @@ class IdentityGate:
                     "approval_required": sorted(capabilities.approval_required)
                     if capabilities
                     else sorted(approval_required or []),
+                    # The verified guardrails on the deployment's gateway route (#1024): the
+                    # environment floor plus, later, agent-level additions. Nothing verifies a
+                    # running gateway before G1b, so every caller passes none today.
+                    "guardrails": sorted(guardrails or []),
                 },
             },
             context=extra or {},
@@ -318,6 +323,24 @@ class IdentityGate:
         # Secrets are references only (manifest validation); local values are files checked by
         # the deployment preflight after this gate (secret_files.py). Nothing is read here.
         evaluated.append("secrets")
+        environment = model.environments.get(context.environment)
+        if environment is not None and environment.guardrails_required:
+            reserved = sorted(set(manifest.secrets) & PROVIDER_KEY_NAMES)
+            if reserved:
+                # A provider key would let the agent call the provider around the gateway's
+                # guardrails. A naming check only; the docs say a renamed key is not detected.
+                return decision.deny(
+                    "SECRET_RESERVED",
+                    f"{', '.join(reserved)} may not be mounted when guardrails are required",
+                )
+            evaluated.append("guardrails")
+            # Not overridable in audit mode. G1b replaces this with the check of the running
+            # gateway config's hash against approved_sha256.
+            return decision.deny(
+                "GUARDRAILS_UNVERIFIED",
+                f"Environment {context.environment} requires guardrails, and this version cannot "
+                "verify them on a running gateway yet",
+            )
         if manifest.model_access is not None:
             evaluated.append("model_access")
             denied = self._model_access(manifest.model_access, context)

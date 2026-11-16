@@ -126,6 +126,9 @@ def _entities(request: PolicyRequest) -> list[dict]:
                 "roles": [str(r) for r in as_list(principal.get("roles"))],
                 "tool_actions": [str(a) for a in as_list(resource.get("tool_actions"))],
                 "approval_required": [str(a) for a in as_list(resource.get("approval_required"))],
+                # Verified guardrails on this deployment's gateway route, `presidio:pre_call` and
+                # the like (#1024). Always empty until G1b verifies a running gateway.
+                "guardrails": [str(g) for g in as_list(resource.get("guardrails"))],
             },
             "parents": [],
         },
@@ -153,6 +156,7 @@ def _call_entities(request: PolicyRequest) -> list[dict]:
                 "roles": [str(r) for r in as_list(agent.get("roles"))],
                 "tool_actions": [str(a) for a in as_list(agent.get("tool_actions"))],
                 "approval_required": [str(a) for a in as_list(agent.get("approval_required"))],
+                "guardrails": [str(g) for g in as_list(agent.get("guardrails"))],
             },
             "parents": [],
         },

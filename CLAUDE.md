@@ -143,6 +143,13 @@ code; it has no OSS version pin, and the center's API is private and unversioned
 `CLAUDE.md` note only; it has no OSS version pin and there is no `agent.yaml`, JSON Schema or
 `agent.lock` format change.
 
+**Guardrails floor, #1024 G1a, per side.** OSS (on `main`): the operator environment gains
+`guardrails: {required, approved_sha256}`, and a required floor denies every deploy
+(`GUARDRAILS_UNVERIFIED`) until G1b. Provider key names are reserved under it, and the Cedar `Agent`
+gains a `guardrails` set, so `SCHEMA_VERSION` and every revision digest change once. The manifest,
+JSON Schema and `agent.yaml` are unchanged. Website: no change until release R. Cloud: a `CLAUDE.md`
+note only. It has no code reference to the operator config, Cedar or revision digests.
+
 ## 🎯 When Adding a New Feature
 
 1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?
