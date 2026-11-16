@@ -564,6 +564,71 @@ def test_kubernetes_step_only_with_a_cluster(stacked, operator, stacks):  # noqa
     assert kube.data.cluster_configured is True
 
 
+def promoted_on_the_cluster(monkeypatch, production):
+    """A ready kubernetes deployment whose promote/promoted audit row recorded `production`'s
+    image; `local=None` stands for a production deployment that was removed afterwards."""
+    deployed = {"id": "c" * 32, "state": "ready", "manifest": json.dumps({"image": "reg/x@1"})}
+    promoted = {
+        "reasons": [
+            {"code": "PROMOTE_IMAGE", "message": "reg/x@1"},
+            {"code": "RELEASE_IMAGE", "message": production},
+        ]
+    }
+    active, audit = Store.active, Store.audit_matching
+    local = {"removed": False}
+
+    def fake_active(self, name, target="local"):
+        if target == "kubernetes":
+            return deployed
+        return None if local["removed"] else active(self, name, target)
+
+    monkeypatch.setattr(Store, "active", fake_active)
+    monkeypatch.setattr(
+        Store,
+        "audit_matching",
+        lambda self, action, decision: (
+            [promoted]
+            if (action, decision) == ("promote", "promoted")
+            else audit(self, action, decision)
+        ),
+    )
+    return local
+
+
+def test_no_production_is_not_a_stale_promotion(stacked, operator, stacks, monkeypatch):  # noqa: F811
+    """#1044: after production was removed, the cluster still runs what was promoted. With no
+    production to compare against (and none to promote), the step waits for a release
+    instead of saying PROMOTION_STALE."""
+    state, _, _ = released(stacked, operator, stacks)
+    state.put("kubernetes", json.dumps({"cluster_uid": "u"}))
+    configure_cluster(state, "u")
+    up = probe(stacks, Calls(clusters=["agentbreeder"]))
+    local = promoted_on_the_cluster(monkeypatch, IMAGE)
+    assert steps(guide_checks.compute(stacked, probe=up))["kubernetes"].state == "done"
+    local["removed"] = True
+    found = steps(guide_checks.compute(stacked, probe=up))
+    assert found["release"].reason.code == "NOT_RELEASED"
+    kube = found["kubernetes"]
+    assert kube.reason.code == guide.NOT_CHECKED and kube.reason.message == "Release first"
+    assert kube.state == "todo" and kube.fix is None
+
+
+def test_a_cluster_behind_production_is_a_stale_promotion(
+    stacked,
+    operator,
+    stacks,  # noqa: F811
+    monkeypatch,
+):
+    state, _, _ = released(stacked, operator, stacks)
+    state.put("kubernetes", json.dumps({"cluster_uid": "u"}))
+    configure_cluster(state, "u")
+    promoted_on_the_cluster(monkeypatch, "reg/older@sha256:" + "e" * 64)
+    kube = steps(
+        guide_checks.compute(stacked, probe=probe(stacks, Calls(clusters=["agentbreeder"])))
+    )["kubernetes"]
+    assert kube.reason.code == "PROMOTION_STALE" and kube.fix.action == "promote"
+
+
 def configure_cluster(state, uid, environment="dev"):
     """What an accepted grant with the cluster leaves: the operator config names it."""
     config = {"environments": {environment: {"kubernetes": {"cluster_uid": uid}}}}

@@ -1118,6 +1118,10 @@ def _kubernetes(ctx: _Context) -> dict | None:
             ),
             data,
         )
+    if ctx.production is None:
+        # #1044: `promote` copies production, so with none (never released, or removed since)
+        # there is nothing to promote or to compare the cluster with: not stale, not checked.
+        return _not_checked("kubernetes", "Release first")
     if deployment is None or deployment["state"] != "ready" or promoted is None:
         return _step(
             "kubernetes",
