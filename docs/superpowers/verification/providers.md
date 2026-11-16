@@ -1,7 +1,8 @@
 # #1020 verification: OpenAI, Anthropic and OpenRouter end to end
 
-Status: **partial, verified from `main`** (re-run on f6709b2 at the end of this file: openai now
-passes, anthropic still blocked; first run on 89cf804, after #1016 merged, 2026-11-15, macOS 13.7.8
+Status: **partial, verified from `main`** (re-run on f6709b2: openai now passes, anthropic still
+blocked; a third Anthropic run on 3e4b4869 with a new key, at the end of this file, is still
+blocked; first run on 89cf804, after #1016 merged, 2026-11-15, macOS 13.7.8
 x86_64, Docker Desktop engine 27.5.1, LiteLLM 1.106.2 from `service/litellm@1.0.0`). Per provider,
 from the starter (`new agent --model <p>` → `services up` → `release` → `invoke`). The table and
 sections up to "Notes" are the **first run (89cf804)**. The openai rows are superseded by the
@@ -115,7 +116,7 @@ should support a workspace header is a separate decision, and no issue has been 
 
 | Check | Result |
 |---|---|
-| For each provider: `new agent --model <p>` → services up → release (judge passes) → invoke, from a wheel of main, real calls, leak scan, teardown | **Re-run (f6709b2): openai PASS; anthropic still not verified.** First run: **openrouter PASS** (with `google/gemini-3.8-flash`; `anthropic/claude-haiku-5.5` failed the gate on answer quality). **openai not verified** (the key has no credits). **anthropic not verified** (the key is not workspace-scoped) |
+| For each provider: `new agent --model <p>` → services up → release (judge passes) → invoke, from a wheel of main, real calls, leak scan, teardown | **Re-run (f6709b2): openai PASS; anthropic still not verified. Third Anthropic run (3e4b4869, new key): still not verified.** First run: **openrouter PASS** (with `google/gemini-3.8-flash`; `anthropic/claude-haiku-5.5` failed the gate on answer quality). **openai not verified** (the key has no credits). **anthropic not verified** (the key is not workspace-scoped) |
 | Flip `verified` only for the providers that passed | **Not done here**, by instruction: the results went to the coordinator for a code lane. Only openrouter qualifies |
 | Embeddings per `agentspec.EMBEDDINGS` checked for openai | **Re-run: PASS** (`text-embedding-3-small`, 1536). First run: not run, the key had no credits |
 | Record `docs/superpowers/verification/providers.md`; docs and console builder copy updated | This file. The docs and console copy follow the flip, in the code lane |
@@ -237,3 +238,54 @@ decides whether AgentBreeder should support the header.
   snapshot. Only the image each run built was removed.
 - Costs are LiteLLM's estimates, not a bill: about $0.015 in all for the two OpenAI runs. The
   Anthropic calls failed and cost nothing.
+
+## Third Anthropic run 2026-11-16: a new key, still refused
+
+The owner put a new `ANTHROPIC_API_KEY` in `~/.env` and asked for one more Anthropic run; #1020
+stays open for Anthropic only. This used a wheel from `main` at 3e4b4869 (3.0.0a3, the starter on
+`runtime/adk@1.4.0`), `agentbreeder-3.0.0a3-py3-none-any.whl`, sha256
+`cbebf4da89aa690422a920d7b815eda6a8cc53e5f128326cfa1cb6abee04a965`, installed with `[eval]` into a
+fresh Python 3.12 venv, in the same sandbox as above (`env -i`, fresh `HOME` and `TMPDIR`,
+`USER=demo`, a Docker context in the sandbox `HOME`). A 0600 file held only the `ANTHROPIC_API_KEY`
+line from `~/.env`. The starter needs no other key.
+
+| Provider | Model | Result |
+|---|---|---|
+| anthropic | `anthropic/claude-opus-5-5` (the default) | **Not verified, same refusal:** Anthropic says the key is not scoped to a workspace. Retried once with no header or config change |
+
+| Step | Command (UTC start) | Exit | Time | Result |
+|---|---|---|---|---|
+| 1 | `new agent prov-anthropic --model anthropic` (23:23:13) | 0 | 0.7 s | `anthropic/claude-opus-5-5` on both aliases; it printed the config-only notice |
+| 2 | `services up prov-anthropic --environment dev --env-file <key> --yes` (23:23:27) | 0 | 133 s | |
+| 3 | `release prov-anthropic/agent.yaml --stack prov-anthropic --environment dev` (23:25:40) | 5 | 124 s (with the build) | `Eval gate failed: 0/2 passed`. Both cases, 2 attempts each: `agent_responded` false, empty reply, explanation `HTTPError: 502` |
+| 4 | `invoke`, twice, with `--stack` (23:27:44) | 2, 2 | | `NOT_DEPLOYED`: the release said "production unchanged", so there was nothing to invoke |
+| 5 | `release` again, unchanged (23:28:03) | 5 | 10 s | the same `0/2`, `HTTPError: 502` |
+| 6 | spend log (after step 5) | | | `chat`: 4 failure rows, no `judge` rows (see below for the count) |
+| 7 | teardown (`services down prov-anthropic --purge --yes`, then `docker rmi` by ID of the images the run created) | 0 | | containers, networks, volumes and images matched the pre-run snapshot |
+
+The error class is unchanged: LiteLLM logged `litellm.BadRequestError: AnthropicException`,
+`invalid_request_error`, "This API key is not scoped to a workspace, so this request must include
+the anthropic-workspace-id header with the ID of the workspace to use. Add the header, or use an
+API key that is scoped to a workspace." on 16 lines, 2 per failed call, so 8 calls: each release
+ran 2 cases with 2 attempts (the eval reports). The spend log query after the retry returned only
+4 `chat` failure rows; why it held 4 rather than 8 was not checked. The log was read during the
+run and not kept.
+
+The key's format was checked without reading its value: it is one unquoted line of 106 characters
+with the prefix `sk-ant-usr-`, not `sk-ant-api03-`, and Anthropic's error says it is not scoped to
+a workspace. AgentBreeder's gateway config review allows no custom headers (as above), so the
+starter cannot send `anthropic-workspace-id`. To run it again, the owner needs a key that Anthropic
+accepts without that header (a workspace-scoped key), or a decision on supporting the header. No
+header or config was changed here, and `Provider.verified` is unchanged.
+
+- Leak scan: the run's saved outputs and project directory (34 files, outside the venv and the
+  checkout) were scanned for each `~/.env` value of 12 or more characters (8 values, plain, base64
+  and URL-encoded), for the Anthropic and Gemini key patterns, and for `/Users/`: **0 hits**. One
+  earlier hit was the sandbox Docker context's socket path, which holds a home path and no key;
+  the context was deleted before the final scan. The key file was deleted.
+- Teardown: the release build left untagged intermediate images as well as the tagged ones. Each
+  was created during the run and was not in the pre-run snapshot, and each was removed by ID; no
+  prune was run: 4 new images (the agent, its Python base, Postgres and LiteLLM) and about 9
+  untagged intermediate layers created between 23:25 and 23:27 UTC. The snapshot matched
+  afterwards (3 images, no containers or volumes).
+- No Anthropic call succeeded.
