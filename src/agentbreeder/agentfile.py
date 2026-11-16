@@ -93,6 +93,9 @@ class AgentFile(_Strict):
     agent_events: Literal["postgres", "none"] = "postgres"
     traces: Literal["otlp", "none"] = "otlp"
     evals: Evals | None = None
+    # Skills (#1059, skills spec §6): optional; an agent file without them is unchanged. Kept
+    # in its own block (lane C's #1053 adds `guardrails:` next to it).
+    skills: list[RefEntry] = Field(default_factory=list, max_length=10)
 
     @model_validator(mode="after")
     def _refs(self):
@@ -107,6 +110,7 @@ class AgentFile(_Strict):
         expected += [(f"mcp[{i}].ref", m.ref, "mcp") for i, m in enumerate(self.mcp)]
         if self.evals:
             expected.append(("evals.ref", self.evals.ref, "eval"))
+        expected += [(f"skills[{i}].ref", s.ref, "skill") for i, s in enumerate(self.skills)]
         seen: dict[str, str] = {}
         for where, text, kind in expected:
             try:
@@ -136,7 +140,8 @@ class AgentFile(_Strict):
         return self
 
     def refs(self) -> list[str]:
-        """Every registry ref, in a stable order (runtime, prompt, knowledge, tools, evals)."""
+        """Every registry ref, in a stable order (runtime, prompt, knowledge, tools, mcp, evals,
+        skills)."""
         result = [self.runtime]
         if self.prompt.ref:
             result.append(self.prompt.ref)
@@ -144,6 +149,7 @@ class AgentFile(_Strict):
         result += [m.ref for m in self.mcp]
         if self.evals:
             result.append(self.evals.ref)
+        result += [s.ref for s in self.skills]
         return result
 
     def paths(self) -> list[str]:

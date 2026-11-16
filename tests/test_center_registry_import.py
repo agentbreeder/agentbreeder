@@ -386,3 +386,75 @@ def test_an_off_contract_write_answer_says_it_may_have_been_written(
     _, answer, _ = post(center, project, cookie, path="/tmp/v", digest=review["sha256"])
     assert answer["error"]["code"] == "BAD_OUTPUT", answer
     assert "may have been written" in answer["error"]["message"]
+
+
+# -- skills: code decided from the listed files (#1059, skills spec §5.2) -------------------------
+
+_PACK_MANIFEST = 'kind: skill\nname: s\nversion: 1.0.0\ndescription: "d"\n'
+
+
+def _skill_answer(files, runs_code):
+    return _answer(
+        ref="skill/s@1.0.0", kind="skill", name="s", source_ref="skill/s@1.0.0",
+        path="/r/skill/s/1.0.0", runs_code=runs_code, files=files,
+    )  # fmt: skip
+
+
+def _manifest(text):
+    return {"path": "manifest.yaml", "type": "file", "text": text}
+
+
+def test_a_skill_pack_answer_passes_without_code():
+    answer = _skill_answer([_manifest(_PACK_MANIFEST)], runs_code=False)
+    assert registryimport.import_answer(answer, dry_run=True)["runs_code"] is False
+
+
+def test_a_skill_answer_may_always_say_code():
+    answer = _skill_answer([_manifest(_PACK_MANIFEST)], runs_code=True)
+    assert registryimport.import_answer(answer, dry_run=True)["runs_code"] is True
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        [_manifest(_PACK_MANIFEST), {"path": "scripts", "type": "dir"}],
+        [_manifest(_PACK_MANIFEST), {"path": "scripts/x.py", "type": "file", "text": "x"}],
+        [_manifest(_PACK_MANIFEST + "scripts: []\n")],
+        [_manifest("kind: [")],  # unreadable manifest: fail closed
+        [{"path": "manifest.yaml", "type": "file", "text": None}],
+        [],
+    ],
+)
+def test_a_skill_answer_hiding_code_is_refused(files):
+    with pytest.raises(registryimport.BadOutput):
+        registryimport.import_answer(_skill_answer(files, runs_code=False), dry_run=True)
+
+
+def test_a_skill_write_answer_needs_a_bool():
+    written = _skill_answer(None, runs_code="no")
+    del written["files"]
+    written["dry_run"] = False
+    with pytest.raises(registryimport.BadOutput):
+        registryimport.import_answer(written, dry_run=False)
+
+
+def test_the_code_confirm_follows_a_skills_files(center, project, cookie, project_dir, tmp_path):
+    """The console asks the code question for a script skill and not for an instruction pack
+    (skills spec §5.4), decided from the staged files."""
+    from test_registry_skill import make_skill, script_skill
+
+    pack = str(make_skill(tmp_path / "pack"))
+    _, review, _ = post(center, project, cookie, path=pack)
+    assert review["error"] is None and review["data"]["runs_code"] is False, review
+    _, done, _ = post(center, project, cookie, path=pack, digest=review["data"]["sha256"])
+    assert done["error"] is None, done
+
+    scripted = str(script_skill(tmp_path / "scripted", name="calc"))
+    _, review, _ = post(center, project, cookie, path=scripted)
+    assert review["error"] is None and review["data"]["runs_code"] is True, review
+    digest = review["data"]["sha256"]
+    status, refused, _ = post(center, project, cookie, path=scripted, digest=digest)
+    assert status == 400 and refused["error"]["code"] == "CODE_NOT_CONFIRMED", refused
+    _, done, _ = post(center, project, cookie, path=scripted, digest=digest, code_confirmed=True)
+    assert done["error"] is None, done
+    assert version_dir(project_dir, "skill/calc", "1.0.0").is_dir()

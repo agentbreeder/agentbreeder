@@ -1,10 +1,13 @@
-usage: agentbreeder registry new [-h] [--dir DIR]
-                                 {eval,knowledge,mcp,prompt,service,tool} name
+usage: agentbreeder registry new [-h] [--dir DIR] [--scripts]
+                                 {eval,knowledge,mcp,prompt,service,skill,tool}
+                                 name
 
 positional arguments:
-  {eval,knowledge,mcp,prompt,service,tool}
+  {eval,knowledge,mcp,prompt,service,skill,tool}
   name
 
 options:
   -h, --help            show this help message and exit
   --dir DIR
+  --scripts             skill only: add one declared example script (a script
+                        skill is code)
