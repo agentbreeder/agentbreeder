@@ -50,6 +50,70 @@ def alias(deployment_id: str) -> str:
     return PREFIX + deployment_id
 
 
+# -- what a minted key may carry (#1024 G1b) ----------------------------------------------------
+# LiteLLM reads guardrail switches from key metadata (`disable_global_guardrails` and
+# `opted_out_global_guardrails` turned the global guardrails off in G0, spec §12.3), so the
+# request body and its metadata are allow-lists: a field LiteLLM adds in an upgrade is refused,
+# not passed through. Keys never get a `team_id` (team metadata carries the same switches).
+MINT_FIELDS = frozenset(
+    {
+        "key_alias",
+        "models",
+        "max_budget",
+        "budget_duration",
+        "rpm_limit",
+        "duration",
+        "allowed_routes",
+        "metadata",
+    }
+)
+MINT_METADATA = frozenset({"agentbreeder", "deployment_id", "agent", "environment", "eval_run"})
+# The routes a key in a guardrails-required environment may call: chat completions and
+# embeddings, which the Presidio hook covers (spec §12.4). `/openai/*` passthrough runs the
+# guardrail but forwards the unmasked body, and `/v1/moderations` is not checked at all.
+GUARDED_ROUTES = ("/v1/chat/completions", "/chat/completions", "/v1/embeddings", "/embeddings")
+
+
+def key_routes(environment) -> list[str] | None:
+    """`GUARDED_ROUTES` for a key in an environment with a required guardrails floor."""
+    if environment is not None and environment.guardrails_required:
+        return list(GUARDED_ROUTES)
+    return None
+
+
+def mint_body(
+    key_alias: str,
+    models: list[str],
+    budget: float,
+    rpm: int,
+    metadata: dict,
+    duration: str | None = None,
+    routes: list[str] | None = None,
+) -> dict:
+    """The `/key/generate` body, built from the allow-lists above only."""
+    if not isinstance(metadata, dict) or set(metadata) - MINT_METADATA:
+        raise GatewayError("GATEWAY_KEY_METADATA", "key metadata holds AgentBreeder's keys only")
+    if not all(v is None or isinstance(v, (bool, int, float, str)) for v in metadata.values()):
+        raise GatewayError("GATEWAY_KEY_METADATA", "key metadata values are plain values")
+    body = {
+        "key_alias": key_alias,
+        "models": list(models),
+        "max_budget": budget,
+        "budget_duration": "30d",
+        "rpm_limit": rpm,
+        "metadata": dict(metadata),
+    }
+    if duration:
+        body["duration"] = duration
+    if routes is not None:
+        if not routes or not set(routes) <= set(GUARDED_ROUTES):
+            raise GatewayError("GATEWAY_KEY_ROUTES", "a key's routes come from GUARDED_ROUTES")
+        body["allowed_routes"] = list(routes)
+    if set(body) - MINT_FIELDS:  # pragma: no cover - a coding error above, never input
+        raise GatewayError("GATEWAY_KEY_FIELD", "a key field outside MINT_FIELDS")
+    return body
+
+
 @dataclass
 class LiteLLM:
     url: str
@@ -101,21 +165,14 @@ class LiteLLM:
         rpm: int,
         metadata: dict,
         duration: str | None = None,
+        routes: list[str] | None = None,
     ) -> str:
         """Mint a virtual key. `budget` renews every 30 days (LiteLLM `budget_duration`).
         `duration` makes the key itself expire (e.g. "6h"): set it for short-lived keys whose
-        revoke could be skipped by a killed process."""
+        revoke could be skipped by a killed process. `routes` limits the key to those proxy
+        routes (`allowed_routes`; `GUARDED_ROUTES` in a guardrails-required environment)."""
+        body = mint_body(key_alias, models, budget, rpm, metadata, duration, routes)
         self.revoke(key_alias)  # idempotent retry: an earlier attempt may have minted it
-        body = {
-            "key_alias": key_alias,
-            "models": models,
-            "max_budget": budget,
-            "budget_duration": "30d",
-            "rpm_limit": rpm,
-            "metadata": metadata,
-        }
-        if duration:
-            body["duration"] = duration
         result = self._call("POST", "/key/generate", body)
         key = (result or {}).get("key")
         if not isinstance(key, str) or not key:
@@ -258,6 +315,8 @@ _SECTIONS = {
         "set_verbose",
         "json_logs",
     },
+    # Reviewed by `_guardrails` (#1024 G1b): Presidio entries from an allow-list only.
+    "guardrails": None,
     "general_settings": {
         "master_key",
         "database_url",
@@ -279,6 +338,32 @@ _LOGGING = {
     ("general_settings", "store_prompts_in_spend_logs"): False,
 }
 
+# -- guardrails (#1024 G1b, spec §4.2 as amended by the G0 results §12.2) -----------------------
+_GUARDRAIL_ENTRY = {"guardrail_name", "litellm_params"}
+_GUARDRAIL_PARAMS = {
+    "guardrail",
+    "mode",
+    "default_on",
+    "pii_entities_config",
+    "presidio_language",
+    "presidio_score_thresholds",
+    "timeout",
+}
+# `during_call` runs beside the provider call and doesn't stop input reaching it (D3).
+# `logging_only` is accepted but never counts toward a requirement.
+_GUARDRAIL_MODES = ("pre_call", "post_call", "logging_only")
+_PII_ACTIONS = ("MASK", "BLOCK")
+_ENTITY = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+GUARDRAIL_THRESHOLD_CAP = 0.8  # a threshold of 1.0 turns detection off
+GUARDRAIL_TIMEOUT = (1, 60)  # seconds; unset, a stalled analyzer fails after 300 s (§12.5)
+# The logging settings a required floor needs (§4.6), with LiteLLM's default when absent.
+_GUARDRAIL_LOGGING = {
+    ("litellm_settings", "turn_off_message_logging"): (True, False),
+    ("litellm_settings", "set_verbose"): (False, False),
+    ("general_settings", "store_prompts_in_spend_logs"): (False, False),
+    ("general_settings", "disable_error_logs"): (True, False),  # the table stores payloads
+}
+
 
 @dataclass
 class ConfigReview:
@@ -289,6 +374,14 @@ class ConfigReview:
     # `context_window_fallbacks` merged in that order (#1033: a fallback runs under the
     # caller's key, so `services up` refuses a target the environment doesn't grant).
     fallbacks: dict[str, list[str]] = field(default_factory=dict)
+    # The `guardrails:` entries as reviewed, in config order (#1024 G1b).
+    guardrails: list[dict] = field(default_factory=list)
+    # sha256 of the canonical JSON of the guardrails list plus the §4.6 logging settings: what
+    # an operator approves (`approved_sha256`). A `model_list` edit doesn't change it.
+    guardrails_sha256: str = ""
+    # The §4.6 logging settings as LiteLLM will apply them (defaults filled in).
+    logging: dict[str, bool] = field(default_factory=dict)
+
     # alias -> the variables it needs at `up` (#1025 §5.3): read these, never parse labels.
     required_env: dict[str, tuple[str, ...]] = field(default_factory=dict)
     # alias -> {"provider": ..., plus the printed route fields: project, location, region, ...}
@@ -299,6 +392,38 @@ class ConfigReview:
         """The routes the services grant shows (none for key-only aliases, so their stacks
         keep their grant digest)."""
         return gateway_providers.grant_routes(self.routes, self.key_only)
+
+    def effective(self) -> list[str]:
+        """The checks that count toward a floor: `presidio:<mode>` for each `default_on`
+        pre_call or post_call guardrail with a non-empty entity map (never `logging_only`)."""
+        found = []
+        for entry in self.guardrails:
+            params = entry["litellm_params"]
+            if params.get("mode") in ("pre_call", "post_call") and params.get(
+                "pii_entities_config"
+            ):
+                found.append(f"presidio:{params['mode']}")
+        return sorted(set(found))
+
+    def guardrails_effective(self, required: bool) -> list[str]:
+        """The effective set; with `required`, refuse (GUARDRAILS_INEFFECTIVE) a config with
+        no effective pre_call check or without the §4.6 logging settings."""
+        effective = self.effective()
+        if not required:
+            return effective
+        if "presidio:pre_call" not in effective:
+            raise GatewayError(
+                "GUARDRAILS_INEFFECTIVE",
+                "guardrails are required: the gateway config needs a default_on pre_call "
+                "Presidio guardrail with at least one entity",
+            )
+        for (section, key), (expected, _) in _GUARDRAIL_LOGGING.items():
+            if self.logging.get(f"{section}.{key}") is not expected:
+                raise GatewayError(
+                    "GUARDRAILS_INEFFECTIVE",
+                    f"guardrails are required: set {section}.{key}: {str(expected).lower()}",
+                )
+        return effective
 
 
 def _unsafe(path: Path, where: str) -> GatewayError:
@@ -341,6 +466,73 @@ def _fallbacks(path: Path, where: str, value, aliases: set[str], edges: dict) ->
         known.extend(t for t in dict.fromkeys(targets) if t not in known)
 
 
+def _guardrails(path: Path, value) -> list[dict]:
+    """Review the `guardrails:` list: Presidio only, allow-listed fields and values only, no
+    `os.environ/` value (the caller's env scan refuses those), and no entity that one guardrail
+    masks and a later one blocks (a mask rewrites the text first, so the block never fires)."""
+    if not isinstance(value, list):
+        raise GatewayError("GATEWAY_CONFIG", f"{path.name}: guardrails must be a list")
+    names: set[str] = set()
+    masked: set[str] = set()
+    for index, entry in enumerate(value):
+        where = f"guardrails[{index}]"
+        if not isinstance(entry, dict) or set(entry) - _GUARDRAIL_ENTRY:
+            raise _unsafe(path, f"{where} key")
+        name = entry.get("guardrail_name")
+        if not isinstance(name, str) or not _MODEL_NAME.fullmatch(name) or name in names:
+            raise _unsafe(path, f"{where}.guardrail_name (unique; letters, digits and ._:/-)")
+        names.add(name)
+        params = entry.get("litellm_params")
+        if not isinstance(params, dict):
+            raise GatewayError("GATEWAY_CONFIG", f"{path.name}: {where}.litellm_params")
+        for key in params:
+            if key not in _GUARDRAIL_PARAMS:
+                shown = key if isinstance(key, str) and key.isidentifier() else "key"
+                raise _unsafe(path, f"{where}.litellm_params.{shown}")
+        where += ".litellm_params"
+        if params.get("guardrail") != "presidio":
+            raise _unsafe(path, f"{where}.guardrail (presidio only)")
+        if params.get("mode") not in _GUARDRAIL_MODES:
+            raise _unsafe(path, f"{where}.mode (one of: {', '.join(_GUARDRAIL_MODES)})")
+        if params.get("default_on") is not True:
+            raise _unsafe(path, f"{where}.default_on (must be true)")
+        if params.get("presidio_language", "en") != "en":
+            raise _unsafe(path, f"{where}.presidio_language (en only)")
+        entities = params.get("pii_entities_config")
+        if (
+            not isinstance(entities, dict)
+            or not entities
+            or any(
+                not isinstance(k, str) or not _ENTITY.fullmatch(k) or v not in _PII_ACTIONS
+                for k, v in entities.items()
+            )
+        ):
+            raise _unsafe(path, f"{where}.pii_entities_config (ENTITY: MASK or BLOCK)")
+        thresholds = params.get("presidio_score_thresholds", {})
+        if not isinstance(thresholds, dict) or any(
+            not isinstance(k, str)
+            or not _ENTITY.fullmatch(k)
+            or type(v) not in (int, float)
+            or not 0 <= v <= GUARDRAIL_THRESHOLD_CAP
+            for k, v in thresholds.items()
+        ):
+            raise _unsafe(
+                path,
+                f"{where}.presidio_score_thresholds (ENTITY: 0 to {GUARDRAIL_THRESHOLD_CAP})",
+            )
+        if "timeout" in params:
+            low, high = GUARDRAIL_TIMEOUT
+            timeout = params["timeout"]
+            if type(timeout) not in (int, float) or not low <= timeout <= high:
+                raise _unsafe(path, f"{where}.timeout (seconds, {low} to {high})")
+        if params["mode"] != "logging_only":
+            blocked = {k for k, v in entities.items() if v == "BLOCK"}
+            if blocked & masked:
+                raise _unsafe(path, f"{where}: blocks an entity an earlier guardrail masks")
+            masked |= {k for k, v in entities.items() if v == "MASK"}
+    return [dict(entry) for entry in value]
+
+
 def config_review(path: Path, caps: GatewayCaps) -> ConfigReview:
     """Parse a LiteLLM proxy config and refuse anything that could send a credential somewhere
     other than its provider: only allow-listed keys per section, no custom endpoints or
@@ -352,10 +544,12 @@ def config_review(path: Path, caps: GatewayCaps) -> ConfigReview:
         raise TypeError("config_review needs the gateway's GatewayCaps")
     import hashlib
 
-    from agentbreeder.strict_yaml import StrictYamlError, load_file
+    from agentbreeder.strict_yaml import StrictYamlError, load_bytes, read_file
 
     try:
-        data = load_file(path, 256 * 1024)
+        # One read: the hash below is of the bytes that were parsed (spec §4.2, T9).
+        raw = read_file(path, 256 * 1024)
+        data = load_bytes(raw, path.name)
     except StrictYamlError as error:
         raise GatewayError("GATEWAY_CONFIG", f"{path.name}: {error}") from None
     if not isinstance(data, dict):
@@ -439,14 +633,25 @@ def config_review(path: Path, caps: GatewayCaps) -> ConfigReview:
     for where, _ in _env_strings(data, "config"):
         if where.removeprefix("config.") not in allowed_env:
             raise _unsafe(path, f"os.environ reference at {where.removeprefix('config.')}")
+    guardrails = _guardrails(path, data["guardrails"]) if "guardrails" in data else []
+    logging = {
+        f"{section}.{key}": (data.get(section) or {}).get(key, default)
+        for (section, key), (_, default) in _GUARDRAIL_LOGGING.items()
+    }
+    canonical = json.dumps(
+        {"guardrails": guardrails, "logging": logging}, sort_keys=True, separators=(",", ":")
+    )
     return ConfigReview(
         aliases,
         providers,
-        hashlib.sha256(path.read_bytes()).hexdigest(),
+        hashlib.sha256(raw).hexdigest(),
         edges,
-        required_env,
-        routes,
-        key_only,
+        guardrails=guardrails,
+        guardrails_sha256=hashlib.sha256(canonical.encode()).hexdigest(),
+        logging=logging,
+        required_env=required_env,
+        routes=routes,
+        key_only=key_only,
     )
 
 

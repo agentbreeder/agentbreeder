@@ -5,9 +5,10 @@ It lives in `~/.agentbreeder/stacks/<stack-id>/<env>/`, never in the repo, and c
 the stack's demo agents (enabled, sponsored, with a review date), the stack's gateway (master key
 as a `file:` ref into the stack's service secrets), models, the gateway config's fallbacks among
 them, ceilings, service URLs, bindings,
-`eval_database`, the agents network, MCP relays (`mcp_relays`) and the agents' identity
-references and MCP grants. Never `pdp`, `deployer`,
-`maker_checker`, `runtime_enforcement`, `mcp_egress` or another provider type.
+`eval_database`, the agents network, MCP relays (`mcp_relays`), the agents' identity
+references and MCP grants, and the guardrails floor with the running config's hash (#1024).
+Never `pdp`, `deployer`, `maker_checker`, `runtime_enforcement`, `mcp_egress` or another
+provider type.
 
 Digest rule: `up` records the digest of what it wrote. It overwrites a file only while its digest
 still matches; a hand-edited or pre-seeded file stops `up` with OPERATOR_CONFIG_MODIFIED.
@@ -131,6 +132,9 @@ def documents(plan: Plan, state: StackState, environment: str) -> tuple[dict, di
     fallbacks = _granted_fallbacks(plan)
     if fallbacks:
         environment_doc["fallbacks"] = fallbacks
+    guardrails = plan.guardrails_record()  # #1024 G1b: the floor and the mounted config's hash
+    if guardrails is not None:
+        environment_doc["guardrails"] = guardrails
     cluster = json.loads(state.get("kubernetes") or "null")
     if cluster:
         environment_doc["targets"] = ["local", "kubernetes"]

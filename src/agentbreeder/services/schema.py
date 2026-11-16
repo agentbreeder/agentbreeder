@@ -418,6 +418,20 @@ class StackMcp(_Strict):
     ref: str  # mcp/<name>@X.Y.Z; served by its own relay container
 
 
+class StackGuardrails(_Strict):
+    """The environment's guardrails floor (#1024 G1b, D10a). `services up` copies it into the
+    operator config with what it found in the gateway config copy it mounts."""
+
+    required: bool = False
+    approved_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def names_the_reviewed_hash(self):
+        if self.required and self.approved_sha256 is None:
+            raise ValueError("a required guardrails floor needs approved_sha256")
+        return self
+
+
 class StackEnvironment(_Strict):
     gateway: str = Field(pattern=SERVICE_NAME)
     models: list[str] = Field(min_length=1, max_length=50)
@@ -426,6 +440,7 @@ class StackEnvironment(_Strict):
     bindings: dict[str, SecretRef] = Field(default_factory=dict, max_length=20)
     eval_database: SecretRef | None = None
     agents: dict[str, DemoAgent] = Field(min_length=1, max_length=20)
+    guardrails: StackGuardrails | None = None
 
     @model_validator(mode="after")
     def names(self):

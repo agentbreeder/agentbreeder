@@ -37,7 +37,8 @@ call. M15 needs a command that the console can preview, then apply exactly.
 - **`in_use`** (revoke only). It reads the stack's grant files under
   `<stacks>/<id>/grants/<env>/<server>/` and lists the deployments of AGENT that hold a revoked
   tool. The coordinator chose to write and warn rather than refuse: `services up` stays the
-  enforcement point (`MCP_GRANT_IN_USE`). A malformed grant file in that server's directory (which `services up`
+  enforcement point (`MCP_GRANT_IN_USE`). **Superseded by #1072 (2026-11-15):** `services up` now
+  applies a held revoke and warns; see agent-services spec §7 item 5 and its r15. A malformed grant file in that server's directory (which `services up`
   also refuses on) is listed with `deployment: null`.
 - **Limits.** The new file must stay within the 64 KiB `stack.yaml` limit (`STACK_TOO_LARGE`), so a
   grant can't leave a file that later commands refuse to read. LF or CRLF line endings are kept.
@@ -48,7 +49,7 @@ call. M15 needs a command that the console can preview, then apply exactly.
 |---|---|---|---|
 | 1 | Widening a grant without consent | Writing `stack.yaml` changes nothing that runs. A widened grant reaches a relay only through `services up`, whose phase-1 consent shows each agent's tools and their effect and needs `--yes` or a person when the grant changed. `deploy` uses only tools that `agent.yaml` requests *and* the stack grants. | No new path past consent. |
 | 2 | Granting tools the server never declared | Refused (`MCP_TOOL_UNDECLARED`), the same set `services up` and the relay allow. | Mitigated. |
-| 3 | Narrowing under a live deployment | The file is written, `in_use` names the deployments, and `services up` refuses until they are removed. The relay keeps intersecting with the last `up`'s config, so a running agent is never silently widened or narrowed by the edit itself. | Accepted (coordinator, 2026-11-13). |
+| 3 | Narrowing under a live deployment | The file is written, `in_use` names the deployments, and `services up` refuses until they are removed. The relay keeps intersecting with the last `up`'s config, so a running agent is never silently widened or narrowed by the edit itself. | Accepted (coordinator, 2026-11-13). **Superseded by #1072:** the next `up` applies the narrowing (the relay refuses the tool to the deployment, `TOOL_NOT_GRANTED`) and warns, naming it; the edit itself still changes nothing until `up`. |
 | 4 | Lost update / TOCTOU on `stack.yaml` | `--expect-base` binds a write to the reviewed bytes, and `_replace` re-checks the base just before the rename. An editor that doesn't take the console's project lock can still race in the last window (as for set-ref, S-04). | Accepted, same as set-ref. |
 | 5 | Symlink or special-file tricks | `read_project_file` refuses a symlinked, FIFO or oversize `stack.yaml`. The temp file is created by `mkstemp` in the project directory. Grant-file reads skip symlinked directories and non-matching names, and only read 0444 JSON. | Mitigated. |
 | 6 | YAML injection through names | Names are pattern-checked before use. The written value is generated, and the whole file is re-parsed and compared to the expected document, so no other key can change. | Mitigated. |
@@ -60,8 +61,9 @@ call. M15 needs a command that the console can preview, then apply exactly.
 
 - Offline, with Docker faked:
   - a grant, then `services up`, puts the tool in the relay's config;
-  - a revoke held by a deployment is reported, and `services up` refuses with `MCP_GRANT_IN_USE`;
-  - after the grant file is removed (what `remove` does), `services up` narrows the relay.
+  - a revoke held by a deployment is reported, and `services up` applies it with a warning (#1072;
+    it refused with `MCP_GRANT_IN_USE` before);
+  - after the grant file is removed (what `remove` does), `services up` gives no warning.
 - Live, behind `AGENTBREEDER_DOCKER_TEST=1` and `GITHUB_MCP_TOKEN` (`test_fixture_live_grant_and_revoke`;
   deferred to the batched M15 verification, since Docker was down when this was built):
   - deploy is refused before the grant;

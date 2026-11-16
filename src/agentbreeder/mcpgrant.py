@@ -17,8 +17,8 @@ an atomic replace. The record of the change is the file itself and git (S-30), n
 Nothing here talks to a relay or a deployment. A grant reaches an agent after `services up` (the
 relay's config) and a deploy that requests the tool; deploy refuses tools the stack doesn't grant
 (`MCP_TOOL_NOT_GRANTED`). A revoke of a tool an active deployment holds is written, and reported in
-`in_use` from the stack's grant files (read only): `services up` refuses to narrow it
-(`MCP_GRANT_IN_USE`) until that deployment is removed.
+`in_use` from the stack's grant files (read only): the next `services up` applies it anyway
+(#1072), and the relay refuses the tool from then on (`TOOL_NOT_GRANTED`).
 """
 
 from __future__ import annotations

@@ -150,6 +150,13 @@ gains a `guardrails` set, so `SCHEMA_VERSION` and every revision digest change o
 JSON Schema and `agent.yaml` are unchanged. Website: no change until release R. Cloud: a `CLAUDE.md`
 note only. It has no code reference to the operator config, Cedar or revision digests.
 
+**Guardrails, #1024 G1b, per side.** OSS (on `main`): built-ins `service/presidio-analyzer@1.0.0`,
+`service/presidio-anonymizer@1.0.0` and `service/litellm@1.1.0`; the gateway config review accepts
+a Presidio `guardrails:` list; `stack.yaml` `environment.guardrails` and the operator floor's
+`running_sha256` and `effective` (written by `services up`); the gate checks the hash
+(`GUARDRAILS_CHANGED`); keys under a required floor get `allowed_routes`. No manifest, JSON Schema or
+`SCHEMA_VERSION` change. Website: no change until release R. Cloud: a `CLAUDE.md` note only.
+
 ## 🎯 When Adding a New Feature
 
 1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?

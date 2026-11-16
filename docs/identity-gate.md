@@ -157,31 +157,50 @@ it is always empty, and a bundle can't rely on it until a later slice fills it. 
 the schema version, so every revision digest changed once and approvals held from before have to be
 requested again. On `main`, not in a published preview.
 
-## Guardrails floor (not yet enforceable)
+## Guardrails floor
 
 An operator environment can declare a guardrails floor for model calls through the stack's gateway:
 
 ```yaml
 environments:
   prod:
-    guardrails: {required: true, approved_sha256: <64 hex>}   # the reviewed gateway guardrails hash
+    guardrails:
+      required: true
+      approved_sha256: <64 hex>    # the reviewed gateway guardrails hash
+      running_sha256: <64 hex>     # written by `agentbreeder services up`
+      effective: [presidio:pre_call]
 ```
 
 This is the floor every deployment in the environment has to meet. A later slice lets `agent.yaml`
-add guardrails above the floor, never remove or weaken them. This version runs no guardrails and
-can't check that a gateway runs them, so:
+add guardrails above the floor, never remove or weaken them. `services up` writes `running_sha256`
+and `effective` from the gateway config copy it mounts (see
+[services.md](services.md#gateway-guardrails-preview)). With `required: true` the gate denies,
+even in audit mode:
 
-- With `required: true`, the gate denies every deploy in that environment (`GUARDRAILS_UNVERIFIED`,
-  even in audit mode) until a later slice verifies the running gateway config against
-  `approved_sha256`.
+- `GUARDRAILS_UNVERIFIED` when no `running_sha256` is recorded, or `effective` has no
+  `presidio:pre_call`. A config written without `services up` and without those fields gets
+  this.
+- `GUARDRAILS_CHANGED` when `running_sha256` is not `approved_sha256`: the guardrails changed
+  since they were approved. Review them, update `approved_sha256` and run `services up` again.
+
+These values are trusted as far as the operator config is: a record typed by hand is believed,
+and the gate does not re-read the gateway or check that it is running. A change made with
+`services up` is reported at the next deploy, not prevented. This is change detection, not
+tamper-evidence. The Cedar
+`Agent` entity's `guardrails` set holds `effective` when `running_sha256` equals
+`approved_sha256`, else nothing, for every action (`deploy`, `approve`, `enable`).
+
 - With `required: true`, neither `bindings` nor a manifest's `secrets` may use a provider key name
   (`GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`): the config
   fails to load, or the gate denies with `SECRET_RESERVED`. This checks exact names only. A provider
   key mounted under another name (`OPENAI_API_KEY_2`, `openai_api_key`) is not detected.
+- With `required: true`, keys are minted with `allowed_routes` limited to chat completions and
+  embeddings.
 - These denies come before identity resolution and policy, so the attempt's audit row names the
   floor, not a later identity or policy code.
 
-On `main`, not in a published preview. Nothing here inspects model input or output.
+On `main`, not in a published preview. The runtime's handling of a blocked turn is a later slice,
+so no guardrail claim is made yet.
 
 ## Maker-checker approvals
 

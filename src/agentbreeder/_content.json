@@ -404,6 +404,18 @@
    "exec": false,
    "sha256": "e9a4dddd0a5c3938167812e86db62e1da5c148b168dcf7e3d15a9aeb0c03c7c3"
   },
+  "builtin_registry/service/litellm/1.1.0/files/start.py": {
+   "exec": true,
+   "sha256": "753589a72afd49870cfb4c99f50c493fb4c97f75cad5d40344bc8f8c1c04fff1"
+  },
+  "builtin_registry/service/litellm/1.1.0/manifest.yaml": {
+   "exec": false,
+   "sha256": "f77fa592008cf53020ba362cc5ff376f48b82c3b5d492c7915a932587dd0bfc9"
+  },
+  "builtin_registry/service/litellm/1.1.0/service.yaml": {
+   "exec": false,
+   "sha256": "6c33eb695d26e15cc861c0c17bc564d125b13207e78e0c0481ec5d60beb02d83"
+  },
   "builtin_registry/service/mcp-relay/1.0.0/Dockerfile": {
    "exec": false,
    "sha256": "7f15ae2e1870646cf1b5fca7831051a218b7302cc4178e1a9bf715d27bbaf6c3"
@@ -511,6 +523,22 @@
   "builtin_registry/service/postgres-pgvector/1.2.0/service.yaml": {
    "exec": false,
    "sha256": "f006a5884e3e153b7fcb6d8a51989f7b65c611f005b318ce5013f995f39d8875"
+  },
+  "builtin_registry/service/presidio-analyzer/1.0.0/manifest.yaml": {
+   "exec": false,
+   "sha256": "044afc87b5e34eeb17df2a669503077b1b4ccbd962968fa0287b2338ef51f3e2"
+  },
+  "builtin_registry/service/presidio-analyzer/1.0.0/service.yaml": {
+   "exec": false,
+   "sha256": "70f54be0ee1f182c226a4e3aaec70cf09bbd18df488a1cc470b0bdfb324cd68d"
+  },
+  "builtin_registry/service/presidio-anonymizer/1.0.0/manifest.yaml": {
+   "exec": false,
+   "sha256": "3b515f0ebdda124b959a1d5b8209074a25fa6b728a9bc854f156ae9831a29b9d"
+  },
+  "builtin_registry/service/presidio-anonymizer/1.0.0/service.yaml": {
+   "exec": false,
+   "sha256": "ed592c2e1b6a737eef6cf9eb37dda0924066279feb682d33399eb6bd0d5feafc"
   },
   "examples/http-agent/Dockerfile": {
    "exec": false,

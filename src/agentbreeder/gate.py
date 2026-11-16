@@ -229,13 +229,21 @@ class IdentityGate:
                     if capabilities
                     else sorted(approval_required or []),
                     # The verified guardrails on the deployment's gateway route (#1024): the
-                    # environment floor plus, later, agent-level additions. Nothing verifies a
-                    # running gateway before G1b, so every caller passes none today.
-                    "guardrails": sorted(guardrails or []),
+                    # environment floor's effective checks when the running gateway config is
+                    # the approved one (later, plus agent-level additions).
+                    "guardrails": sorted(
+                        guardrails
+                        if guardrails is not None
+                        else self._verified_guardrails(context.environment)
+                    ),
                 },
             },
             context=extra or {},
         )
+
+    def _verified_guardrails(self, environment: str) -> list[str]:
+        env = self.operator.model.environments.get(environment)
+        return env.guardrails.verified if env is not None and env.guardrails else []
 
     def _model_access(self, access, context) -> tuple[str, str] | None:
         """The environment grants model access; a manifest can only ask within it. None of
@@ -342,13 +350,9 @@ class IdentityGate:
                     f"{', '.join(reserved)} may not be mounted when guardrails are required",
                 )
             evaluated.append("guardrails")
-            # Not overridable in audit mode. G1b replaces this with the check of the running
-            # gateway config's hash against approved_sha256.
-            return decision.deny(
-                "GUARDRAILS_UNVERIFIED",
-                f"Environment {context.environment} requires guardrails, and this version cannot "
-                "verify them on a running gateway yet",
-            )
+            denied = _guardrails_failure(environment.guardrails, context.environment)
+            if denied:  # none of these is overridable in audit mode
+                return decision.deny(*denied)
         if manifest.model_access is not None:
             evaluated.append("model_access")
             denied = self._model_access(manifest.model_access, context)
@@ -485,3 +489,22 @@ def revision_digest(
         "obligations": sorted(decision.obligations),
     }
     return "sha256:" + hashlib.sha256(canonical(body).encode()).hexdigest()
+
+
+def _guardrails_failure(floor, environment: str) -> tuple[str, str] | None:
+    """A required floor holds only when `services up` recorded the running gateway config's
+    guardrails hash, it is the approved one, and it has an effective pre_call check (#1024)."""
+    if floor.running_sha256 is None or "presidio:pre_call" not in floor.effective:
+        return (
+            "GUARDRAILS_UNVERIFIED",
+            f"Environment {environment} requires guardrails, and no running gateway config "
+            "with an effective guardrail is recorded (run agentbreeder services up)",
+        )
+    if floor.running_sha256 != floor.approved_sha256:
+        return (
+            "GUARDRAILS_CHANGED",
+            f"Environment {environment}: the running gateway guardrails "
+            f"({floor.running_sha256[:12]}) are not the approved ones "
+            f"({floor.approved_sha256[:12]})",
+        )
+    return None
