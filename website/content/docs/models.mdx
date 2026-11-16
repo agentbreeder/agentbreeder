@@ -1,0 +1,101 @@
+---
+title: Models and gateway
+description: "Every model call goes through the stack's LiteLLM gateway on a per-deployment key with a budget, rate limit and fallbacks. Which providers have run end to end."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="Preview">
+  Run on macOS with Docker Desktop from `main` (a wheel, or for Ollama an editable install), not
+  yet from the published package. Linux has not been run.
+</Callout>
+
+Every model call goes through the stack's LiteLLM gateway on a per-deployment key with a budget, a rate limit and granted fallbacks.
+
+```sh
+agentbreeder new agent hello --model gemini      # or openai, openrouter, ollama
+agentbreeder services up hello --environment dev --env-file ~/.env --yes
+```
+
+Agents never hold a provider key. The stack's `service/litellm` gateway holds it, and each
+deployment gets its own LiteLLM virtual key, limited to the model aliases, budget and rate the
+operator environment grants. The key is mounted as a file and revoked on remove.
+
+## Providers
+
+| `--model` | Default model | Status |
+|---|---|---|
+| `gemini` | `gemini/gemini-3.8-flash` | Run end to end (Northwind 61/61, starters) |
+| `openai` | `openai/gpt-5.6` | Run end to end with its default model, and with `text-embedding-3-small` knowledge |
+| `openrouter` | `openrouter/google/gemini-3.8-flash` | Run end to end with its default model |
+| `ollama` | `ollama_chat/llama3.2:3b` | Run end to end on `runtime/adk@1.3.0` only (below) |
+| `anthropic` | `anthropic/claude-opus-5-5` | Config only, not verified |
+
+"Run end to end" means `services up`, `release` through the eval gate (the judge needs strict
+JSON-schema output) and `invoke`, with the default model. Another `--model-id` uses the same
+path, but only the default has been run. Vertex AI, Bedrock and Azure OpenAI have config review
+rules, but no gateway version serves them yet: `services up` refuses them
+(`GATEWAY_PROVIDER_UNSUPPORTED`).
+
+### Ollama on your machine
+
+`service/litellm@1.2.0` serves Ollama running on the host at exactly
+`http://host.docker.internal:11434`, with no key. `new agent NAME --model ollama` writes the
+starter. Run once on macOS with Docker Desktop: `services up`, `release` 2/2 with `llama3.2:3b`
+as agent and judge, `invoke`, and one `nomic-embed-text` embedding.
+
+- That run used `runtime/adk@1.3.0`. New starters write `1.4.0`, which has not been run with
+  Ollama, and neither has Linux or `kind`.
+- Install Ollama yourself and `ollama pull` the model. Load it before `release` (`ollama run
+  llama3.2:3b hi`): a cold model can exceed the runtime's 90 s model timeout.
+- Use `model.reasoning: none` for models without thinking.
+- `cost` shows `no price (local model)` for these calls, never $0.00.
+
+## The gateway config review
+
+`services up` reviews the gateway config before any key reaches it and refuses anything else with
+`GATEWAY_CONFIG_UNSAFE`:
+
+- Every model is `PROVIDER/MODEL` with a reviewed provider; bare names are refused.
+- No custom endpoints, headers or callbacks, and `model_info` may set only `mode`, so a project
+  cannot set the prices budgets are enforced against.
+- Prompt and reply logging stays off: spend logs keep tokens and cost, not messages.
+- Every fallback target must be granted to the environment (`GATEWAY_FALLBACK_UNGRANTED`).
+
+## Budgets, rate limits and fallbacks
+
+```yaml
+# agent.yaml: can only lower what the environment grants
+model: {alias: support-model, budget_usd: 25, rpm: 120}
+```
+
+| Limit | What happened in the recorded runs |
+|---|---|
+| `budget_usd` | Once spent, the gateway refuses the key. `runtime/adk@1.3.0` answers the turn `MODEL_BUDGET_EXCEEDED` (402); older runtimes answer a generic 502 |
+| `rpm` | Direct calls over the cap get 429. Through `invoke`, `runtime/adk@1.2.0` waited out the window (67.6 s) and answered; `1.3.0` waits at most 10 s per turn, so it answered `MODEL_RATE_LIMITED` (seen once, 0.8 s) |
+| `litellm_settings.fallbacks` | With Northwind's primary model broken, the granted OpenRouter fallback served the turn, and `invoke` and `traces` named it |
+
+## Model errors (`runtime/adk@1.3.0` and later)
+
+A failed model call is answered with a fixed code and a next step, never the provider's text:
+`MODEL_BUDGET_EXCEEDED`, `MODEL_RATE_LIMITED`, `MODEL_ACCESS_DENIED`, `MODEL_REQUEST_REFUSED`,
+`MODEL_UNAVAILABLE`, and from `1.4.0` `MODEL_BLOCKED` for a [guardrail](/docs/guardrails) block.
+Each carries a `correlation_id` that the agent's one log line repeats. The runtime retries
+a transient failure for up to 3 attempts in all, never a timeout or a spent budget.
+
+`runtime/adk@1.4.0` also reports `cached_prompt_tokens` when the provider says it read prompt
+tokens from its cache. In one run the counts matched LiteLLM's spend logs: OpenAI reported them from
+a session's second turn, Gemini only once the prompt passed about 5,000 tokens and not on every
+turn (never on Northwind's own prompt), and OpenRouter never.
+
+## Limits
+
+- Calls that don't go through the gateway are not limited or counted.
+- A request can name LiteLLM's `custom_llm_provider` and reach another provider with the key the
+  gateway holds for it. This is a known gap, tracked in
+  [#1105](https://github.com/agentbreeder/agentbreeder/issues/1105).
+- Amounts are LiteLLM's estimates from its price list, not a bill.
+
+Canonical reference:
+[services.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/services.md#gateway-config-review)
+and [commands/new.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/commands/new.md).

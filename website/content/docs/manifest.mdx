@@ -1,6 +1,6 @@
 ---
-title: Manifest
-description: The rebuild's deployment manifest, schema versions 1 and 2. It is incompatible with 2.x agent.yaml files.
+title: Deployment manifest
+description: "The deployment manifest AgentBreeder validates and deploys, schema versions 1 and 2: fields, examples and validate. It is not the 2.x agent.yaml format."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -8,7 +8,8 @@ import { Callout } from 'fumadocs-ui/components/callout';
 <Callout type="warn">
   [Alpha preview](/docs/install). This manifest is **not** the 2.x `agent.yaml` (see [Legacy 2.x](/docs/legacy-2x)).
   It has no framework, prompt, RAG or orchestration fields: your container supplies the agent's
-  behaviour.
+  behaviour. To describe an agent instead, write an [agent.yaml](/docs/agent-yaml), which `build`
+  turns into this manifest.
 </Callout>
 
 ## Fields
@@ -18,11 +19,13 @@ import { Callout } from 'fumadocs-ui/components/callout';
 | `schema_version` | Required: `1` or `2`. Operator `enforce` mode requires `2` to deploy |
 | `name` | Required lowercase DNS label, 1–63 characters |
 | `image` | Required image reference ending in `@sha256:` plus 64 lowercase hex characters, or a local-only `sha256:<64 hex>` image ID |
-| `target` | `local` (default) or `kubernetes`; only the local adapter is implemented |
+| `target` | `local` (default) or `kubernetes` (a local `kind` cluster only; see [Kubernetes on kind](/docs/kubernetes)) |
 | `port` | Integer 1–65535; default 8080 |
 | `health_path` | Absolute HTTP path (letters, digits, `/`, `_`, `-`); default `/health`; no query string |
 | `secrets` | Optional map of uppercase environment names to `secret://name` references; no literal values. Locally, each value is read from a secret file and mounted read-only at `/run/secrets/<name>` with `<ENV>_FILE` set |
-| `model_access` | Optional: `{gateway, aliases, budget_usd?, rpm?}`. The operator environment must grant the gateway, every alias and the limits, or the gate denies the deploy (no audit-mode override). With a gateway master key, deploy mints a LiteLLM virtual key for each container generation and revokes it on remove. `agentbreeder build` writes this block |
+| `model_access` | Optional: `{gateway, aliases, budget_usd?, rpm?}`. The operator environment must grant the gateway, every alias and the limits, or the gate denies the deploy (no audit-mode override). With a gateway master key, deploy mints a LiteLLM virtual key for each container generation, limited to the aliases and the fallbacks the environment grants for them, and revokes it on remove. `agentbreeder build` writes this block |
+| `mcp_access` | Optional, needs `model_access`: `[{ref: mcp/<name>@X.Y.Z, tools: [...]}]`. The environment must grant every tool to the agent (`MCP_TOOL_NOT_GRANTED`). Deploy mints a relay token per container generation. Refused with `runtime_enforcement: mcp_http` (`MCP_RELAY_UNSUPPORTED`); see [MCP tools](/docs/mcp) |
+| `guardrails` | Optional, needs `model_access`: up to 10 agent guardrail names the environment offers (`GUARDRAIL_UNDEFINED` otherwise). Deploy attaches them to the deployment's gateway key; see [Guardrails](/docs/guardrails) |
 | `identity` | v2, required: `provider` (operator connection name), `ref` (provider-specific immutable ID), `environment`, optional `expect_owner`. A reference only; AgentBreeder never creates identities |
 | `requires.roles` | v2: list of `{authority, resource, role_id}` immutable IDs that must already be granted |
 | `requires.groups` | v2: list of `{authority, group_id}` stable IDs |

@@ -1,0 +1,87 @@
+---
+title: Registry
+description: "Immutable, hash-locked versions of prompts, tools, knowledge, eval sets, MCP servers, services, runtimes and released agents: show, diff, import, fork, edit."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="Preview">
+  The commands below ran on macOS with Docker Desktop against Northwind and starter projects, from
+  a wheel built from `main`. Skills are on `main` for authoring only; no runtime loads them yet.
+</Callout>
+
+A registry is a directory of immutable, versioned building blocks, referenced as
+`kind/name@X.Y.Z`. AgentBreeder looks in the project's `./registry`, then
+`AGENTBREEDER_REGISTRY_PATH`, then the versions it ships. The same ref with different content in
+two places is an error, never a silent shadow. `agent.lock` records each ref's hash, and
+`build --locked` refuses any change.
+
+| Kind | Holds |
+|---|---|
+| `prompt` | the system prompt text |
+| `tool` | Python functions the runtime loads (code) |
+| `knowledge` | documents the runtime indexes into pgvector |
+| `eval` | cases, a judge alias and optional fixtures SQL (code) |
+| `mcp` | an MCP server definition for the [relay](/docs/mcp) (code) |
+| `service` | a backing service for `stack.yaml` (code) |
+| `runtime` | the agent runtime, such as `runtime/adk@1.4.0` (code) |
+| `agent` | a released agent package, written only by `release` |
+| `skill` | instructions or scripts for a later runtime; see [Sub-agents and skills](/docs/subagents-skills) |
+
+## Read
+
+```sh
+agentbreeder registry list
+agentbreeder registry show tool/orders@1.0.0          # manifest, files, a tool's functions
+agentbreeder registry diff prompt/p@1.0.0 prompt/p@1.0.1
+agentbreeder registry used-by tool/orders@1.0.0       # declared, locked and deployed
+agentbreeder registry verify
+```
+
+`show` reads a tool's function signatures without importing its code.
+
+## Write
+
+```sh
+agentbreeder registry new tool orders                       # scaffold, then edit
+agentbreeder registry publish ./tool-orders
+agentbreeder registry import PATH --dry-run --json          # review, then --expect-digest
+agentbreeder registry fork service/echo@1.0.0 --as my-echo  # copy a built-in into the project
+agentbreeder registry edit prompt/p@1.0.0 --set prompt.md NEW.md --dry-run
+agentbreeder agent set-ref prompt/p@1.0.0 prompt/p@1.0.1    # point agent.yaml at it
+```
+
+Every write makes a new version; nothing is overwritten (`VERSION_EXISTS`). Import and edit can
+be bound to the reviewed digest (`--expect-digest`), so what is written is exactly what was
+shown. A tool version is checked before it is written (`TOOL_INVALID`): only its manifest,
+`tool.yaml`, `README*` and `src/**/*.py`, no module that shadows the standard library or the runtime, and
+every function a parsable top-level `def`. Kinds marked code above run inside agents, and the
+CLI and console say so before importing or forking one.
+
+## Inspect a running agent's parts
+
+```sh
+agentbreeder tool log tool/orders --project .         # recorded calls; arguments only with --content
+agentbreeder knowledge status knowledge/help --project .   # not_indexed, fresh or stale, with chunk counts
+```
+
+`tool log` shows what the runtime recorded: the agent's database role can insert any row, and MCP
+tool calls are not in it.
+
+## In the console
+
+Registry lists prompts, eval sets, tools, knowledge, MCP servers, services and runtimes, with
+versions, diffs and used-by (not skills or agent packages yet). Project prompts, eval cases, tool
+code and knowledge documents open in editors that save a new version after a review, then offer
+**Move agent to this version** and **Build and update agent.lock**. Import and fork ask the
+"this code runs in agents" confirm for code kinds. Tool pages and their editor are tested in CI
+but have not been run against a live stack.
+
+## Limits
+
+- Hashes detect a change after a version is first locked; they don't vouch for that first lock.
+- Tools run in the agent's process with its privileges. Customer scoping is the tools' own code.
+- An `agent` package is a record, not a credential. It is not signed.
+
+Canonical reference:
+[registry.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/registry.md).
