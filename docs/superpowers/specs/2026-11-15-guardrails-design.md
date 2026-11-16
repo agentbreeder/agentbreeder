@@ -355,6 +355,31 @@ claimed, until G2 lands.
   - the `config_review` allow-list, single read and `guardrails_effective`;
   - `running_sha256` and the gate denies;
   - a real-Docker test with a scripted provider.
+- **G1b as built (2026-11-15).** A `service.yaml` holds one image, so Presidio ships as two
+  built-ins, `service/presidio-analyzer@1.0.0` and `service/presidio-anonymizer@1.0.0`, both
+  internal-only with no egress. `service/litellm@1.1.0` adds two optional url inputs feeding
+  `PRESIDIO_*_API_BASE`. D10 is (a) without the flag: `stack.yaml` `environment.guardrails:
+  {required, approved_sha256}`, the grant shows the guardrails sha256 and entities (only when the
+  config has guardrails, so other stacks keep their grant digest), and `services up` writes
+  `running_sha256` and `effective` into the operator floor. `--expect-guardrails` is a follow-up.
+  `GUARDRAILS_INEFFECTIVE` at `up` also covers a project-built gateway, `LITELLM_LOG` below
+  `WARNING` and unwired Presidio inputs; a config with `guardrails:` and no Presidio is refused even
+  when nothing is required. The gate denies `GUARDRAILS_UNVERIFIED` (no running hash, or no
+  effective `pre_call`) and `GUARDRAILS_CHANGED`; the Cedar set is `effective` when the hashes
+  match, for every action. `mint` builds its body from field and metadata allow-lists for every key,
+  and adds `allowed_routes` (chat completions and embeddings) under a required floor, for deploy
+  and eval judge keys. `DRIFT_GUARDRAILS` in `reconcile` moves to G2 with the runtime.
+- **G1b real-Docker run (2026-11-15).** `tests/test_guardrails_docker.py` passed (1 test, 7 min 12 s,
+  from an image cache holding only alpine) on macOS 13 (Intel), Docker Engine 27.5.1 (Docker
+  Desktop), linux/amd64, through `services up`
+  with the built-in Presidio and `service/litellm@1.1.0` refs and a scripted provider. All ten steps
+  held: input masking, an input block that the provider never sees, an output check, embeddings,
+  request overrides still checked, key routes, an agent container unable to reach Presidio by name
+  or IP, no seeded PII in the gateway or Presidio logs, fail closed with the analyzer stopped, and
+  `GUARDRAILS_CHANGED` after a guardrails edit. With a key limited to chat and embeddings, these
+  routes returned 403: `/openai/v1/chat/completions`, `/openai_passthrough/v1/chat/completions`,
+  `/v1/moderations`, `/v1/responses`, `/v1/messages`, `/v1/completions`, `/key/generate` and
+  `/key/update`; `/v1/chat/completions/extra` returned 404. Not run on arm64.
 - **G2:** `RUNTIME_GUARDRAILS_UNSUPPORTED`; runtime events and spans in the next free runtime version, coded block replies, reconcile
   drift, docs, and a recorded run against real Gemini.
 

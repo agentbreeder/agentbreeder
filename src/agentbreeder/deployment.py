@@ -639,6 +639,9 @@ class DeploymentService:
                     "environment": environment
                     and (fields.get("context") or {}).get("environment"),
                 },
+                # Under a guardrails floor the key reaches only the routes the Presidio hook
+                # covers (#1024 G1b): not `/openai/*` passthrough, `/v1/moderations` or admin.
+                routes=gateway_keys.key_routes(environment),
             )
             mount = secret_files.write_generated(
                 self.store.directory, identifier, GATEWAY_KEY_FILE, GATEWAY_KEY_ENV, key.encode()

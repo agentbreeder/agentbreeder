@@ -1,0 +1,12 @@
+image: mcr.microsoft.com/presidio-anonymizer@sha256:a10a12a2a613d13cf29d3ad3641e3258444dd8c90403dd644a0a114c472c2483
+# The image's own entrypoint and user (uid 1001). No auth: the port is internal, so only
+# other stack services (the gateway) reach it, never agent containers or the host.
+ports:
+  http: {port: 3000}
+env:
+  HOME: /tmp
+  WORKERS: "1"
+health: {http: /health}
+egress: false
+outputs:
+  url: {type: url, port: http}

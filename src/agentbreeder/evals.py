@@ -396,6 +396,7 @@ def run(
                 300,
                 {"agentbreeder": True, "eval_run": run_id},
                 duration=JUDGE_KEY_DURATION,
+                routes=gateway_keys.key_routes(env),
             )
         except gateway_keys.GatewayError as error:
             raise EvalError(error.code, f"Could not mint the judge key: {error}") from None

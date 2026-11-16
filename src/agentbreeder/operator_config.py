@@ -126,17 +126,34 @@ class GuardrailsFloor(_Strict):
     """The environment's guardrails floor (#1024): what every deployment's model calls through
     the stack gateway must pass. Agent-level guardrails may later add to it, never remove or
     weaken it. `approved_sha256` is the reviewed `guardrails_sha256` of the gateway config
-    (bare hex). No AgentBreeder version verifies a running gateway yet, so a required floor
-    denies every deploy (`GUARDRAILS_UNVERIFIED`) until #1024 G1b."""
+    (bare hex). `running_sha256` and `effective` are what `services up` found in the config copy
+    the gateway container mounts (G1b); a hand-written config without them is never verified
+    (`GUARDRAILS_UNVERIFIED`). They are trusted as far as this file is: a change between
+    deploys is reported at the next deploy, not prevented."""
 
     required: bool = False
     approved_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    running_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    effective: list[Literal["presidio:pre_call", "presidio:post_call"]] = Field(
+        default_factory=list, max_length=2
+    )
 
     @model_validator(mode="after")
     def names_the_reviewed_hash(self):
         if self.required and self.approved_sha256 is None:
             raise ValueError("a required guardrails floor needs approved_sha256")
+        if len(set(self.effective)) != len(self.effective):
+            raise ValueError("guardrails.effective lists each check once")
+        if self.effective and self.running_sha256 is None:
+            raise ValueError("guardrails.effective comes with running_sha256")
         return self
+
+    @property
+    def verified(self) -> list[str]:
+        """The effective checks when the running config is the approved one, else none."""
+        if self.running_sha256 is None or self.running_sha256 != self.approved_sha256:
+            return []
+        return sorted(self.effective)
 
 
 class Environment(_Strict):

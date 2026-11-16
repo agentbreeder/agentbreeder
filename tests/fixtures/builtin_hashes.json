@@ -16,5 +16,8 @@
  "service/playwright-mcp@1.0.0": "sha256:5b13f7867ef164fa26ed9dfebb082f928f315673771e79debefe535e0dad8ec3",
  "service/postgres-pgvector@1.0.0": "sha256:a1d15ca0f25a49c64aa354d6b0eea573231687b3c096958a40e7f3ed5d6ae780",
  "service/postgres-pgvector@1.1.0": "sha256:b8eb6826b25bfaf1cda0eb93214b1e4803da53c872054d5287c953ab7090914b",
- "service/postgres-pgvector@1.2.0": "sha256:885bad4a193dea66bc0e84a5b2cf2411a0dac4e858c6a111581522d3f7bed233"
+ "service/postgres-pgvector@1.2.0": "sha256:885bad4a193dea66bc0e84a5b2cf2411a0dac4e858c6a111581522d3f7bed233",
+ "service/litellm@1.1.0": "sha256:82a01551bb8dd1c39cb152c6f729f4e272834eefb0fcaea54cab6df937698844",
+ "service/presidio-analyzer@1.0.0": "sha256:6035289b4d1ef3a23209de94a230f20cb77294b3aface6a7d527c395ea3b8d5e",
+ "service/presidio-anonymizer@1.0.0": "sha256:277e75112fd391ba0113a9b7130eadc89282cabdcc91e59fa3999a8e365f26ad"
 }
