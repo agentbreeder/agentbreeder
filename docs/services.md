@@ -56,7 +56,7 @@ services:
     wire: {database-url: postgres.roles.support_ops, ...}   # staff decisions
 environment:
   gateway: litellm                       # a service that provides gateway/litellm
-  models: [support-model, support-embedding, support-judge]
+  models: [support-model, support-model-openrouter, support-embedding, support-judge]
   ceilings: {budget_usd: 50, rpm: 300}
   services:                              # → AGENTBREEDER_SERVICE_<NAME> in the agent
     traces_url: "{proxy.url}/v1/traces"
@@ -183,6 +183,22 @@ Phoenix's UI: sign in as `admin@localhost` with the password in the stack state 
   must be `true`, `litellm_settings.set_verbose` must be `false` (its debug log prints request
   bodies), and `general_settings.store_prompts_in_spend_logs` must be `false`, each as a YAML
   boolean. There is no operator opt-in; spend logs keep tokens and cost, not messages.
+- Every fallback target is granted (#1033). LiteLLM serves a fallback under the caller's virtual
+  key without checking the key's `models`, so a target missing from `environment.models` would
+  reach a model and provider the environment never granted. `up` refuses it with
+  `GATEWAY_FALLBACK_UNGRANTED`, naming the aliases: add them to `environment.models` or remove
+  the fallback. This applies to `litellm_settings.fallbacks` and `context_window_fallbacks`, from
+  any source alias. `up` writes the granted fallbacks into the operator config
+  (`environments.<env>.fallbacks`), and deploy and `eval` mint each key with its aliases plus
+  every fallback target reachable from them, so a granted fallback keeps working however LiteLLM
+  checks it. Northwind grants `support-model-openrouter`, its `support-model` fallback. Its
+  `OPENROUTER_API_KEY` stays optional: without it the fallback fails and the primary's error
+  stands. Whether a fallback served a turn is not shown yet (#1039). The check covers a gateway
+  that `up` runs, with the config `up` reviewed: edit the config and run `up` again. A
+  hand-written operator config with a gateway `up` does not run gets no check, and its keys
+  hold only the manifest's aliases plus any `fallbacks` it lists. The gate and policy see only
+  `model_access.aliases`; the audit log's `gateway_key` `minted` event lists every model the key
+  holds (`GATEWAY_KEY_MODELS`).
 
 ## Writing a service
 

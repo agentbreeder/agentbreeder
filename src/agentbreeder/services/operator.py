@@ -3,7 +3,8 @@
 It lives in `~/.agentbreeder/stacks/<stack-id>/<env>/`, never in the repo, and can only express:
 `enforcement: enforce`, `targets: [local]`, one `static` provider (`demo`) whose principals are
 the stack's demo agents (enabled, sponsored, with a review date), the stack's gateway (master key
-as a `file:` ref into the stack's service secrets), models, ceilings, service URLs, bindings,
+as a `file:` ref into the stack's service secrets), models, the gateway config's fallbacks among
+them, ceilings, service URLs, bindings,
 `eval_database`, the agents network, MCP relays (`mcp_relays`) and the agents' identity
 references and MCP grants. Never `pdp`, `deployer`,
 `maker_checker`, `runtime_enforcement`, `mcp_egress` or another provider type.
@@ -21,7 +22,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from agentbreeder import secret_files
+from agentbreeder import gateway_keys, secret_files
 from agentbreeder.operator_config import OperatorModel
 from agentbreeder.services.plan import Plan
 from agentbreeder.services.refs import Reference, expand, placeholders
@@ -70,6 +71,21 @@ def host_database_secrets(plan: Plan) -> dict[str, bytes]:
     return values
 
 
+def _granted_fallbacks(plan: Plan) -> dict[str, list[str]]:
+    """The gateway config's fallbacks from granted aliases (#1033). The lock already refused
+    any target outside `environment.models`; a deployment key is minted with these too."""
+    stack = plan.locked.stack
+    config = plan.files[stack.environment.gateway]["config"]
+    try:
+        edges = gateway_keys.config_review(config).fallbacks
+    except gateway_keys.GatewayError as error:
+        raise ServiceError(error.code, str(error)) from None
+    granted = set(stack.environment.models)
+    if not {t for targets in edges.values() for t in targets} <= granted:
+        raise ServiceError("GATEWAY_FALLBACK_UNGRANTED", "a fallback target is not granted")
+    return {source: targets for source, targets in sorted(edges.items()) if source in granted}
+
+
 def documents(plan: Plan, state: StackState, environment: str) -> tuple[dict, dict]:
     stack = plan.locked.stack
     env = stack.environment
@@ -113,6 +129,9 @@ def documents(plan: Plan, state: StackState, environment: str) -> tuple[dict, di
     }
     if services:
         environment_doc["services"] = services
+    fallbacks = _granted_fallbacks(plan)
+    if fallbacks:
+        environment_doc["fallbacks"] = fallbacks
     cluster = json.loads(state.get("kubernetes") or "null")
     if cluster:
         environment_doc["targets"] = ["local", "kubernetes"]

@@ -166,6 +166,41 @@ How each limit reaches the user:
   refused with `ID_INVALID` (it takes a deployment ID), and the container was removed before it
   was run again.
 
+## Re-check after the #1033 fix (PR #1046)
+
+Run 2026-11-15 from a wheel built from branch `fix/1033-fallback-grant` at `038f6cc8`
+(`agentbreeder-3.0.0a2-py3-none-any.whl`, sha256
+`af1f96ab894dd0bfbeb654f43555f33298ebb4598d945aab7b39bff2249bdbdd`), on the same Mac, Docker
+engine 27.5.1, LiteLLM 1.106.2. The sandbox was set up as above: a fresh Python 3.12 venv,
+`env -i`, a fresh `HOME` in `/tmp`, `USER=demo`, a sandbox Docker context, and only the
+`GEMINI_API_KEY` and `OPENROUTER_API_KEY` lines in a 0600 env file, deleted after the run. The
+project was `new agent fb --model gemini` (aliases `chat` and `judge`), edited in the sandbox only:
+`chat` points at `gemini/gemini-0-no-such-model`, a new `chat-or` alias points at
+`openrouter/google/gemini-3.8-flash`, and `litellm_settings.fallbacks: [{"chat": ["chat-or"]}]`.
+
+| Step | Command (UTC start) | Exit | Time | Result |
+|---|---|---|---|---|
+| 1 | `services up <fb> --environment dev --env-file <keys> --yes`, `chat-or` not in `environment.models` (23:47:36) | 2 | 0.8 s | `[GATEWAY_FALLBACK_UNGRANTED] the gateway config falls back to aliases environment.models doesn't grant: ['chat-or']; …`. Nothing started |
+| 2 | `stack.yaml`: `models: [chat, chat-or, judge]`; the same `services up` (23:47:43) | 0 | 158.6 s | the grant lists `chat-or: openrouter (OPENROUTER_API_KEY)`; the operator config has `fallbacks: {chat: [chat-or]}` |
+| 3 | `release <fb>/agent.yaml --stack <fb> --environment dev` (23:50:27) | 0 | 50.0 s | `2/2 evals passed` with the primary broken; production `cd3ad4ac…` |
+| 4 | `status cd3ad4ac… --json` | 0 | | `gateway_key.models: ["chat", "chat-or"]` |
+| 5 | `audit list --json` | 0 | | both `gateway_key` events (candidate, production) carry `GATEWAY_KEY_MODELS: chat, chat-or` |
+| 6 | direct calls with the production key: `chat` twice, `chat-or`, `judge` | | | `chat`: 200, `x-litellm-model-group: chat-or`, `attempted-fallbacks: 1`. `chat-or`: 200 (granted now). `judge`: **403** `key_model_access_denied` (not this key's alias) |
+| 7 | `invoke fb "When is support open?" --json` (23:52:27) | 0 | 8.0 s | 200, a reply, `model: chat`, `cost_usd` 0.00012375. The spend log row for it (read live with `psql`, not saved) is `chat-or` / `openrouter/google/gemini-3.8-flash`, `success` |
+| 8 | `remove cd3ad4ac… --local`, `services down <fb> --purge --yes` | 0, 0 | 7.2 s, 11.7 s | |
+
+- The fallback is now inside the grant: an ungranted target stops `services up`, and a granted one
+  is on the key explicitly and served (steps 3, 6, 7).
+- `invoke --json` still names `chat` and does not say that a fallback served the turn. That half
+  of #1033 is #1039 (a new runtime version).
+- Leak scan of the 12 saved outputs (command output and the call results, which hold status and
+  headers only, never the key or the reply) for both key values and `/Users/`: **0 hits**.
+- Teardown: the only image the run built (the agent image, not in the pre-run snapshot) was
+  removed by ID. Containers, images and volumes then matched the snapshot (compared live, not saved). Docker's default
+  `bridge` network had a new ID, created at 23:48:33 UTC during step 2, which is what a Docker
+  daemon restart does; no command in this run restarts Docker. It was reported to the
+  coordinator.
+
 ## Acceptance (from the issue)
 
 | Check | Result |
@@ -174,7 +209,7 @@ How each limit reaches the user:
 | An rpm cap returns 429 | **PASS** for direct calls (429, `retry-after: 60`). Through `invoke`, the cap delays the turn (67.6 s) rather than returning 429 |
 | A retry/cooldown actually happens | **Partial.** Retry: PASS (`x-litellm-attempted-retries: 1`, then success). Cooldown: not seen consistently |
 | A forced primary failure falls back to the second alias under the deployment's scoped key | **PASS** (real OpenRouter key; 6 direct calls and one `invoke` turn), with the finding that the key is not granted that alias (#1033) |
-| Decide and fix the Northwind `environment.models` grant (or document why not) | **Cause found, not fixed:** the fallback works without the grant; whether to grant it and check fallback targets is #1033, for a code lane |
+| Decide and fix the Northwind `environment.models` grant (or document why not) | **Cause found, not fixed** in this run: the fallback worked without the grant. **Fixed by #1033 (PR #1046):** Northwind grants `support-model-openrouter`, `services up` refuses an ungranted fallback target, and keys are minted with granted targets. Re-checked live with a starter; see "Re-check after the #1033 fix" |
 | Opt-in Docker test | **Not added** (this PR is a record; the test belongs in a code PR) |
 | Verification record `docs/superpowers/verification/gateway-limits.md` | This file |
 
