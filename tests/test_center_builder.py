@@ -174,10 +174,10 @@ def test_the_spec_travels_as_a_private_file_never_in_argv(center, cookie, home, 
 
 
 def test_a_combination_not_run_end_to_end_is_previewed_as_unverified(center, cookie, home):
-    status, data, _ = preview(center, cookie, model="openai")
+    status, data, _ = preview(center, cookie, model="anthropic")
     assert status == 200, data
     assert data["data"]["combination"]["verified"] is False
-    assert data["data"]["keys"] == ["OPENAI_API_KEY"]
+    assert data["data"]["keys"] == ["ANTHROPIC_API_KEY"]
 
 
 def test_the_clis_own_refusal_is_shown(center, cookie, home, calls):
@@ -278,7 +278,7 @@ def test_create_needs_a_preview_first(center, cookie, home, calls, digest):
 
 def test_create_refuses_a_combination_not_run_end_to_end(center, cookie, home, calls):
     _, [(status, refused, _)] = preview_then_create(
-        center, cookie, False, calls=calls, model="openai"
+        center, cookie, False, calls=calls, model="anthropic"
     )
     assert status == 400 and refused["error"]["code"] == "COMBINATION_UNVERIFIED"
     assert len(calls) == 2  # the preview and the re-check; no write

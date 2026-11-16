@@ -18,9 +18,9 @@ options:
   -h, --help            show this help message and exit
   --model {anthropic,gemini,openai,openrouter}
                         Model provider, called through LiteLLM (required,
-                        except with --from-spec); gemini and openrouter have
-                        been run end to end with their default models,
-                        anthropic and openai are config-only
+                        except with --from-spec); gemini, openai and
+                        openrouter have been run end to end with their default
+                        models, anthropic is config-only
   --model-id ID         LiteLLM model id, PROVIDER/... (default: the
                         provider's own, e.g.
                         openrouter/google/gemini-3.8-flash; openrouter ids are

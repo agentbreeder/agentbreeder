@@ -55,12 +55,13 @@ def _probe(tmp_path, environ=None):
 # -- the table -----------------------------------------------------------------------------
 
 
-def test_each_provider_uses_the_key_the_gateway_allows_and_gemini_and_openrouter_are_verified():
+def test_each_provider_uses_the_key_the_gateway_allows_and_only_anthropic_is_unverified():
     assert set(newagent.PROVIDERS) == set(gateway_keys.PROVIDER_KEYS)
     for name, provider in newagent.PROVIDERS.items():
         assert provider.key == gateway_keys.PROVIDER_KEYS[name]
         assert provider.model == DEFAULTS[name]
-    assert [n for n, p in newagent.PROVIDERS.items() if p.verified] == ["gemini", "openrouter"]
+    verified = [n for n, p in newagent.PROVIDERS.items() if p.verified]
+    assert verified == ["gemini", "openai", "openrouter"]
     assert set(guide_checks.KEY_URLS) == set(gateway_keys.PROVIDER_KEYS.values())
     assert all(url.startswith("https://") for url in guide_checks.KEY_URLS.values())
 
@@ -81,7 +82,7 @@ def test_default_model_and_key_fill_both_aliases(model, tmp_path):
     assert f"{key}=..." in plan.files["stack.yaml"]  # the comment names the key file entry
     summary = plan.summary(dry_run=True)
     assert (summary["model"], summary["model_id"], summary["key"]) == (model, DEFAULTS[model], key)
-    assert summary["verified"] is (model in ("gemini", "openrouter"))
+    assert summary["verified"] is (model != "anthropic")
     path = tmp_path / "config.yaml"
     path.write_text(plan.files["stack/litellm/config.yaml"])
     review = gateway_keys.config_review(path, GATEWAY_CAPS)
@@ -267,7 +268,7 @@ def test_cli_json_carries_the_model_id_and_verified(tmp_path, capsys):
 
 @pytest.mark.parametrize(
     ("model", "config_only"),
-    [("openai", True), ("anthropic", True), ("gemini", False), ("openrouter", False)],
+    [("openai", False), ("anthropic", True), ("gemini", False), ("openrouter", False)],
 )
 def test_cli_text_says_when_a_provider_is_config_only(tmp_path, capsys, model, config_only):
     assert cli.main(["new", "agent", "hello", "--model", model, "--dir", str(tmp_path / "h")]) == 0
@@ -277,9 +278,10 @@ def test_cli_text_says_when_a_provider_is_config_only(tmp_path, capsys, model, c
     assert f"Put {newagent.PROVIDERS[model].key}=<your key>" in out
 
 
-@pytest.mark.parametrize("model", ["gemini", "openrouter"])
+@pytest.mark.parametrize("model", ["gemini", "openai", "openrouter"])
 def test_cli_text_says_a_verified_provider_ran_with_its_default_only(tmp_path, capsys, model):
-    model_id = ROUTER if model == "openrouter" else "gemini/gemini-3.7-flash"
+    other = {"openrouter": ROUTER, "openai": "openai/gpt-5.4-mini"}
+    model_id = other.get(model, "gemini/gemini-3.7-flash")
     argv = ["new", "agent", "hello", "--model", model, "--model-id", model_id]
     assert cli.main([*argv, "--dir", str(tmp_path / "h"), "--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -380,7 +382,7 @@ def test_stack_for_writes_the_starters_gateway_for_each_provider(tmp_path, model
     summary = result.summary(dry_run=False)
     verified = newagent.PROVIDERS[model].verified
     assert (summary["model_id"], summary["verified"]) == (resolved, verified)
-    assert verified is (model == "openrouter")
+    assert verified is (model != "anthropic")
     assert summary["key"] == newagent.PROVIDERS[model].key
 
 
@@ -401,13 +403,13 @@ def test_stack_for_refuses_a_missing_model_id_without_a_default_and_a_foreign_id
 
 def test_stack_for_cli_json_and_config_only_text(tmp_path, capsys):
     project, _ = _bare_agent(tmp_path)
-    argv = ["new", "agent", "hello", "--model", "openai", "--model-id", "openai/gpt-5.4-mini"]
+    argv = ["new", "agent", "hello", "--model", "anthropic", "--model-id", "anthropic/claude-x"]
     argv += ["--stack-for", str(project / "agent.yaml"), "--dry-run"]
     assert cli.main([*argv, "--json"]) == 0
     summary = json.loads(capsys.readouterr().out)
-    assert summary["model_id"] == "openai/gpt-5.4-mini" and summary["verified"] is False
+    assert summary["model_id"] == "anthropic/claude-x" and summary["verified"] is False
     assert cli.main(argv) == 0
-    assert "openai is config-only" in capsys.readouterr().out
+    assert "anthropic is config-only" in capsys.readouterr().out
     assert cli.main([*argv[:4], "gemini", *argv[7:]]) == 0
     out = capsys.readouterr().out
     assert "config-only" not in out and "not with this model id" not in out

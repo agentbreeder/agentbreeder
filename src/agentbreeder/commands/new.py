@@ -36,8 +36,8 @@ def register(commands) -> None:
         choices=sorted(newagent.PROVIDERS),
         help=(
             "Model provider, called through LiteLLM (required, except with --from-spec); "
-            "gemini and openrouter have been run end to end with their default models, "
-            "anthropic and openai are config-only"
+            "gemini, openai and openrouter have been run end to end with their default models, "
+            "anthropic is config-only"
         ),
     )
     agent.add_argument(

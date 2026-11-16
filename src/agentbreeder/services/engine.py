@@ -1113,6 +1113,7 @@ class Engine:
             except ServiceError:
                 self.log("The kind node was not attached to the agents network")
         self.docker.down(self.state)
+        networks, networks_left = self._remove_networks()
         removed = []
         if volumes:
             for name in self.docker.stack_volumes(self.state):
@@ -1130,8 +1131,30 @@ class Engine:
             "stack": self.state.id,
             "volumes_removed": removed,
             "images_removed": images,
+            "networks_removed": networks,
+            "networks_left": networks_left,
             "state_removed": state_removed,
         }
+
+    def _remove_networks(self) -> tuple[list[str], list[str]]:
+        """Remove the stack's networks `compose down` left (#1048): only ones labelled with this
+        stack's id, after compose has removed the containers. One still in use (a container
+        outside the stack attached to it) is kept and reported, never forced off. Best effort:
+        tidying up never stops `down` from removing volumes, images or state."""
+        removed, left = [], []
+        try:
+            names = self.docker.stack_networks(self.state)
+        except ServiceError:
+            self.log("Could not list the stack's networks; none were removed")
+            return removed, left
+        for name in names:
+            try:
+                self.docker.remove_network(name)
+            except ServiceError:
+                left.append(name)
+            else:
+                removed.append(name)
+        return removed, left
 
     def env_lines(self, environment: str | None) -> list[str]:
         resolved = context(self.project, environment, self.state.directory.parent)

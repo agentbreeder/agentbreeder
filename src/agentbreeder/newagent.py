@@ -12,9 +12,10 @@ sources for the next version.
 
 Four providers are offered through LiteLLM (#905): gemini, anthropic, openai and openrouter, each
 with its key read by LiteLLM from a local secret file (`os.environ/KEY` in the config, never the
-value). gemini and openrouter have been run end to end (openrouter with its default
-`openrouter/google/gemini-3.8-flash`, #1020); anthropic and openai are config-only (`verified`
-false in `--json`): the eval judge needs strict `json_schema` output, unverified on them.
+value). gemini, openrouter and openai have been run end to end with their defaults (openrouter
+with `openrouter/google/gemini-3.8-flash` and openai with `openai/gpt-5.6`, #1020); anthropic is
+config-only (`verified` false in `--json`): the eval judge needs strict `json_schema` output,
+unverified on it.
 `verified` is per provider: it covers the gateway and judge path with the default model, not how
 well another `--model-id` answers (on OpenRouter, `anthropic/claude-haiku-5.5` failed one of the
 two cases). `--model-id` replaces the provider's default model. Templates are string
@@ -69,12 +70,12 @@ class Provider:
 
 
 # Defaults are model ids in the LiteLLM 1.106.2 model map (the pinned service/litellm@1.0.0);
-# openrouter's is the model it ran end to end with through that LiteLLM (#1020,
-# docs/superpowers/verification/providers.md).
+# openrouter's and openai's are the models they ran end to end with through that LiteLLM
+# (#1020, docs/superpowers/verification/providers.md).
 PROVIDERS = {
     "anthropic": Provider("anthropic/claude-opus-5-5", "ANTHROPIC_API_KEY", False),
     "gemini": Provider("gemini/gemini-3.8-flash", "GEMINI_API_KEY", True),
-    "openai": Provider("openai/gpt-5.6", "OPENAI_API_KEY", False),
+    "openai": Provider("openai/gpt-5.6", "OPENAI_API_KEY", True),
     "openrouter": Provider(
         "openrouter/google/gemini-3.8-flash", "OPENROUTER_API_KEY", True, segments=2
     ),
