@@ -156,3 +156,134 @@ owner's console recording of 2026-11-15 (M17.md) also shows a Try it trace.
   release, saved per release in the session scratchpad, not in the command outputs.
 - Try it's turn cost ($0.003538) is reported by the runtime; see 906-cost.md and #1011.
 - The run shared its sandbox and stack with the #906 record and the CLI part of M17.md.
+
+## Addendum: #1009 and #1010 on a real Phoenix (#1045, 2026-11-15)
+
+Status: **#1009 verified in the console and the CLI; #1010 verified in the console (one Try it
+turn); the CLI's still-arriving mark was not reproduced** (see Not seen). Before this run, only
+#1045's tests with a fake Phoenix exercised the fixes (merged as 34472fb). This run used Northwind from a wheel of that
+`main`, with the stack's own Phoenix, on macOS 13.7.8 x86_64 and Docker Desktop engine 27.5.1.
+
+- **#1009:** every trace total equals the runtime's count and LiteLLM's spend log, in the
+  console and in `agentbreeder traces`. That held for 4 production turns and 1 eval case. Tokens
+  are no longer counted twice.
+- **#1010:** Try it's Trace spans was read 1.1 s after the reply. It said "4 spans so far, still
+  arriving" and offered **Read again**. It did not say "Matched by time". The first Read again,
+  4.8 s after the reply, was still partial. The second, 8.6 s after the reply, gave the full 9-span tree, "Recorded by the agent's runtime for this
+  deployment".
+
+### Method
+
+The same method as the record above, with these differences:
+- **Source:** `main` at 34472fb, exported with `git archive`.
+- **Wheel:** `agentbreeder-3.0.0a2-py3-none-any.whl`, sha256
+  `83defacf202c505cd0d41c33b2b50f96a0ac2c2297868995cb22197223e1d9e7`.
+- **Sandbox:** a fresh Python 3.12 venv under `/tmp`, holding only the wheel with `[eval]`.
+  Commands ran under `env -i` with `USER=demo`, a 0700 `HOME` and its own Docker context.
+  Playwright ran from a separate venv.
+- **Keys:** only the `GEMINI_API_KEY` and `TAVILY_API_KEY` lines of `~/.env` were copied, into a
+  0600 file. It was never printed and was deleted after the run.
+- **Docker before the run:** 0 containers. Leftover networks from other sessions (16
+  `agentbreeder-demo-*-mcp-mock` and 1 `agentbreeder-northwind-642a343c-agents`) were left
+  alone.
+
+| Step | Command | Exit | Time | Result |
+|---|---|---|---|---|
+| 1 | `example northwind <NW>` (23:58:44 UTC) | 0 | 1.3 s | |
+| 2 | `services up <NW> --environment dev --env-file <keys> --yes` | 0 | 260.2 s | postgres, litellm, phoenix, ops and proxy created |
+| 3 | `release <NW>/agent.yaml --stack <NW> --environment dev` (00:03:11) | **0** | 151.2 s | `Released sha256:5a6e4c4a…a0c9: 61/61 evals passed`, first attempt; run `20261115-160319-449279` |
+| 4 | console: Try it, its Trace spans, the Traces tab, Releases, the eval report (below) | | | |
+| 5 | `traces --stack <NW> --environment dev --last 5`, then with `--json` | 0 | 0.8 s, 1.1 s | trace `313ee4ae…`, `exact`, `tokens 3608/174`. The JSON gives `{"prompt": 3608, "completion": 174, "total": 3782}` |
+| 6 | `traces --trace 313ee4ae…` | 0 | 1.3 s | the 9-span tree below |
+| 7 | `traces --trace a0d7a2eb…` (an eval case) | 0 | 0.8 s | deployment `5df42aaa…` (`exact`, the removed candidate), session `eval-20261115-160319-449279-…`, `tokens 1754/146` |
+| 8 | 3 more `invoke` turns, each read with `traces` | 0 | | totals below |
+| 9 | a SQL read of `LiteLLM_SpendLogs` (`psql -d litellm` in the stack's Postgres) | | | one row per model call, below; the rows were copied by hand from the terminal output, not saved by the wrapper |
+
+Step 6's tree, with names from Phoenix and no message content:
+
+```
+agent_turn [AGENT] 9790 ms
+  retrieve_knowledge [RETRIEVER] 299 ms
+  invocation [UNKNOWN] 9347 ms
+    invoke_agent northwind_support [AGENT] 9325 ms
+      call_llm [CHAIN, openai/support-model, 1756/65 tokens, counted in a span under it] 6898 ms
+        generate_content openai/support-model [LLM, openai/support-model, 1756/65 tokens] 6841 ms
+      execute_tool escalate_to_human [TOOL] 7 ms
+      call_llm [CHAIN, openai/support-model, 1852/109 tokens, counted in a span under it] 2353 ms
+        generate_content openai/support-model [LLM, openai/support-model, 1852/109 tokens] 2329 ms
+```
+
+### Console (Playwright, real stack)
+
+| Time (UTC) | Screen | Seen |
+|---|---|---|
+| 00:06:37 | Try it, Northwind production | Customer `t1045-check` sent the refund question. The reply came in 11.1 s. It quoted the refund policy, escalated, and opened ticket `T-010EC978` |
+| 00:06:38 | the turn's **Trace spans**, opened as the reply appeared and read 1.1 s after it | "Trace read: 4 spans so far, still arriving." The summary: "OK · 7.4 s · 4 spans so far · 1,821 tokens · 1 tool call". The notice: "Still arriving: Phoenix does not have this trace's root span yet … Read it again in a few seconds." It offered **Read again**. There was no root span and no "Matched by time" text |
+| 00:06:42 | **Read again**, 4.8 s after the reply | still 4 spans, still arriving |
+| 00:06:46 | **Read again**, 8.6 s after the reply | "Trace read: 9 spans." "3,782 tokens · 1 tool call". "Recorded by the agent's runtime for this deployment". The full tree as in step 6, and each `call_llm` says "counted in a span under it" |
+| 00:06:46 | the turn's **Turn details** | 3,608 in, 174 out over 2 model calls; cost $0.003358; trace `313ee4ae…` |
+| 00:06:49 | **Traces** tab | 1 trace: "3608 in, 174 out tokens · 9 spans", "Tool calls: escalate_to_human (7 ms)". Its Trace spans showed 9 spans and 3,782 tokens |
+| 00:06:53 | **Releases**, then **Eval report** | "passed 61/61", then "61 of 61 cases passed (100%)" |
+| 00:06:58 | the first case's **Trace spans** (`refund-annual-in-window`, trace `a0d7a2eb…`) | "Trace read: 6 spans." "1,900 tokens · 0 tool calls". "Recorded by the agent's runtime for this deployment" |
+
+Screenshots: `c01-tryit-trace` (taken after the final read), `c02-traces-tab`,
+`c03-releases-tab` and `c04-eval-case-trace`. They are kept in the session scratchpad and not
+attached.
+
+### Token totals: trace vs runtime vs LiteLLM
+
+| Turn | Runtime (Turn details or `invoke --json`) | Trace (`traces` and the console) | LiteLLM spend log, `support-model` rows |
+|---|---|---|---|
+| Try it `313ee4ae…` | 3,608 / 174, 2 calls | 3608/174 (console: 3,782 total) | 1756/65 + 1852/109 = 3608/174 |
+| `invoke` (text), `70873ea0…` | not shown in text mode | 1752/109 | 1752/109 |
+| `invoke --json`, `4449829c…` | 5695 / 248, 3 calls | 5695/248 | 1802/18 + 1867/107 + 2026/123 = 5695/248 |
+| `invoke --json`, `566c85cd…` | 3686 / 227, 2 calls | 3686/227 | 1756/120 + 1930/107 = 3686/227 |
+| Eval case `a0d7a2eb…` (candidate) | not in the eval report | 1754/146 (console: 1,900 total) | 1754/146, the candidate key's row at 00:03:33.826 |
+
+The record above found the double count on the same kind of turn: 3,663/211 was reported as
+7326/422 (#1009). In this run each total equals the sum of the turn's model calls exactly.
+
+The eval report has no per-case tokens, so the eval case's row was matched by its counts and the
+candidate's key. It was the only row with these counts in the 20 s window read (00:03:20 to
+00:03:40, the trace started at 00:03:25). Other eval cases ran in parallel.
+
+Each turn also made one `support-embedding` call (24 tokens for the Try it turn) for its
+retrieval. Neither the runtime's count nor the trace includes it, so it is excluded from both
+sides above.
+
+### Acceptance (from the coordinator's task)
+
+| Check | Result |
+|---|---|
+| A Try it turn's trace totals equal the runtime's and LiteLLM's tokens (no double count) | **PASS**: 3,608 in / 174 out (3,782 total) everywhere (table above) |
+| A read in the first ~2 s shows "still arriving", not "Matched by time", and Read again fills it | **PASS**, on one turn: the read at 1.1 s showed "still arriving"; the first Read again (4.8 s) was still partial, and the second (8.6 s) gave the full 9 spans |
+| `agentbreeder traces` gives the same totals | **PASS**: steps 5 to 8 |
+| An eval-case trace too | **PASS**: 1754/146 in the console, the CLI and LiteLLM |
+
+### Not seen
+
+- **The CLI's `(still arriving)` mark** did not appear. A `traces --last 2` read right after an
+  `invoke` exited did not list the new trace yet. It appeared complete in a read about 9 s later. One more
+  `invoke` ran in the background while `traces --last 1` was polled every ~1.5 s, 16 times. The
+  new trace first appeared complete, about 1 s after the turn ended. No poll caught it partial.
+  The CLI's text for that case is covered by #1045's unit tests only.
+- **The Traces tab's still-arriving notice** did not appear either, because the tab was read
+  after the root span arrived.
+
+### Notes
+
+- Two `invoke` traces are `error`, with `save_customer_note(error)`: "Notes need an identified
+  customer; nothing was saved". These `invoke` calls had no customer ID. The tool refuses
+  anonymous notes and the turn still replied. This is not a tracing defect.
+- The console still says "Read with the stack's Phoenix ingest key, which can also write". This
+  was already known and is not part of #1045.
+
+### Leak scan and teardown
+
+- **Scan:** 185 files were checked: the run's outputs, the screenshots, the sandbox state and
+  the eval report. The needles were the 7 values in `~/.env` of 12 or more characters (raw,
+  base64 and URL-encoded) and `/Users/`. Result: **0 hits**.
+- **Teardown:** `remove --local` for the production deployment, then `services down --purge
+  --yes`. The agent image this run built (`5a6e4c4a…`, not in the pre-run snapshot) was removed
+  with `docker rmi`. Afterwards containers, volumes, networks and images matched the pre-run
+  snapshot. No sandbox process was left.
