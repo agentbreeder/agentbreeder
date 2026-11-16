@@ -7,6 +7,8 @@ token counts and the cost it computed from its own model price map. The rows out
 (a removed deployment's calls are still counted), unlike a key's `spend`, which resets every
 budget window. Rows from any other key (the master key, a key someone minted by hand) are not
 counted. Amounts are in USD as LiteLLM computed them: an estimate from list prices, not a bill.
+Cached prompt tokens (#1056) are what LiteLLM recorded the provider reported: a part of the
+prompt tokens, never estimated here.
 
 Gateway rows are data from a local service: every field is type-checked here, and text fields are
 passed on as they are (callers print them through `safe_text`).
@@ -85,6 +87,7 @@ def _bucket(extra: dict) -> dict:
         "calls": 0,
         "failed": 0,
         "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
         "completion_tokens": 0,
         "cost_usd": 0.0,
         "unpriced": 0,
@@ -96,6 +99,7 @@ def _add(bucket: dict, call: dict) -> None:
     bucket["calls"] += 1
     bucket["failed"] += 0 if call["ok"] else 1
     bucket["prompt_tokens"] += call["prompt_tokens"]
+    bucket["cached_prompt_tokens"] += call["cached_prompt_tokens"]
     bucket["completion_tokens"] += call["completion_tokens"]
     if call["local"]:
         bucket["local"] += 1
@@ -105,18 +109,36 @@ def _add(bucket: dict, call: dict) -> None:
         bucket["cost_usd"] += call["cost_usd"]
 
 
+def cached_tokens(metadata) -> int:
+    """Prompt tokens the provider read from its cache, as LiteLLM recorded them in a spend log
+    row's metadata: the larger of `additional_usage_values.cache_read_input_tokens` (LiteLLM's
+    normalised field) and `usage_object.prompt_tokens_details.cached_tokens`; 0 when neither is
+    a count. Both name the same tokens, so they are never added."""
+    if not isinstance(metadata, dict):
+        return 0
+    extra = metadata.get("additional_usage_values")
+    read = extra.get("cache_read_input_tokens") if isinstance(extra, dict) else None
+    usage = metadata.get("usage_object")
+    details = usage.get("prompt_tokens_details") if isinstance(usage, dict) else None
+    cached = details.get("cached_tokens") if isinstance(details, dict) else None
+    return max(_count(read), _count(cached))
+
+
 def _call(row: dict) -> dict | None:
     metadata = row.get("metadata")
     alias = metadata.get("user_api_key_alias") if isinstance(metadata, dict) else None
     if not isinstance(alias, str) or not alias.startswith(PREFIX):
         return None
+    prompt = _count(row.get("prompt_tokens"))
     return {
         "alias": alias[: TEXT_LIMIT + len(PREFIX)],
         "request_id": _text(row.get("request_id")),
         "model": _text(row.get("model")),
         "model_group": _text(row.get("model_group")),
         "ok": row.get("status") != "failure",
-        "prompt_tokens": _count(row.get("prompt_tokens")),
+        "prompt_tokens": prompt,
+        # A part of the prompt tokens: a larger value is not a count, it is dropped.
+        "cached_prompt_tokens": cached if (cached := cached_tokens(metadata)) <= prompt else 0,
         "completion_tokens": _count(row.get("completion_tokens")),
         "cost_usd": _usd(row.get("spend")),
         # Only a zero-spend call is local: a priced call stays in the USD total whatever the

@@ -2,6 +2,10 @@
 
 - Status: **r3, reviews converged** (round 3 APPROVED). The r1–r3 architecture and `/security`
   reviews (Claude Sonnet, read-only) are folded in (§18). Owner decisions D1–D10 are open (§14). No code in this PR.
+- **Status note (2026-11-16):** the owner accepted every recommendation (D1–D10). Implementation
+  plan: `docs/superpowers/plans/2026-11-16-sub-agents-and-skills.md`. One deviation recorded there:
+  S3's "usage grouping" is per-sub-agent **cost** (`agentbreeder cost`, `llmcost.py`,
+  `gateway_keys.py`), since `usage.py` is container resource usage.
 - Issue #1058, part of epic #1057 (agent composition: sub-agents, skills, A2A). Sibling spec:
   `2026-11-16-skills-design.md` (#1059). Calls between deployments are A2A (#835,
   `2026-11-13-a2a-design.md`), not this.

@@ -430,7 +430,7 @@ def _ref_entry(hit: registry.Resolved, directory: Path) -> dict:
         "ref": str(hit.ref),
         "kind": hit.ref.kind,
         "root_kind": registry.root_kind(hit.root, directory),
-        "runs_code": registry.runs_code(hit.ref.kind),
+        "runs_code": registry.runs_code(hit.ref.kind, hit.path),
         "sha256": _version_digest(hit),
     }
 

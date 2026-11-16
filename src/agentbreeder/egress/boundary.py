@@ -24,7 +24,13 @@ from importlib import resources
 from pathlib import Path
 
 from agentbreeder.egress.host import egress_dir, write_private_json
-from agentbreeder.egress.protocol import MAC_HEADER, NONCE_HEADER, response_authentic
+from agentbreeder.egress.protocol import (
+    MAC_HEADER,
+    NONCE_HEADER,
+    PepKeys,
+    ProtocolMismatch,
+    response_authentic,
+)
 from agentbreeder.manifest import Manifest
 from agentbreeder.operator_config import OperatorConfig, OperatorConfigError, read_private
 from agentbreeder.runtime import await_binding
@@ -201,7 +207,8 @@ class Boundary:
         full = {
             **pin,
             "deployment": record["id"],
-            "token_sha256": hashlib.sha256(token.encode()).hexdigest(),
+            # The derived keys only: the token itself stays with the sidecar.
+            **PepKeys.from_token(token).pin_fields(),
             "listen": mode,
         }
         if mode == "tcp":
@@ -249,6 +256,10 @@ class Boundary:
 
     def service_healthy(self, record: dict) -> bool:
         pin = self.pin(record)
+        try:
+            keys = PepKeys.from_pin(pin)
+        except ProtocolMismatch:
+            return False  # a pre-v2 service is never trusted, whichever transport it uses
         if pin["listen"] != "tcp":
             return self.service_pid(record) is not None
         # Loopback ports are shared with every local user: the process we started must still be
@@ -263,13 +274,19 @@ class Boundary:
             with urllib.request.urlopen(request, timeout=3) as response:  # noqa: S310 - loopback
                 data = response.read(65536)
                 status, mac = response.status, response.headers.get(MAC_HEADER)
-            if not response_authentic(pin["token_sha256"], nonce, status, data, mac):
+            if not response_authentic(keys.reply, nonce, "GET", "/healthz", status, data, mac):
                 return False
             return json.loads(data).get("revision") == pin["revision"]
         except (OSError, ValueError, KeyError):
             return False
 
     def start_service(self, record: dict, timeout: float = 15) -> None:
+        try:
+            PepKeys.from_pin(self.pin(record))
+        except ProtocolMismatch as error:
+            # A pin from before decision protocol v2: never restart it; the deployment is torn
+            # down (RUNTIME_BOUNDARY_UNVERIFIED) and a redeploy writes a new pin.
+            raise BoundaryUnverified(f"[{error.code}] {error}") from error
         self.stop_service(record)
         directory = self.directory(record)
         (directory / "endpoint.json").unlink(missing_ok=True)

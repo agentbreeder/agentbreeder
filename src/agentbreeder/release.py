@@ -613,13 +613,20 @@ def release(
             {"code": "RELEASE_THRESHOLD", "message": str(needed)},
             {"code": "RELEASE_EVALSET", "message": evalset_sha256},
         ]
-        if report.pass_rate < needed:
+        tag_needed = agent.evals.tag_threshold
+        if tag_needed is not None:  # #1058 D6; recorded only when set, so old rows are unchanged
+            reasons.append({"code": "RELEASE_TAG_THRESHOLD", "message": str(tag_needed)})
+        tag_failure = report.tag_gate(tag_needed)
+        if report.pass_rate < needed or tag_failure:
             service.record("release", "eval_failed", deployer, reasons)
             details["failed_cases"] = _redacted_cases(report.results, capture)
-            message = (
-                f"Eval gate failed: {summary['passed']}/{summary['cases']} passed, needs "
-                f"{needed:.0%}; production unchanged"
-            )
+            if report.pass_rate < needed:
+                message = (
+                    f"Eval gate failed: {summary['passed']}/{summary['cases']} passed, needs "
+                    f"{needed:.0%}; production unchanged"
+                )
+            else:
+                message = f"Eval gate failed: {tag_failure}; production unchanged"
             if unreleased:
                 # The caller prints the commands, with the --stack/--state-dir it was given.
                 message += "; production is running an image that failed the gate"

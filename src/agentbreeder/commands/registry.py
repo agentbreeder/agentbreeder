@@ -23,6 +23,11 @@ def register(commands) -> None:
     reg_new.add_argument("kind", type=_scaffold_kind, choices=sorted(registry.SCAFFOLD))
     reg_new.add_argument("name")
     reg_new.add_argument("--dir", type=Path, default=Path("."))
+    reg_new.add_argument(
+        "--scripts",
+        action="store_true",
+        help="skill only: add one declared example script (a script skill is code)",
+    )
     reg_publish = reg_commands.add_parser("publish", help="Publish an immutable version")
     reg_publish.add_argument("source", type=Path)
     reg_publish.add_argument("--to", type=Path, default=Path("registry"), help="Registry root")
@@ -138,7 +143,7 @@ def run(args) -> int:
 def _run(args) -> int:
     try:
         if args.registry_command == "new":
-            path = registry.scaffold(args.kind, args.name, args.dir)
+            path = registry.scaffold(args.kind, args.name, args.dir, scripts=args.scripts)
             print(f"Created {path}. Edit it, then: agentbreeder registry publish {path}")
             return 0
         if args.registry_command == "publish":
@@ -194,7 +199,8 @@ def _run(args) -> int:
             else:
                 for row in rows:
                     refused = "  (symlinked directory: refused)" if row["symlinked"] else ""
-                    print(f"{row['ref']}  {row['root']}{refused}")
+                    code = "  (code)" if row["runs_code"] else ""
+                    print(f"{row['ref']}  {row['root']}{code}{refused}")
             return 0
         problems = registry.verify(search)
         if args.json:
@@ -217,7 +223,7 @@ def _run(args) -> int:
 def _placed(args, result: dict, verb: str, notice: bool) -> int:
     """`publish`/`import` output. Text for a write keeps publish's `REF SHA256 PATH` line."""
     if notice:
-        print(_notice(result["kind"]), file=sys.stderr)
+        print(_notice(result["kind"], result["runs_code"]), file=sys.stderr)
     if args.json:
         # publish keeps its one-line JSON (scripts read the last line); import, fork and edit
         # match `show`.
@@ -339,8 +345,10 @@ def _input(source: str) -> bytes:
     return data
 
 
-def _notice(kind: str) -> str:
-    if registry.runs_code(kind):
+def _notice(kind: str, runs_code: bool) -> str:
+    """`runs_code` is the place result's, decided from the staged files (a skill is code only
+    when it has scripts, skills spec §5.2)."""
+    if runs_code:
         return (
             f"Note: a {kind} version is code that runs inside agents with their privileges. "
             "Review it before an agent uses it; it takes effect only after `release` passes."
@@ -462,6 +470,8 @@ def _show_text(view: dict) -> str:
         lines += _package_text(view)
     if "functions" in view:
         lines += _functions_text(view)
+    if "skill" in view:
+        lines += _skill_text(view)
     for entry in view["files"]:
         if entry["type"] == "file" and entry["text"] is not None:
             lines += ["", f"--- {entry['path']} ---", entry["text"].rstrip("\n")]
@@ -508,4 +518,26 @@ def _functions_text(view: dict) -> list[str]:
         )
         if entry["description"]:
             lines.append(f"    {excerpt(entry['description'], 300)}")
+    return lines
+
+
+def _skill_text(view: dict) -> list[str]:
+    """A skill's front matter and script tools for a terminal (values cleaned by registry.show;
+    the body and references are printed with the files below)."""
+    if view["skill"] is None:
+        return [f"Skill: not valid: {excerpt(view['skill_error'], 300)}"]
+    skill = view["skill"]
+    code = "code: scripts" if skill["runs_code"] else "instruction pack, no code"
+    lines = [
+        f"Skill: {excerpt(skill['name'], 64)} ({code})",
+        f"  Always in context: {excerpt(skill['description'], 1024)}",
+    ]
+    for key in ("license", "compatibility"):
+        if skill[key]:
+            lines.append(f"  {key.capitalize()}: {excerpt(skill[key], 300)}")
+    for script in skill["scripts"]:
+        lines.append(
+            f"  Script {excerpt(script['path'], 100)} -> tool {excerpt(script['tool'], 64)}: "
+            f"{excerpt(script['description'], 300)}"
+        )
     return lines

@@ -230,7 +230,7 @@ def parts(search: list[Path]) -> dict:
             "name": ref.name,
             "version": ref.version,
             "root_kind": registry.root_kind(Path(row["root"])),
-            "runs_code": registry.runs_code(ref.kind),
+            "runs_code": registry.runs_code(ref.kind, path),
             "description": _description(manifest),
         }
         if ref.kind == "mcp":

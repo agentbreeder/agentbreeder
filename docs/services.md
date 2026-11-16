@@ -286,7 +286,8 @@ Ollama running on the operator's own machine, with no key:
   unless a firewall blocks port 11434.
 - Run on macOS with Docker Desktop (`docs/superpowers/verification/ollama.md`): `services up`,
   `release` 2/2 with `llama3.2:3b` as both agent and judge, `invoke`, one `nomic-embed-text`
-  embedding at 768 dimensions. On a CPU without a GPU a 3B model answers in 20–40 s once loaded;
+  embedding at 768 dimensions. That run used `runtime/adk@1.3.0`; starters now write `1.4.0`
+  (#1056), which has not been run with Ollama. On a CPU without a GPU a 3B model answers in 20–40 s once loaded;
   Ollama unloads an idle model after 5 minutes, and a cold model plus the eval's parallel calls
   can exceed the agent runtime's 90 s model timeout. **Load the model before `release`** (any
   short call, e.g. `ollama run llama3.2:3b hi`).
@@ -402,8 +403,11 @@ What is not covered: calls that bypass the gateway, tool-call arguments, tool de
 image URLs inside a chat request, the request's `user` field (LiteLLM stores it as an end-user ID), what the agent itself stores (spans, sessions, turns), and
 detection quality (Presidio is pattern and NER based). On this LiteLLM digest a `pre_call`
 guardrail also checks the model's reply. Blocked turns reach the agent as the gateway's HTTP 400.
-Runtime support (coded block replies, events) is a later slice (G2), so nothing about guardrails
-is claimed until then. On `main`, not in a published preview.
+`runtime/adk@1.4.0` answers such a turn `MODEL_BLOCKED` (422) with a `guardrail_blocked` event
+([agent-yaml.md](agent-yaml.md#runtimeadk140)). One live run (2026-11-16, Northwind, macOS) showed
+this for a message with a US SSN, including the gateway blocking the turn's embedding call; the
+agent still stored that message in its own `turns` table and trace spans. The rest of G2 (reconcile drift, the
+runtime capability check) is still to come. On `main`, not in a published preview.
 
 ## Writing a service
 

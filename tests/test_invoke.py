@@ -230,6 +230,7 @@ TURN = "0123456789abcdef" * 2
     ("status", "code"),
     [
         (402, "MODEL_BUDGET_EXCEEDED"),
+        (422, "MODEL_BLOCKED"),
         (429, "MODEL_RATE_LIMITED"),
         (502, "MODEL_ACCESS_DENIED"),
         (502, "MODEL_REQUEST_REFUSED"),
@@ -318,6 +319,38 @@ def test_a_fallback_turn_says_so(state, agent, docker, capsys, fallbacks, served
         assert "fallback" not in captured.err
     else:
         assert note in captured.err and "\x1b" not in captured.err and "https" not in captured.err
+
+
+@pytest.mark.parametrize(
+    ("unknown", "shown"),
+    [
+        (["delete_everything"], "(delete_everything)"),
+        (["a", "sk-[redacted]"], "(a, sk-[redacted])"),
+        (["evil\x1b[2J", "has space", 7], None),
+        ("delete_everything", None),
+        ([], None),
+        (None, None),
+    ],
+)
+def test_an_invented_tool_is_a_note_not_a_call(state, agent, docker, capsys, unknown, shown):
+    """#1074: runtime/adk@1.4.0's `unknown_tools` become a stderr note; `tools` is untouched."""
+    Agent.answer = (
+        200,
+        {"reply": "ok", "session_id": "s1", "tools": [], "unknown_tools": unknown},
+    )
+    deployment(state, "hello", agent)
+    docker.install(FakeDocker(endpoint=agent))
+    assert run(state, "hello", "hi") == 0
+    captured = capsys.readouterr()
+    assert captured.out == "ok\n"
+    if shown is None:
+        assert "does not have" not in captured.err
+    else:
+        assert f"a tool this agent does not have {shown}; the runtime refused it" in captured.err
+        assert "\x1b" not in captured.err
+    assert run(state, "hello", "hi", "--json") == 0
+    response = json.loads(capsys.readouterr().out)["response"]
+    assert response["tools"] == [] and response["unknown_tools"] == unknown
 
 
 @pytest.mark.parametrize(

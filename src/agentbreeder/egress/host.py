@@ -20,6 +20,7 @@ import os
 import socketserver
 import sqlite3
 import sys
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -30,9 +31,14 @@ from agentbreeder.egress.protocol import (
     MAC_HEADER,
     METHODS,
     NONCE_HEADER,
+    PROTOCOL_VERSION,
+    VERSION_HEADER,
+    PepKeys,
+    ProtocolMismatch,
+    RequestRejected,
+    RequestVerifier,
     canonical,
     response_mac,
-    token_matches,
     valid_nonce,
 )
 from agentbreeder.identity.transport import JsonTransport, TransportError
@@ -409,7 +415,37 @@ class DecisionService:
 HANDLER_TIMEOUT = 5  # seconds per decision-service connection
 
 
-def handler_for(service: DecisionService, token_sha256: str):
+_REFUSAL_HINTS = {
+    ProtocolMismatch.code: "a sidecar from another release called the decision service; redeploy",
+    "PEP_CLOCK_SKEW": "sidecar clock over 30 s behind or 5 s ahead of the host (Docker VM clock?)",
+    "PEP_AUTH_FAILED": "missing or invalid request MAC",
+    "PEP_REPLAYED": "a replayed request, or one signed before this process started",
+    "PEP_REPLAY_CACHE_FULL": "too many requests in the replay window",
+}
+
+
+class RefusalLog:
+    """Writes refused requests to the service log, at most once per code per minute, so any
+    local caller cannot grow the log without bound."""
+
+    def __init__(self, clock=time.monotonic, interval: float = 60):
+        self.clock = clock
+        self.interval = interval
+        self.last: dict[str, float] = {}
+
+    def note(self, code: str) -> None:
+        now = self.clock()
+        if code in self.last and now - self.last[code] < self.interval:
+            return
+        self.last[code] = now
+        hint = _REFUSAL_HINTS.get(code, "refused")
+        print(f"[{code}] {hint}; nothing was decided.", file=sys.stderr)
+
+
+def handler_for(service: DecisionService, keys: PepKeys, verifier: RequestVerifier | None = None):
+    verifier = verifier or RequestVerifier(keys)
+    refusals = RefusalLog()
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "agentbreeder-decision"
         sys_version = ""
@@ -421,15 +457,17 @@ def handler_for(service: DecisionService, token_sha256: str):
         def log_message(self, format, *args):  # noqa: A002
             pass
 
-        def _reply(self, status: int, body: dict):
+        def _reply(self, status: int, body: dict, nonce: str | None = None):
+            """`nonce` is set only for an authenticated request or the `/healthz` challenge;
+            a refused request gets no MAC, so it never yields one for a chosen nonce."""
             data = json.dumps(body).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
-            nonce = self.headers.get(NONCE_HEADER)
-            if valid_nonce(nonce):
-                # Proves this reply came from the holder of the pin, not a port squatter.
-                self.send_header(MAC_HEADER, response_mac(token_sha256, nonce, status, data))
+            self.send_header(VERSION_HEADER, str(PROTOCOL_VERSION))
+            if nonce is not None:
+                mac = response_mac(keys.reply, nonce, self.command, self.path, status, data)
+                self.send_header(MAC_HEADER, mac)
             self.end_headers()
             self.wfile.write(data)
 
@@ -437,35 +475,46 @@ def handler_for(service: DecisionService, token_sha256: str):
             if self.path != "/healthz":
                 return self._reply(404, {})
             # Unauthenticated liveness for reconcile: the revision only, MAC'd to the caller's
-            # nonce. Authenticated callers use POST /health for the full status.
+            # nonce and bound to GET /healthz, so it cannot stand in for a decision reply.
+            # Authenticated callers use POST /health for the full status.
+            nonce = self.headers.get(NONCE_HEADER)
+            nonce = nonce if valid_nonce(nonce) else None
             try:
-                return self._reply(200, {"revision": service.health()["revision"]})
+                return self._reply(200, {"revision": service.health()["revision"]}, nonce)
             except Denied as denial:
-                return self._reply(409, {"code": denial.code})
+                return self._reply(409, {"code": denial.code}, nonce)
 
         def do_POST(self):  # noqa: N802
-            presented = self.headers.get("Authorization", "")
-            if not token_matches(presented.removeprefix("Bearer "), token_sha256):
-                return self._reply(401, {})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if not 0 <= length <= 64 * 1024:
                     raise ValueError
-                body = json.loads(self.rfile.read(length) or b"{}")
+                raw = self.rfile.read(length)  # read first, so every refusal reaches the caller
+            except (ValueError, OSError):
+                return self._reply(400, {})
+            try:
+                nonce = verifier.verify("POST", self.path, self.headers, raw)
+            except RequestRejected as rejected:
+                refusals.note(rejected.code)
+                if rejected.code == ProtocolMismatch.code:
+                    return self._reply(426, {"code": rejected.code})
+                return self._reply(401, {"code": rejected.code})
+            try:
+                body = json.loads(raw or b"{}")
                 if not isinstance(body, dict):
                     raise ValueError
             except ValueError:
-                return self._reply(400, {})
+                return self._reply(400, {}, nonce)
             try:
                 if self.path == "/health":
-                    return self._reply(200, service.health())
+                    return self._reply(200, service.health(), nonce)
                 if self.path == "/decide":
-                    return self._reply(200, service.decide(body))
+                    return self._reply(200, service.decide(body), nonce)
             except Denied as denial:
-                return self._reply(409, {"code": denial.code})
+                return self._reply(409, {"code": denial.code}, nonce)
             except Unavailable:
-                return self._reply(503, {"code": "AUDIT_UNAVAILABLE"})
-            return self._reply(404, {})
+                return self._reply(503, {"code": "AUDIT_UNAVAILABLE"}, nonce)
+            return self._reply(404, {}, nonce)
 
     return Handler
 
@@ -477,9 +526,9 @@ class _UnixHTTPServer(socketserver.UnixStreamServer):
 
 
 def make_server(service: DecisionService, pin: dict, directory: Path):
-    handler = handler_for(service, pin["token_sha256"])
+    handler = handler_for(service, PepKeys.from_pin(pin))  # ProtocolMismatch: an old pin
     if pin.get("listen") == "unix":
-        # Mounted read-only into the sidecar only (it runs as another uid); the bearer token,
+        # Mounted read-only into the sidecar only (it runs as another uid); the request MAC,
         # not file permissions, authenticates callers.
         path = directory / "sock" / "pep.sock"
         path.unlink(missing_ok=True)
@@ -504,6 +553,11 @@ def write_private_json(path: Path, value: dict) -> None:
 def run(state_dir: Path, deployment: str, max_idle_checks: int = 2, poll: float = 5) -> int:
     directory = egress_dir(state_dir, deployment)
     pin = json.loads((directory / "pin.json").read_text())
+    try:
+        PepKeys.from_pin(pin)
+    except ProtocolMismatch as error:
+        print(f"[{error.code}] {error}", file=sys.stderr)
+        return 2
     store = Store(state_dir)
     service = DecisionService(store, pin, pin_path=directory / "pin.json")
     server, address = make_server(service, pin, directory)

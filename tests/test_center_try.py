@@ -166,7 +166,10 @@ def test_a_reply_is_allow_listed_with_latency_and_seams(center, project, cookie)
         "tools": ["orders"],
         "sources": ["Returns policy"],
         "model_calls": 2,
-        "tokens": {"prompt": 812, "output": 64},
+        "tokens": {"prompt": 812, "output": 64, "cached": None},
+        "fallbacks": None,  # REPLY is a runtime before adk 1.3.0: no route facts
+        "served_by": [],
+        "unknown_tools": [],
         "latency_ms": turn["latency_ms"],
         "trace": {"id": "a" * 32, "url": None},
         "cost": None,  # REPLY is a runtime before adk 1.2.0: no `cost_usd`
@@ -219,7 +222,7 @@ def test_odd_fields_are_dropped_not_passed_on(center, project, cookie, tmp_path)
     assert len(turn["tools"]) == tryit.MAX_ITEMS and turn["tools"][0] == "t" * tryit.MAX_ITEM
     assert turn["sources"] == []
     assert turn["model_calls"] is None
-    assert turn["tokens"] == {"prompt": None, "output": None}
+    assert turn["tokens"] == {"prompt": None, "output": None, "cached": None}
     assert turn["model"] is None
     assert "html" not in turn
 
@@ -246,6 +249,140 @@ def test_an_agent_error_is_a_sent_failure(center, project, cookie, tmp_path):  #
     assert data["error"]["code"] == "AGENT_ERROR"
     assert data["error"]["message"] == "The agent answered 502: model quota"
     assert data["data"]["sent"] is True
+
+
+# -- runtime/adk@1.3.0 and 1.4.0 (#1062) ---------------------------------------------------------
+
+BLOCKED = (
+    "A guardrail on the model gateway blocked this turn: the message or the model's answer had "
+    "content it does not allow, so there is no reply. Sending it again won't help; rephrase the "
+    "message without that content."
+)
+
+
+def model_error(code, status, **fields):
+    body = {"error": f"{code} message", "code": code, "correlation_id": "e" * 32}
+    body |= {"trace_id": "a" * 32, "retry_after_s": None} | fields
+    return dict(ANSWER, status=status, response=body)
+
+
+def test_the_model_codes_are_invokes():
+    from agentbreeder.commands import invoke
+
+    assert tryit.MODEL_CODES >= invoke.MODEL_CODES
+    assert "MODEL_BLOCKED" in tryit.MODEL_CODES  # runtime/adk@1.4.0, before invoke learns it
+
+
+@pytest.mark.parametrize(
+    ("code", "status"),
+    [
+        ("MODEL_BUDGET_EXCEEDED", 402),
+        ("MODEL_RATE_LIMITED", 429),
+        ("MODEL_ACCESS_DENIED", 502),
+        ("MODEL_REQUEST_REFUSED", 502),
+        ("MODEL_UNAVAILABLE", 502),
+        ("MODEL_BLOCKED", 422),
+    ],
+)
+def test_a_failed_model_call_keeps_its_code_and_correlation_id(  # noqa: F811
+    center,  # noqa: F811
+    project,  # noqa: F811
+    cookie,  # noqa: F811
+    tmp_path,
+    code,
+    status,
+):
+    answer(tmp_path, model_error(code, status, retry_after_s=7), 1)
+    _, data, _ = send(center, project, cookie, {"message": "hi"})
+    assert data["error"] == {
+        "code": code,
+        "message": f"The agent answered {status}: {code} message",
+    }
+    details = data["data"]
+    assert details["sent"] is True and details["status"] == status
+    assert details["correlation_id"] == "e" * 32
+    # Only a rate limit carries a wait.
+    assert details["retry_after_s"] == (7 if code == "MODEL_RATE_LIMITED" else None)
+
+
+def test_the_runtimes_whole_message_with_its_next_step_is_kept(center, project, cookie, tmp_path):  # noqa: F811
+    response = model_error("MODEL_BLOCKED", 422)["response"] | {"error": BLOCKED}
+    answer(tmp_path, dict(ANSWER, status=422, response=response), 1)
+    message = send(center, project, cookie, {"message": "hi"})[1]["error"]["message"]
+    assert message == f"The agent answered 422: {BLOCKED}"
+
+
+@pytest.mark.parametrize(
+    ("fields", "correlation", "wait"),
+    [
+        ({"correlation_id": "E" * 32}, None, None),
+        ({"correlation_id": None, "retry_after_s": 0}, None, None),
+        ({"retry_after_s": 2.2}, "e" * 32, 3),
+        ({"retry_after_s": True}, "e" * 32, None),
+        ({"retry_after_s": "5"}, "e" * 32, None),
+        ({"retry_after_s": -1}, "e" * 32, None),
+        ({"retry_after_s": 10**9}, "e" * 32, None),
+        ({"retry_after_s": float("nan")}, "e" * 32, None),
+    ],
+)
+def test_odd_correlation_ids_and_waits_are_dropped(  # noqa: F811
+    center,  # noqa: F811
+    project,  # noqa: F811
+    cookie,  # noqa: F811
+    tmp_path,
+    fields,
+    correlation,
+    wait,
+):
+    answer(tmp_path, model_error("MODEL_RATE_LIMITED", 429, **fields), 1)
+    details = send(center, project, cookie, {"message": "hi"})[1]["data"]
+    assert details["correlation_id"] == correlation and details["retry_after_s"] == wait
+
+
+@pytest.mark.parametrize(
+    ("code", "status"),
+    [("MODEL_SOMETHING_NEW", 502), ("model_blocked", 422), (None, 500), ("MODEL_BLOCKED", 200)],
+)
+def test_any_other_code_is_an_agent_error(center, project, cookie, tmp_path, code, status):  # noqa: F811
+    answer(tmp_path, model_error(code, status), 1)
+    _, data, _ = send(center, project, cookie, {"message": "hi"})
+    assert data["error"]["code"] == "AGENT_ERROR"
+    assert "correlation_id" not in data["data"]
+
+
+def test_a_reply_carries_the_runtimes_route_facts(center, project, cookie, tmp_path):  # noqa: F811
+    reply = dict(
+        REPLY,
+        fallbacks=1,
+        served_by=["chat-backup"],
+        unknown_tools=["delete_everything", "?"],
+        cached_prompt_tokens=600,
+    )
+    answer(tmp_path, dict(ANSWER, response=reply))
+    turn = send(center, project, cookie, {"message": "hi"})[1]["data"]
+    assert turn["fallbacks"] == 1 and turn["served_by"] == ["chat-backup"]
+    assert turn["unknown_tools"] == ["delete_everything", "?"]
+    assert turn["tokens"] == {"prompt": 812, "output": 64, "cached": 600}
+
+
+def test_odd_route_facts_are_dropped(center, project, cookie, tmp_path):  # noqa: F811
+    reply = dict(
+        REPLY,
+        fallbacks=True,
+        served_by=["ok", "bad alias", 3, *[f"a{i}" for i in range(20)]],
+        unknown_tools="delete_everything",
+        cached_prompt_tokens=813,  # above the prompt tokens: not believed
+    )
+    answer(tmp_path, dict(ANSWER, response=reply))
+    turn = send(center, project, cookie, {"message": "hi"})[1]["data"]
+    assert turn["fallbacks"] is None
+    assert turn["served_by"] == ["ok", *[f"a{i}" for i in range(7)]]  # the first 10, filtered
+    assert turn["unknown_tools"] == [] and turn["tokens"]["cached"] is None
+    tools = [f"t{i}" for i in range(12)] + ["<b>"]
+    answer(tmp_path, dict(ANSWER, response=dict(REPLY, unknown_tools=tools)))
+    assert (
+        send(center, project, cookie, {"message": "hi"})[1]["data"]["unknown_tools"] == tools[:10]
+    )
 
 
 @pytest.mark.parametrize("value", [[], "x", {"status": 200}, {"status": "200", "response": {}}])

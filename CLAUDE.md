@@ -160,9 +160,16 @@ a Presidio `guardrails:` list; `stack.yaml` `environment.guardrails` and the ope
 **Ollama, #1025 O1, per side.** OSS (on `main`): built-in `service/litellm@1.2.0` (Ollama at
 exactly `http://host.docker.internal:11434`, `reaches_host: [11434]`, an env allow-list launcher),
 the `service.yaml` field `reaches_host` (built-in gateway only), `new agent --model ollama`
-(verified on macOS + Docker Desktop only; Linux not run) and the `cost` label `no price (local
+(verified on macOS + Docker Desktop only, on `runtime/adk@1.3.0`; Linux and 1.4.0 not run) and the `cost` label `no price (local
 model)` (`local` in `--json`). No manifest, JSON Schema or `agent.lock` change. Website: no
 change until release R. Cloud: a `CLAUDE.md` note only.
+
+**Sub-agents, #1058 AY (epic #1057), per side.** OSS (on `main`): `agent.yaml` gains optional
+`subagents:` (≤ 5, depth 1) and `limits:`, and `evals` gains `tag_threshold`; `build` refuses them
+until a runtime lists the `subagents` capability (`RUNTIME_NO_SUBAGENTS`). The deploy manifest,
+its JSON Schema and `SCHEMA_VERSION` are unchanged; a sub-agent only adds its alias to
+`model_access.aliases`. Eval cases gain sub-agent and skill rules and `tags`. Website: no change
+until release R. Cloud: a `CLAUDE.md` note only; it has no code that reads `agent.yaml`.
 
 ## 🎯 When Adding a New Feature
 

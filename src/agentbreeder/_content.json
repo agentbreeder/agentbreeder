@@ -380,6 +380,82 @@
    "exec": false,
    "sha256": "748af5fd9a0f0613aa8bdd82ac3bf84f4172d4bb5f1474010d0a8a4a87cc96c9"
   },
+  "builtin_registry/runtime/adk/1.4.0/Dockerfile": {
+   "exec": false,
+   "sha256": "0436e9a1d2881de2f0d404eb750c5e7fb7ff93536052189be79cb6201e444951"
+  },
+  "builtin_registry/runtime/adk/1.4.0/manifest.yaml": {
+   "exec": false,
+   "sha256": "ce0bd60ec82e6074a41bd3574aebc508172815310ad8e04e721212bc12db3482"
+  },
+  "builtin_registry/runtime/adk/1.4.0/runtime/agent.py": {
+   "exec": false,
+   "sha256": "a01144ef768ea45c9bd7b9b9f244e02a431fc60e26cacb7f08bddcf4cf849dab"
+  },
+  "builtin_registry/runtime/adk/1.4.0/runtime/chat.html": {
+   "exec": false,
+   "sha256": "712948727e8ff1449e0a8427384da73856fe2d50edd7475d67f6617a2237c4be"
+  },
+  "builtin_registry/runtime/adk/1.4.0/runtime/config.py": {
+   "exec": false,
+   "sha256": "7409cb5a78437df6dbf5dcdffe14c559fe4423066062874875b471a708145ab3"
+  },
+  "builtin_registry/runtime/adk/1.4.0/runtime/mcp_client.py": {
+   "exec": false,
+   "sha256": "26dfce01cfe35c095baf6883e45dbe93ff1f2c0556ba111dacfbefee7de9cfd6"
+  },
+  "builtin_registry/runtime/adk/1.4.0/runtime/memory.py": {
+   "exec": false,
+   "sha256": "233d432e0c3f4f6ed422fe118496c8bfb2b2f70221e96f584da54c644c9ec584"
+  },
+  "builtin_registry/runtime/adk/1.4.0/runtime/rag.py": {
+   "exec": false,
+   "sha256": "3be291e503f75d8a6c73e3e6b4a153b24ac348a49477032849aaf1d5d032da85"
+  },
+  "builtin_registry/runtime/adk/1.4.0/runtime/redaction.py": {
+   "exec": false,
+   "sha256": "36a5a80a91e2302e6a8203be005c82b73840df6e426ba45a9805b3d00555d061"
+  },
+  "builtin_registry/runtime/adk/1.4.0/runtime/requirements.in": {
+   "exec": false,
+   "sha256": "672230f09a834268818556c91ab6e55d15024e03273852550ed87184c97cea3f"
+  },
+  "builtin_registry/runtime/adk/1.4.0/runtime/requirements.lock": {
+   "exec": false,
+   "sha256": "9a70856cf908fdab6f85db40ce06efd4441be49bb87f93c8216be1292c04d4af"
+  },
+  "builtin_registry/runtime/adk/1.4.0/runtime/server.py": {
+   "exec": false,
+   "sha256": "fceccaddab1bee96d44ef445566ded5357399ed60d48429541d6f33cc66ce8f9"
+  },
+  "builtin_registry/runtime/adk/1.4.0/runtime/telemetry.py": {
+   "exec": false,
+   "sha256": "2616200bd55de7ee47b98291cb4719df5d2315170d7b768d2f23148d2ce198f9"
+  },
+  "builtin_registry/runtime/adk/1.4.0/runtime/tools.py": {
+   "exec": false,
+   "sha256": "9dca0173a46a1de5bc0a1fd15aadb972b20b53addd530a7bb76cd998aad75d46"
+  },
+  "builtin_registry/runtime/adk/1.4.0/runtime_tests/relay_harness.py": {
+   "exec": false,
+   "sha256": "da538d4201165d16a8018109d1b5fd237cbf8c8448924d1695c2a34a22f042af"
+  },
+  "builtin_registry/runtime/adk/1.4.0/runtime_tests/test_mcp.py": {
+   "exec": false,
+   "sha256": "78e8226c9dc3ff9b7015a924506f439c693bee282d7e251e7ef5c367baeede41"
+  },
+  "builtin_registry/runtime/adk/1.4.0/runtime_tests/test_model_errors.py": {
+   "exec": false,
+   "sha256": "5f864fce1035a1a7674fbb77006fc61a11c7a6b94c24a4eca7bf2ad828715c95"
+  },
+  "builtin_registry/runtime/adk/1.4.0/runtime_tests/test_runtime.py": {
+   "exec": false,
+   "sha256": "8d85449285875b26d2f392f3d2acd5ce75cd8058448bc86b13b338200053bf96"
+  },
+  "builtin_registry/runtime/adk/1.4.0/runtime_tests/test_usage_tools_guardrails.py": {
+   "exec": false,
+   "sha256": "131b91e7b5efeaca92a58d12b48de985a70bedd7473248463a21425f01f3ee3b"
+  },
   "builtin_registry/service/echo/1.0.0/files/index.html": {
    "exec": false,
    "sha256": "80a071a69069a3497208c0379954681125bc3349db0e01e650edb7608dd5e014"

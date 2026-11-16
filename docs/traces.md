@@ -164,6 +164,17 @@ The console's Try it and eval report viewer use `traces --trace TRACE_ID --stack
   `fallbacks` is null and `served_by` is `[]` for older runtimes, a turn with no gateway call, or
   a root span that hasn't arrived yet. Only gateway aliases are kept (at most 10). The text output
   adds `fallback: ALIAS` to a turn a fallback served.
+- `cached_prompt_tokens`, `unknown_tools` and `guardrail` come from the root span of
+  `runtime/adk@1.4.0` (#1056, #1074, #1024 G2; on `main`, not in a published preview):
+  - `cached_prompt_tokens`: the prompt tokens the provider reported reading from its cache, a part
+    of `tokens.prompt`; null for older runtimes. The text line adds `cached N` when it is above 0.
+  - `unknown_tools`: tool names the model asked for that the agent does not have (at most 10).
+    The runtime refused them, so they are not in `tool_calls`. The text line adds
+    `unknown tools (refused): NAME`.
+  - `guardrail`: `{"action": "blocked", "name", "entity"}` when a gateway guardrail blocked the
+    turn (`MODEL_BLOCKED`), else null. Only the guardrail name and the entity type, never the
+    matched text; a value of another shape is null. The text line adds
+    `blocked by guardrail NAME (ENTITY)`.
 - `status` is `ok|error|unset` per span (a span with `tool.error` is `error`), and `ok|error`
   per trace.
 - `notes` explain empty results: a deployment whose agent has no Phoenix project yet, one that

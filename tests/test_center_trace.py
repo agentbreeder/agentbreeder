@@ -185,12 +185,65 @@ def test_only_allow_listed_fields_reach_the_browser(center, project, cookie, tmp
     assert "57340" not in text and "s-1" not in text and "turn-1" not in text
     assert set(data["data"]) == {
         "trace_id", "deployment_id", "attribution", "latency_ms", "status", "models", "tokens",
-        "tool_calls", "spans", "truncated", "notes", "incomplete",
+        "tool_calls", "spans", "truncated", "notes", "incomplete", "fallbacks", "served_by",
+        "cached_prompt_tokens", "unknown_tools", "guardrail",
     }  # fmt: skip
     assert set(data["data"]["spans"][0]) == {
         "span_id", "parent_id", "name", "kind", "status", "latency_ms", "model", "tokens", "tool",
         "error", "tokens_counted",
     }  # fmt: skip
+
+
+def test_the_root_spans_facts_are_passed_on(center, project, cookie, tmp_path):  # noqa: F811
+    """runtime/adk@1.3.0 and 1.4.0 (#1062): `traces --json`'s root-span facts, as docs/traces.md
+    has them; older runtimes send null or empty."""
+    _, data, _ = read(center, project, cookie)
+    assert {k: data["data"][k] for k in tryit.route_facts({}, None)} == {
+        "fallbacks": None,
+        "served_by": [],
+        "cached_prompt_tokens": None,
+        "unknown_tools": [],
+        "guardrail": None,
+    }
+    given = json.loads(json.dumps(ANSWER))
+    given["traces"][0] |= {
+        "fallbacks": 1,
+        "served_by": ["chat-backup"],
+        "cached_prompt_tokens": 300,
+        "unknown_tools": ["delete_everything"],
+        "guardrail": {"action": "blocked", "name": "presidio-pii", "entity": "US_SSN"},
+    }
+    answer(tmp_path, given)
+    trace = read(center, project, cookie)[1]["data"]
+    assert trace["fallbacks"] == 1 and trace["served_by"] == ["chat-backup"]
+    assert trace["cached_prompt_tokens"] == 300 and trace["unknown_tools"] == ["delete_everything"]
+    assert trace["guardrail"] == {"action": "blocked", "name": "presidio-pii", "entity": "US_SSN"}
+
+
+@pytest.mark.parametrize(
+    ("guardrail", "shown"),
+    [
+        (None, None),
+        ({"action": "allowed", "name": "g", "entity": "X"}, None),
+        ("blocked", None),
+        (
+            {"action": "blocked", "name": "bad name!", "entity": "an ssn: 123-45-6789"},
+            {"action": "blocked", "name": None, "entity": None},
+        ),
+        (
+            {"action": "blocked", "matched": "123-45-6789", "name": "g"},
+            {"action": "blocked", "name": "g", "entity": None},
+        ),
+    ],
+)
+def test_a_guardrail_is_only_its_name_and_entity_type(guardrail, shown):
+    assert tryit.route_facts({"guardrail": guardrail}, None)["guardrail"] == shown
+
+
+def test_cached_tokens_above_the_prompt_tokens_are_dropped():
+    assert tryit.route_facts({"cached_prompt_tokens": 400}, 321)["cached_prompt_tokens"] is None
+    assert tryit.route_facts({"cached_prompt_tokens": 321}, 321)["cached_prompt_tokens"] == 321
+    assert tryit.route_facts({"cached_prompt_tokens": -1}, None)["cached_prompt_tokens"] is None
 
 
 @pytest.mark.parametrize(
@@ -351,3 +404,12 @@ def test_counted_tokens_and_a_trace_still_arriving_pass_through():
     found = dict(summary, spans=[dict(summary["spans"][0], tokens=None, tokens_counted=True)])
     trace, _ = tryit.trace_answer({"traces": [found]}, TRACE)
     assert trace["spans"][0]["tokens_counted"] is None  # no counts, nothing counted
+
+
+def test_the_route_patterns_are_traces_own():
+    """`tryit`'s alias, unknown tool and entity rules are `phoenix_traces`' (the console does not
+    import it). UNKNOWN_TOOL and ENTITY arrive there with runtime/adk@1.4.0 (#1056, #1074)."""
+    assert tryit.ALIAS.pattern == phoenix_traces.ALIAS.pattern
+    for name in ("UNKNOWN_TOOL", "ENTITY"):
+        if hasattr(phoenix_traces, name):
+            assert getattr(tryit, name).pattern == getattr(phoenix_traces, name).pattern

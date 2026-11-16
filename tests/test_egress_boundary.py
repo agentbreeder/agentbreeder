@@ -3,7 +3,6 @@ teardown and decision-service process handling. The real-Docker test is the boun
 
 from __future__ import annotations
 
-import hashlib
 import io
 import json
 import os
@@ -429,9 +428,10 @@ def test_service_healthy_requires_authenticated_reply_and_live_pid(
     import threading
     from http.server import BaseHTTPRequestHandler, HTTPServer
 
-    from agentbreeder.egress.protocol import MAC_HEADER, NONCE_HEADER, response_mac
+    from agentbreeder.egress.protocol import MAC_HEADER, NONCE_HEADER, PepKeys, response_mac
 
-    key = hashlib.sha256(b"tok").hexdigest()
+    keys = PepKeys.from_token("tok")
+    key = keys.reply
     seen = {"key": key}
 
     class Health(BaseHTTPRequestHandler):
@@ -444,7 +444,8 @@ def test_service_healthy_requires_authenticated_reply_and_live_pid(
             self.send_header("Content-Length", str(len(data)))
             if seen["key"]:
                 nonce = self.headers[NONCE_HEADER]
-                self.send_header(MAC_HEADER, response_mac(seen["key"], nonce, 200, data))
+                mac = response_mac(seen["key"], nonce, "GET", "/healthz", 200, data)
+                self.send_header(MAC_HEADER, mac)
             self.end_headers()
             self.wfile.write(data)
 
@@ -459,7 +460,7 @@ def test_service_healthy_requires_authenticated_reply_and_live_pid(
     def pin(**extra):
         write_private_json(
             directory / "pin.json",
-            {"listen": "tcp", "port": port, "revision": "r", "token_sha256": key, **extra},
+            {"listen": "tcp", "port": port, "revision": "r", **keys.pin_fields(), **extra},
         )
 
     try:
@@ -468,9 +469,11 @@ def test_service_healthy_requires_authenticated_reply_and_live_pid(
         pin(revision="other")
         assert not boundary.service_healthy(RECORD)
         pin()
-        seen["key"] = None  # squatter: right revision, no MAC
+        seen["key"] = None  # right revision, no MAC
         assert not boundary.service_healthy(RECORD)
-        seen["key"] = hashlib.sha256(b"guess").hexdigest()  # squatter: wrong key
+        seen["key"] = PepKeys.from_token("guess").reply  # wrong key
+        assert not boundary.service_healthy(RECORD)
+        seen["key"] = keys.request  # the request key never authenticates a reply
         assert not boundary.service_healthy(RECORD)
         seen["key"] = key
         monkeypatch.setattr(boundary, "service_pid", lambda record: None)  # our process died

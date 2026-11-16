@@ -123,7 +123,29 @@ def test_traces_are_read_with_a_fixed_argv(center, project, cookie, tmp_path):  
         "span_count": 2,
         "spans_truncated": False,
         "incomplete": False,
+        # Root-span facts (#1062): this trace is from a runtime before adk 1.3.0.
+        "fallbacks": None,
+        "served_by": [],
+        "cached_prompt_tokens": None,
+        "unknown_tools": [],
+        "guardrail": None,
     }
+
+
+def test_a_listed_trace_carries_its_root_spans_facts(center, project, cookie, tmp_path):  # noqa: F811
+    given = json.loads(json.dumps(ANSWER))
+    given["traces"][0] |= {
+        "fallbacks": 2,
+        "served_by": ["chat-backup", "bad alias"],
+        "cached_prompt_tokens": 300,
+        "unknown_tools": ["delete_everything"],
+        "guardrail": {"action": "blocked", "name": "presidio-pii", "entity": "US_SSN"},
+    }
+    answer(tmp_path, given)
+    (trace,) = read(center, project, cookie)[1]["data"]["traces"]
+    assert trace["fallbacks"] == 2 and trace["served_by"] == ["chat-backup"]
+    assert trace["cached_prompt_tokens"] == 300 and trace["unknown_tools"] == ["delete_everything"]
+    assert trace["guardrail"] == {"action": "blocked", "name": "presidio-pii", "entity": "US_SSN"}
 
 
 @pytest.mark.parametrize("last", ["1", "10", "50"])

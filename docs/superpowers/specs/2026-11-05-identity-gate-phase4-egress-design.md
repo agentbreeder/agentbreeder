@@ -199,6 +199,8 @@ resolution — both asserted by the probes). The Linux socket path is unit-teste
   carries `HMAC-SHA256(token_sha256, nonce || status || body)` for the caller's random nonce; the
   sidecar derives the key from its token and `reconcile` reads it from the `0600` pin, and also
   requires the recorded service PID. The unauthenticated `GET /healthz` returns the revision only.
+  *Superseded by decision protocol v2 (#1097): separate derived request and reply keys, signed
+  requests, the token never sent; see `docs/identity-gate.md`.*
   The PEP token reaches the `docker` CLI via its environment (`--env NAME`), not argv, which `ps`
   shows to other users. Each service connection is bounded to 5 s. The probe plan includes the
   decision-service port on every gateway. IPv6 forms embedding private IPv4 (NAT64, 6to4, Teredo,

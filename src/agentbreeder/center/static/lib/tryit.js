@@ -93,20 +93,48 @@ export function settle(conversation, id, envelope) {
   return { ...conversation, turns, session };
 }
 
+// A failed model call's code (runtime/adk@1.3.0; MODEL_BLOCKED from 1.4.0): `tryit.MODEL_CODES`.
+export const MODEL_CODES = ["MODEL_BLOCKED", "MODEL_BUDGET_EXCEEDED", "MODEL_RATE_LIMITED", "MODEL_ACCESS_DENIED", "MODEL_REQUEST_REFUSED", "MODEL_UNAVAILABLE"];
+const HEX32 = /^[0-9a-f]{32}$/;
+// The codes whose next step is to send the message again (the others say it won't help).
+const RETRYABLE = ["MODEL_RATE_LIMITED", "MODEL_UNAVAILABLE"];
+
 function problemOf(error, data) {
   const code = (error && error.code) || "TRY_INVALID";
   const message = (error && error.message) || "The answer does not match its contract.";
   // `sent` false means nothing reached the agent; true or unknown means it may have run the turn.
   const sent = !(data && data.sent === false);
-  return { code, message, sent };
+  const problem = { code, message, sent };
+  // A failed model call (#1062): the turn id the agent's log line carries, and a rate limit's wait.
+  if (MODEL_CODES.includes(code) && data) {
+    if (typeof data.correlation_id === "string" && HEX32.test(data.correlation_id)) problem.correlation = data.correlation_id;
+    if (Number.isInteger(data.retry_after_s) && data.retry_after_s > 0) problem.retryAfter = data.retry_after_s;
+  }
+  return problem;
 }
 
-/** A failed turn's explanation in words. */
+/** A failed turn's explanation in words. A failed model call's message is the runtime's, with
+ * its next step; the rest says whether the turn may have run. */
 export function failureText(problem) {
   const why = `${problem.message} [${problem.code}]`;
+  if (MODEL_CODES.includes(problem.code)) {
+    // The runtime's 1.3.0 message already names the wait ("retry in 7 s"); say it only if not.
+    const named = Number.isInteger(problem.retryAfter) && problem.message.includes(`retry in ${problem.retryAfter} s`);
+    const wait = Number.isInteger(problem.retryAfter) && !named ? ` The gateway asks to wait ${problem.retryAfter} s before sending again.` : "";
+    // A turn can make several model calls with tool calls between them, so a failure after the
+    // first may come after tools ran: for the codes whose next step is to send again, say so.
+    const again = RETRYABLE.includes(problem.code) ? " Tools may already have run in this turn, so sending it again is a second turn." : "";
+    return `The model call failed, so there is no reply: ${why}.${wait}${again}`;
+  }
   return problem.sent
     ? `No usable reply: ${why}. The agent may have run this turn; sending it again is a second turn.`
     : `Not sent: ${why}.`;
+}
+
+/** Where a failed model call's detail is, in words, or null without a correlation id. */
+export function correlationText(problem) {
+  if (!problem || typeof problem.correlation !== "string") return null;
+  return "The agent's log has the detail under this correlation ID: open the agent's Logs tab, or run agentbreeder logs for its deployment in a terminal.";
 }
 
 /** Is any turn still waiting? (One message in flight per tab.) */
@@ -125,12 +153,50 @@ export function latencyText(ms) {
 
 const count = (value) => (Number.isInteger(value) && value >= 0 ? value.toLocaleString("en-US") : null);
 
-/** Tokens in words: "812 in, 64 out"; a side the runtime did not report says so. */
+/** Tokens in words: "812 in, 64 out", or "812 in (600 cached), 64 out" when the runtime reported
+ * cached prompt tokens (runtime/adk@1.4.0); a side the runtime did not report says so. */
 export function tokensText(tokens) {
   const prompt = count(tokens && tokens.prompt);
   const output = count(tokens && tokens.output);
   if (prompt === null && output === null) return "not reported";
-  return `${prompt ?? "?"} in, ${output ?? "?"} out`;
+  const cached = count(tokens && tokens.cached);
+  const part = cached !== null && tokens.cached > 0 ? ` (${cached} cached)` : "";
+  return `${prompt ?? "?"} in${part}, ${output ?? "?"} out`;
+}
+
+const strings = (value) => (Array.isArray(value) ? value.filter((item) => typeof item === "string" && item) : []);
+
+/** Which gateway fallback served the turn (runtime/adk@1.3.0), in words, or null when none did. */
+export function fallbackText(fallbacks, servedBy) {
+  if (!Number.isInteger(fallbacks) || fallbacks <= 0) return null;
+  const aliases = strings(servedBy);
+  return `A gateway fallback served this turn${aliases.length ? ` (served by ${aliases.join(", ")})` : ""}.`;
+}
+
+/** Tool names the model asked for that the agent does not have (runtime/adk@1.4.0), or null. */
+export function unknownToolsText(names) {
+  const shown = strings(names);
+  if (!shown.length) return null;
+  return `The model asked for ${shown.length === 1 ? "a tool" : "tools"} this agent does not have (${shown.join(", ")}); the runtime refused ${shown.length === 1 ? "it, so it is not a tool call" : "them, so they are not tool calls"}.`;
+}
+
+/** A gateway guardrail block (runtime/adk@1.4.0, from the trace's root span), in words, or null. */
+export function guardrailText(guardrail) {
+  if (!guardrail || guardrail.action !== "blocked") return null;
+  const name = typeof guardrail.name === "string" && guardrail.name ? `guardrail ${guardrail.name}` : "a guardrail";
+  const entity = typeof guardrail.entity === "string" && guardrail.entity ? ` (${guardrail.entity})` : "";
+  return `Blocked by ${name}${entity}.`;
+}
+
+/** A trace's root-span facts in words (fallback, unknown tools, guardrail), in that order. */
+export function traceFlags(trace) {
+  return [fallbackText(trace && trace.fallbacks, trace && trace.served_by), unknownToolsText(trace && trace.unknown_tools), guardrailText(trace && trace.guardrail)].filter(Boolean);
+}
+
+/** A trace's tokens with the cached part ("321 in (300 cached), 70 out"), or null when none. */
+export function traceTokensText(trace) {
+  const tokens = (trace && trace.tokens) || {};
+  return spanTokensText({ prompt: tokens.prompt, completion: tokens.completion, cached: trace && trace.cached_prompt_tokens });
 }
 
 /** A turn's cost (USD, LiteLLM's estimate) in words: "$0.000444", "$0.0444"; null when the
@@ -198,12 +264,15 @@ export function descendants(node) {
   return out;
 }
 
-/** A span's tokens in words ("321 in, 70 out"), or null when it reported none. */
+/** A span's tokens in words ("321 in, 70 out"; with `cached`, "321 in (300 cached), 70 out"),
+ * or null when it reported none. */
 export function spanTokensText(tokens) {
   const prompt = count(tokens && tokens.prompt);
   const completion = count(tokens && tokens.completion);
   if (prompt === null && completion === null) return null;
-  return `${prompt ?? "?"} in, ${completion ?? "?"} out`;
+  const cached = count(tokens && tokens.cached);
+  const part = cached !== null && tokens.cached > 0 ? ` (${cached} cached)` : "";
+  return `${prompt ?? "?"} in${part}, ${completion ?? "?"} out`;
 }
 
 /** One span's facts after its name: kind, status, latency, model, tool and tokens. */
@@ -228,7 +297,8 @@ export function traceSummary(trace) {
   const models = Array.isArray(trace.models) ? trace.models.filter((m) => typeof m === "string") : [];
   if (models.length) parts.push(`model${models.length === 1 ? "" : "s"} ${models.join(", ")}`);
   const total = count(trace.tokens && trace.tokens.total);
-  if (total !== null) parts.push(`${total} tokens`);
+  const cached = count(trace.cached_prompt_tokens);
+  if (total !== null) parts.push(`${total} tokens${cached !== null && trace.cached_prompt_tokens > 0 ? ` (${cached} cached)` : ""}`);
   const tools = Array.isArray(trace.tool_calls) ? trace.tool_calls.length : 0;
   parts.push(`${tools} tool call${tools === 1 ? "" : "s"}`);
   return parts.join(" · ");

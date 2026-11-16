@@ -61,12 +61,16 @@ export function keyLabel(key) {
 const BUCKET = ["calls", "failed", "prompt_tokens", "completion_tokens", "unpriced", "local"];
 
 function emptyBucket(extra = {}) {
-  return { ...extra, calls: 0, failed: 0, prompt_tokens: 0, completion_tokens: 0, unpriced: 0, local: 0, cost_usd: 0 };
+  return { ...extra, calls: 0, failed: 0, prompt_tokens: 0, completion_tokens: 0, cached_prompt_tokens: 0, unpriced: 0, local: 0, cost_usd: 0 };
 }
 
 function add(bucket, item) {
   for (const field of BUCKET) bucket[field] += isCount(item[field]) ? item[field] : 0;
   bucket.cost_usd += isAmount(item.cost_usd) ? item.cost_usd : 0;
+  // Cached prompt tokens (#1056): a `cost` before it reports none, so the sum is unknown (null),
+  // never a quiet zero.
+  const cached = item.cached_prompt_tokens;
+  bucket.cached_prompt_tokens = isCount(bucket.cached_prompt_tokens) && isCount(cached) ? bucket.cached_prompt_tokens + cached : null;
 }
 
 const byCost = (a, b) => b.cost_usd - a.cost_usd || b.calls - a.calls;
