@@ -666,7 +666,7 @@
   },
   "examples/northwind/README.md": {
    "exec": false,
-   "sha256": "3069a2d43f2f19221b40f4cbc92bd842d8705bf4e2ed7114de710cb12ea88fea"
+   "sha256": "10cedf68b0660048fe21d98d5ec844f2d0059fa079b8bbfe1233b28503fabfab"
   },
   "examples/northwind/agent.lock": {
    "exec": false,

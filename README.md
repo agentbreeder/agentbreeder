@@ -15,29 +15,29 @@ Deploys pass a **deploy-time identity gate**: the agent must already exist in yo
 
 ## Install the preview
 
-`3.0.0a2` is an alpha preview, on [PyPI](https://pypi.org/project/agentbreeder/3.0.0a2/) and
-[npm](https://www.npmjs.com/package/agentbreeder/v/3.0.0-alpha.2). Each command pins the exact
+`3.0.0a3` is an alpha preview, on [PyPI](https://pypi.org/project/agentbreeder/3.0.0a3/) and
+[npm](https://www.npmjs.com/package/agentbreeder/v/3.0.0-alpha.3). Each command pins the exact
 version. A bare `pip install agentbreeder` installs 2.x (see the notice above).
 
 ```sh
-pip install "agentbreeder[eval]==3.0.0a2"                               # in a virtual environment
-uvx --from "agentbreeder[eval]==3.0.0a2" agentbreeder quickstart --dry-run   # needs uv
-npx agentbreeder@3.0.0-alpha.2 quickstart --dry-run                       # needs Node 18+ and uv
+pip install "agentbreeder[eval]==3.0.0a3"                               # in a virtual environment
+uvx --from "agentbreeder[eval]==3.0.0a3" agentbreeder quickstart --dry-run   # needs uv
+npx agentbreeder@3.0.0-alpha.3 quickstart --dry-run                       # needs Node 18+ and uv
 ```
 
 The npm package is a launcher that runs the same PyPI release through `uvx`; see
 [npm/README.md](https://github.com/agentbreeder/agentbreeder/blob/main/npm/README.md).
 
 `npx` and `uvx` do not install an `agentbreeder` command, so repeat the prefix for each command
-(`npx agentbreeder@3.0.0-alpha.2 up`), or install the command with
-`uv tool install "agentbreeder[eval]==3.0.0a2"` (run on macOS on 2026-11-11: `--version`, `doctor`,
-`quickstart`). If a bare `agentbreeder` fails with `No module named 'cli'` or is not `3.0.0a2`, an
+(`npx agentbreeder@3.0.0-alpha.3 up`), or install the command with
+`uv tool install "agentbreeder[eval]==3.0.0a3"` (with `3.0.0a2`, run on macOS on 2026-11-11: `--version`, `doctor`,
+`quickstart`). If a bare `agentbreeder` fails with `No module named 'cli'` or is not `3.0.0a3`, an
 older install comes first on your `PATH`: find it with `which -a agentbreeder` and see
 [removing an older install](https://www.agentbreeder.io/docs/install#an-older-agentbreeder-on-your-path).
 
-The [`v3.0.0a2` GitHub release](https://github.com/agentbreeder/agentbreeder/releases/tag/v3.0.0a2)
+The [`v3.0.0a3` GitHub release](https://github.com/agentbreeder/agentbreeder/releases/tag/v3.0.0a3)
 carries a hashed requirements file for `uv pip install --require-hashes -r
-requirements-3.0.0a2.txt` (or `pip install --require-hashes -r …`).
+requirements-3.0.0a3.txt` (or `pip install --require-hashes -r …`).
 
 What has been verified, installing `3.0.0a2` from the public registries on 2026-11-11, on macOS
 with Docker Desktop, in a clean sandbox (fresh `HOME` with `~/.docker` linked in for the Docker context, empty package caches, no checkout; Docker images on the host were not cleared):
@@ -61,7 +61,7 @@ macOS; on Linux only the install and `doctor` have been checked.
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install "agentbreeder[eval]==3.0.0a2"
+.venv/bin/python -m pip install "agentbreeder[eval]==3.0.0a3"
 .venv/bin/agentbreeder quickstart
 ```
 

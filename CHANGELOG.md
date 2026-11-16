@@ -8,19 +8,512 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
-On main, not in a published preview.
+## [3.0.0a3] — 2026-11-16
 
 ### Added
 
+- MCP tool calls through the relay are in the hash-chained audit log: `service/mcp-relay@1.0.2`
+  records every `tools/call` from a deployment, forwarded or refused (`TOOL_NOT_GRANTED` and the
+  other refusal codes), with a correlation id, the deployment, agent, server, tool, decision and
+  latency, never arguments or results. `audit list` and `audit verify` import the records as
+  `mcp_tool_call` rows, and the console's Audit view names the server and tool. The relay refuses
+  a call it can't record (`AUDIT_UNAVAILABLE`). Run `services up` once without `--locked` to move
+  a stack to the new relay (#1068).
+
+- The console shows what `runtime/adk@1.3.0` and `1.4.0` report (#1062). In Try it, a failed
+  model call keeps its code (`MODEL_BUDGET_EXCEEDED`, `MODEL_RATE_LIMITED`, `MODEL_ACCESS_DENIED`,
+  `MODEL_REQUEST_REFUSED`, `MODEL_UNAVAILABLE` or `MODEL_BLOCKED`) instead of `AGENT_ERROR`. It
+  shows the runtime's next step, the correlation ID and a rate limit's wait. A reply's Turn
+  details show a gateway fallback, refused unknown tool names and cached prompt tokens. A trace
+  shows those and a guardrail block (the name and the entity type only), and the cost tables gain
+  **Cached in**. Tested with a fake CLI only, written before `1.4.0` merged, against its
+  documented `--json` shapes; not run against a real `1.4.0` reply.
+
+- The `skill` registry kind (#1059 slice K1):
+  `skill/<name>@X.Y.Z` versions (`manifest.yaml`, `SKILL.md`, optional `references/` and
+  `scripts/`) are checked at `publish`, `import`, `fork`, `edit` and `verify` (strict front matter,
+  `SKILL_FIELD_UNSUPPORTED` for `metadata`, `allowed-tools` and other keys,
+  `SKILL_UNDECLARED_SCRIPT`), shown by `registry show`, locked, and found by `registry used-by`.
+  A version with scripts is code, decided from its files and failing closed (`registry list`
+  marks it, and `import` and the console ask the code confirm). `registry new skill NAME
+  [--scripts]` scaffolds one. `agent.yaml` accepts `skills:` (at most 10 refs), but no runtime
+  loads skills yet, so `build` refuses it (`RUNTIME_NO_SKILLS`); nothing runs a script.
+
+- `agent.yaml` `subagents:` and `limits:` (#1058, slice AY):
+  up to 5 sub-agents, each with its own description, model alias, prompt, registry tools
+  and a subset of the agent's MCP grant, depth 1 (`SUBAGENT_DEPTH`), no `budget_usd`/`rpm`
+  (`SUBAGENT_FIELD_UNSUPPORTED`), no customer notes (`SUBAGENT_NOTES`), MCP tools only from the
+  agent's own entry (`SUBAGENT_MCP_UNGRANTED`), and `ask_<name>` clashes refused at build
+  (`SUBAGENT_NAME_CLASH`). `build` writes them into `agent.config.json` and the build record and
+  mints the one gateway key for every sub-agent alias, but no runtime runs sub-agents yet, so it
+  refuses them (`RUNTIME_NO_SUBAGENTS`). A file without sub-agents builds the same bytes. `used-by`,
+  `set-ref`, `new agent --stack-for` and the provider-keys guide step read sub-agent refs and
+  aliases. Eval cases gain `subagents_include`, `subagents_exclude`, `subagent_tools_include`,
+  `skills_loaded`, `skills_not_loaded` and `tags`; the report gives per-tag pass rates and
+  `evals.tag_threshold` gates `release` and `promote` per tag.
+
+- `runtime/adk@1.4.0` (#1056, #1074, #1024 G2). Replies,
+  `model_called` events and the root span carry `cached_prompt_tokens`, the prompt tokens the
+  provider reported reading from its cache (never estimated); `agentbreeder cost` adds a
+  `CACHED IN` column (`cached_prompt_tokens` in `--json`) from LiteLLM's spend logs, and `traces`
+  shows `cached N`. A tool name the model invented is no longer listed as a tool call: the model
+  gets a fixed error, the reply lists the name under `unknown_tools`, one `tool_unknown` event is
+  written instead of a `tool:<name>` row, `invoke` prints a note and `traces` shows
+  `unknown tools (refused)`. A gateway guardrail block is answered `MODEL_BLOCKED` (HTTP 422, no
+  content) with a `guardrail_blocked` event and root span attributes naming only the guardrail
+  and entity type; `invoke` and `traces` show it. The `new agent` starter moves to `1.4.0`;
+  Northwind stays on `1.3.0`. CI runs the `1.4.0` runtime tests. `1.3.0` is unchanged. One live run
+  (macOS, 2026-11-16) showed cached tokens on Gemini and OpenAI (OpenRouter reported none),
+  matching LiteLLM's spend logs, a Presidio SSN block answered `MODEL_BLOCKED`, and the starter
+  released 2/2; no model invented a tool name, so that path is checked by tests only.
+
+- Agent-level guardrails (#1053): `agent.yaml` `guardrails:` names guardrails that the
+  environment's gateway config defines with `default_on: false`. They are carried through the
+  package template into the manifest's new `guardrails` field (JSON Schema updated; the digest and
+  approval revision are unchanged when it is unset). `services up` records the offered names as
+  `environments.<env>.guardrails.optional`. The gate refuses any other name with
+  `GUARDRAIL_UNDEFINED`, even in audit mode, and Cedar sees `agent:<name>` in the `guardrails` set.
+  After minting the key, deploy creates an add-only LiteLLM policy and attaches it to that key
+  alias alone (OSS policy engine). The key is limited to chat completions and embeddings, and the
+  mint's audit row records `GUARDRAILS_EFFECTIVE`. Remove deletes the policy after revoking the key.
+  `status --json` shows the effective set, and `reconcile` reports `DRIFT_GUARDRAILS` and deletes
+  the policies of removed deployments. Agent guardrails only add to the floor; there is no
+  opt-out.
+
+- `runtime/adk@1.3.0` (#1030, #1034, #1039). A failed
+  model call is answered with a fixed coded error and never the gateway's or provider's text:
+  `MODEL_BUDGET_EXCEEDED` (402), `MODEL_RATE_LIMITED` (429, `retry_after_s` and `Retry-After`),
+  `MODEL_ACCESS_DENIED`, `MODEL_REQUEST_REFUSED` or `MODEL_UNAVAILABLE` (502). Each comes with a
+  next step and a `correlation_id`, the turn id that the agent's single redacted
+  `model call failed` log line carries. The runtime does its own bounded retries instead of the
+  OpenAI client's unseen ones: up to 3 attempts for transient failures (never for a timeout
+  or a spent budget), and at most 10 s of rate-limit waiting per turn, reported as
+  `rate_limit_wait_s`. Replies carry `fallbacks` and `served_by`
+  (aliases only) when a gateway fallback served the turn, and so do the root span and the
+  `model_called` events. LiteLLM's masked key fragments and token hashes are redacted, and library
+  logs are one redacted line for every agent. `invoke` prints the model error code with its
+  correlation id and notes a fallback; `traces` shows `fallback: ALIAS` (`fallbacks`,
+  `served_by` in `--json`). The `new agent` starter moves to `1.3.0`, and Northwind stays on
+  `1.2.0` until a relock with a full eval run. CI runs the `1.3.0` runtime tests. `1.2.0` is
+  unchanged. See `docs/agent-yaml.md`.
+
+- **Ollama through the stack gateway** (#1025 O1): `service/litellm@1.2.0`
+  serves `ollama_chat/…` and `ollama/…` aliases from Ollama on the operator's machine at exactly
+  `http://host.docker.internal:11434`, with no key. `new agent --model ollama` writes a keyless
+  starter on `llama3.2:3b` (`reasoning: none`), run end to end on macOS with Docker Desktop
+  (`release` 2/2, `invoke`, one embedding); Linux has not been run. `cost` shows
+  `no price (local model)` for those calls. The 1.2.0 launcher passes LiteLLM only an
+  allow-list of variables and turns off cloud metadata lookups. A new `service.yaml` field,
+  `reaches_host`, is allowed only on the built-in gateway (`REACHES_HOST_REFUSED`).
+
+- An operator environment can declare a guardrails floor, `guardrails: {required,
+  approved_sha256}` (#1024 G1a). No guardrail runs yet: with `required: true` the gate denies every
+  deploy in that environment (`GUARDRAILS_UNVERIFIED`, also in audit mode) until the gateway check
+  lands, and provider key names (`GEMINI_API_KEY` and the like) are refused in its `bindings` and in
+  manifest `secrets` (`SECRET_RESERVED`, a naming check only). Cedar's `Agent` gains a `guardrails`
+  set, always empty for now. The schema change alters every revision digest once, so approvals
+  held from before have to be requested again.
+
+- Presidio guardrails on the stack gateway (#1024 G1b): new built-ins
+  `service/presidio-analyzer@1.0.0` and `service/presidio-anonymizer@1.0.0`, and
+  `service/litellm@1.1.0` with their two inputs. The gateway config review accepts a `guardrails:`
+  list from a Presidio allow-list, and `services up` records the hash of the mounted config's
+  guardrails (`running_sha256`) and its effective checks. A required floor is refused at `up`
+  when it cannot work (`GUARDRAILS_INEFFECTIVE`). The gate now checks the running hash against
+  `approved_sha256` (`GUARDRAILS_UNVERIFIED`, `GUARDRAILS_CHANGED`) instead of denying every
+  deploy, and the Cedar `guardrails` set carries the verified checks. Under a required floor,
+  deployment and eval keys are minted with `allowed_routes` limited to chat completions and
+  embeddings. Key metadata is now an allow-list for every key. Blocked turns are not handled by a
+  runtime yet (G2), so no guardrail claim is made.
+
+- `agentbreeder new agent NAME --from-spec FILE` takes one pinned `knowledge/` version (#989,
+  part of #833). The generated stack serves the version's
+  embedding alias with the provider's embedding model (`gemini` or `openai`; `anthropic` and
+  `openrouter` are refused) and uses `service/postgres-pgvector@1.2.0`. `--json` adds a
+  `knowledge` field with the alias, dimensions, model and the expected document and chunk
+  counts. The combination is not yet verified end to end. See `docs/commands/new.md`.
+
+- MCP repin without a terminal (#964): `services pins
+  [DIR] [--json]` probes every relay and prints what a repin would pin (whole definitions, a diff,
+  dropped pins) with one review digest, and `services up --repin --expect-pins SHA256` repins with
+  no prompt only when the live definitions, the base pins and each server's identity still give
+  that digest (`PINS_CHANGED` otherwise, pinning nothing). New codes: `MCP_RELAY_NOT_RUNNING`,
+  `MCP_PINS_NEED_UP`, `PINS_EXPECT_INVALID`, `PINS_EXPECT_NEEDS_REPIN`, `PINS_CHANGED`. See
+  `docs/commands/services.md`.
+
+- The console reviews and applies an MCP repin (#964, console half).
+  When a pinned tool changed upstream, the services review offers **Review
+  repin**: the server runs `agentbreeder services pins --json`, checks every definition against
+  its pin and the review digest, and shows the definitions as the CLI renders them. After a tick,
+  Start runs `services up --repin --expect-pins DIGEST`, which pins nothing if the definitions
+  changed since the review. Not run against live relays. See `docs/command-center.md`.
+
+- `agentbreeder evals list|show` reads back the eval reports `release` saves (passed/total, the
+  judge, and per case pass/fail, failed checks, the judge's reason and the trace id; replies only
+  with `--content`, redacted) for the console's report viewer (#932).
+
+
+- Console eval report viewer (#932, console half): an
+  Audit release row's run id and an agent's Releases tab open one saved eval report (`evals show
+  --json`): the score, eval set, judge, and every case failed first with its failed checks, the
+  judge's reason and the trace id; replies and explanations only on request. See
+  `docs/command-center.md`.
+
+- `service/phoenix@1.1.0` (#925). Its bootstrap also mints
+  a read-only key: a personal API key of the VIEWER user `agentbreeder-reader` (`read_key`,
+  operator only). `agentbreeder traces`, and through it the console's Traces tab, reads Phoenix
+  with that key, which Phoenix refuses for any write. A stack on phoenix 1.0.x still works with
+  the ingest key, and `traces --json` then says so in `notes`. A service's `bootstrap` can now
+  write several secrets (`writes_secrets`). Checked against the real Phoenix 21.0.0 image in a
+  single container (`tests/test_phoenix_read_key_docker.py`, opt-in).
+
+- `agentbreeder traces [ID | --trace TRACE_ID] --stack DIR [--last N] [--since D] [--json]`
+  lists recent agent traces per deployment from the stack's Phoenix: the span tree, models,
+  tokens, tool calls and latency, with message content never shown and every string redacted.
+  Traces are attributed exactly by an `agentbreeder.deployment_id` root-span attribute, else by
+  the deployment's lifetime window. Deploy now gives model-access containers
+  `AGENTBREEDER_DEPLOYMENT_ID` (#907).
+
+- The console has a **Traces** tab on an agent's detail (#907, console half).
+  It lists one deployment's recent traces from the stack's Phoenix through
+  `agentbreeder traces ID --last N --json`: start, status, latency, models, tokens, span count and
+  tool calls. Each trace's span tree opens on request. The eval report viewer opens a case's trace
+  the same way. Only a checked summary reaches the browser, with no message content. Tested with a
+  fake CLI; not yet run against a live Phoenix. See `docs/command-center.md`.
+
+- Console Try it shows a turn's trace as a span tree (#907, console half):
+  a **Trace spans** disclosure beside Turn details runs
+  `traces --trace ID --stack DIR --environment ENV --json` when opened and shows span names, kinds,
+  status, latency, models, tokens, tool calls and error text (never prompts, replies or tool
+  arguments). A trace Phoenix
+  does not have yet can be read again. See `docs/command-center.md`.
+
+- `agentbreeder cost [--stack DIR] [--since DAY] [--until DAY] [--by deployment|model] [--json]`
+  (#906): LLM cost per deployment key and per model from
+  the gateway's LiteLLM spend logs (`/spend/logs/v2`), read-only, in USD as LiteLLM computed it
+  (an estimate, not a bill); removed deployments are still counted. Checked against a real
+  LiteLLM 1.106.2 with mocked model responses, not a real provider. The per-turn `cost_usd` the
+  console's Try it will show is documented as planned, not emitted. The gateway client no longer
+  follows HTTP redirects with the master key (a redirect is now `GATEWAY_ERROR`, for minting too)
+  and reports an answer that is not JSON as `GATEWAY_ERROR` instead of `GATEWAY_UNREACHABLE`.
+  See `docs/cost.md` and `docs/commands/cost.md`.
+
+- The console shows LLM cost (#906, console half): Home has an **LLM cost** card for a project, and
+  an agent's Overview has one for its own deployments, removed ones included. Each card shows spend
+  per model and per deployment, with the currency, the window (7, 30 or 90 UTC days) and the time
+  it was read. It is LiteLLM's estimate from its price list, not a bill. The data comes from
+  `agentbreeder cost --json`, read fresh, and the answer is checked before the browser sees it. Not yet run against a live gateway.
+
+- Console Try it shows each turn's cost (#906): the
+  `cost_usd` that `runtime/adk@1.2.0` reports (LiteLLM's estimate, in USD) appears in the turn
+  inspector and its summary; older runtimes, or a turn with a call that had no cost header, show
+  "Not measured". Tested with a fake CLI, not a live gateway.
+
+- `new agent NAME --model anthropic|openai|openrouter [--model-id ID]` (#905):
+  model providers beside `gemini`, all through LiteLLM with the key read from
+  the stack's local secret file. Defaults `anthropic/claude-opus-5-5` and `openai/gpt-5.6`;
+  openrouter needs `--model-id openrouter/<vendor>/<model>`. Only gemini has been run end to end;
+  the others are config-only, not run end to end. `--stack-for` takes the same providers and
+  `--model-id`. `--json` adds `model_id` and `verified`; `next` links each provider's key page
+  for `KEYS_MISSING`. `--model gemini` alone is unchanged. See `docs/commands/new.md`.
+
+- `agentbreeder enable`, `disable`, `approve`, `reject`, `approve-call` and `reject-call` take
+  `--stack DIR` (#860): with `--environment ENV` they act on the deployments `services up` state
+  holds, checked against the stack's generated operator config, instead of needing
+  `--state-dir` plus `AGENTBREEDER_OPERATOR_CONFIG`. `next` now prints these forms for
+  `PRODUCTION_DISABLED` and `APPROVAL_PENDING`.
+
+- `agentbreeder new agent NAME --from-spec FILE` (#833, M17 CLI half):
+  writes an agent project from the console builder's private JSON spec (model,
+  prompt text, eval cases, picked tool versions and MCP servers with their granted tools), in the
+  starter's shape, and `--dry-run --json` returns every file's text for the preview. Knowledge is
+  refused for now. See `docs/commands/new.md`.
+
+- Console agent builder, tool and MCP pickers (#833, M17 console half, second part):
+  **Build an agent** offers the `tool/` versions and `mcp/` servers a
+  new project resolves (`AGENTBREEDER_REGISTRY_PATH` and the built-ins), one version per name, with
+  a checkbox for each tool a server declares. A tool or server from outside the built-ins asks for
+  the "this code runs in agents" confirm. No combination with tools or MCP servers has been run
+  end to end yet, so the console previews them and leaves Create off. See
+  `docs/command-center.md`.
+
+- Console agent builder (#833, M17 console half, first part):
+  Home links to **Build an agent**, a form (name, model provider and id, prompt, eval
+  cases, model calls, pass threshold and retries) beside a sticky preview of every file
+  `new agent --from-spec --dry-run --json` would write, with its text. The spec goes to the CLI as
+  a private temporary file, never in argv; Create is on only for combinations run end to end
+  (today gemini with a prompt and evals), is pinned to the previewed `plan_sha256`
+  (`--expect-digest`), and adds the new project. See `docs/command-center.md`.
+
+- The console's MCP grants screen grants and revokes an agent's MCP tools (#831, M15, second
+  part): `agentbreeder mcp grant|revoke` reviewed as a dry
+  run, then written bound to the reviewed `stack.yaml` digest; the declared tools from the
+  version's `mcp.yaml`; an in-use revoke shows the `remove` and `services up` steps. See
+  `docs/command-center.md`.
+
+- The console's **MCP grants** screen (#831, M15, first part):
+  each MCP server's version, origin, upstream, relay state and pinned tools (from
+  `stack.yaml`, `stack.lock` and `services status --json`), upstream drift with the terminal
+  `services up --repin` to review it, and each agent's grants. Read-only; see
+  `docs/command-center.md`.
+
+- The console starts services for a stack with MCP servers (#831, M15, third part):
+  the services review lists each server's origin, upstream and which
+  credential goes where; a project or registry-path server needs its own consent tick
+  (`--allow-project-mcp`); changed tool definitions are never accepted from the console (#964).
+  See `docs/command-center.md`.
+
+- `agentbreeder mcp grant|revoke AGENT SERVER TOOL…` (#831, M15 CLI half):
+  edits one agent's MCP tool grant in `stack.yaml`, checks the tools against
+  the server's declared list, keeps the rest of the file byte for byte, and supports `--dry-run`,
+  `--expect-base` and `--json`. A revoke that an active deployment still holds is reported as
+  `in_use`; `services up` still refuses to narrow it until that deployment is removed. There is
+  also an MCP fixture project (`tests/fixtures/mcp_github_project`). See `docs/commands/mcp.md`.
+
+- `agentbreeder knowledge status REF [--project DIR] [--environment ENV] [--json]` compares a
+  knowledge version's documents with the runtime's index in the stack's database (chunks fresh,
+  stale, missing or extra; documents; index times; embedding alias and dimensions), read-only with
+  the agent's own credential and without reading chunk text (#830, M14).
+
+
+- Console knowledge documents (#830, M14 console half, second part):
+  a project knowledge version's Edit card edits, adds and removes its documents
+  (`docs/NAME.md` or `.txt`), each reviewed as a diff and saved as a new version bound to the
+  reviewed digest; removal uses `registry edit --remove`. The review warns that documents land in
+  a git-tracked registry. A release after the change has not been run from the console yet. See
+  `docs/command-center.md`.
+
+- Console knowledge index status (#830, M14 console half, first part):
+  a knowledge version in Registry ▸ Knowledge shows its index status from
+  `knowledge status --json` (state, chunks and documents expected and indexed, fresh, stale,
+  missing and extra, the index times and the embedding), read fresh with the agent's own
+  credential; chunk text is never read. A refusal, such as services not running, shows as
+  "Unavailable" with the next step. Not yet run against a real stack's database. See
+  `docs/command-center.md`.
+
+- `service/postgres-pgvector@1.2.0` (#828, M12 slice 1):
+  a new `console_database` param creates the login role `agentbreeder_console`, which can
+  connect only to that database and has no rights until the database owner's `init_sql` grants
+  them; its URL is the new `operator_only` `console` output. The name is reserved for
+  `databases` and `roles`; removing the param makes the role `NOLOGIN` on the next `services up`.
+  Northwind moves to 1.2.0 with `console_database: support`: `commerce.sql` grants the role
+  SELECT/DELETE on `turns` and `tickets`, SELECT, INSERT and UPDATE/DELETE on `notes`, SELECT and
+  a column INSERT on `audit_events`, and adds `audit_events.db_role`, set by a trigger to the
+  inserting login (attribution, not tamper-evidence). Existing Northwind stacks need
+  `services up --update`. No CLI command uses the role yet. See `docs/services.md`.
+
+- `runtime/adk@1.2.0` (#828, M12): each reply has
+  `cost_usd`, the sum of the gateway's `x-litellm-response-cost` header over the turn's model
+  calls (`null` when any call had none), and each `model_called` event has the call's cost.
+  Every tool event has `detail.agent`, `detail.latency_ms` and, for registry tools,
+  `detail.tool`, including failed calls. A failed call now writes one event; `1.0.6` and `1.1.0`
+  also wrote a phantom `ok: true` event (#922). A tool whose `src/` would shadow an installed,
+  standard-library or runtime module, or another tool's module, is refused at startup. The
+  manifest declares `memory_schema: 2`. The root `agent_turn` span carries
+  `agentbreeder.deployment_id` when `AGENTBREEDER_DEPLOYMENT_ID` is set (for #907; nothing sets
+  it yet). A function's `module` must be in its tool's own `src/`.
+  Northwind (`agent.yaml`, `agent.lock`) and the `new agent` starter move to `1.2.0`; the
+  starter's stack stays on `postgres-pgvector@1.1.0`. Northwind's 61/61 run on `1.2.0` is
+  pending. CI runs the `1.1.0` and `1.2.0` runtime tests. See `docs/agent-yaml.md`.
+
+- Console tool detail (#828, M12 console half): a tool
+  version in Registry ▸ Tools shows its functions (tool.yaml's description and parameters, and the
+  Python signature `registry show` read with `ast`, never importing the code), "no dependencies of
+  its own" with the runtime it runs on, and who may use it. See `docs/command-center.md`.
+
+- Console tool code editor and "Fork to edit" (#828, M12 console half):
+  a project tool version's Python source under `src/` is edited, reviewed with
+  the CLI's tool check and saved as a new version only after the "this code runs in agents"
+  confirm. A built-in or shared version of any kind the console edits is forked into the project
+  first (a reviewed `registry fork`), then edited. See `docs/command-center.md`.
+
+- Console tool execution log (#828, M12 console half): a
+  tool version in Registry ▸ Tools lists the calls the agent runtime recorded (`tool log --json`),
+  newest first, for this version or every version, by window, row count and agent. Arguments and
+  error text are customer data: read only after "Show arguments", never kept. A refusal, such as
+  a stack without the console role, shows as "Unavailable" with the next step. See
+  `docs/command-center.md`.
+
+- Registry tool checks and `registry show` tool functions (#828, M12):
+  `registry publish|import|fork|edit` refuse a `tool/` version
+  (`TOOL_INVALID`, nothing written) that holds files other than `manifest.yaml`, `tool.yaml`,
+  `README*` and `src/**/*.py`, has a `src/` module that shadows the standard library, the runtime
+  or a package its locks install, or declares a function that does not resolve to a top-level
+  `def` that parses with `ast` (tool code is never imported). `registry show tool/…` adds
+  `functions` with each function's `tool.yaml` parameters and Python signature. `registry new
+  tool` now writes a tool that passes these checks. See `docs/registry.md`.
+
+- `agentbreeder tool log tool/NAME[@X.Y.Z]` lists a registry tool's recorded calls from the stack's database, read-only: agent, version, function, status, latency, turn and trace id, and the inserting database role, with arguments and error text only under `--content` (redacted). It reads with the agent's own credential where the agent owns the tables and as `agentbreeder_console` where the database owner made them, refusing tables that carry unexpected triggers, row security or rules. The duplicate `ok` rows that `runtime/adk` 1.0.6/1.1.0 wrote after a failed call (#922) are left out and counted. See [`docs/commands/tool.md`](docs/commands/tool.md).
+
+- Console prompt editor and "Move agent to this version" (#826, M10 console half):
+  a project prompt version's text files open in a mono editor with a line
+  gutter; Review (or Cmd/Ctrl+S) shows the server's diff from `registry edit --dry-run`, and "Save
+  as X.Y.Z" publishes exactly the reviewed text as a new version (`--expect-digest`; the text goes
+  on stdin, never in argv). Built-in and shared versions show the `registry fork` command instead.
+  When `agent.yaml` uses another version of the name, the console shows the `agent set-ref` diff,
+  writes it bound to the reviewed file (`--expect-base`) and offers "Build and update agent.lock"
+  (a build without `--locked`), then release. See `docs/command-center.md`.
+
+- Console eval-set case editor (#826, M10 console half, part 2):
+  a project eval set's cases file opens as one row per case (id, turns, checks,
+  reference answer), with Add and Remove. Unchanged cases keep their bytes, so the review shows
+  only the edited cases; incomplete cases are marked before review, and the CLI's `EVAL_INVALID`
+  is shown at its case. The save is the prompt editor's (`registry edit --dry-run`, then
+  `--expect-digest`). See `docs/command-center.md`.
+
+- Console gate-failed view (#826, M10 console half, part 3):
+  when an agent's latest release failed the eval gate, its Overview and Build and
+  release show one row per failed check (the case, the check, what was expected, what happened,
+  the judge's reason), links to edit the prompt and the case (`#/registry/evals/NAME/case/ID`
+  opens that case in the editor), the agent's replies on request, and the log tail `release`
+  saved from the candidate (`logs --failed NAME --json`, through the new
+  `GET /api/projects/ID/logs/failed/NAME`). See `docs/command-center.md`.
+
+- Console fork in the registry browser (#825, M9a console half, second part):
+  any version outside the project registry (a built-in service, MCP server or
+  runtime too) is forked into it after a review, optionally under another name (`registry fork
+  --as`). A fork of code that runs in agents (tool, service, eval, MCP server, runtime) now needs
+  the "this code runs in agents" confirm, checked by the server on its own dry run. See
+  `docs/command-center.md`.
+
+- Console import by path (#825, M9a console half, first part):
+  Registry ▸ Import reviews a version directory from anywhere on this machine with
+  `registry import --dry-run --json` (the staged files and digest), then imports exactly that with
+  `--expect-digest`. Tool, service, eval, MCP server and runtime imports need the "this code runs
+  in agents" confirm, which the server checks again before it writes. See `docs/command-center.md`.
+
+- Console registry browser (#824, M8 console half):
+  Registry ▸ Prompts, Eval sets, Tools, Knowledge, MCP servers, Service definitions and Runtimes
+  list every name with latest version, version count, root, verify status and this project's use;
+  a name's page has the version timeline, one version's manifest and files (`registry show`), the
+  diff between any two versions (`registry diff`) and used-by across the registered projects of
+  the environment (`registry used-by`: declared, locked and deployed). Read-only. See
+  `docs/command-center.md`.
+
+- Console Audit view links each row's agent name to the agent's detail page (#824, M8 console
+  half). A release candidate's row links to the agent it
+  belongs to. See `docs/command-center.md`.
+
+- Console Audit view and `audit list --before SEQ` (#824, M8 console half, part 2):
+  Governance ▸ Audit pages the audit rows 50 at a time (Older, Newer,
+  Newest) and shows each row's agent (release candidates marked), enforcement mode and reason
+  codes, a release row's eval run and report path, and a Try it link with the endpoint for an
+  agent's ready local production deployment. `audit list --json` adds an `agent` key per row (the
+  row's deployment's name, removed ones included, or null). See `docs/commands/audit.md` and
+  `docs/command-center.md`.
+
+- Console Try it (#823, M7 console half, first part): chat
+  with a project's production deployment from a Deployments row or the guided path's Try it step.
+  Each message runs `invoke NAME - --json` with the text on stdin, never argv, as an uncached
+  read that is not a job and is never stored. Candidates are refused. Replies are plain text with
+  a Turn details inspector (tools, sources, latency, tokens, the trace ID; cost and a trace link
+  wait for #906 and #907). The screen states the cost and that the endpoint is unauthenticated.
+  See `docs/command-center.md`.
+
+- Console Agents (#823, M7 console half, second part):
+  an Agents list across every stack on this machine (`list --all --json`: candidates marked,
+  registered and unregistered projects, identity check, last release from the audit log, stacks
+  that could not be read), and an agent detail with the gate strip (Build → Candidate → Evals n/N
+  → Identity → Production), an identity strip of what `stack.yaml` declares, and Overview, Try it,
+  Releases and Logs tabs. See `docs/command-center.md`.
+
+- Onboard an `agent.yaml` alone from the console (#823, M7 console half, third part):
+  Home's **An agent.yaml alone** form previews `new agent --stack-for
+  --dry-run --json`, asks a "this code runs in agents" confirm when the project brings code from
+  outside the built-in registry, writes `stack.yaml` pinned to the previewed `agent.yaml` digest
+  and registers the project (the ownership check again). `new agent --stack-for --json` gains
+  `agent_sha256`, `refs` and `runs_code`, and `--expect-digest`; `--stack-for` now refuses an
+  `agent.yaml` with any unresolvable registry ref (`REF_NOT_FOUND`), not only its eval set. See `docs/command-center.md` and
+  `docs/commands/new.md`.
+
+- The console's Services rows link to a service detail (`#/services/NAME`) with its config, a
+  Logs link and Start / Stop / Restart, each one `services start|stop|restart NAME --json`; a stop
+  or restart while deployments use the stack asks first, naming them, then passes `--yes`, and
+  `PORT_BUSY` and other refusals show the CLI's message (#822).
+
+
+- Console Docker-down blocker (#822, M6 console half, first part):
+  every screen shows "Docker is not reachable." with doctor's message, the
+  `agentbreeder doctor` remedy and Retry while Docker is down, checked every 5 s through a new
+  `GET /api/docker` (`doctor --json --only docker`, never cached, one check shared by every tab
+  for 3 s), and clears without a reload when Docker is back. New flag `doctor --only docker` runs
+  the engine check alone. See `docs/command-center.md` and `docs/commands/doctor.md`.
+
+- Console Home lists every registered project's stack services with a status chip (icon, word,
+  colour), host ports ("internal only" explained), and CPU and memory "of the Docker VM",
+  network and block IO per second, each with a five-minute sparkline whose accessible name
+  gives its low, high and newest value; a service's detail gains a Usage tab with one tile per
+  figure and the disk reading (#822, M6 console half, part 4).
+
+
+- `agentbreeder services start|stop|restart [DIR] NAME [--yes] [--json]` act on one service
+  container without re-rendering the stack; `stop` and `restart` refuse with `SERVICE_IN_USE`
+  while deployments use the stack unless `--yes`. Every `services` write (`up`, `down`, `plan`, the
+  new verbs, `cluster up|down`) now holds a per-stack lock and fails fast with `SERVICES_BUSY` when
+  another holds it (#822, S-11).
+
+- The console keeps a five-minute in-memory history of each project's service usage from one
+  `services usage --follow --json` child per project, read with `GET /api/projects/ID/usage`;
+  the child stops 15 seconds after the last read and when the console stops, and a console
+  killed outright leaves none running (stdin EOF, plus a PID-file sweep at the next `up`)
+  (#822, S-10).
+
+- The console's log viewer can **Follow** a service's or a deployment's logs: one `services logs
+  ... --follow --json` or `logs ID ... --follow --json` child per following tab, with Pause (or
+  scrolling up) and "Jump to latest", at most 8 follows per session and 16 long-lived children
+  overall, stopped when the page leaves, 15 seconds after its last read and on shutdown (#821).
+
+
+- The console watches each project's containers: one `watch --stack DIR --json --record` child
+  per project (stopped 15 seconds after the last request and on shutdown), its checked status and
+  newest events in memory at `GET /api/projects/ID/watch`, and a "Container events" list under each
+  project on Home; a failed or cancelled console job is stored as a `job_failed` event with its
+  kind, exit code and CLI error code only (#821, #827).
+
+- Agent package format and a deterministic registry packer (#763, M13 slice 1a):
+  `package.py` (the strict `package.json` schema, assembling the four
+  package files, loading them back, and replacing unsafe `agent.lock` source labels with
+  `external:`) and `pack.py` (a reproducible `tar+gzip` of one registry version). No command
+  writes or deploys a package yet. See `docs/registry.md`.
+
+- The `agent` registry kind (#763, M13 slice 1b):
+  `agent/<name>@X.Y.Z` refs parse; `registry list`, `show` (with a `Package:` summary, and
+  `package`/`package_error` in `--json`), `diff` and `verify` (which checks the package's files,
+  `package.json` and `agent.yaml` hash) read package versions; `registry publish`, `import`,
+  `fork`, `edit` and `registry new agent` refuse them with `PACKAGE_RELEASE_ONLY`, since only
+  `release` writes packages (in a later slice). No `agent.yaml`, `stack.yaml` or lock field takes
+  an `agent/` ref. See `docs/registry.md`.
+
+- `agentbreeder deploy agent/<name>@X.Y.Z --local [--project DIR]` deploys a released agent package
+  (#763, M13 slice 3): only from the project's own
+  `./registry`, and only when this state directory's `release/promoted` row matches the package's
+  project, tree hash, image and eval evidence. Identity, secrets and the gateway come from the
+  operator config, and the identity gate, policy and approvals apply as for any deploy. The local
+  state moves to schema v4, which adds each deployment's `package` (shown by `status --json`): the
+  first writable command upgrades a v3 state, and 3.0.0a2 cannot read it afterwards. `release`
+  links production to its package (`deploy/package_linked`), and `registry used-by agent/…` lists
+  the deployments linked to a package. See `docs/commands/deploy.md`.
+
+- `agentbreeder release` writes an agent package (#763, M13 slice 2):
+  each released image becomes `./registry/agent/<name>/<X.Y.Z>/` (the
+  released `agent.yaml`, a redacted `agent.lock` and `package.json`), published after the eval
+  gate and before production is replaced, and deleted again if no release is recorded.
+  `--version X.Y.Z` picks the version (default: the next free patch); a taken version exits 2 with
+  `VERSION_EXISTS` before any eval runs. The `release/promoted` row names the package, its tree
+  hash and a hash of the project path, and `--json` adds `package`. Releasing the image already in
+  production again gives its package (`PACKAGE_EXISTS`); a release row written before packages
+  existed no longer counts for `release`, which evaluates that image again without replacing
+  production. No command deploys a package yet. See `docs/agent-yaml.md`.
+
 - `agentbreeder list --all [--json]` and `new agent NAME --model gemini --stack-for agent.yaml`
-  (#823, M7, CLI half), on `main`, not in a published preview: `services up` records the project
+  (#823, M7, CLI half): `services up` records the project
   path in the stack's meta; `list --all` lists the default state and every stack's deployments
   read-only (validated directory names, no symlinks, `AGENTBREEDER_STACKS_DIR`, unreadable or
   unsupported stores reported and skipped); `--stack-for` writes the starter's `stack.yaml` and
   LiteLLM config beside an existing `agent.yaml` (gemini; agents with knowledge, tools or MCP
   refused), after the console's ownership check (S-01). See `docs/commands.md`.
 
-- Console log viewer (#821, M5, first part), on `main`, not in a published preview: a Logs
+- Console log viewer (#821, M5, first part): a Logs
   screen, and a Logs link on every Services and Deployments row, reading one snapshot through
   `services logs --json` or `logs ID --json` (`--previous` for Kubernetes). Filter, level filter,
   search, wrap and copy work on the lines read; unwrapped rows are windowed (10,000 lines). Notes
@@ -32,7 +525,7 @@ On main, not in a published preview.
 - `agentbreeder registry edit REF --set PATH FILE|--remove PATH [--bump patch|minor|major |
   --version X.Y.Z] [--project DIR] [--dry-run | --expect-digest SHA256] [--json]` and
   `agentbreeder agent set-ref OLD NEW [--project DIR] [--dry-run | --expect-base SHA256] [--json]`
-  (#826, M10 CLI), on `main`, not in a published preview. `edit` copies a project version to a
+  (#826, M10 CLI). `edit` copies a project version to a
   private staging directory, applies the files (from a file or stdin, never argv), raises the
   version and publishes it atomically with `publish`'s checks; it prints the diff first, refuses
   a version that exists or appears meanwhile (`VERSION_EXISTS`), an unchanged edit, a broken eval
@@ -42,12 +535,12 @@ On main, not in a published preview.
   git. The console editors are not built yet. See `docs/registry.md`.
 
 - `release` ends with `Next: … invoke NAME Hello` after a successful release, including
-  `--rollback` and an image already released (#820, M4 finding 1), on `main`, not in a published
-  preview: with the `--stack` and `--environment` or `--state-dir` it used; `--json` carries the
+  `--rollback` and an image already released (#820, M4 finding 1):
+  with the `--stack` and `--environment` or `--state-dir` it used; `--json` carries the
   command as `advice.invoke`. `your-first-agent.md` no longer says to run `next` after
   `release`.
 
-- Console guided path and Create starter (#820, M4), on `main`, not in a published preview: Home
+- Console guided path and Create starter (#820, M4): Home
   shows the project's `next --json` checklist (state as icon and word, reason, the current step's
   button, command and note), the top bar a "Next" pill, finished jobs a result row, and empty Home
   and Deployments screens the next action. Buttons map to fixed console moves; commands are only
@@ -56,14 +549,14 @@ On main, not in a published preview.
   (#823). See `docs/command-center.md`.
 
 - `agentbreeder registry fork REF [--as NAME] [--version X.Y.Z] [--project DIR] [--json]` (#825,
-  M9a), on `main`, not in a published preview: copies a built-in, `AGENTBREEDER_REGISTRY_PATH` or
+  M9a): copies a built-in, `AGENTBREEDER_REGISTRY_PATH` or
   project version into the project's `./registry` as a new version the project owns, with
   `import`'s checks, `--dry-run`/`--expect-digest` and JSON. A fork must change the name or the
   version (`FORK_UNCHANGED` otherwise), and a source that no longer declares `REF` when it is
   staged is refused (`MANIFEST_INVALID`). See `docs/registry.md`.
 
 - `agentbreeder events [--project DIR] [--limit N] [--unread] [--mark-read ID] [--mark-all-read]
-  [--json]` and `watch --record` (#827, M11), on `main`, not in a published preview: stored
+  [--json]` and `watch --record` (#827, M11): stored
   events, newest 500, in `~/.agentbreeder/center/events.sqlite3` (0600). The kinds are fixed:
   `job_failed`, `gate_failed` (stored by `release` on exit 5, with case ids and counts),
   `container_died` and `container_unhealthy` (from `watch --record`; `restarted` is not stored).
@@ -73,7 +566,7 @@ On main, not in a published preview.
   the real-Docker acceptance has not run. See `docs/events.md`.
 
 - `agentbreeder registry import PATH [--as NAME] [--version X.Y.Z] [--project DIR] [--json]`
-  (#825, M9a), on `main`, not in a published preview: copies a version directory from anywhere
+  (#825, M9a): copies a version directory from anywhere
   into the project's `./registry` with `publish`'s checks, plus a `REF_CONFLICT` check against the
   other search roots so the imported version resolves. `--as`/`--version` replace only the staged
   manifest's top-level `name:` and `version:` lines (anything else fails closed). `registry
@@ -87,8 +580,8 @@ On main, not in a published preview.
   `import` prints a matching note. `publish --json` keeps its one-line object and gains fields;
   its `path` is now absolute. See `docs/registry.md`.
 
-- `agentbreeder services usage [DIR] [--follow] [--json]` (#821 S-10, M6), on `main`, not in a
-  published preview: one stack's CPU, memory, network and block IO, and its disk, reading only.
+- `agentbreeder services usage [DIR] [--follow] [--json]` (#821 S-10, M6):
+  one stack's CPU, memory, network and block IO, and its disk, reading only.
   Containers match as `watch` matches them (stack services by label, agent containers by this
   stack's deployment IDs), listed again every 10 s; ONE streaming `docker stats` child runs over
   exactly those IDs and is replaced when the set changes (never with an empty list, which
@@ -103,7 +596,7 @@ On main, not in a published preview.
   sample and one disk reading (failing after 30 s without them). On macOS with Docker Desktop and Northwind: six containers
   sampled, and a stop by stdin EOF or SIGTERM ended in under half a second with no
   `docker stats` left.
-- `agentbreeder watch --stack DIR [--json]` (#821, M5), on `main`, not in a published preview:
+- `agentbreeder watch --stack DIR [--json]` (#821, M5):
   one stack's container events until stopped, reading only. `died` (a container exited by
   itself: a `die` with no `kill` or `stop` since it last started, and never for an agent
   container whose deployment is not `ready`), `unhealthy` and `restarted`, plus a `status`
@@ -114,8 +607,8 @@ On main, not in a published preview.
   on stdin EOF, SIGTERM, SIGHUP or Ctrl-C (S-10). On macOS with Docker Desktop: two releases
   and `services down` reported nothing; Postgres exiting by itself reported one `died` and one
   `restarted`. Events are not stored yet.
-- `--level warning|error` on `logs ID` and `services logs` (#821, M5), on `main`, not in a
-  published preview: keeps only records at that level or above, with one parser module
+- `--level warning|error` on `logs ID` and `services logs` (#821, M5):
+  keeps only records at that level or above, with one parser module
   (`loglevels.py`) keyed by built-in ref: Postgres (`ERROR`, `FATAL`, `PANIC`, with `DETAIL`,
   `HINT` and `STATEMENT` kept with their record), LiteLLM, Phoenix (Python logging, Uvicorn,
   `warnings`, tracebacks) and `runtime/adk` (its own failure messages). Continuation lines stay
@@ -124,7 +617,7 @@ On main, not in a published preview.
   agent's runtime comes from `--stack DIR`'s build record (built-in runtimes only). `--json`
   adds `format`, `levels` and `level`, and `--follow --json` each line's `level`. Tested against logs captured from a
   Northwind run (`tests/fixtures/logs/`); `runtime/adk` printed nothing in the runs captured.
-- Console browser-side guards (#816, M0b, slice 1), on `main`, not in a published preview. The
+- Console browser-side guards (#816, M0b, slice 1). The
   content security policy now requires Trusted Types with no policy allowed
   (`trusted-types 'none'; require-trusted-types-for 'script'`) and allows `data:` images, so any
   string assigned to an HTML or script sink throws. A source guard test fails on `innerHTML`,
@@ -135,7 +628,7 @@ On main, not in a published preview.
   recursively and a packaging test checks every tracked static file ships. Tests: `node --test
   'tests/js/*.test.mjs'` and a Playwright + axe job against the built wheel with a fake CLI (`tests/ui/`, CI
   jobs `console-js` and `console-ui`).
-- Console shell (#816, M0b, slice 2), on `main`, not in a published preview. The walkthrough
+- Console shell (#816, M0b, slice 2). The walkthrough
   column is replaced by a sidebar of the screens that work: Home, Services, Build and release,
   Deployments, Targets ▸ Kubernetes and Governance ▸ Audit. Each screen has its own hash address,
   title and focused `h1`, and there is a skip link. The top bar holds a project scope switcher,
@@ -160,14 +653,14 @@ On main, not in a published preview.
   serious or critical findings in light and dark) and `node --test` for the job store and
   wording.
 
-- `next`'s Kubernetes step gains the reason `GRANT_PENDING` (#820, M4), on `main`, not in a
-  published preview: the cluster is attached (typically after `cluster up` without `--yes`, as
+- `next`'s Kubernetes step gains the reason `GRANT_PENDING` (#820, M4):
+  the cluster is attached (typically after `cluster up` without `--yes`, as
   the console's job runs it) but the environment's operator config does not name it, so
   `promote` would fail with `KUBERNETES_UNCONFIGURED`. The fix is `services up DIR --environment ENV --yes`
   (`services-up`), with a note to review the grant first with `services plan`. Before, `next`
   pointed at that failing `promote`. `next --json` adds `cluster_configured` to the step's
   `data`; additive, `schema_version` stays 1 (`docs/next.md`, `docs/next.schema.json`).
-- `docs/your-first-agent.md` (#820, M4), on `main`, not in a published preview: from an empty
+- `docs/your-first-agent.md` (#820, M4): from an empty
   directory to a released starter agent and an `invoke` reply, one section per `next` step
   (prerequisites, project, model keys, services, build, release, try it, optional Kubernetes)
   with the commands `next` suggests and what each prints, then clean up. Steps 1 to 7 ran once
@@ -176,9 +669,9 @@ On main, not in a published preview.
   drift: a missing, duplicated or reordered step, a suggested command the page does not show
   with the same subcommand words and flags, a command in a block that the guide never
   suggests, a non-`sh` block, or a command (in a block or inline) the CLI parser rejects. The
-  website page waits for the next published preview.
+  website page is added after the release.
 - `agentbreeder services logs [DIR] NAME` gains `--since D`, `--follow`, `--json` and `--raw`
-  (#821, M5), on `main`, not in a published preview: the same shape, redaction and escaping as
+  (#821, M5): the same shape, redaction and escaping as
   `logs ID`. It reads `docker compose logs --no-color --no-log-prefix --timestamps` (4 MiB cap,
   Docker's 16 KiB partial records joined), redacts every line and now prints nothing when a value
   it needs cannot be read (`REDACTION_INCOMPLETE`; before, an unreadable stack secret was skipped
@@ -196,8 +689,8 @@ On main, not in a published preview.
   A service follow carries on across container restarts. Run against real Postgres
   and LiteLLM on macOS.
 
-- `agentbreeder logs ID [--previous]` for a Kubernetes (local `kind`) deployment (#821, M5), on
-  `main`, not in a published preview: reads the `agent` container of one pod owned by the
+- `agentbreeder logs ID [--previous]` for a Kubernetes (local `kind`) deployment (#821, M5):
+  reads the `agent` container of one pod owned by the
   verified Deployment (through its ReplicaSets' owner references, so a stray or stale pod that
   carries the label is never read or reported; a running pod first, then the newest) with
   `kubectl logs pod/NAME -c agent --timestamps`, through the cluster binding recorded with the
@@ -215,7 +708,7 @@ On main, not in a published preview.
   crash-looping pods are covered by tests only. Claim: local kind only.
 
 - `agentbreeder logs ID [--tail N] [--since D] [--follow] [--raw] [--json] [--state-dir DIR |
-  --stack DIR [--environment ENV]]` (#821, M5), on `main`, not in a published preview: a local
+  --stack DIR [--environment ENV]]` (#821, M5): a local
   deployment's container logs (stdout and stderr merged, timestamped; `--tail` default 200, at
   most 10 000; 4 MiB cap), read by container ID after Docker confirms the ownership labels.
   Every line is redacted with the stack's stored secrets, every non-removed deployment's secret
@@ -239,8 +732,8 @@ On main, not in a published preview.
   `--json`), and its lines are split on `\n` only. `services` stack secrets that cannot be
   read are now reported to the redactor instead of skipped silently.
 
-- `agentbreeder new agent NAME --model gemini [--dir DIR] [--dry-run] [--json]` (#769, M4), on
-  `main`, not in a published preview: writes a starter based on the one walked by hand on
+- `agentbreeder new agent NAME --model gemini [--dir DIR] [--dry-run] [--json]` (#769, M4):
+  writes a starter based on the one walked by hand on
   3.0.0a2 to `DIR` (default `./NAME`; absent, or an empty real directory you own that others
   cannot write to). This template, with `traces: none` and `agent_events: none` added, ran once
   end to end from a checkout on macOS (2026-11-12: `services up`, `build --locked`, `release`
@@ -260,8 +753,8 @@ On main, not in a published preview.
   directory without `agent.yaml` (`example northwind` stays in the fix's note), `quickstart` ends
   with `Next: … new agent hello --model gemini`, and `scripts/install_smoke.py` also runs
   `next --json` and `new agent --dry-run --json`.
-- `agentbreeder next [DIR] [--environment ENV] [--output DIR] [--json]` (#820, M4), on `main`,
-  not in a published preview: where a project is on the guided path (prerequisites, project,
+- `agentbreeder next [DIR] [--environment ENV] [--output DIR] [--json]` (#820, M4):
+  where a project is on the guided path (prerequisites, project,
   model keys, services, build, release through the eval gate, try it, and the local cluster when
   one is attached) and the one command to run next. It only reads: local state is opened
   read-only, `DIR`'s stack state is used (as `--stack DIR` would), Docker is asked once
@@ -270,8 +763,8 @@ On main, not in a published preview.
   now comes before `NOT_BUILT`/`BUILD_STALE`, a provider key used only by a fallback alias is
   optional, and step objects list `id`, `title` and `required` first.
 - `agentbreeder invoke NAME MESSAGE|- [--candidate] [--customer ID] [--session ID] [--json]
-  [--state-dir DIR | --stack DIR [--environment ENV]]` (M4), on `main`, not in a published
-  preview: sends one message to a ready local deployment's `/invoke` and prints the reply. It
+  [--state-dir DIR | --stack DIR [--environment ENV]]` (M4):
+  sends one message to a ready local deployment's `/invoke` and prints the reply. It
   calls only `http://127.0.0.1:<port>` endpoints recorded in local state (a Kubernetes row is
   refused with the `forward` command to use), and before sending asks Docker that the container
   is still the recorded one and still publishes that port. No proxies, no redirects, one 180 s
@@ -287,26 +780,26 @@ On main, not in a published preview.
   (`status`, `forward`, `next`) carry the same `--stack` or `--state-dir`. `next`'s done
   "Try it" step now suggests `invoke NAME Hello --stack DIR --environment ENV`. `safe_text`
   also escapes lone surrogates, so `logs` cannot crash on one either.
-- The `agentbreeder next --json` contract (#820, M4), on `main`, not in a published preview:
+- The `agentbreeder next --json` contract (#820, M4):
   `docs/next.md` and `docs/next.schema.json` (generated from `src/agentbreeder/guide.py`) fix the
   guided-path checklist's shape (steps, states, reason codes, fix actions, `complete`, live
   conditions) before the command lands, so the console can build its checklist from it. Contract
   only: the `next` command itself comes in a later M4 PR.
-- `agentbreeder registry show REF [--project DIR] [--json]` (#824), on `main`, not in a published
-  preview: one version's hash, root, manifest, files and the text of its text files, read-only.
+- `agentbreeder registry show REF [--project DIR] [--json]` (#824):
+  one version's hash, root, manifest, files and the text of its text files, read-only.
   It goes through the same safety checks as `verify`, opens files without following symlinks,
   caps text at 256 KiB per file and 2 MiB per version, and removes control and bidi characters
   from file names, manifest values and content (S-27), and from every registry error message.
   The hash and manifest it shows come from the same read as the content. The `--json` shape is
   documented in `docs/registry.md` for the console's registry pages.
-- `agentbreeder registry diff FROM TO [--context N] [--project DIR] [--json]` (#824), on `main`,
-  not in a published preview: what changes from one version of a `kind/name` to another, file
+- `agentbreeder registry diff FROM TO [--context N] [--project DIR] [--json]` (#824):
+  what changes from one version of a `kind/name` to another, file
   by file, as a valid unified diff (patience anchors, then difflib: where lines repeat, hunk
   placement can differ from `diff(1)`). Binary, oversized, over-budget (one budget of work and
   output lines per diff), mode-only and stripped-character-only changes are reported rather
   than hidden. Reads like `show`.
-- `agentbreeder registry used-by REF --project DIR... [--state-dir DIR] [--json]` (#824), on
-  `main`, not in a published preview: per project, where `agent.yaml`/`stack.yaml` declare the
+- `agentbreeder registry used-by REF --project DIR... [--state-dir DIR] [--json]` (#824):
+  per project, where `agent.yaml`/`stack.yaml` declare the
   ref (in ref fields only), the `agent.lock`/`stack.lock` entry, and recorded deployments of the
   agent, reported separately: `ready` ones whose image the project's current build record lists
   the ref for, the same match in other states, and deployments that cannot be matched
@@ -323,11 +816,10 @@ On main, not in a published preview.
   `center/static/fonts/`; the console does not use them yet. `tests/test_brand_tokens.py` checks
   the copy against `website/brand.css`, computes WCAG contrast for both palettes and pins the font
   hashes.
-- `agentbreeder migrate [--state-dir DIR | --stack DIR [--environment ENV]] [--json]` (#819; on
-  `main`, not in a published preview): upgrades the local deployment state to this version's
+- `agentbreeder migrate [--state-dir DIR | --stack DIR [--environment ENV]] [--json]` (#819): upgrades the local deployment state to this version's
   schema and finishes an interrupted write. No identity-provider calls; it never creates state.
 - `agentbreeder logs --failed NAME [--state-dir DIR | --stack DIR [--environment ENV]]` and the
-  failed-candidate log tail (#819; on `main`, not in a published preview): `release` reads the
+  failed-candidate log tail (#819): `release` reads the
   candidate's last 500 lines and its secret copies before removing it, then redacts the lines and
   keeps them at `<state-dir>/releases/<name>.candidate.log` (0600) when the candidate fails to
   start or fails the gate; a passing release deletes it. A failed start deletes the candidate's
@@ -341,23 +833,119 @@ On main, not in a published preview.
 
 ### Changed
 
+- The opt-in MCP egress sidecar authenticates decision-service requests and replies with derived
+  keys (decision protocol v2, #1097): the per-deployment token is no longer sent, requests carry a
+  timestamped, single-use MAC, and replies a MAC under a separate key bound to the request. A
+  deployment from an earlier version fails `reconcile` with `RUNTIME_BOUNDARY_UNVERIFIED`
+  (`PEP_PROTOCOL_MISMATCH`); redeploy it.
+
+- An eval set whose case has an unknown `expect` key, or malformed `tags`, is refused when it
+  loads (`EVAL_INVALID`) instead of the key being ignored (#1058).
+  `validate --json` prints `subagents`, `limits` and `evals.tag_threshold` for every
+  agent file.
+
+- The Northwind example moves to `runtime/adk@1.3.0` (relocked; follow-up to #1030, #1034,
+  #1039). From a wheel of the branch it released 61/61 on
+  real Docker. A refund turn was served by the primary model; with the primary broken in a
+  sandbox copy's gateway config, the OpenRouter fallback served the turn and `invoke` and `traces`
+  showed it; and a sandbox copy redeployed with `budget_usd: 0.002` got `MODEL_BUDGET_EXCEEDED`.
+
+- The gateway config review has a per-provider table (#1025 slice P1).
+  **Changed:** `model_info` now accepts only `mode` (`chat` or `embedding`);
+  price keys, `id`, `access_groups` and every other key are refused with `GATEWAY_CONFIG_UNSAFE`,
+  so a repo cannot set the price budgets are enforced against (no shipped config used
+  `model_info`). Key-only model strings must be printable ASCII. Review rules for Ollama, Vertex
+  AI, Bedrock and Azure OpenAI are in place, but `service/litellm@1.0.0` does not import their
+  credentials, so `services up` refuses those entries with `GATEWAY_PROVIDER_UNSUPPORTED`; each
+  provider ships in its own gateway version after a real run. Their credential names are
+  gateway-only: `secret set --from-env`, MCP versions and any service but the built-in gateway are
+  refused them, and an operator binding or manifest secret with one of those names is refused
+  (`SECRET_RESERVED`) in every environment. `next` no longer checks model keys for a project or
+  unknown `service/litellm` version (its keys step says not checked). Grants for stacks using only Gemini, OpenRouter, OpenAI or Anthropic are
+  unchanged byte for byte.
+
+- `new agent --model openai` (#1020) is now `verified` in `--json`, with its default
+  `openai/gpt-5.6`, the model it ran end to end with (`services up`, `release` 2/2 with the
+  judge's strict `json_schema` output, `invoke` 2/2, from a wheel built from `main`). In
+  `--from-spec`'s `combination`, openai is verified for model, prompt and evals alone and with one
+  knowledge version (embedding with `openai/text-embedding-3-small`, which indexed 4 of 4 chunks
+  and answered from the articles). A tool on openai stays unverified (none was run), as do two or
+  more tools and any MCP server. The console's Build and onboarding forms no longer mark openai
+  "not run end to end". `anthropic` stays config-only.
+
+- `new agent --model openrouter` (#1020) now defaults to `openrouter/google/gemini-3.8-flash`, the
+  model it ran end to end with (`services up`, `release` 2/2 with the judge's strict
+  `json_schema` output, `invoke` 2/2, from a wheel built from `main`), so `--model-id` is no
+  longer required, and `openrouter` is `verified` in `--json` and in `--from-spec`'s
+  `combination` (model, prompt and evals alone; it has no embedding model, so no knowledge).
+  `verified` covers the gateway and judge path with the default model, not another model's
+  answers: with another `--model-id` the text output and the console say only the default has
+  run. The console's Build and onboarding forms no longer mark openrouter "not run end to end"
+  or ask for a model id. `anthropic` and `openai` stay config-only.
+
+- The gateway config written by `new agent` (the starter, `--stack-for` and `--from-spec`) pins
+  `litellm_settings.turn_off_message_logging: true` and
+  `general_settings.store_prompts_in_spend_logs: false`, as Northwind does, instead of relying on
+  LiteLLM's defaults (#1018). With a `--model gemini`
+  starter on a running LiteLLM (M4 record, #1040), the spend log kept tokens and cost, and
+  `messages`, `response` and `proxy_server_request` were `{}` in every row.
+
+- Text that the CLI prints with visible escapes (`logs`, `services logs`, `invoke`, `evals`, `events`, `usage`) now also escapes invisible format characters: zero-width space, soft hyphen, BOM, U+2060–U+2064, U+206A–U+206F, the Mongolian vowel separator and the tag block U+E0000–U+E007F (shown as `\UXXXXXXXX`), so hidden text cannot ride along in a log line or reply. One-line fields replace them with a space. The set is the console's; zero-width joiner and non-joiner are kept (#901).
+
+- Messages that report removed or refused characters now say "control, bidi or invisible characters", to match what is actually stripped since #956: the `registry show` file note, the `new agent` and `new agent --stack-for` `DESTINATION_UNSAFE` errors, and the `registry diff` note in `docs/registry.md` and the console docs (#901).
+
+- `registry show`, `registry diff` and the console's registry browser now also strip the soft hyphen, the Mongolian vowel separator, U+2061–U+2064 and U+206A–U+206F from file names, manifest values and content, and strip zero-width space, word joiner, BOM and tag characters from content as well as names (before, only from names), so the set matches what the CLI escapes elsewhere; zero-width joiner and non-joiner stay in content, and a stripped file is still flagged. `new agent --from-spec` refuses the same characters in the prompt, turns and references (`SPEC_INVALID`, "has control, bidi or invisible characters") (#901).
+
+- `agentbreeder new agent --from-spec` now reports a `gemini` spec with one knowledge version
+  (and no tools or MCP servers) as verified (`combination.verified: true`)
+  (#833). A project generated from such a spec was run end to end from a wheel
+  built from `main`: `services up`, `build`, `release`, an `invoke` answering from an article and
+  a fresh `knowledge status`. Knowledge with tools, MCP servers or `openai` stays unverified.
+
+- `agentbreeder new agent --from-spec` now reports a `gemini` spec with one tool, alone or with
+  one knowledge version (and no MCP servers), as verified (`combination.verified: true`)
+  (#833). Projects generated from both specs, each with one
+  path tool, were run end to end from a wheel built from this change: `services up`, `build`,
+  `release` through an eval case that requires the tool, and an `invoke` that called it. The
+  console's Build an agent form creates the tool-only one after its code confirm (it still
+  refuses knowledge). Two or more tools, any MCP server and a tool with a provider other than
+  `gemini` (openrouter included) stay unverified.
+
+- `agentbreeder next`: the `LOCK_STALE` note now says a plain `build` rewrites `agent.lock` and
+  names the console's **Build and update agent.lock**; `fix.action` stays `null` (#826).
+
+
+- `services up|start|restart` fail with `[PORT_BUSY] port N is already in use on this machine`
+  (and the `--json` error object) instead of a `DOCKER_FAILED` stderr tail when a host port is
+  taken, and a local `deploy` records the same `PORT_BUSY` error; only the port number is read
+  from Docker's output (#822).
+
+- `agentbreeder services up|plan|status|down --json` print the error object
+  `{"schema_version": 1, "error": {"code", "message"}}` on stdout for every coded error, including
+  `SERVICES_BUSY` and `CONFIRM_REQUIRED` (#822).
+
+- A `--stack DIR` that cannot be resolved now fails with a coded `[CODE] message` line on every
+  command that takes it (an unreadable directory is `STACK_UNREADABLE`, not a bare OS error), and
+  with `--json` also prints `{"schema_version": 1, "error": {"code", "message"}}` (#820).
+
+
 - `agentbreeder services up` also writes `agent-database` (the `DATABASE_URL` binding in host
   form) and, when the database service's `console_database` param is set, `console-database`
   (its `operator_only` `console` output in host form) beside `eval-database` in the
-  environment's deploy state, for CLI commands on the host (#828, M12 prerequisite), on `main`,
-  not in a published preview. A removed binding or console role deletes the stale file. The three
+  environment's deploy state, for CLI commands on the host (#828, M12 prerequisite).
+  A removed binding or console role deletes the stale file. The three
   names are reserved: a deploy manifest that references `secret://eval-database`,
   `secret://agent-database` or `secret://console-database` is now denied with
   `SECRET_RESERVED` (before, `eval-database` could be mounted into an agent). See
   `docs/services.md`.
 
-- "Command center" is now "console" (#816, M0b, slice 3), on `main`, not in a published
-  preview: `agentbreeder up`'s help, its startup line ("AgentBreeder console: URL") and stop
+- "Command center" is now "console" (#816, M0b, slice 3):
+  `agentbreeder up`'s help, its startup line ("AgentBreeder console: URL") and stop
   line ("Console stopped. …"), and `docs/`. The page keeps its file name,
   `docs/command-center.md`, because the README, the website and `MANIFEST.in` link to it. The
   README and website change at the release milestone (#836). A milestone verification template
   is at `docs/superpowers/verification/TEMPLATE.md`.
-- Console backend foundation (#815), on main, not in a published preview:
+- Console backend foundation (#815):
   - Every API route goes through one table that applies the host, API-header, `Sec-Fetch-Site`,
     `Origin`, content-type and session checks before any handler, `404` or `405`.
   - Every API reply is an envelope `{"data", "error", "stale"}`; `error` carries the CLI's
@@ -388,7 +976,7 @@ On main, not in a published preview.
     test keeps the server process to an allowlist of modules.
   - `center.sqlite3` gains a `schema_version` table and migrations; a 3.0.0a2 database is
     upgraded in place with its projects and job history kept.
-- Registries (#824), on `main`, not in a published preview: `build`, `release` and `services up`
+- Registries (#824): `build`, `release` and `services up`
   now refuse a symlinked `<root>/<kind>` or `<root>/<kind>/<name>` directory in a registry root
   (`ENTRY_UNSAFE`), as they already refused a symlinked version directory. A symlinked or
   dangling `./registry/tool` fails every `tool/*` ref even when a later root has the version
@@ -396,27 +984,25 @@ On main, not in a published preview.
   versions under them `"symlinked": true`. An unreadable directory inside a version is now an
   error instead of being skipped.
 - `doctor` reports whether the `agentbreeder` your shell finds on `PATH` is this version (#805,
-  #819; advisory, never a failure; on `main`, not in a published preview). Under npx or uvx, the
+  #819; advisory, never a failure). Under npx or uvx, the
   temporary environment uv puts first on `PATH` is skipped, so a stale install behind it is found.
 - `cluster up` and `cluster down` take a per-user lock, `~/.agentbreeder/locks/cluster.lock`, and
-  fail with `CLUSTER_BUSY` while another one runs (security finding S-11, #819; on `main`, not in
-  a published preview).
-- One redactor (`agentbreeder.redaction`, #819; on `main`, not in a published preview): literal
+  fail with `CLUSTER_BUSY` while another one runs (security finding S-11, #819).
+- One redactor (`agentbreeder.redaction`, #819): literal
   values, each line of a multi-line value, base64 (also of the value inside a larger base64
   string), URL-quoted (either hex case) and JSON-escaped forms, and URL passwords, replaced in one
   pass in linear time. `services logs` uses it and now also redacts the stack's deployments'
   secret copies, and failed-case excerpts from `release` go through it. The CLI never lets a
   child process write to its own stdout or stderr unredacted (a test checks every call).
 - `release` no longer calls production "already in production" just because it runs the built
-  image (G-F3, #819; on `main`, not in a published preview): that needs an audited release of the
+  image (G-F3, #819): that needs an audited release of the
   image. A hand-deployed production is warned about and evaluated as a candidate; a pass records
   the release without replacing production, a fail exits 5 with `remove ID --local` (and
   `--rollback` only when a release journal exists). `promote` reads the same evidence through the
   new `evidence.released`.
 - `list` opens the local state read-only (`mode=ro`: no mkdir, no migration, no write lock) and,
-  for older or interrupted state, says to run `agentbreeder migrate` (#819; on `main`, not in a
-  published preview). `--stack DIR` resolution no longer creates the stack's state directory.
-- `Next:` lines name the launcher you are using (#819; on `main`, not in a published preview):
+  for older or interrupted state, says to run `agentbreeder migrate` (#819). `--stack DIR` resolution no longer creates the stack's state directory.
+- `Next:` lines name the launcher you are using (#819):
   `npx agentbreeder@<ver>` under the npm launcher (which now sets `AGENTBREEDER_LAUNCHER=npx` and
   `AGENTBREEDER_LAUNCHER_VERSION` for the CLI; only that value and a strict semver are accepted),
   `uvx --from 'agentbreeder[eval]==<ver>' agentbreeder` inside a uvx environment, a bare
@@ -424,7 +1010,7 @@ On main, not in a published preview.
   `build` now suggests `release` (never a production `deploy`) with the `--stack` and
   `--environment` it used, and `services up` suggests `build` (no `agent.lock` yet) or `release`
   with absolute paths. No `Next:` line is printed with `--json`.
-- Messages that name their fix (#819; on `main`, not in a published preview):
+- Messages that name their fix (#819):
   `CONTEXT_ENVIRONMENT_UNKNOWN` and `MODEL_ACCESS_UNCONFIGURED` suggest `--stack DIR` when a
   `stack.yaml` sits beside the agent file or one level above a manifest; `REF_UNPINNED` on
   `release` explains how to publish a path ref; `LOCK_STALE` says to run `agentbreeder build`
@@ -434,6 +1020,195 @@ On main, not in a published preview.
 
 ### Internal
 
+- F0 framework probe record for multi-framework agents (#1084):
+  LangGraph, Deep Agents, OpenAI Agents, CrewAI and the Claude Agent SDK were each run
+  against a local LiteLLM 1.106.2 gateway and under the engine's container limits. Gemini ignores
+  `tool_choice: none` through LiteLLM. The Claude CLI reads `@path` mentions unless
+  `verbatim_prompts` is set. CrewAI stores customer messages in SQLite. With a stub Presidio,
+  guardrails block and mask input on `/v1/messages`. No product code changed.
+
+- Design specs for multi-framework agents (#1084: framework runtimes on a shared runtime kit, agent
+  protocol v1 and conformance, with a Fable review of the 2.x runtimes) and their console (#1085),
+  part of epic #1083. Specs only; nothing is built.
+
+- Implementation plan for sub-agents (#1058) and skills (#1059), and the deploy-contract addendum
+  for script skills (the host-side runner and per-run `--network none` sandbox), part of epic #1057.
+  Plans and design only; nothing is built.
+
+- Console design for sub-agents (#1058) and skills (#1059): Build's Sub-agents section and Skills
+  picker, agent detail cards, Try it, Traces and cost splits, Registry ▸ Skills with a safe
+  Markdown renderer, and the API the console needs from the CLI, part of epic #1057.
+  Design only; nothing is built.
+
+- Design specs for sub-agents (#1058) and skills (#1059, instruction packs and script skills),
+  part of epic #1057. Specs only; nothing is built.
+
+- Test-only fix for the console builder's preview-then-create tests (#1050).
+  The generated files carry the local date, so a preview before local midnight
+  and a create after it are refused with `DIGEST_MISMATCH` ("preview it again"), by design. The
+  tests in `tests/test_center_builder.py` and `tests/ui/test_builder.py` now preview and create
+  once more only when that refusal comes with a date change; any other failure fails as before.
+  No product code changed.
+
+- Design spec for more gateway providers (#1025):
+  `docs/superpowers/specs/2026-11-15-more-providers-design.md` covers Ollama, Vertex AI, Bedrock
+  and Azure OpenAI behind the stack's LiteLLM gateway (model-string and endpoint review,
+  gateway-only credential imports, one new `service/litellm` version per provider, embeddings,
+  slices and owner decisions D1–D15). Docs only; nothing is implemented or claimed.
+
+- Guardrails spec r4 (#1024): G0 results on the pinned LiteLLM 1.106.2 image and Presidio 2.2.362,
+  covering fields, request overrides, routes, fail-closed cases, the ADK exceptions, logs and the
+  policy engine for agent-level guardrails. Spec only; nothing is implemented.
+
+- Specs for two model-layer features (#1023, #1024): direct
+  Gemini/OpenAI/Anthropic endpoints without the LiteLLM gateway (the operator environment picks the
+  route, the provider key is mounted into the agent, cost is a runtime estimate) and Presidio
+  guardrails in the gateway, required per environment and pinned to the gateway config's sha256.
+  Docs only; owner decisions pending, not implemented.
+
+- Provider verification re-run (#1020): OpenAI passes end to end with credit (starter release and
+  invoke, plus `text-embedding-3-small` knowledge via `--from-spec`); Anthropic is still blocked
+  by a key that is not workspace-scoped. Records only; `Provider.verified` is unchanged.
+
+- Providers record (#1020): `docs/superpowers/verification/providers.md` records starter runs
+  (`new agent` → `services up` → `release` → `invoke`) from a wheel built from `main`. OpenRouter
+  passed with `openrouter/google/gemini-3.8-flash` (release 2/2, invoke 2/2), and the judge's
+  `json_schema` output worked through it. OpenAI and Anthropic were not verified: the OpenAI key
+  had no credits, and the Anthropic key was not scoped to a workspace. `Provider.verified` is
+  unchanged.
+
+- Gateway limits record (#1019): `docs/superpowers/verification/gateway-limits.md` records a live
+  LiteLLM 1.106.2 run from a wheel built from `main`. A tiny `budget_usd` is refused once spent,
+  but `invoke` and the console show it as a generic 502. An `rpm` cap returns 429 on direct calls
+  and only delays an `invoke`. A retry was seen; a cooldown was not seen consistently. Northwind's
+  OpenRouter fallback works under the deployment's scoped key, which is not granted that alias
+  (#1033).
+
+- The console UI tests' fake CLI records its `invoke`, `evals` and `traces` calls under a lock
+  and replaces the file whole, so a test polling it never reads it empty (the
+  `test_choosing_a_deployment_and_a_count_reads_again` CI flake).
+
+- 907-tracing.md addendum (#1009, #1010): on a real Phoenix with Northwind from a wheel of
+  `main` (34472fb), trace token totals equal the runtime's count and LiteLLM's spend log for 4
+  turns and 1 eval case. A Try it trace read 1.1 s after the reply is marked still arriving and
+  not matched by time, and Read again fills it. The CLI's `(still arriving)` mark was not seen.
+
+- Test-only fix for a flaky console usage test (#1006).
+  The fake `services usage --follow` in `tests/test_center_usage.py` made its first write
+  outside its `BrokenPipeError` handling. When the console died before that write, the fake
+  exited and left its fake `docker stats` reader running. Its writes now sit inside a `try`, and
+  a `finally` stops the reader, as the real CLI does. No product code changed.
+
+- Spec delta for repinning MCP tool definitions without a terminal (#964):
+  a read, `services pins --json`, that probes the relays and returns the pin
+  diff with a digest, and `services up --repin --expect-pins SHA256`, which pins all or nothing
+  only when the live definitions still match the reviewed digest. Docs only; not implemented yet.
+
+- Spec for agent identity at creation (#909, epic #742):
+  `docs/superpowers/specs/2026-11-13-identity-at-creation-design.md`. A spec only;
+  nothing is built: no built-in Keycloak, no principal is created and in-process
+  tool calls are not checked.
+
+- The GKE target spec (#908) is amended to match the production-Kubernetes spec (#770): agents reach
+  the services their grant names, the deployer has no Secret read and the admission policies are G4
+  prerequisites, cluster state is per environment, and G1b is built as #770's K5. Spec text only;
+
+- Spec for the Google Cloud target through GKE (#908, epic #770):
+  `docs/superpowers/specs/2026-11-14-gke-target-design.md`. A spec only;
+  nothing is built and nothing has run on GKE.
+
+- The tracing verification record `docs/superpowers/verification/907-tracing.md` (#907):
+  a real-Docker run on Northwind of a Try it turn's trace and an eval
+  case's trace, with the defects found (#1009, #1010).
+
+- The LLM cost verification record `docs/superpowers/verification/906-cost.md` (#906):
+  on a real stack, `agentbreeder cost` and the console's cost cards
+  equal LiteLLM's own spend log per deployment key and per model. The docs defect found is #1011.
+
+- Changelog fragments and per-command docs (#893): a PR
+  adds its entry as `changelog.d/<issue>.<type>.md` instead of editing `CHANGELOG.md`, and
+  `scripts/changelog.py fold` moves the fragments into `[Unreleased]` at release. A CI workflow
+  (`changelog.yml`) fails a PR that edits `CHANGELOG.md` without the `release` label, or that
+  changes code or docs without a fragment. `docs/commands.md` is split into
+  `docs/commands/<command>.md`, one per command, with an index generated by
+  `scripts/commands_index.py`. Entries already in `[Unreleased]` stay as they are.
+
+- M17 record (#833), re-run after #1051: from a wheel built from `main`, a gemini agent with a
+  prompt, an eval case and one path tool was created from the console's Build an agent form,
+  started and released from the console (1/1), and called its tool in Try it. The acceptance is
+  met. Knowledge is still not on the form.
+
+- The M17 agent builder verification record `docs/superpowers/verification/M17.md` (#833):
+  the form creates and releases a gemini + prompt + evals
+  agent, but not one with a tool (not run end to end yet); the same spec with a tool and knowledge
+  released through `new agent --from-spec`.
+
+- M15 record (#831), real-token addendum: from a wheel built from `main`, with a real
+  fine-grained GitHub token, a granted tool was listed and called by the agent. After a revoke,
+  `remove` and `services up`, the relay refused that tool and the narrowed agent no longer listed
+  it. The relay refused ungranted calls (`TOOL_NOT_GRANTED`). The CLI and console repin flows
+  passed on a simulated drift. The acceptance is met.
+
+- M15 record (#831): `docs/superpowers/verification/M15.md` records a run from a wheel built from
+  `main` with a stub GitHub token, so no GitHub call succeeded. `mcp grant|revoke`, the console's
+  grants view and its grant and revoke flow (including a stale-review refusal) and the services
+  review's MCP section passed. The relay logs the refused credential as `UPSTREAM_AUTH` and the CLI
+  as `MCP_PROBE_FAILED (UPSTREAM_AUTH)`, but the console omits the cause. The acceptance (an agent
+  lists a granted tool) needs a real token and was not run.
+
+- M14 verification record (#830, M14): `docs/superpowers/verification/M14.md`, run from a wheel built from `main` with Northwind on real Docker. A document added with `registry edit` and released 61/61 is returned by retrieval, and `knowledge status` shows the new chunk count. The console's knowledge screens were driven by Playwright against the same stack (screenshots; no video on macOS 13).
+
+- M12 verification record (#828, M12): `docs/superpowers/verification/M12.md`, run from a wheel built from `main` with Northwind on real Docker. It covers tool checks, `registry show` functions, a `tool/orders` edit released 61/61, and `tool log` through the console credential. It records the deploy race (#978) and the LiteLLM probe margin (#979).
+
+- M10 verification record (#826, M10): `docs/superpowers/verification/M10.md`, run from a wheel
+  built from `main` with the starter agent on real Docker. A prompt edited in the console and
+  saved as `0.1.1`, moved to and released, passed 2/2; an eval case broken in the console blocked
+  the release (exit 5, 1/2), and the console's gate-failed view showed the case, its check, the
+  judge's reason and the candidate's saved tail (screenshots; no video on macOS 13).
+
+- M9a verification record, console addendum (#825, M9a): `docs/superpowers/verification/M9a.md`,
+  run from a wheel built from `main` on real Docker. A prompt imported by path in the console
+  resolved (the build locked the reviewed digest and the image holds its text); a built-in service
+  version forked to the next patch and under another name, and the copy was edited with
+  `registry edit`; a tool import asked for the code confirm, and the server refused a write without
+  it (`CODE_NOT_CONFIRMED`).
+
+- M8 console addendum (#824): `docs/superpowers/verification/M8.md` now records the console half,
+  run from a wheel built from `main` with Northwind released (61/61) on real Docker. The registry
+  lists showed Northwind's 13 versions and all 16 built-ins, the 1.0.0 → 1.0.1 prompt diff was
+  byte-identical to `diff -u`, Used by showed `tool/orders@1.0.0` declared, locked and deployed,
+  and Audit paged 112 rows (50, 50, 12) with agent names linking to the agent detail.
+
+- M7 verification record (#823, M7): `docs/superpowers/verification/M7.md`, run from a wheel
+  built from `main` on real Docker. The console's Agents list showed Northwind (61/61) and a
+  starter agent (2/2) with their state; Try it on Northwind production returned a reply with its
+  tool and sources; a project with an `agent.yaml` and no stack was onboarded with the
+  three-tier confirm and released 2/2 from the console (screenshots; no video on macOS 13).
+
+- M6 verification record, partial (#822, M6): `docs/superpowers/verification/M6.md`, run from a wheel built
+  from `main` with Northwind on real Docker. Home showed all 5 services with CPU, memory, network
+  and block IO within 4.6 s and changed by 8.3 s; `services restart litellm` and the console's
+  Restart restarted only that container. The Docker-stop step was not run (shared Docker Desktop);
+  its UI tests against the fake CLI passed.
+
+- M4 console record (#820): `docs/superpowers/verification/M4.md` gains a console addendum from a
+  wheel built from `main`. Create starter reached a first Try it reply in about 123 s, with the
+  checklist and Next pill equal to `next --json` at every step. GRANT_PENDING on a local kind
+  cluster was shown and cleared through the Services review. APPROVAL_PENDING could not be
+  produced without a verified deployer and has unit-test evidence only. A starter's LiteLLM spend
+  log holds tokens and cost but no prompts or replies (#1018).
+
+- Spec for production Kubernetes (#770: the deployer on a real cluster, a Helm chart for the stack's
+  services, secrets and network policy, the exit run):
+  `docs/superpowers/specs/2026-11-14-production-kubernetes-design.md`. A spec only;
+  nothing is built and nothing has run on a real cluster.
+
+- `build` makes the deploy manifest in two steps (#763, M13 slice 1c):
+  `template()` (port, health path, aliases, budget, rpm and MCP tools, from the
+  agent and its runtime only) and `bind()` (identity, secrets and the gateway from the operator
+  config; image and target from the deploy path). Generated manifests are byte-identical to
+  before (pinned for Northwind), and the template is now checked before `docker build` runs.
+
 - CLI commands split into modules (no behaviour change) (#813). Each command's parser and handler
   moved from `cli.py` to `src/agentbreeder/commands/<name>.py`; a golden test checks every
   command's `--help` output byte for byte.
@@ -441,26 +1216,178 @@ On main, not in a published preview.
   `docs/superpowers/specs/2026-11-13-authenticated-invoke-design.md`. A spec only; nothing is
   built, and `/invoke` is still unauthenticated.
 - Design spec for governed agent-to-agent calls (A2A, M19 #835, epic #812):
-  `docs/superpowers/specs/2026-11-13-a2a-design.md`. A spec only, on `main`, not in a published
-  preview; nothing is built, and agents cannot call each other.
+  `docs/superpowers/specs/2026-11-13-a2a-design.md`. A spec only;
+  nothing is built, and agents cannot call each other.
 - Spec delta for M12, tools and the read-only console role (#828, epic #812):
-  `docs/superpowers/specs/2026-11-13-m12-tools-console-role-design.md`. A spec only, on `main`,
-  not in a published preview; nothing is built, and there is no console role or `tool log` yet.
+  `docs/superpowers/specs/2026-11-13-m12-tools-console-role-design.md`. A spec only;
+  nothing is built, and there is no console role or `tool log` yet.
 - `safe_text` writes its bidirectional-control character class as `\u` escapes instead of seven
-  literal invisible characters (#820), on `main`, not in a published preview. No behaviour
+  literal invisible characters (#820). No behaviour
   change: a test checks every code point (U+0000 to U+10FFFF) against the documented set
   (C0, DEL and C1, bidi controls, U+2028/U+2029, lone surrogates) and that the module source
   holds no invisible control character.
 
 ### Fixed
 
+- The console's agent page no longer says "No release recorded" for an agent that has releases
+  while its releases are still loading: the gate strip's steps say "Loading releases…" (or
+  "Loading deployments…") until their first read answers (#1073).
+
+
+- The console's Agents list now reads again every 3 seconds while a job runs, and again with its
+  last releases when a job ends, so a release's candidate and new production row show without a
+  reload (#1073).
+
+- The console's agent page no longer says Production "passed" before its releases are read, or
+  "no deployment" on the Overview, Logs and Traces tabs before its deployments are read: each says
+  what it is loading until the read answers. Switching the project scope with an agent open no
+  longer shows the other project's production card (#1073).
+
+- `mcp revoke` then `services up` applies cleanly while a deployment still holds the revoked
+  tool: `up` narrows the relay's grant (the relay refuses the tool to that deployment from then
+  on, `TOOL_NOT_GRANTED`) and warns, naming the agent and deployment, instead of refusing with
+  `MCP_GRANT_IN_USE` until it was removed. Dropping an `mcp:` entry in use is still refused. The
+  console's grant review says the same (#1072).
+
+- `services down` (#1048) now removes the stack's networks that Docker Compose leaves behind.
+  Compose removes only the networks the current compose file names. A dropped `mcp:` entry's
+  private network (`agentbreeder-<stack-id>-mcp-<name>`), or any network from an earlier
+  render, was left in Docker after the stack was gone. `down` now removes every network labelled
+  with the stack's id and named after the stack, also after a failed `up`. A network that is
+  still in use is kept and reported, not removed: an `<stack>-agents` network that a leftover
+  agent container or the kind node still holds is in this group. `--json` adds
+  `networks_removed` and `networks_left`. This is tested against a fake Docker; the opt-in
+  real-Docker assertions have not been run yet.
+  Networks left by earlier versions are not pruned automatically; `docs/services.md` shows how
+  to remove them by hand.
+
+- `agentbreeder next` and the console checklist no longer report `PROMOTION_STALE` for the
+  optional Kubernetes step when there is no production deployment (#1044).
+  With the cluster up and in the grant but no production to promote or
+  compare (never released, or removed since), the step is `NOT_CHECKED`, "Release first".
+
+- The console's MCP grant form no longer labels every granted tool "no longer declared" while
+  the server's declared tools are still loading: it says "checking the declared tools" (or
+  "declared tools unavailable" when they can't be read). The Change and Tools choices now line up
+  at the start of their boxes in light and dark (#1043).
+
+- Coded failures keep their cause (#1042). A `services up` that stops at the MCP pin probe names
+  the relay's cause (`MCP_PROBE_FAILED` with `UPSTREAM_AUTH`) in `services status --json`
+  (`mcp.<server>.cause`), and `next` reports the failed run as `SERVICES_UP_FAILED` with its code
+  and cause (`data.up_failure`) instead of "services up has not run". The console's job rows show
+  a failed job's code, its cause and the CLI's message (with its next step) instead of only "See
+  its log", including a release's coded refusal, and the MCP grants screen says what the cause
+  means and which relay log to read.
+
+- `services up` refuses a gateway config whose `fallbacks` or `context_window_fallbacks` name an
+  alias `environment.models` doesn't grant (`GATEWAY_FALLBACK_UNGRANTED`, naming the aliases),
+  because LiteLLM serves a fallback under the caller's key without checking the key's models
+  (#1033). It writes the granted fallbacks into the operator config, and deployment and eval
+  judge keys are minted with them, so a granted fallback keeps working. Northwind now grants
+  `support-model-openrouter`; `OPENROUTER_API_KEY` stays optional.
+
+- `services up` refuses a gateway config model that is not `PROVIDER/MODEL` with a provider
+  AgentBreeder reviews (`anthropic`, `gemini`, `openai`, `openrouter`), with
+  `GATEWAY_CONFIG_UNSAFE` (#1031). Other prefixes and bare
+  model names used to be accepted as "unknown (no key)" and left LiteLLM to the provider SDK's
+  default credential chain.
+
+- `services up` refuses a gateway config that turns prompt or reply logging on
+  (`litellm_settings.turn_off_message_logging` other than `true`, `litellm_settings.set_verbose`
+  other than `false`, `general_settings.store_prompts_in_spend_logs` other than `false`) with
+  `GATEWAY_CONFIG_UNSAFE` naming the key (#1028). There is
+  no operator opt-in.
+
+- The cost and tracing docs now say what the 2026-11-15 Northwind runs showed (#1011):
+  `runtime/adk@1.2.0` reports each turn's `cost_usd` (LiteLLM's
+  estimate for the turn's chat calls, evidently without its embedding calls), `agentbreeder cost` and the
+  console's cost cards equalled LiteLLM's spend log on real Gemini calls, and the console's trace
+  panels were run against a live Phoenix (with #1009 and #1010 noted). A key reaching its budget
+  has not been run.
+
+- A trace read before its root span reached Phoenix is marked `incomplete` ("still arriving",
+  with **Read again** in the console) instead of being matched by time with the wrong "this
+  runtime does not record its deployment" note (#1010). Tested against a fake Phoenix, not yet a
+  live one.
+
+- `agentbreeder traces` and the console's trace views count each model call's tokens once: a
+  trace's total no longer adds both ADK's `call_llm` span and its `generate_content` child,
+  which doubled it (#1009). Each span's `tokens_counted` says whether its counts are in the
+  total. Tested against a fake Phoenix, not yet a live one.
+
+- A local `deploy` with the opt-in egress sidecar re-inspects the sidecar for up to 5 seconds
+  while Docker still shows its ingress port as empty after `container start`, instead of failing
+  at once with "Sidecar has no single loopback ingress binding"; a stopped sidecar or a binding
+  that is not loopback still fails at once (#991).
+
+- `registry edit` no longer suggests `agent set-ref` when that command would refuse: a service
+  version, which `stack.yaml` references, got a hint that exits 2 with `REF_NOT_DECLARED`. The
+  `Next:` line now follows where the project declares the version: the `agent set-ref` command
+  (with `--project DIR` when needed) only when `agent.yaml` declares it and the command's dry run
+  passes, otherwise the field to change in `agent.yaml` or `stack.yaml`, or which file can
+  reference the new version (#990).
+
+- Every strict YAML read (agent files, registry manifests) opens the file non-blocking and
+  refuses anything that is not a regular file, so a FIFO in a shared registry root no longer
+  hangs the CLI (#989).
+
+- `services up` gives a service whose HTTP health check has not passed after 180 s up to 240 s
+  more while its container is still running (a cold start on a busy engine, such as LiteLLM's on
+  a fresh stack), and fails at once when the container has exited; the `SERVICE_UNHEALTHY`
+  message now says that started services are kept, so the command can be run again (#979).
+
+
+- A local `deploy` (and so `release`'s candidate and production deploys) re-inspects the
+  container for up to 5 seconds while Docker still shows its published port as empty after
+  `container start`, instead of failing at once with "Container is not running with one loopback
+  HTTP binding"; a binding that is present but not loopback still fails at once (#978).
+
+
+- The console's Kubernetes screen offers Deploy to cluster only for the deployment `promote` takes
+  (this agent's ready local deployment, from `next --json`), not for another agent's deployment
+  in the list (#902).
+
+- `agentbreeder events --mark-read ID` now reports an id that matches no stored event: it prints `ignored unknown event id N` on stderr, and `--json` gains `"unknown_ids"` (always present, `[]` when none). The exit code stays 0 and known ids in the same call are still marked (#897).
+
+- The console's "Session ended" page also names a console restart as a cause (sessions live in the
+  console's memory), not only 8 hours open or 1 hour idle (#879).
+
+
+- `evals` and `release` stop a case's `must_match` / `must_not_match` patterns after 5 seconds and fail the case (check `patterns_finished: false`), so a pattern that backtracks on a long reply can no longer stall a release; a pattern that is not a regular expression fails its case instead of ending the run with a traceback. S-34 #10 (#833).
+
+- The console's guided path offers **Build and update agent.lock** for a stale lock
+  (`LOCK_STALE`) instead of only a CLI command, and a grant review or services start on a stack
+  where another services write runs says "Another operation is running on this stack; retry
+  when it finishes" (`SERVICES_BUSY`) instead of a generic failure (#826, #822).
+
+
+- The console read `doctor --json`'s exit 1 (a required check failed) as a failed read and kept
+  the last passing answer, so Home's Docker notice never appeared; it now keeps doctor's answer
+  (#822).
+
+- `agentbreeder logs`, `services logs` and `services start|stop|restart` keep a coded error on
+  one stderr line: control characters and newlines in a Docker or kubectl message are escaped,
+  as for every other `[CODE]` line, and the `--json` error object escapes control characters too
+  (#822).
+
+- Copying a registry version now reports a file that was replaced by a directory while it was
+  copied as `[ENTRY_UNSAFE] changed while copying`, not a raw `IsADirectoryError` (#763).
+
+
+- A deploy behind the egress boundary (runtime enforcement) waits 30 s, not 10 s, for its two
+  engine probes: the listen-mode `docker info` and the engine-version `docker version` (#732).
+  That is the same timeout as every other Docker call. On a
+  loaded Docker Desktop, `docker info` stalled for more than 10 s right after an image build, and
+  the deploy ended in `failed` with "Docker operation failed or timed out; check docker context".
+  The runtime preflight's own 10 s `docker version` check (also used by `doctor`) is unchanged.
+
 - `registry publish --json` reports `root_kind: "project"` when `--to` resolves to `DIR/registry`
-  and DIR holds an `agent.yaml` or `stack.yaml` file (#898), on `main`, not in a published
-  preview. It reported `path` for a project's own `./registry`, including `publish DIR` run from
+  and DIR holds an `agent.yaml` or `stack.yaml` file (#898).
+  It reported `path` for a project's own `./registry`, including `publish DIR` run from
   the project with the default `--to registry`; `import`, `fork` and `show` already said
   `project`. Any other `--to` stays `path`; the write is unchanged. See `docs/registry.md`.
 
-- `logs ID` for a Kubernetes (local `kind`) deployment, on `main`, not in a published preview:
+- `logs ID` for a Kubernetes (local `kind`) deployment:
   when `kubectl logs` exits 0 but its whole output is one kubelet message saying the container
   or its log file is gone, it now fails with `LOG_UNAVAILABLE` (exit 2, with the `--json` error
   object) instead of printing that message as a log line. On kind (node v1.37), `--previous` on
@@ -475,18 +1402,16 @@ On main, not in a published preview.
   it reads "not listening (last: NAME → 127.0.0.1:PORT)", muted. **Stop services** is off,
   with "The services are stopped.", only when every service is absent: `services down` also
   removes exited containers, so it stays on for those (#882).
-  On `main`, not in a published preview.
 - `invoke`: a state directory it cannot look into (no search permission on it or a parent,
   another OS error, named by its errno) is now `[STATE_UNREADABLE] cannot read the
   AgentBreeder state at DIR (permission denied)`, exit 2, with the `--json` error object
   (`sent: false`), instead of a Python traceback; a missing state is still `NO_STATE` (#820).
-  On `main`, not in a published preview.
 - Console, Targets ▸ Kubernetes: after a released deployment was removed, the "Deploy this
   release to the cluster" card said "Nothing released locally yet." It reads the ready local
   deployment, which is what `promote` needs (`NO_LOCAL_RELEASE`), not the release history. It now
   says "No ready release is running locally." (and "Running locally: NAME" when there is one),
   and Deploy to cluster stays off with "Needs a release running locally: run a release first."
-  (#880, on `main`, not in a published preview).
+  (#880).
 - `logs ID --follow`, `services logs --follow`, `watch` and `services usage --follow`: when the
   terminal's Ctrl-C or a group SIGTERM/SIGHUP ends their docker or kubectl child before the
   CLI's own handler records it, a child exit of 130, 143 or 129 (it caught the signal) now counts
@@ -496,12 +1421,11 @@ On main, not in a published preview.
   for one. On Docker 27.5, `docker compose logs -f` (used by `services logs`) exits 130 after
   SIGINT and SIGTERM; `docker logs -f` and `docker events` exit 1, which still reads as a
   failure in that rare race; `docker stats` ignores both, so its case is covered by tests only;
-  kubectl was not checked (#821, on `main`, not in a published preview).
+  kubectl was not checked (#821).
 - `next`'s Kubernetes step suggested `cluster up` without `--yes`, which leaves the grant and the
   operator config unchanged, so the `promote` it suggested next failed with
-  `KUBERNETES_UNCONFIGURED`; it now suggests `cluster up --yes` (on `main`, not in a published
-  preview).
-- Five small findings from the M3/M8 verification (#854), on `main`, not in a published preview:
+  `KUBERNETES_UNCONFIGURED`; it now suggests `cluster up --yes`.
+- Five small findings from the M3/M8 verification (#854):
   `cluster down` removes the registry container's anonymous volume (`docker rm --volumes`) and,
   without `kind` on `PATH`, fails with `CLUSTER_TOOL_MISSING` as `cluster up` does; `migrate` on
   a state with an interrupted write says it recovered that write (its `--json` adds

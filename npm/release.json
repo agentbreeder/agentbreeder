@@ -1,6 +1,6 @@
 {
-  "pypi_version": "3.0.0a2",
-  "exclude_newer": "2026-11-11T05:50:49Z",
-  "window_end": "2026-12-11T05:50:49Z",
+  "pypi_version": "3.0.0a3",
+  "exclude_newer": "2026-11-16T20:51:58Z",
+  "window_end": "2026-12-16T20:51:58Z",
   "min_uv": "0.11.6"
 }
