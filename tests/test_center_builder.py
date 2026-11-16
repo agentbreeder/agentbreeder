@@ -11,6 +11,7 @@ import json
 import os
 import stat
 import sys
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -100,6 +101,34 @@ def preview(center, cookie, **changes):
 def create(center, cookie, digest, confirmed=False, **changes):
     body = {"spec": spec(**changes), "digest": digest, "code_confirmed": confirmed}
     return api(center, "POST", CREATE, body, cookie)
+
+
+def raced_midnight(result) -> bool:
+    status, data, _ = result
+    return status == 400 and (data.get("error") or {}).get("code") == "DIGEST_MISMATCH"
+
+
+def preview_then_create(center, cookie, *confirms, calls=None, between=None, **changes):
+    """Preview, then one create per `confirms` value (the code confirm), each pinned to the
+    preview's digest. Returns (the preview's data, [each create's (status, data, headers)]).
+
+    The files carry the local date (the agent.yaml header and stack.yaml `review_by`), so a
+    preview before local midnight and a create after it differ by design: DIGEST_MISMATCH,
+    "preview it again" (#1050). The CLI is a child process, so the date cannot be patched.
+    Only then is the whole sequence run once more (`calls` cleared, `between` run again);
+    a DIGEST_MISMATCH on the same day, or any other refusal, is returned as it is."""
+    for attempt in (1, 2):
+        day = date.today()
+        status, data, _ = preview(center, cookie, **changes)
+        assert status == 200, data
+        if between:
+            between()
+        digest = data["data"]["plan_sha256"]
+        results = [create(center, cookie, digest, confirmed, **changes) for confirmed in confirms]
+        if attempt == 2 or date.today() == day or not any(map(raced_midnight, results)):
+            return data, results
+        if calls is not None:
+            calls.clear()
 
 
 # -- the preview -------------------------------------------------------------------------------
@@ -215,9 +244,8 @@ def test_a_spec_over_64_kib_reaches_the_cli(center, cookie, home, calls):
 
 
 def test_create_writes_the_previewed_plan_and_registers_it(center, cookie, home, calls):
-    _, data, _ = preview(center, cookie)
+    data, [(status, added, _)] = preview_then_create(center, cookie, False, calls=calls)
     digest = data["data"]["plan_sha256"]
-    status, added, _ = create(center, cookie, digest)
     assert status == 200, added
     destination = home / "agentbreeder-projects" / "helper"
     assert added["data"]["path"] == str(destination.resolve())
@@ -235,6 +263,8 @@ def test_create_refuses_a_plan_that_changed_since_the_preview(center, cookie, ho
         center, cookie, data["data"]["plan_sha256"], prompt={"text": "Something else.\n"}
     )
     assert status == 400 and refused["error"]["code"] == "DIGEST_MISMATCH"
+    # The UI test's midnight retry (#1050) recognises the refusal by these words.
+    assert "preview it again" in refused["error"]["message"]
     assert not (home / "agentbreeder-projects" / "helper").exists()
     assert center.state.projects() == []
 
@@ -247,8 +277,9 @@ def test_create_needs_a_preview_first(center, cookie, home, calls, digest):
 
 
 def test_create_refuses_a_combination_not_run_end_to_end(center, cookie, home, calls):
-    _, data, _ = preview(center, cookie, model="openai")
-    status, refused, _ = create(center, cookie, data["data"]["plan_sha256"], model="openai")
+    _, [(status, refused, _)] = preview_then_create(
+        center, cookie, False, calls=calls, model="openai"
+    )
     assert status == 400 and refused["error"]["code"] == "COMBINATION_UNVERIFIED"
     assert len(calls) == 2  # the preview and the re-check; no write
     assert not (home / "agentbreeder-projects" / "helper").exists()
@@ -266,12 +297,75 @@ def test_create_needs_the_code_confirm_when_code_runs_in_agents(center, cookie, 
 
 
 def test_create_into_a_folder_that_is_not_empty_shows_the_clis_error(center, cookie, home):
-    _, data, _ = preview(center, cookie)
-    (home / "agentbreeder-projects" / "helper").mkdir()
-    (home / "agentbreeder-projects" / "helper" / "notes.txt").write_text("mine")
-    status, refused, _ = create(center, cookie, data["data"]["plan_sha256"])
+    def fill_the_folder():
+        (home / "agentbreeder-projects" / "helper").mkdir(exist_ok=True)
+        (home / "agentbreeder-projects" / "helper" / "notes.txt").write_text("mine")
+
+    _, [(status, refused, _)] = preview_then_create(center, cookie, False, between=fill_the_folder)
     assert status == 400 and refused["error"]["code"] not in ("BAD_OUTPUT", "")
     assert center.state.projects() == []
+
+
+# -- the midnight retry (#1050, test-only) ------------------------------------------------------
+
+MISMATCH = (400, {"data": None, "error": {"code": "DIGEST_MISMATCH", "message": "m"}}, {})
+WRITTEN = (200, {"data": {"path": "/x"}, "error": None}, {})
+
+
+@pytest.fixture
+def scripted(monkeypatch):
+    """`preview_then_create` with scripted local dates and create answers, and no console."""
+    state = {"days": [], "answers": [], "previews": 0, "creates": 0}
+
+    class Clock:
+        @staticmethod
+        def today():
+            return state["days"].pop(0)
+
+    def fake_preview(center, cookie, **changes):
+        state["previews"] += 1
+        return 200, {"data": {"plan_sha256": f"sha256:{state['previews']}"}}, {}
+
+    def fake_create(center, cookie, digest, confirmed=False, **changes):
+        state["creates"] += 1
+        return state["answers"].pop(0)
+
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "date", Clock)
+    monkeypatch.setattr(module, "preview", fake_preview)
+    monkeypatch.setattr(module, "create", fake_create)
+    return state
+
+
+D1, D2, D3 = date(2026, 11, 15), date(2026, 11, 16), date(2026, 11, 17)
+
+
+def test_a_mismatch_across_local_midnight_is_previewed_and_created_once_more(scripted):
+    scripted.update(days=[D1, D2, D2, D2], answers=[MISMATCH, WRITTEN])
+    seen, between = ["stale call"], []
+    data, results = preview_then_create(
+        None, None, False, calls=seen, between=lambda: between.append(1)
+    )
+    assert results == [WRITTEN] and data["data"]["plan_sha256"] == "sha256:2"
+    assert scripted["previews"] == 2 and between == [1, 1] and seen == []
+
+
+def test_a_mismatch_on_the_same_day_is_not_retried(scripted):
+    scripted.update(days=[D1, D1], answers=[MISMATCH])
+    _, results = preview_then_create(None, None, False)
+    assert results == [MISMATCH] and scripted["previews"] == 1
+
+
+def test_the_midnight_retry_happens_at_most_once(scripted):
+    scripted.update(days=[D1, D2, D2, D3], answers=[MISMATCH, MISMATCH])
+    _, results = preview_then_create(None, None, False)
+    assert results == [MISMATCH] and scripted["previews"] == 2
+
+
+def test_a_new_day_without_a_mismatch_is_not_retried(scripted):
+    scripted.update(days=[D1, D2], answers=[WRITTEN, WRITTEN])
+    _, results = preview_then_create(None, None, False, True)
+    assert results == [WRITTEN, WRITTEN] and scripted["previews"] == 1
 
 
 # -- the pure checks ---------------------------------------------------------------------------
@@ -438,8 +532,10 @@ def test_parts_says_so_when_the_registries_cannot_be_read(center, cookie, monkey
 def test_a_picked_path_tool_is_previewed_as_code_not_run_end_to_end(
     center, cookie, home, calls, path_registry
 ):
-    status, data, _ = preview(center, cookie, tools=["tool/clock@0.2.0"])
-    assert status == 200, data
+    tools = ["tool/clock@0.2.0"]
+    data, [(status, refused, _)] = preview_then_create(
+        center, cookie, True, calls=calls, tools=tools
+    )
     shown = data["data"]
     assert shown["combination"] == {
         "parts": ["model", "prompt", "evals", "tools"],
@@ -452,9 +548,6 @@ def test_a_picked_path_tool_is_previewed_as_code_not_run_end_to_end(
     assert '- {ref: "tool/clock@0.2.0"}' in agent
     assert calls[0]["spec"]["tools"] == ["tool/clock@0.2.0"]
     # Not run end to end, so Create refuses it even when the code is confirmed.
-    status, refused, _ = create(
-        center, cookie, shown["plan_sha256"], confirmed=True, tools=["tool/clock@0.2.0"]
-    )
     assert status == 400 and refused["error"]["code"] == "COMBINATION_UNVERIFIED"
     assert not (home / "agentbreeder-projects" / "helper").exists()
 
@@ -494,15 +587,15 @@ def test_once_verified_a_path_tool_is_created_after_the_code_confirm(
 
     monkeypatch.setattr(center, "_new_agent", verified)
     tools = ["tool/clock@0.2.0"]
-    _, data, _ = preview(center, cookie, tools=tools)
-    digest = data["data"]["plan_sha256"]
-    assert data["data"]["runs_code"] is True
-    status, refused, _ = create(center, cookie, digest, tools=tools)
-    assert status == 400 and refused["error"]["code"] == "CODE_CONFIRM_REQUIRED"
     destination = home / "agentbreeder-projects" / "helper"
-    assert not destination.exists()
-    status, added, _ = create(center, cookie, digest, confirmed=True, tools=tools)
-    assert status == 200, added
+    data, [(status, refused, _), (written, added, _)] = preview_then_create(
+        center, cookie, False, True, calls=calls, tools=tools
+    )
+    assert data["data"]["runs_code"] is True
+    assert status == 400 and refused["error"]["code"] == "CODE_CONFIRM_REQUIRED"
+    # The refused create re-checked the plan and wrote nothing; only the confirmed one wrote.
+    assert ["--dry-run" in call["argv"] for call in calls] == [True, True, True, False]
+    assert written == 200, added
     assert '- {ref: "tool/clock@0.2.0"}' in (destination / "agent.yaml").read_text()
     assert "tool/clock@0.2.0" in (destination / "agent.lock").read_text()
     write = calls[-1]

@@ -6,9 +6,11 @@ to end created."""
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import expect
 
 from .conftest import sign_in
@@ -35,12 +37,35 @@ def fill(page, name: str = "helper") -> None:
     page.get_by_label("Prompt (the agent's instructions)").fill(PROMPT)
 
 
+def create_previewed(page, day: date) -> None:
+    """Create, then wait for Home. The files carry the local date, so a Preview before local
+    midnight (`day`) and a Create after it are refused by design: "preview it again" (#1050).
+    Only then Preview and Create once more; any other refusal fails as before."""
+    preview = page.get_by_role("button", name="Preview", exact=True)
+    create = page.get_by_role("button", name="Create agent and add project")
+    create.click()
+    try:
+        page.wait_for_url("**/#/")
+    except PlaywrightTimeoutError:
+        raced = page.get_by_role("alert").filter(has_text="preview it again")
+        if date.today() == day or not raced.count():
+            raise
+        preview.click()
+        # The refusal clears in the same render that marks the form busy (Create disabled),
+        # so Create is enabled again only once the new preview is in.
+        expect(raced).to_have_count(0)
+        expect(create).to_be_enabled()
+        create.click()
+        page.wait_for_url("**/#/")
+
+
 def test_build_preview_then_create_adds_the_project(page, console):
     open_builder(page, console)
     preview = page.get_by_role("button", name="Preview", exact=True)
     expect(preview).to_be_disabled()
     expect(page.get_by_text("Type the agent's name first.")).to_be_visible()
     fill(page)
+    day = date.today()
     preview.click()
     pane = page.get_by_role("complementary", name="Preview: nothing is written yet")
     expect(pane).to_be_visible()
@@ -59,8 +84,7 @@ def test_build_preview_then_create_adds_the_project(page, console):
     )
     destination = home(console) / "agentbreeder-projects" / "helper"
     assert not destination.exists()
-    page.get_by_role("button", name="Create agent and add project").click()
-    page.wait_for_url("**/#/")
+    create_previewed(page, day)
     scope = page.get_by_role("combobox", name="Project scope")
     expect(scope.locator("option:checked")).to_have_text("helper (dev)")
     assert (destination / "src/prompt/prompt.md").read_text() == PROMPT + "\n"
