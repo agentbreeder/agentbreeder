@@ -4,6 +4,8 @@ strip, and the Overview, Try it, Releases and Logs tabs."""
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from playwright.sync_api import expect
 
@@ -214,3 +216,75 @@ def test_another_agents_releases_are_not_shown_as_its_own(page, console):
     steps = page.get_by_role("list", name="Gate").get_by_role("listitem")
     expect(steps.nth(2)).to_contain_text("Evals: not run.")
     expect(page.locator("dl.identity-strip")).to_contain_text("unknown")  # stack.yaml is a stub
+
+
+# -- refresh around a release (#1073) ---------------------------------------------------------
+
+
+def listing_of(console, *rows):
+    stack = {"stack": "demo-0123abcd", "project": str(own_project(console).resolve())}
+    return {"deployments": [{**row, **stack, "environment": "dev"} for row in rows], "skipped": []}
+
+
+def start_release(page, console):
+    """Run a release from Build and release, then open Agents from the sidebar (the console's
+    jobs keep following it)."""
+    sign_in(page, console)
+    page.goto(f"{console.origin}/#/release")
+    page.get_by_role("button", name="Run release").click()
+    expect(
+        page.get_by_role("complementary", name="Jobs").locator("section.job.running")
+    ).to_have_count(1)
+
+
+def test_the_list_follows_a_release_while_it_runs_and_when_it_ends(page, console):
+    """lane V's M17 run: the list kept the candidate as "starting" and showed no production
+    until the page was loaded again. Now it is read again every few seconds while a job runs,
+    and its last releases when the job ends."""
+    job = {"job_seconds": 14}
+    production = dict(DEPLOYMENTS[0], image="agentbreeder/demo:old")
+    console.scenario(list_all=listing_of(console, production), audit_rows=[], **job)
+    start_release(page, console)
+    page.get_by_role("navigation", name="Console").get_by_role(
+        "link", name="Agents", exact=True
+    ).click()
+    rows = page.get_by_role("table", name="Agents").locator("tbody tr")
+    expect(rows).to_have_count(1)
+    expect(rows.first.locator(".gated")).to_have_text("not released")
+    # The candidate starts while the release runs: the list shows it without a reload. The audit
+    # log already holds a release here, but last releases are read only when a job ends (each
+    # is two CLI children per project), not on every poll of the list.
+    console.scenario(
+        list_all=listing_of(console, production, CANDIDATE), audit_rows=[RELEASE], **job
+    )
+    expect(rows.filter(has_text="demo-candidate")).to_have_count(1, timeout=8000)
+    expect(rows.first.locator(".gated")).to_have_text("not released")
+    # The release promotes and removes its candidate; once the job ends, the last release shows.
+    promoted = dict(DEPLOYMENTS[0], image="agentbreeder/demo:abc123")
+    console.scenario(list_all=listing_of(console, promoted), audit_rows=[RELEASE], **job)
+    expect(rows).to_have_count(1, timeout=8000)
+    expect(rows.first).to_contain_text("demo:abc123")
+    expect(
+        page.get_by_role("complementary", name="Jobs").locator("section.job")
+    ).not_to_have_class(re.compile(r"\brunning\b"), timeout=20000)
+    expect(rows.first.locator(".gated")).to_have_text("passed 5/5", timeout=10000)
+
+
+def test_the_agent_page_shows_the_release_when_the_job_ends(page, console):
+    """lane V's M17 run: the gate strip said "No release recorded" after a console release."""
+    job = {"job_seconds": 8}
+    console.scenario(deployments=[DEPLOYMENTS[0]], audit_rows=[], **job)
+    own_project(console)
+    start_release(page, console)
+    page.goto(f"{console.origin}/#/agents/demo")
+    steps = page.get_by_role("list", name="Gate").get_by_role("listitem")
+    expect(steps.nth(0)).to_contain_text("Build: not run.")
+    expect(steps.nth(0)).to_contain_text("No release recorded")
+    console.scenario(deployments=[DEPLOYMENTS[0]], audit_rows=[RELEASE], **job)
+    expect(
+        page.get_by_role("complementary", name="Jobs").locator("section.job")
+    ).not_to_have_class(re.compile(r"\brunning\b"), timeout=20000)
+    expect(steps.nth(0)).to_contain_text("Build: passed.", timeout=10000)
+    expect(steps.nth(2)).to_contain_text("Evals 5/5: passed.")
+    page.get_by_role("link", name="Releases", exact=True).click()
+    expect(page.get_by_role("table", name="Releases")).to_contain_text("passed 5/5")

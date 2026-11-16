@@ -21,16 +21,21 @@ import { Card, Table, Text, ViewState, useConsole } from "../ui/components.js";
 import { useView } from "../ui/data.js";
 import { AgentCost } from "./cost.js";
 import { GateFailed } from "./gate.js";
-import { html, useEffect, useState } from "../ui/preact.js";
+import { html, useEffect, useRef, useState } from "../ui/preact.js";
 import { LogsLink } from "./logs.js";
 import { Traces } from "./traces.js";
 import { TryIt } from "./try.js";
 
+/** While a job runs anywhere, the list is read again this often (#1073): a release's candidate
+ * appears and goes, and its production row changes, without a reload. */
+export const LIST_POLL = 3000;
+const POLL_SKIPS = 2; // ticks skipped in a row while a read is out, then it is read again
+
 /**
  * The Releases view of each registered project in `ids`, read one after another (each read runs
- * two CLI children), again whenever the list itself is read again (`loaded`).
+ * two CLI children), again whenever a job ends (`ended`), not on every poll of the list.
  */
-function useProjectReleases(ids, loaded) {
+function useProjectReleases(ids, ended) {
   const { client } = useConsole();
   const [views, setViews] = useState({});
   const key = ids.join(",");
@@ -52,7 +57,7 @@ function useProjectReleases(ids, loaded) {
     return () => {
       live = false;
     };
-  }, [key, loaded]);
+  }, [key, ended]);
   return views;
 }
 
@@ -89,14 +94,36 @@ function LastRelease({ row, views }) {
 }
 
 export function Agents() {
-  const [view] = useView("/api/agents");
+  const { jobsEnded, jobsRunning } = useConsole();
+  const ended = jobsEnded();
+  const running = jobsRunning() > 0;
+  const [view, reload] = useView("/api/agents", null, ended);
+  // A tick while a read is still out is skipped (a reload drops that read, so a list read slower
+  // than LIST_POLL would never land and CLI children would pile up), but at most POLL_SKIPS in a
+  // row: a read that never settles (useView keeps `loading` after an unreachable console) is
+  // tried again.
+  const reading = useRef(false);
+  reading.current = view.loading;
+  useEffect(() => {
+    if (!running) return undefined;
+    let skips = 0;
+    const timer = setInterval(() => {
+      if (reading.current && skips < POLL_SKIPS) {
+        skips += 1;
+        return;
+      }
+      skips = 0;
+      reload();
+    }, LIST_POLL);
+    return () => clearInterval(timer);
+  }, [running]);
   const data = view.data || {};
   const rows = listRows(data.deployments);
   const skipped = Array.isArray(data.skipped) ? data.skipped : [];
   const ids = [...new Set(rows.filter((row) => row.console_project && !row.candidate).map((row) => row.console_project))].sort();
-  const views = useProjectReleases(ids, view.data);
+  const views = useProjectReleases(ids, ended);
   return html`
-    <${Card} title="Deployed agents" busy=${view.loading}>
+    <${Card} title="Deployed agents" busy=${view.loading && !view.data}>
       ${rows.length
         ? html`<${Table} label="Agents" columns=${["Agent", "Project", "Target", "State", "Image", "Identity check", "Endpoint", "Last release"]}>
             ${rows.map((row) => html`<tr key=${`${row.stack || ""} ${row.environment || ""} ${row.id}`}>

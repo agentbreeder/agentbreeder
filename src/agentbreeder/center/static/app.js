@@ -298,6 +298,8 @@ function App({ initial }) {
       bus.phase({ name: "signed-out", reason: "none" });
     },
     versionOf: (id) => jobs.version(id),
+    jobsEnded: () => jobs.ended(),
+    jobsRunning: () => jobs.running().length,
     projectName: (id) => visible((projects.find((p) => p.id === id) || {}).name || ""),
     busyReason(id) {
       const entry = jobs.runningIn(id);

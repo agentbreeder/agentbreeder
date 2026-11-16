@@ -216,3 +216,33 @@ test("halt stops every loop", async () => {
   await flush();
   assert.ok(timers.some((t) => t.fn && t.ms === 1500), "the running job polls again");
 });
+
+test("ended() counts jobs that end in any project or none, for the Agents list (#1073)", async () => {
+  const { store, tick } = harness({
+    jobs: {
+      a: [
+        { kind: "release", project: "p1", state: "running", lines: [] },
+        { kind: "release", project: "p1", state: "succeeded", exit_code: 0, lines: [] },
+      ],
+      b: [
+        { kind: "cluster-up", project: null, state: "running", lines: [] },
+        { kind: "cluster-up", project: null, state: "failed", exit_code: 2, lines: [] },
+      ],
+      c: [{ kind: "build", project: "p2", state: "succeeded", exit_code: 0, lines: [] }],
+    },
+  });
+  assert.equal(store.ended(), 0);
+  store.follow("a", { project: "p1" });
+  store.follow("b");
+  await flush();
+  assert.equal(store.running().length, 2);
+  assert.equal(store.ended(), 0, "running jobs have not ended");
+  await tick();
+  assert.equal(store.ended(), 2, "one per job seen ending, with a project or without");
+  assert.equal(store.running().length, 0);
+  store.follow("c", { project: "p2" });
+  await flush();
+  // A followed job starts as running, so its first finished answer counts, as for version().
+  assert.equal(store.ended(), 3);
+  assert.equal(store.version("p2"), 1);
+});
