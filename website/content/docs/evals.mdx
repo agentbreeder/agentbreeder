@@ -1,0 +1,80 @@
+---
+title: Evals and release
+description: "agentbreeder release deploys a candidate, runs its eval set with rule checks and an LLM judge, and promotes the exact image only when it passes."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="Preview">
+  Run on macOS with Docker Desktop: Northwind's 61-case gate (61/61) in every recorded run,
+  starter agents (2/2), a deliberately broken case (exit 5, production unchanged), and the
+  console's report and gate-failed views. Not yet from the published package.
+</Callout>
+
+`agentbreeder release` deploys a candidate, runs its eval set, and promotes the exact image only when the set passes.
+
+```sh
+agentbreeder release agent.yaml --stack . --environment dev [--version X.Y.Z]
+agentbreeder evals list --project .               # saved reports, newest first
+agentbreeder evals show RUN_ID --project .        # replies only with --content
+agentbreeder logs --failed NAME --stack .         # the failed candidate's log tail
+agentbreeder release agent.yaml --rollback
+```
+
+`release`:
+
+1. Builds with `--locked` and checks production through the [identity gate](/docs/identity-gate)
+   without deploying.
+2. Deploys `<name>-candidate` under its own identity and gateway key, runs the eval set against
+   it, and removes it.
+3. Below the threshold, exits 5 and leaves production unchanged. The report says which case and
+   check failed and the judge's reason.
+4. Otherwise writes the agent package `agent/<name>@X.Y.Z` (next free patch, or `--version`),
+   then replaces production with the **exact evaluated image**, restoring the previous one if the
+   new one fails to start.
+
+## Eval sets
+
+An `eval/<name>@X.Y.Z` registry version holds cases, a judge alias and optional fixtures SQL:
+
+```json
+{"id": "hours", "turns": ["When is support open?"], "expect": {"must_match": ["9"]}, "reference": "9am to 5pm Pacific."}
+```
+
+A case passes when its rule checks pass (`sources_any`, `tools_include`, `tools_exclude`,
+`must_match`, `must_not_match`) and the LLM judge, on its own short-lived key, scores its
+correctness at least 0.7. The release threshold is the share of cases that must pass (Northwind and
+the starters use 1.0).
+Fixtures SQL runs against the eval database, so treat eval sets as trusted code.
+
+On `main` but not run end to end: an unknown `expect` key is refused when the set loads
+(`EVAL_INVALID`), cases can carry `tags` with a per-tag `evals.tag_threshold`, and a regex check
+stops after 5 seconds and fails its case.
+
+## Agent packages
+
+Each release writes `./registry/agent/<name>/<X.Y.Z>/`: the released `agent.yaml`, a redacted
+`agent.lock` and `package.json` (image, input hashes, eval summary, deploy template). It can't
+grant itself an identity, secrets or policy, and it is a record, not a credential: it is not
+signed. Commit it so the team sees what was released.
+
+`deploy agent/<name>@X.Y.Z --local` deploys a package this state directory released, through the
+same gate. Its refusal path ran (an ungranted MCP tool); a successful deploy by reference has
+run only in tests.
+
+## In the console
+
+An agent's Releases tab and the Audit view open a saved report: the score, the judge, and each
+case, failed first. When a release fails the gate, the agent's Overview shows each failed check
+with links to edit the prompt or the case, and the candidate's saved log tail.
+
+## Limits
+
+- **The gate can be bypassed** by anyone with deploy rights running a plain `deploy`.
+- **Promotion has brief downtime**: the old production is removed before the new one starts.
+- **Gateway changes are not gated.** Remapping a model alias doesn't change the image; re-run
+  `eval` against production.
+
+Canonical reference:
+[agent-yaml.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/agent-yaml.md#eval-and-release)
+and [evals.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/evals.md).

@@ -1,0 +1,71 @@
+---
+title: Sub-agents and skills
+description: "agent.yaml can declare sub-agents and skills and the registry stores skill versions, but no runtime runs them yet, so build refuses them. Schema and build only."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="On main, schema and build only">
+  No runtime runs sub-agents or loads skills yet. `validate`, the registry and the lock accept
+  them, and `build` refuses an agent that uses them (`RUNTIME_NO_SUBAGENTS`,
+  `RUNTIME_NO_SKILLS`) before any image is built. Nothing on this page has run end to end. A
+  later `runtime/adk` version will add them.
+</Callout>
+
+Sub-agents are specialist agents the main agent calls as tools; skills are instruction packs it would load when needed. Today you can declare and lock both, not run them.
+
+## Sub-agents
+
+```yaml
+# agent.yaml
+subagents:
+  - name: billing                 # the agent calls it as the tool ask_billing
+    description: "Refunds, invoices and payment questions."
+    model: {alias: billing-model, max_model_calls: 4}
+    prompt: {ref: prompt/billing-specialist@1.1.0}
+    tools: [{ref: tool/refund-request@1.0.0}]
+    max_calls_per_turn: 2
+limits:
+  turn_model_calls: 12            # every agent together
+```
+
+Sub-agents run in the same container, turn and deployment as the agent, which always writes the
+reply. Each sees only the request the agent writes, never the conversation or the customer's
+notes. The rules `validate` and `build` check:
+
+- At most 5, depth 1 (`SUBAGENT_DEPTH`).
+- One gateway key for the deployment: no `budget_usd` or `rpm` on a sub-agent
+  (`SUBAGENT_FIELD_UNSUPPORTED`), and the gate denies a sub-agent alias the environment doesn't
+  allow.
+- No customer-notes tool (`SUBAGENT_NOTES`), and MCP tools only from the agent's own grant
+  (`SUBAGENT_MCP_UNGRANTED`).
+- `ask_<name>` may not clash with another tool name (`SUBAGENT_NAME_CLASH`).
+
+Tool separation is not isolation: all tool code runs in one process with the deployment's
+privileges.
+
+## Skills
+
+```sh
+agentbreeder registry new skill refund-policy [--scripts]
+```
+
+```yaml
+# agent.yaml
+skills: [{ref: skill/refund-policy@1.0.0}]    # at most 10
+```
+
+A skill version holds `manifest.yaml`, a `SKILL.md` with strict front matter, optional
+`references/` and, for a script skill, declared `scripts/`. A version with scripts is code, and
+the CLI and console say so before importing it. Today you can author, publish, verify, show,
+diff, lock and find skills; nothing runs a script.
+
+## Evals for both
+
+Eval cases accept `subagents_include`, `subagents_exclude`, `subagent_tools_include`,
+`skills_loaded` and `skills_not_loaded`. Until a runtime reports them, a case using them fails,
+never passes.
+
+Canonical reference:
+[agent-yaml.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/agent-yaml.md#sub-agents-on-main-not-in-a-published-preview)
+and [registry.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/registry.md#skills-on-main-not-in-a-published-preview).

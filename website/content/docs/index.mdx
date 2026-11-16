@@ -1,64 +1,71 @@
 ---
-title: Overview
-description: AgentBreeder deploys existing agent containers to local Docker behind a deploy-time identity gate. Open-source preview, 3.0.0a2 on PyPI and npm.
+title: AgentBreeder overview
+description: "AgentBreeder builds, evaluates and deploys AI agents on local Docker behind a deploy-time identity gate. Open-source alpha preview, 3.0.0a3."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
 <Callout type="warn" title="Alpha preview: not a production release">
-  These docs cover the focused rebuild, published as the `3.0.0a2` alpha preview. It is not a
-  production release. A bare `pip install agentbreeder` still installs the older **2.x** platform,
-  which is unmaintained and has known issues (see [Legacy 2.x](/docs/legacy-2x)), so
-  [install](/docs/install) with the exact version. The rebuild is incompatible with 2.x: don't use
-  it to upgrade an existing installation, and don't point it at 2.x `agent.yaml` files.
+  These docs cover the `3.0.0a3` alpha preview. It runs on one machine, on local Docker and a local
+  `kind` cluster, and is not a production release. A bare `pip install agentbreeder` still
+  installs the older **2.x**, which is unmaintained and has known issues (see
+  [Legacy 2.x](/docs/legacy-2x)), so [install](/docs/install) with the exact version. Don't point
+  this release at 2.x `agent.yaml` files.
 </Callout>
 
-AgentBreeder is being rebuilt around deploying **existing** agents into infrastructure you
-control. You bring a trusted HTTP container; AgentBreeder validates a small manifest, checks the
-agent's identity, and deploys it.
+AgentBreeder takes an agent from an `agent.yaml` (or a container you already built) to a running
+deployment on infrastructure you control. Every deploy passes an identity gate first, every
+release passes an eval gate, and every attempt is written to a local audit log.
 
-**Start here:** [Install](/docs/install) and run `quickstart`, then
-[Your own agent](/docs/your-own-agent): write an agent in `agent.yaml`, start its services, test
-it, release it through an eval gate and call it.
+**Start here:** [Install](/docs/install) and run `quickstart`. Then
+[Your own agent](/docs/your-own-agent), or let `agentbreeder new agent` and `agentbreeder next`
+lead you.
 
 ## What works today
 
-- **Manifest validation.** `agentbreeder validate` checks a strict YAML manifest (v1 or v2). See
-  [Manifest](/docs/manifest).
-- **Local deployment lifecycle.** Deploy, status and remove on a local Docker engine, with history
-  in SQLite. See [Local deployment](/docs/local-deployment).
-- **Deploy-time identity gate.** In `enforce` mode a deploy is refused unless the agent already
-  exists in your identity provider with an active sponsor, a valid review date and the required
-  scoped grants. (`audit` mode records the same denials but lets the deploy proceed.)
-  Optional extras: a Cedar, OPA or AuthZEN policy check, second-person approval, a kill switch and
-  a hash-chained local audit log. See [Identity gate](/docs/identity-gate).
-- **Preview: build agents from `agent.yaml`.** Describe an agent as registry references
-  (runtime, prompt, knowledge, tools, evals) and `agentbreeder build` makes the image and the
-  deploy manifest. Deploys get local secret files and their own LiteLLM key, and
-  `agentbreeder release` promotes only after the eval set passes. Verified only with the Northwind
-  example (61/61). See [Build from agent.yaml](/docs/agent-yaml).
-- **Preview: local backing services.** `agentbreeder services up` starts the services an agent
-  needs from a `stack.yaml` (Postgres with pgvector, a LiteLLM gateway, Phoenix, project services)
-  on local Docker and writes a demo operator config. Local only. See
-  [Backing services](/docs/services).
-- **Opt-in runtime tool enforcement.** Operators can put a deployment behind an MCP egress sidecar
-  that applies policy to every MCP Streamable HTTP tool call. STDIO and in-process tools are never
-  mediated.
+Each item below ran end to end on macOS with Docker Desktop. Nothing has run on Linux beyond
+install and `doctor`.
+
+- **[Build from agent.yaml](/docs/agent-yaml).** Describe an agent as versioned registry
+  references (runtime, prompt, knowledge, tools, MCP servers, evals). `build` makes the image and
+  the deploy manifest.
+- **[Evals and release](/docs/evals).** `release` deploys a candidate, runs the eval set, and
+  promotes the exact image only when it passes. Each release is kept as an `agent/<name>@X.Y.Z`
+  package.
+- **[Backing services](/docs/services).** `services up` starts Postgres with pgvector, a LiteLLM
+  gateway, Phoenix and project services from `stack.yaml`.
+- **[Models and gateway](/docs/models).** Gemini, OpenAI and OpenRouter, and Ollama on your own
+  machine (on `runtime/adk@1.3.0` only), with budgets, rate limits and fallbacks on a per-deployment key.
+- **[Guardrails](/docs/guardrails).** Presidio PII checks in the gateway, as an environment floor
+  and per agent (real-Docker tests and one Northwind run; per-agent `deploy` is not yet run end to
+  end).
+- **[Cost](/docs/cost) and [traces](/docs/traces).** LiteLLM spend per deployment and model, and
+  each turn's span tree from Phoenix.
+- **[MCP tools](/docs/mcp).** MCP servers behind a relay that holds the credential and forwards
+  only granted, pinned tools.
+- **[Registries](/docs/registry).** Immutable versions you can show, diff, import, fork and edit.
+- **[Identity gate](/docs/identity-gate).** A deploy is refused unless the agent exists in your
+  identity provider with an active sponsor and the required grants. Optional Cedar, OPA or
+  AuthZEN policy, second-person approval, a kill switch and a hash-chained audit log.
+- **[Console](/docs/command-center).** `agentbreeder up` serves a local, single-user web UI that
+  runs the same CLI commands.
+- **[Kubernetes on kind](/docs/kubernetes).** Promote a released image to a local `kind`
+  cluster.
+
+On `main` but not yet run with a runtime: [sub-agents and skills](/docs/subagents-skills) (schema
+and build only).
 
 ## What isn't implemented
 
-- Production deployment targets. Only the local Docker adapter exists; `kubernetes` is accepted
-  by the manifest but not deployable.
-- An operational UI or management HTTP API.
-- Volumes, in-place updates, and a production secret backend (local secret files only).
-- Authenticated invocation: a deployed agent's endpoint trusts whatever caller reaches it.
+- Cloud or production deployment targets. Only local Docker and a local `kind` cluster.
+- Authenticated invocation: a deployed agent's endpoint trusts whatever caller reaches it, so it
+  is published on loopback only.
+- A multi-user console or a versioned management API.
+- Runtime enforcement beyond MCP Streamable HTTP tool calls through the opt-in egress sidecar.
+- A production secret backend (local secret files only).
 
-Verification so far: the local lifecycle, the identity gate (static-file adapter), Cedar policy,
-approvals, the kill switch, the audit chain and the MCP egress sidecar pass end to end on macOS with
-Docker Desktop (last full run 2026-11-07).
-Entra, Keycloak, Okta (experimental) and AWS adapters are fixture-tested; live-tenant checks are
-still open. The Linux decision-service socket path is unit-tested but not yet verified on a Linux
-host.
+The identity gate's live checks so far use the static-file adapter; the Entra, Keycloak, Okta
+(experimental) and AWS adapters are fixture-tested.
 
 ## Install
 
@@ -67,31 +74,18 @@ install exposes the 2.x CLI.
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install "agentbreeder[eval]==3.0.0a2"
+.venv/bin/python -m pip install "agentbreeder[eval]==3.0.0a3"
 .venv/bin/agentbreeder quickstart
 ```
 
-[Install](/docs/install) covers uvx and npx, what has been verified on each platform, and installing
-with hashes. The demo has been run on macOS; on Linux only the install and `doctor` have been
-checked.
-
-The demo builds a sample image, deploys it, invokes it, retries the same deployment, checks the
-saved history and removes the container. It needs no model account or API key. The sample echoes
-JSON; it is not an AI agent.
-
-If it stops, run `.venv/bin/agentbreeder doctor` first.
-
-For policy checks with Cedar, add the extra: `pip install "agentbreeder[eval,cedar]==3.0.0a2"`. Configuring any policy
-engine also requires a verified deployer (an OIDC token from an operator-trusted issuer); the
-unverified OS user is then denied with `DEPLOYER_UNVERIFIED`.
+[Install](/docs/install) covers uvx and npx and what has been verified on each platform. The demo
+builds a sample image, deploys it, invokes it and removes it. It needs no model key; the sample
+echoes JSON. If it stops, run `.venv/bin/agentbreeder doctor`.
 
 ## Canonical docs
 
 These pages summarise the docs in the repository, which are the source of truth:
 [README](https://github.com/agentbreeder/agentbreeder/blob/main/README.md),
-[manifest](https://github.com/agentbreeder/agentbreeder/blob/main/docs/manifest.md),
-[local deployment](https://github.com/agentbreeder/agentbreeder/blob/main/docs/local-deployment.md),
-[identity gate](https://github.com/agentbreeder/agentbreeder/blob/main/docs/identity-gate.md) and
+[docs/](https://github.com/agentbreeder/agentbreeder/tree/main/docs) and
 [architecture](https://github.com/agentbreeder/agentbreeder/blob/main/ARCHITECTURE.md).
-Engineering tracking: [#648](https://github.com/agentbreeder/agentbreeder/issues/648) and
-[#701](https://github.com/agentbreeder/agentbreeder/issues/701).
+Engineering tracking: [#648](https://github.com/agentbreeder/agentbreeder/issues/648).

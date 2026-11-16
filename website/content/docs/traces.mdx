@@ -1,0 +1,50 @@
+---
+title: Agent traces
+description: "agentbreeder traces lists each deployment's recent agent traces from the stack's Phoenix: models, tokens, tool calls and latency, never message content."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="Preview">
+  Run on macOS with Docker Desktop against Northwind and a live Phoenix (2026-11-15): `traces`, a
+  single trace's tree, the console's Traces tab, Try it's trace spans and an eval case's trace.
+  After a fix, trace token totals equalled the runtime's count and LiteLLM's spend log.
+</Callout>
+
+`agentbreeder traces` lists each deployment's recent agent traces from the stack's Phoenix: models, tokens, tool calls and latency, never message content.
+
+```sh
+agentbreeder traces --stack .                      # every deployment not removed or failed
+agentbreeder traces ID --stack . --last 50         # one deployment
+agentbreeder traces --trace TRACE_ID --stack .     # one trace, as a tree
+```
+
+`traces` reads the stack's `service/phoenix` on its loopback port. Agents built from `agent.yaml`
+with `traces: otlp` send OpenInference spans there. From `runtime/adk@1.2.0`, a trace is tied to
+its deployment by the deployment ID on its root span; older runtimes are matched by time window.
+The ID is reported by the agent, not authenticated.
+
+**Shown:** span names and kinds, status, latency, models, token counts (each model call counted
+once), tool names, error messages, and from `runtime/adk@1.3.0` a gateway fallback
+(`fallback: ALIAS`).
+
+**Never shown:** prompts, replies, tool arguments and results, and retrieved documents, because
+they hold customer messages. Every string is redacted with the stack's stored secrets; if a secret
+can't be read, nothing is printed.
+
+`service/phoenix@1.1.0` mints a read-only key for this. On `phoenix@1.0.x`, `traces` falls back
+to the ingest key, which is admin-equivalent in Phoenix, and says so.
+
+## In the console
+
+An agent's **Traces** tab lists one deployment's traces, and each span tree opens on request. Try
+it opens the trace of a turn, and the eval report viewer opens a case's trace. In Try it, a trace
+read before Phoenix has all its spans is marked as still arriving, with **Read again**.
+
+## What traces don't cover yet
+
+- Message content (`--content`).
+- Eval-run traces linked from `release` in the CLI.
+
+Canonical reference:
+[traces.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/traces.md).
