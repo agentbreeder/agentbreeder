@@ -347,8 +347,9 @@ image URLs inside a chat request, the request's `user` field (LiteLLM stores it 
 detection quality (Presidio is pattern and NER based). On this LiteLLM digest a `pre_call`
 guardrail also checks the model's reply. Blocked turns reach the agent as the gateway's HTTP 400.
 `runtime/adk@1.4.0` answers such a turn `MODEL_BLOCKED` (422) with a `guardrail_blocked` event
-([agent-yaml.md](agent-yaml.md#runtimeadk140)); it has not yet been run against a real Presidio
-gateway, so nothing about guardrails is claimed yet. The rest of G2 (reconcile drift, the
+([agent-yaml.md](agent-yaml.md#runtimeadk140)). One live run (2026-11-16, Northwind, macOS) showed
+this for a message with a US SSN, including the gateway blocking the turn's embedding call; the
+agent still stored that message in its own `turns` table and trace spans. The rest of G2 (reconcile drift, the
 runtime capability check) is still to come. On `main`, not in a published preview.
 
 ## Writing a service
