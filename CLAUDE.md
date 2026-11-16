@@ -157,6 +157,12 @@ a Presidio `guardrails:` list; `stack.yaml` `environment.guardrails` and the ope
 (`GUARDRAILS_CHANGED`); keys under a required floor get `allowed_routes`. No manifest, JSON Schema or
 `SCHEMA_VERSION` change. Website: no change until release R. Cloud: a `CLAUDE.md` note only.
 
+**Ollama, #1025 O1, per side.** OSS (on `main`): built-in `service/litellm@1.2.0` (Ollama at
+exactly `http://host.docker.internal:11434`, `reaches_host: [11434]`, an env allow-list launcher),
+the `service.yaml` field `reaches_host` (built-in gateway only), `new agent --model ollama`
+(verified on macOS + Docker Desktop only, on `runtime/adk@1.3.0`; Linux and 1.4.0 not run) and the `cost` label `no price (local
+model)` (`local` in `--json`). No manifest, JSON Schema or `agent.lock` change. Website: no
+change until release R. Cloud: a `CLAUDE.md` note only.
 **Agent guardrails, #1053, per side.** OSS (on `main`): `agent.yaml` and the manifest gain an
 optional `guardrails` list (JSON Schema updated; digests, revisions and package bytes are unchanged
 when it is unset), `services up` writes `guardrails.optional`, and deploy attaches a LiteLLM policy

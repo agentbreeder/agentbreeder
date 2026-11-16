@@ -3,7 +3,7 @@
 // total and its models; an agent's Overview shows its own deployment keys (removed ones included)
 // and their models. Amounts are LiteLLM's spend: its estimate from its price list, not a bill.
 
-import { WINDOWS, agentCost, asOfText, costNotes, costPath, costRefusal, count, keyLabel, modelLabel, money, partial, windowText } from "../lib/cost.js";
+import { WINDOWS, agentCost, amount, asOfText, costNotes, costPath, costRefusal, count, keyLabel, modelLabel, partial, windowText } from "../lib/cost.js";
 import { Action, Card, Skeleton, Table, Text, nextId, useConsole } from "../ui/components.js";
 import { useView } from "../ui/data.js";
 import { html, useRef, useState } from "../ui/preact.js";
@@ -27,7 +27,7 @@ function Refusal({ error }) {
 /** The facts every cost view starts with: the total with its currency, the window, the read time. */
 function Total({ answer, total }) {
   return html`<p role="status" class="cost-total">
-    <strong><${Text} value=${money(total.cost_usd, answer.currency)} /></strong>
+    <strong><${Text} value=${amount(total, answer.currency)} /></strong>
     <span class="muted small"> <${Text} value=${`${count(total.calls)} calls, ${count(total.failed)} failed; ${windowText(answer)}; ${asOfText(answer)}`} /></span>
   </p>`;
 }
@@ -37,7 +37,7 @@ function Counts({ item, currency }) {
     <td class="num">${count(item.prompt_tokens)}</td>
     <td class="num">${count(item.cached_prompt_tokens)}</td>
     <td class="num">${count(item.completion_tokens)}</td>
-    <td class="num"><${Text} value=${money(item.cost_usd, currency)} /></td>`;
+    <td class="num"><${Text} value=${amount(item, currency)} /></td>`;
 }
 
 // "Cached in" is the part of "Tokens in" the provider read from its cache (#1056); "-" when the

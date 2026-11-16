@@ -27,6 +27,7 @@ MODEL = {
     "completion_tokens": 100,
     "cost_usd": 0.00222,
     "unpriced": 0,
+    "local": 0,
 }
 KEY = {
     "key_alias": f"agentbreeder-{ID}",
@@ -42,10 +43,11 @@ KEY = {
     "completion_tokens": 100,
     "cost_usd": 0.00222,
     "unpriced": 0,
+    "local": 0,
     "models": [MODEL],
 }
 TOTAL = {k: MODEL[k] for k in ("calls", "failed", "prompt_tokens", "completion_tokens")}
-TOTAL |= {"cost_usd": 0.00222, "unpriced": 0}
+TOTAL |= {"cost_usd": 0.00222, "unpriced": 0, "local": 0}
 
 
 def window(days=30):
@@ -244,6 +246,8 @@ def test_long_lists_are_cut_and_counted(center, project, cookie, tmp_path):  # n
         {"models": [{**MODEL, "cost_usd": 1e30}]},
         {"total": None},
         {"total": {**TOTAL, "unpriced": 99}},
+        {"total": {**TOTAL, "local": 99}},  # more local calls than calls (#1025 O1)
+        {"total": {**TOTAL, "local": -1}},
         # #1056: a cached figure is a count, at most the prompt tokens; null is not "none sent".
         {"total": {**TOTAL, "cached_prompt_tokens": 56}},
         {"total": {**TOTAL, "cached_prompt_tokens": None}},
@@ -392,3 +396,14 @@ def test_the_real_cli_refusal_passes_the_checks(tmp_path, monkeypatch):
     assert code == 2
     got, problem = cost.cost_answer(json.loads(out.getvalue()), request)
     assert got is None and problem["code"] != "COST_INVALID" and problem["message"]
+
+
+def test_local_model_calls_reach_the_page():
+    """#1025 O1: `local` (calls to Ollama, no price) passes through, bounded by `calls`."""
+    request = window(7)
+    local = {**TOTAL, "calls": 2, "failed": 0, "unpriced": 0, "local": 2, "cost_usd": 0.0}
+    got, error = cost.cost_answer(answer_for(request, total=local), request)
+    assert error is None and got["total"]["local"] == 2
+    old = {k: v for k, v in TOTAL.items() if k != "local"}  # an older CLI without the field
+    got, error = cost.cost_answer(answer_for(request, total=old), request)
+    assert error is None and got["total"]["local"] == 0

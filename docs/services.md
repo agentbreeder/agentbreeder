@@ -182,6 +182,7 @@ agentbreeder services start|stop|restart [DIR] NAME [--yes] [--json]   # one con
 | `service/postgres-pgvector@1.2.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | as 1.1.0, plus `console_database` | as 1.1.0, plus `console` (operator only): a URL for `agentbreeder_console`, which can connect only to `console_database` and has no rights until `init_sql` grants them. |
 | `service/postgres-pgvector@1.1.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | as 1.0.0, plus `roles` (list) and `roles_database` | as 1.0.0, plus `roles.<name>`: a URL for a role that can connect only to `roles_database`, owns only a schema of its own name and has no other rights until `init_sql` grants them. `postgres` and `template1` are closed to applications. |
 | `service/postgres-pgvector@1.0.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | `databases` (list), `init_sql` (file, ≤ 64 KiB, no `\` meta-commands), `init_sql_database` | `databases.<name>`: a URL with that database's own role (never the superuser) |
+| `service/litellm@1.2.0` | as 1.1.0, plus Ollama on the operator's host (`reaches_host: [11434]`, #1025 O1) and a stricter launcher: LiteLLM gets only an allow-list of variables, with cloud metadata lookups and credential files turned off | as 1.1.0 | as 1.1.0 |
 | `service/litellm@1.1.0` | as 1.0.0, plus two optional url inputs, `presidio-analyzer` and `presidio-anonymizer`, for Presidio guardrails (#1024) | as 1.0.0 | as 1.0.0 |
 | `service/litellm@1.0.0` | LiteLLM 1.106.2 proxy, `provides: gateway/litellm` | `config` (file, required; reviewed: allow-listed keys, each provider key only to its provider) | `url`; `master_key` (operator only) |
 | `service/presidio-analyzer@1.0.0` | Microsoft Presidio analyzer 2.2.362 (multi-arch index pinned by digest), uid 1001, no egress, no auth, so its port is internal only | none | `url` (other services only) |
@@ -214,11 +215,10 @@ Phoenix's UI: sign in as `admin@localhost` with the password in the stack state 
   passed; no shipped config used one.
 - The config is reviewed for the gateway that runs it. Ollama (`ollama/`, `ollama_chat/`), Vertex
   AI (`vertex_ai/`), Bedrock (`bedrock/`) and Azure OpenAI (`azure/`) have review rules (per
-  provider model patterns, required explicit credentials, and endpoint rules; see the #1025 spec),
-  but no `service/litellm` version supports them yet: `service/litellm@1.0.0` imports only the
-  four keys above, so `up` refuses an entry for any of them with
-  `GATEWAY_PROVIDER_UNSUPPORTED`. Each provider is added in its own gateway version after a real
-  run; none is supported or verified today.
+  provider model patterns, required explicit credentials, and endpoint rules; see the #1025 spec).
+  Each provider is added in its own gateway version after a real run. Ollama is served by
+  `service/litellm@1.2.0` (see "Ollama on this machine" below); an Ollama entry on 1.0.0 or 1.1.0,
+  and any Vertex, Bedrock or Azure entry, is refused with `GATEWAY_PROVIDER_UNSUPPORTED`.
 - Their credentials (`VERTEX_SERVICE_ACCOUNT_JSON`, `BEDROCK_ACCESS_KEY_ID`,
   `BEDROCK_SECRET_ACCESS_KEY`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`) are gateway-only
   imports: `secret set --from-env`, MCP versions and every service other than the built-in
@@ -254,6 +254,63 @@ Phoenix's UI: sign in as `admin@localhost` with the password in the stack state 
   hold only the manifest's aliases plus any `fallbacks` it lists. The gate and policy see only
   `model_access.aliases`; the audit log's `gateway_key` `minted` event lists every model the key
   holds (`GATEWAY_KEY_MODELS`).
+
+### Ollama on this machine (preview)
+
+On `main`, not in a published preview (#1025 O1). `service/litellm@1.2.0` can serve aliases from
+Ollama running on the operator's own machine, with no key:
+
+```yaml
+# stack.yaml
+    ref: service/litellm@1.2.0
+# stack/litellm/config.yaml
+  - model_name: chat
+    litellm_params: {model: "ollama_chat/llama3.2:3b", api_base: http://host.docker.internal:11434}
+  - model_name: embed
+    litellm_params: {model: "ollama/nomic-embed-text", api_base: http://host.docker.internal:11434, dimensions: 768}
+```
+
+`new agent NAME --model ollama` writes this (chat and judge on `llama3.2:3b`, `reasoning: none`).
+
+- `api_base` must be exactly `http://host.docker.internal:11434` (#1025 D4). Use `ollama_chat/`
+  for chat (Ollama's chat API, with tool calls) and `ollama/` for embeddings. Model names are
+  letters, digits and `._:-`; an optional `keep_alive` (`30m`, or `-1`) is allowed. No built-in
+  `service/ollama` exists (D5): install Ollama yourself and `ollama pull` each model first.
+- The grant shows `ollama (no key → host port 11434)` per alias and "litellm can reach the host".
+  On Linux 1.2.0 adds `host.docker.internal:host-gateway` to the gateway only when its config
+  has an Ollama entry. That mapping reaches **every** host port bound to the docker bridge, not
+  only 11434; Docker cannot narrow it, so the exact `api_base` is the control. Docker Desktop
+  (macOS) resolves the name in every container anyway.
+- **Linux has not been run.** There Ollama must listen on the docker bridge, which in practice
+  means `OLLAMA_HOST=0.0.0.0` and exposes Ollama, which has no authentication, to your network
+  unless a firewall blocks port 11434.
+- Run on macOS with Docker Desktop (`docs/superpowers/verification/ollama.md`): `services up`,
+  `release` 2/2 with `llama3.2:3b` as both agent and judge, `invoke`, one `nomic-embed-text`
+  embedding at 768 dimensions. That run used `runtime/adk@1.3.0`; starters now write `1.4.0`
+  (#1056), which has not been run with Ollama. On a CPU without a GPU a 3B model answers in 20–40 s once loaded;
+  Ollama unloads an idle model after 5 minutes, and a cold model plus the eval's parallel calls
+  can exceed the agent runtime's 90 s model timeout. **Load the model before `release`** (any
+  short call, e.g. `ollama run llama3.2:3b hi`).
+- Models without "thinking" (llama3.2) refuse `reasoning_effort`: use `model.reasoning: none` in
+  `agent.yaml`.
+- `cost` and the console's cost screens show `no price (local model)` for Ollama calls, never
+  $0.00. LiteLLM records their spend as 0.0, so a budget would not count them; that was not run.
+- Callers' request parameters: `api_base` and `base_url` in a request body are refused by
+  LiteLLM, and a test listener on another host port received nothing. LiteLLM does honour a
+  per-request `custom_llm_provider`, which re-routes an alias to another provider with the
+  key the gateway holds for it. This is true for every provider, not only Ollama, and is a known
+  gap (#1025 §4.2), tracked in #1105.
+
+The 1.2.0 launcher (spec §4.3) also passes LiteLLM only the variables its `service.yaml` sets,
+the image's own (`PATH`, `SSL_CERT_FILE`, `LITELLM_RELEASE_TAG`, four `PRISMA_*`) and its
+secrets, never the container's whole environment, so ambient `AWS_*`, `GOOGLE_*`, Azure identity
+and proxy variables never reach it. It forces `AWS_EC2_METADATA_DISABLED=true`,
+`AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE=/dev/null`, `NO_GCE_CHECK=true` and the three
+`GCE_METADATA_*` names to `metadata.invalid`, and refuses to start when the config cannot be
+parsed or names a gateway-only credential it did not import. In a test with fake metadata
+services on 169.254.169.254 and 169.254.170.2, the launcher's environment sent them nothing
+while the raw environment reached both. These matter on a cloud VM, not on a laptop. Nothing
+blocks the gateway's network egress to metadata addresses (residual R3).
 
 ### Gateway guardrails (preview)
 
@@ -431,6 +488,8 @@ inputs:
   phoenix-ingest-key: {type: secret}
 health: {http: /healthz}
 egress: true                        # outbound internet; shown in the grant
+# reaches_host: [11434]             # built-in gateway only (REACHES_HOST_REFUSED otherwise):
+                                    # host.docker.internal for a reviewed Ollama entry
 outputs:
   url: {type: url, port: http}
   # A secret output built from parts names only {address}, {item} (with `per:`), the service's

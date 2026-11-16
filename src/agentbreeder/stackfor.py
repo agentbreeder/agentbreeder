@@ -57,8 +57,7 @@ ALIAS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 STACK_YAML = """\
 # Local backing services for the {name} agent: Postgres and the LiteLLM model gateway.
 # Written by `agentbreeder new agent {name} {written_by}` on {today}.
-# `agentbreeder services up --environment dev --env-file FILE` starts them; FILE holds
-# {keys} (mode 0600). See docs/services.md.
+{start}
 kind: stack
 schema_version: 1
 name: {name}
@@ -67,7 +66,7 @@ services:
     ref: {postgres}
     with: {{databases: [app, litellm]}}
   litellm:
-    ref: service/litellm@1.0.0
+    ref: {gateway}
     with: {{config: stack/litellm/config.yaml}}
     wire: {{database-url: postgres.databases.litellm}}
 {mcp_block}environment:
@@ -84,12 +83,12 @@ services:
 LITELLM_HEAD = "model_list:\n"
 LITELLM_MODEL = """\
   - model_name: {alias}
-    litellm_params: {{model: {model}, api_key: os.environ/{key}}}
+    litellm_params: {{model: {model}, {route}}}
 """
 # A knowledge version's embedding alias (`--from-spec`): the version's own alias and dimensions.
 LITELLM_EMBEDDING = """\
   - model_name: {alias}
-    litellm_params: {{model: {model}, api_key: os.environ/{key}, dimensions: {dimensions}}}
+    litellm_params: {{model: {model}, {route}, dimensions: {dimensions}}}
 """
 POSTGRES = "service/postgres-pgvector@1.1.0"
 LITELLM_TAIL = """\
@@ -139,6 +138,7 @@ class StackForPlan:
             "model_id": self.model_id,
             "verified": PROVIDERS[self.model].verified,
             "key": PROVIDERS[self.model].key,
+            "keys": list(PROVIDERS[self.model].keys),
             "aliases": list(self.aliases),
             "review_by": self.review_by,
             "files": [
@@ -388,7 +388,8 @@ def render(
         name=name,
         today=today.isoformat(),
         written_by=written_by,
-        keys=" and ".join(f"{key}=..." for key in (provider.key, *keys)),
+        start=newagent.start_lines((*provider.keys, *keys)),
+        gateway=provider.gateway,
         models=", ".join(models),
         postgres=postgres,
         mcp_block=mcp_block,
@@ -398,7 +399,7 @@ def render(
         LITELLM_HEAD
         + "".join(
             LITELLM_MODEL.format(
-                alias=alias, model=newagent.model_yaml(model_id), key=provider.key
+                alias=alias, model=newagent.model_yaml(model_id), route=provider.route()
             )
             for alias in quoted
         )
@@ -406,7 +407,7 @@ def render(
             LITELLM_EMBEDDING.format(
                 alias=json.dumps(embedding[0]),
                 model=newagent.model_yaml(embedding[1]),
-                key=provider.key,
+                route=provider.route(),
                 dimensions=int(embedding[2]),
             )
             if embedding
@@ -468,7 +469,12 @@ def create(plan: StackForPlan) -> StackForPlan:
             ) from error
         if stack.name != plan.name or plan.name not in stack.environment.agents:
             raise NewAgentError("TEMPLATE_INVALID", "the generated stack names another agent")
-        newagent.check_gateway(staging / LITELLM_CONFIG, set(plan.aliases), plan.model_id)
+        newagent.check_gateway(
+            staging / LITELLM_CONFIG,
+            set(plan.aliases),
+            plan.model_id,
+            gateway=PROVIDERS[plan.model].gateway,
+        )
         for relative in plan.files:
             target = plan.directory / relative
             for parent in reversed(Path(relative).parents[:-1]):

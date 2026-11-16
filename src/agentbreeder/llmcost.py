@@ -26,6 +26,10 @@ EVAL_PREFIX = PREFIX + "eval-"
 DEFAULT_DAYS = 30
 MAX_DAYS = 366
 TEXT_LIMIT = 200  # model names, aliases: longer values are cut
+# LiteLLM's `custom_llm_provider` for a model on the operator's own machine (Ollama, #1025 O1):
+# it has no price, so its calls are counted as `local`, never as $0.00 or as unpriced (D11).
+LOCAL_PROVIDERS = frozenset({"ollama", "ollama_chat"})
+LOCAL_LABEL = "no price (local model)"
 MAX_CALL_USD = 1e12  # a price above this is not a price: counted as unpriced (no overflow)
 _DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
@@ -87,6 +91,7 @@ def _bucket(extra: dict) -> dict:
         "completion_tokens": 0,
         "cost_usd": 0.0,
         "unpriced": 0,
+        "local": 0,
     }
 
 
@@ -96,7 +101,9 @@ def _add(bucket: dict, call: dict) -> None:
     bucket["prompt_tokens"] += call["prompt_tokens"]
     bucket["cached_prompt_tokens"] += call["cached_prompt_tokens"]
     bucket["completion_tokens"] += call["completion_tokens"]
-    if call["cost_usd"] is None:
+    if call["local"]:
+        bucket["local"] += 1
+    elif call["cost_usd"] is None:
         bucket["unpriced"] += 1
     else:
         bucket["cost_usd"] += call["cost_usd"]
@@ -134,6 +141,10 @@ def _call(row: dict) -> dict | None:
         "cached_prompt_tokens": cached if (cached := cached_tokens(metadata)) <= prompt else 0,
         "completion_tokens": _count(row.get("completion_tokens")),
         "cost_usd": _usd(row.get("spend")),
+        # Only a zero-spend call is local: a priced call stays in the USD total whatever the
+        # row's provider says.
+        "local": row.get("custom_llm_provider") in LOCAL_PROVIDERS
+        and row.get("spend") in (0, None),
     }
 
 

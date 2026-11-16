@@ -215,7 +215,7 @@ export function Builder() {
         ? html`<p class="muted">Fill in the form, then Preview: the files appear here exactly as they would be written.</p>`
         : html`
           ${stale ? html`<p class="notice warn" role="status">The form changed since this preview. Preview again before you create.</p>` : null}
-          <p>Writes in <code><${Text} value=${preview.directory} /></code>. Gateway aliases <${Text} value=${preview.aliases.join(", ")} /> call <code><${Text} value=${preview.model_id} /></code>; the stack needs <code><${Text} value=${preview.keys.join(", ")} /></code>. The gate refuses deploys after review_by <${Text} value=${preview.review_by} />.</p>
+          <p>Writes in <code><${Text} value=${preview.directory} /></code>. Gateway aliases <${Text} value=${preview.aliases.join(", ")} /> call <code><${Text} value=${preview.model_id} /></code>; ${preview.keys.length ? html`the stack needs <code><${Text} value=${preview.keys.join(", ")} /></code>.` : "the stack needs no key."} The gate refuses deploys after review_by <${Text} value=${preview.review_by} />.</p>
           ${unverified ? html`<p class="notice warn" role="status"><${Text} value=${unverified} /></p>` : html`<p class="muted small">Run end to end: <${Text} value=${preview.combination.parts.join(", ")} />.${modelNote ? html` <${Text} value=${modelNote} />` : null}</p>`}
           <div class="file-tabs" role="group" aria-label="Files">
             ${preview.files.map((entry, index) => html`<button type="button" key=${entry.path} class="file-tab" aria-pressed=${index === shown ? "true" : "false"} aria-controls=${ids.file} onClick=${() => setShown(index)}><${Text} value=${entry.path} /></button>`)}

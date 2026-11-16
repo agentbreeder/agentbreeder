@@ -113,7 +113,7 @@ kind: agent
 schema_version: 1
 name: {name}
 runtime: {runtime}
-model: {{alias: chat, reasoning: low, max_model_calls: {calls}}}
+model: {{alias: chat, reasoning: {reasoning}, max_model_calls: {calls}}}
 prompt: {{ref: prompt/{name}-prompt@{version}}}
 evals: {{ref: eval/{name}-evals@{version}, threshold: {threshold}, retries: {retries}}}
 """
@@ -542,6 +542,7 @@ def _agent_yaml(spec: Spec, today: date) -> str:
         runtime=RUNTIME,
         version=VERSION,
         calls=spec.max_model_calls,
+        reasoning=PROVIDERS[spec.model].reasoning,
         threshold=json.dumps(spec.evals.threshold),
         retries=spec.evals.retries,
     )
@@ -698,7 +699,7 @@ def plan(
         "runs_code": any(e["runs_code"] and e["root_kind"] != "builtin" for e in refs),
         "grants": grants,
         "knowledge": knowledge_rows,
-        "keys": [PROVIDERS[spec.model].key, *keys],
+        "keys": [*PROVIDERS[spec.model].keys, *keys],
         "plan_sha256": plan_digest(built, refs),
     }
     if expect_digest is not None and extra["plan_sha256"] != expect_digest:

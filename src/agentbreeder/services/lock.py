@@ -179,6 +179,7 @@ def lock_stack(
     # Relays import the mcp versions' credentials: recorded like any service's imports.
     relays = _add_relays(stack, locked_mcp, specs, service_dirs, files, resolved, origins)
     check_gateway_only(specs, origins, relays)
+    check_reaches_host(specs, origins, relays)
     imports = {name: _imports(spec) for name, spec in specs.items() if _imports(spec)}
     if imports != lock.imports:
         if mode == "locked":
@@ -252,6 +253,19 @@ def check_gateway_only(specs: dict[str, ServiceSpec], origins: dict, relays: dic
                 "IMPORT_GATEWAY_ONLY",
                 f"service {name} imports {', '.join(names)}: only the built-in "
                 "service/litellm gateway may import model gateway credentials",
+            )
+
+
+def check_reaches_host(specs: dict[str, ServiceSpec], origins: dict, relays: dict) -> None:
+    """Refuse `reaches_host` on any service but the built-in gateway (#1025 §6.2): the field
+    maps host.docker.internal into the container, so a project service (or a project version
+    named `service/litellm`) must not get it. Same origin rule as the gateway-only imports."""
+    for name, spec in sorted(specs.items()):
+        if spec.reaches_host and not reads_gateway_only(name, spec, origins, relays):
+            raise ServiceError(
+                "REACHES_HOST_REFUSED",
+                f"service {name} declares reaches_host: only the built-in service/litellm "
+                "gateway may reach a host port",
             )
 
 

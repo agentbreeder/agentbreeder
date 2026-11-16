@@ -10,7 +10,7 @@ import pytest
 import yaml
 from conftest import GATEWAY_CAPS
 
-from agentbreeder import cli, gateway_keys, guide_checks, newagent, registry
+from agentbreeder import cli, gateway_keys, gateway_providers, guide_checks, newagent, registry
 
 TODAY = date(2026, 11, 13)
 DEFAULTS = {
@@ -56,12 +56,14 @@ def _probe(tmp_path, environ=None):
 
 
 def test_each_provider_uses_the_key_the_gateway_allows_and_only_anthropic_is_unverified():
-    assert set(newagent.PROVIDERS) == set(gateway_keys.PROVIDER_KEYS)
-    for name, provider in newagent.PROVIDERS.items():
+    keyed = {name: p for name, p in newagent.PROVIDERS.items() if p.key}
+    assert set(keyed) == set(gateway_keys.PROVIDER_KEYS)
+    assert set(newagent.PROVIDERS) - set(keyed) == {"ollama"}  # no key (#1025 O1)
+    for name, provider in keyed.items():
         assert provider.key == gateway_keys.PROVIDER_KEYS[name]
         assert provider.model == DEFAULTS[name]
     verified = [n for n, p in newagent.PROVIDERS.items() if p.verified]
-    assert verified == ["gemini", "openai", "openrouter"]
+    assert verified == ["gemini", "openai", "openrouter", "ollama"]
     assert set(guide_checks.KEY_URLS) == set(gateway_keys.PROVIDER_KEYS.values())
     assert all(url.startswith("https://") for url in guide_checks.KEY_URLS.values())
 
@@ -235,7 +237,7 @@ def test_a_config_serving_another_model_is_a_template_bug(tmp_path, monkeypatch)
     monkeypatch.setattr(
         newagent,
         "LITELLM_CONFIG",
-        newagent.LITELLM_CONFIG.replace("{model_yaml}, api_key", "openai/other, api_key", 1),
+        newagent.LITELLM_CONFIG.replace("{model_yaml}, {route}", "openai/other, {route}", 1),
     )
     with pytest.raises(newagent.NewAgentError) as error:
         newagent.create(newagent.plan("hello", "openai", tmp_path / "hello", today=TODAY))
@@ -443,7 +445,6 @@ def test_the_starter_pins_message_logging_off_and_the_gateway_accepts_it(tmp_pat
     assert loaded["litellm_settings"] == {"turn_off_message_logging": True}
     assert loaded["general_settings"]["store_prompts_in_spend_logs"] is False
     newagent.create(plan)
-    review = gateway_keys.config_review(
-        tmp_path / "hello" / "stack/litellm/config.yaml", GATEWAY_CAPS
-    )
+    caps = gateway_providers.builtin_caps(newagent.PROVIDERS[model].gateway)
+    review = gateway_keys.config_review(tmp_path / "hello" / "stack/litellm/config.yaml", caps)
     assert review.aliases == {"chat", "judge"}

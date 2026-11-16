@@ -824,9 +824,16 @@ def test_a_key_only_stack_grant_has_no_routes(builtin_stack):
 def test_new_agent_and_stack_for_review_against_the_gateway_they_write():
     from agentbreeder import newagent, stackfor
 
-    assert f"ref: {newagent.GATEWAY}\n" in newagent.STACK_YAML
-    assert f"ref: {newagent.GATEWAY}\n" in stackfor.STACK_YAML
+    assert "ref: {gateway}\n" in newagent.STACK_YAML
+    assert "ref: {gateway}\n" in stackfor.STACK_YAML
     assert gateway_providers.builtin_caps(newagent.GATEWAY) == GATEWAY_CAPS
+    # Every provider's starter names a gateway that can serve it (#1025 O1: Ollama, 1.2.0).
+    gateways = {name: p.gateway for name, p in newagent.PROVIDERS.items()}
+    assert gateways.pop("ollama") == newagent.LOCAL_GATEWAY == "service/litellm@1.2.0"
+    assert set(gateways.values()) == {newagent.GATEWAY}
+    local = gateway_providers.builtin_caps(newagent.LOCAL_GATEWAY)
+    assert local.reaches_host == {gateway_providers.OLLAMA_PORT}
+    assert local.imports == GATEWAY_CAPS.imports  # Ollama needs no import
 
 
 def test_no_shipped_config_uses_model_info():

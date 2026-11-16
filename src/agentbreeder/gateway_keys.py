@@ -410,6 +410,7 @@ _SPEND_FIELDS = (
     "status",
     "prompt_tokens",
     "completion_tokens",
+    "custom_llm_provider",  # llmcost: a local model (Ollama) has no price (#1025 O1)
 )
 
 

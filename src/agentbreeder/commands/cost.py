@@ -130,6 +130,13 @@ def _usd(value: float) -> str:
     return f"{value:.6f}"
 
 
+def _price(bucket: dict) -> str:
+    """The USD cell: a bucket of local-model calls only has no price, not $0 (#1025 D11)."""
+    if bucket["calls"] and bucket.get("local") == bucket["calls"]:
+        return llmcost.LOCAL_LABEL
+    return _usd(bucket["cost_usd"])
+
+
 def _tokens(bucket: dict) -> str:
     return f"{bucket['prompt_tokens']}/{bucket['completion_tokens']}"
 
@@ -163,7 +170,7 @@ def _print(result: dict, by: str) -> None:
                     str(bucket["failed"]),
                     _tokens(bucket),
                     _cached(bucket),
-                    _usd(bucket["cost_usd"]),
+                    _price(bucket),
                 )
             )
     else:
@@ -178,7 +185,7 @@ def _print(result: dict, by: str) -> None:
                     str(bucket["failed"]),
                     _tokens(bucket),
                     _cached(bucket),
-                    _usd(bucket["cost_usd"]),
+                    _price(bucket),
                 )
             )
     total = result["total"]
@@ -189,7 +196,7 @@ def _print(result: dict, by: str) -> None:
         blank = ("",) * (len(rows[0]) - 6)
         rows.append(
             ("Total", *blank, str(total["calls"]), str(total["failed"]))
-            + (_tokens(total), _cached(total), _usd(total["cost_usd"]))
+            + (_tokens(total), _cached(total), _price(total))
         )
         widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
         for row in rows:
@@ -199,6 +206,11 @@ def _print(result: dict, by: str) -> None:
                 for index, (cell, width) in enumerate(zip(row, widths, strict=True))
             )
             print("  ".join(cells).rstrip())
+    if total.get("local"):
+        print(
+            f"{total['local']} call(s) went to a local model (Ollama): {llmcost.LOCAL_LABEL}, "
+            "not in the USD total."
+        )
     if total["unpriced"]:
         print(
             f"{total['unpriced']} call(s) had no price from LiteLLM and are not in the USD total."

@@ -218,10 +218,7 @@ def _stack_for(args) -> int:
     if args.dry_run:
         lines.append("Dry run: nothing was written.")
     else:
-        lines.append(
-            f"Put {summary['key']}=<your key> in a file only you can read (chmod 600); the next "
-            "step asks for it."
-        )
+        lines.append(_keys_line(summary))
         lines.append(hints.next_line("next", directory))
     print(visible("\n".join(lines)))
     return 0
@@ -243,10 +240,23 @@ def _text(summary: dict, notes: list[str] | tuple[str, ...] = ()) -> str:
     if summary["dry_run"]:
         lines.append("Dry run: nothing was written.")
         return "\n".join(lines)
-    keys = " and ".join(f"{key}=<your key>" for key in summary.get("keys", [summary["key"]]))
-    lines.append(f"Put {keys} in a file only you can read (chmod 600); the next step asks for it.")
+    lines.append(_keys_line(summary))
     lines.append(hints.next_line("next", directory))
     return "\n".join(lines)
+
+
+def _keys_line(summary: dict) -> str:
+    """Where the stack's keys go (`new agent` and `--stack-for`), or, with none, what to pull."""
+    names = summary.get("keys", [summary["key"]])
+    if names:
+        keys = " and ".join(f"{key}=<your key>" for key in names)
+        return f"Put {keys} in a file only you can read (chmod 600); the next step asks for it."
+    # Ollama on this machine (#1025 O1); the model id passed MODEL_ID_PATTERN.
+    model = summary["model_id"].partition("/")[2]
+    return (
+        f"No model key: run Ollama on this machine and `ollama pull {model}` before "
+        "`services up` (the gateway calls http://host.docker.internal:11434)."
+    )
 
 
 def _verification(summary: dict) -> list[str]:

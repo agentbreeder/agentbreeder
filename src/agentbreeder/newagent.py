@@ -17,6 +17,10 @@ value). gemini, openrouter and openai have been run end to end with their defaul
 with `openrouter/google/gemini-3.8-flash` and openai with `openai/gpt-5.6`, #1020); anthropic is
 config-only (`verified` false in `--json`): the eval judge needs strict `json_schema` output,
 unverified on it.
+`ollama` (#1025 O1) needs no key: both aliases call `ollama_chat/llama3.2:3b` on the operator's
+own Ollama at `http://host.docker.internal:11434` through `service/litellm@1.2.0`, and the agent
+uses `reasoning: none` (Ollama refuses its think option for llama3.2). It ran end to end on
+macOS with Docker Desktop (verification/ollama.md); Linux has not been run.
 `verified` is per provider: it covers the gateway and judge path with the default model, not how
 well another `--model-id` answers (on OpenRouter, `anthropic/claude-haiku-5.5` failed one of the
 two cases). `--model-id` replaces the provider's default model. Templates are string
@@ -54,6 +58,9 @@ from agentbreeder import example, registry
 
 RUNTIME = "runtime/adk@1.4.0"
 GATEWAY = "service/litellm@1.0.0"  # the gateway version the starter's stack.yaml names
+# Ollama needs a gateway that can reach the host's port 11434 (#1025 O1).
+LOCAL_GATEWAY = "service/litellm@1.2.0"
+OLLAMA_BASE = "http://host.docker.internal:11434"  # gateway_providers.OLLAMA_BASE (D4)
 VERSION = "0.1.0"
 REVIEW_DAYS = 180
 SUMMARY_VERSION = 1  # the `--json` shape (and its `error` form) in docs/commands/new.md
@@ -65,9 +72,49 @@ NAME_PATTERN = r"^[a-z]([a-z0-9-]{0,29}[a-z0-9])?$"
 @dataclass(frozen=True)
 class Provider:
     model: str | None  # the default LiteLLM model string; None: `--model-id` is required
-    key: str  # the environment variable LiteLLM reads the key from (gateway_keys.PROVIDER_KEYS)
+    # The environment variable LiteLLM reads the key from (gateway_providers.KEY_ONLY_KEYS);
+    # None: no key (Ollama, on the operator's own machine).
+    key: str | None
     verified: bool  # run end to end with this starter (services up, release, invoke)
     segments: int = 1  # path segments `--model-id` needs after `PROVIDER/`
+    prefix: str | None = None  # the model string's prefix when not the provider's name
+    gateway: str = GATEWAY  # the service/litellm version the stack names
+    # agent.yaml `model.reasoning`: Ollama refuses `reasoning_effort` ("does not support
+    # thinking") for models without it, llama3.2 included (#1025 O1 run).
+    reasoning: str = "low"
+
+    @property
+    def keys(self) -> tuple[str, ...]:
+        return (self.key,) if self.key else ()
+
+    def route(self) -> str:
+        """The litellm_params after `model`: the key reference, or Ollama's fixed host."""
+        return f"api_key: os.environ/{self.key}" if self.key else f"api_base: {OLLAMA_BASE}"
+
+
+def gateway_for(model_id: str) -> str:
+    """The service/litellm version a starter names for a model string: its provider's."""
+    head = model_id.partition("/")[0]
+    for name, provider in PROVIDERS.items():
+        if (provider.prefix or name) == head:
+            return provider.gateway
+    return GATEWAY
+
+
+def start_lines(keys: tuple[str, ...]) -> str:
+    """The stack.yaml header lines on how to start the services (also `--stack-for`): the env
+    file holds `keys`; with none (Ollama, no MCP key) there is no env file to give."""
+    if not keys:
+        return (
+            "# `agentbreeder services up --environment dev` starts them. No model key: the\n"
+            "# gateway calls Ollama on this machine (`ollama pull` the model first). See\n"
+            "# docs/services.md."
+        )
+    return (
+        "# `agentbreeder services up --environment dev --env-file FILE` starts them; FILE "
+        f"holds\n# {' and '.join(f'{key}=...' for key in keys)} (mode 0600). See "
+        "docs/services.md."
+    )
 
 
 # Defaults are model ids in the LiteLLM 1.106.2 model map (the pinned service/litellm@1.0.0);
@@ -79,6 +126,16 @@ PROVIDERS = {
     "openai": Provider("openai/gpt-5.6", "OPENAI_API_KEY", True),
     "openrouter": Provider(
         "openrouter/google/gemini-3.8-flash", "OPENROUTER_API_KEY", True, segments=2
+    ),
+    # A local model through Ollama on the operator's host (#1025 O1); chat through
+    # `ollama_chat/` (Ollama's chat API, with tool calls).
+    "ollama": Provider(
+        "ollama_chat/llama3.2:3b",
+        None,
+        True,  # services up, release 2/2, invoke 2/2 on macOS (#1025 O1, verification/ollama.md)
+        prefix="ollama_chat",
+        gateway=LOCAL_GATEWAY,
+        reasoning="none",
     ),
 }
 # The gateway's model-name alphabet (gateway_keys._MODEL_NAME), at most 128 characters.
@@ -102,7 +159,7 @@ kind: agent
 schema_version: 1
 name: {name}
 runtime: {runtime}
-model: {{alias: chat, reasoning: low, max_model_calls: 2}}
+model: {{alias: chat, reasoning: {reasoning}, max_model_calls: 2}}
 prompt: {{ref: prompt/{name}-prompt@{version}}}
 evals: {{ref: eval/{name}-evals@{version}, threshold: 1.0, retries: 1}}
 traces: none        # this stack has no trace collector
@@ -111,8 +168,7 @@ agent_events: none  # and no event log for the agent
 
 STACK_YAML = """\
 # The {name} agent's local backing services: Postgres and the LiteLLM model gateway.
-# `agentbreeder services up --environment dev --env-file FILE` starts them; FILE holds
-# {key}=... (mode 0600). See docs/services.md.
+{start}
 kind: stack
 schema_version: 1
 name: {name}
@@ -121,7 +177,7 @@ services:
     ref: service/postgres-pgvector@1.1.0
     with: {{databases: [app, litellm]}}
   litellm:
-    ref: service/litellm@1.0.0
+    ref: {gateway}
     with: {{config: stack/litellm/config.yaml}}
     wire: {{database-url: postgres.databases.litellm}}
 environment:
@@ -141,9 +197,9 @@ environment:
 LITELLM_CONFIG = """\
 model_list:
   - model_name: chat
-    litellm_params: {{model: {model_yaml}, api_key: os.environ/{key}}}
+    litellm_params: {{model: {model_yaml}, {route}}}
   - model_name: judge
-    litellm_params: {{model: {model_yaml}, api_key: os.environ/{key}}}
+    litellm_params: {{model: {model_yaml}, {route}}}
 litellm_settings:
   turn_off_message_logging: true   # spend logs keep tokens/cost, not prompts or replies
 general_settings:
@@ -233,6 +289,7 @@ class Plan:
             "runtime": RUNTIME,
             "aliases": ["chat", "judge"] + ([self.embedding[0]] if self.embedding else []),
             "key": PROVIDERS[self.model].key,
+            "keys": list(PROVIDERS[self.model].keys),
             "review_by": self.review_by,
             "cases": list(self.cases) if self.cases is not None else [c["id"] for c in _cases()],
             "files": files,
@@ -282,6 +339,7 @@ def model_id_for(model: str, model_id: str | None) -> str:
     given id when it is `PROVIDER/…` in the gateway's alphabet with no empty segment. The id is
     never echoed in an error."""
     provider = PROVIDERS[model]
+    prefix = provider.prefix or model
     if model_id is None:
         if provider.model is None:
             raise NewAgentError(
@@ -294,14 +352,14 @@ def model_id_for(model: str, model_id: str | None) -> str:
     if (
         not segments
         or re.fullmatch(MODEL_ID_PATTERN, model_id) is None
-        or segments[0] != model
+        or segments[0] != prefix
         or len(segments) < 1 + provider.segments
         or any(not part or part in (".", "..") for part in segments[1:])
     ):
         shape = "/".join(["<vendor>", "<model>"][-provider.segments :])
         raise NewAgentError(
             "MODEL_ID_INVALID",
-            f"--model-id must be {model}/{shape}: letters, digits and . _ : / -, at most 128 "
+            f"--model-id must be {prefix}/{shape}: letters, digits and . _ : / -, at most 128 "
             "characters, no empty segment",
         )
     return model_id
@@ -332,7 +390,10 @@ def plan(
         "version": VERSION,
         "review_by": review_by,
         "model_yaml": model_yaml(resolved),
-        "key": provider.key,
+        "route": provider.route(),
+        "reasoning": provider.reasoning,
+        "start": start_lines(provider.keys),
+        "gateway": provider.gateway,
     }
     files = {
         "agent.yaml": AGENT_YAML.format(**values),
@@ -439,16 +500,19 @@ def check_gateway(
     aliases: set[str],
     model_id: str,
     embedding: tuple[str, str] | None = None,
+    gateway: str | None = None,
 ) -> None:
-    """A generated gateway config must pass the review `services up` applies and serve exactly
-    `aliases`, every one with `model_id` (also used by `--stack-for`), plus the `embedding`
-    (alias, model) when given."""
+    """A generated gateway config must pass the review `services up` applies, for the
+    `gateway` version the stack names (by default the one `model_id`'s provider writes), and
+    serve exactly `aliases`, every one with `model_id`
+    (also used by `--stack-for`), plus the `embedding` (alias, model) when given."""
     from agentbreeder import gateway_keys, gateway_providers
     from agentbreeder.strict_yaml import StrictYamlError, load_file
 
-    caps = gateway_providers.builtin_caps(GATEWAY)
+    gateway = gateway or gateway_for(model_id)
+    caps = gateway_providers.builtin_caps(gateway)
     if caps is None:  # a packaging bug: the starter names a built-in this release ships
-        raise NewAgentError("TEMPLATE_INVALID", f"{GATEWAY} is not a built-in gateway")
+        raise NewAgentError("TEMPLATE_INVALID", f"{gateway} is not a built-in gateway")
     try:
         review = gateway_keys.config_review(config, caps)
         entries = load_file(config, 256 * 1024)["model_list"]
@@ -466,7 +530,12 @@ def check_gateway(
         )
 
 
-def _validate(project: Path, model_id: str, embedding: tuple[str, str] | None = None) -> list[str]:
+def _validate(
+    project: Path,
+    model_id: str,
+    embedding: tuple[str, str] | None = None,
+    gateway: str = GATEWAY,
+) -> list[str]:
     """The written files must load as an agent and a stack, and the gateway config must serve
     `chat` and `judge` with `model_id`; returns the agent's refs."""
     from agentbreeder.agentfile import AgentFileError, load_agent_file
@@ -479,7 +548,9 @@ def _validate(project: Path, model_id: str, embedding: tuple[str, str] | None = 
         raise NewAgentError(
             "TEMPLATE_INVALID", f"the starter does not validate: {error}"
         ) from error
-    check_gateway(project / "stack/litellm/config.yaml", {"chat", "judge"}, model_id, embedding)
+    check_gateway(
+        project / "stack/litellm/config.yaml", {"chat", "judge"}, model_id, embedding, gateway
+    )
     return agent.refs()
 
 
@@ -524,7 +595,7 @@ def create(plan: Plan) -> Plan:
             if str(ref) != expected:  # a template bug
                 raise NewAgentError("TEMPLATE_INVALID", f"published {ref}, expected {expected}")
             published[str(ref)] = digest
-        refs = _validate(staging, plan.model_id, plan.embedding)
+        refs = _validate(staging, plan.model_id, plan.embedding, PROVIDERS[plan.model].gateway)
         if not plan.lock_after_move:
             _lock(staging, refs)
             _check_pinned(staging, plan.pinned)
