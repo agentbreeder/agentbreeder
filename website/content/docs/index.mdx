@@ -23,8 +23,9 @@ lead you.
 
 ## What works today
 
-Each item below ran end to end on macOS with Docker Desktop. Nothing has run on Linux beyond
-install and `doctor`.
+Each item below ran end to end on macOS with Docker Desktop, from a wheel built from `main`, a
+checkout or an earlier preview. The published `3.0.0a3` itself has run `quickstart`, Northwind
+from pip (61/61) and the console's sign-in only. Linux: install and `doctor` only.
 
 - **[Build from agent.yaml](/docs/agent-yaml).** Describe an agent as versioned registry
   references (runtime, prompt, knowledge, tools, MCP servers, evals). `build` makes the image and
@@ -47,10 +48,10 @@ install and `doctor`.
 - **[Identity gate](/docs/identity-gate).** A deploy is refused unless the agent exists in your
   identity provider with an active sponsor and the required grants. Optional Cedar, OPA or
   AuthZEN policy, second-person approval, a kill switch and a hash-chained audit log.
-- **[Console](/docs/command-center).** `agentbreeder up` serves a local, single-user web UI that
-  runs the same CLI commands.
-- **[Kubernetes on kind](/docs/kubernetes).** Promote a released image to a local `kind`
-  cluster.
+- **[Console](/docs/command-center)** (from `main`). `agentbreeder up` serves a local,
+  single-user web UI that runs the same CLI commands.
+- **[Kubernetes on kind](/docs/kubernetes)** (from `main` and `3.0.0a2`). Promote a released
+  image to a local `kind` cluster.
 
 On `main` but not yet run with a runtime: [sub-agents and skills](/docs/subagents-skills) (schema
 and build only).
