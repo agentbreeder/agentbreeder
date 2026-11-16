@@ -8,12 +8,12 @@
 import { Action, Notice, Table, Text, nextId, useConsole } from "./components.js";
 import { html, useRef, useState } from "./preact.js";
 import {
-  PROVIDERS, VERIFIED, codeRefs, confirmProblem, formProblem, previewBody, rootText, shortDigest, writeBody,
+  PROVIDERS, VERIFIED, codeRefs, confirmProblem, formProblem, modelIdNote, previewBody, rootText, shortDigest, writeBody,
 } from "../lib/onboard.js";
 
 export function OnboardAgentFile({ busy: outerBusy, onAdded }) {
   const { client, addProject } = useConsole();
-  const [form, setForm] = useState({ path: "", name: "", model: VERIFIED, modelId: "" });
+  const [form, setForm] = useState({ path: "", name: "", model: "gemini", modelId: "" });
   const [preview, setPreview] = useState(null);
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -63,9 +63,9 @@ export function OnboardAgentFile({ busy: outerBusy, onAdded }) {
     <input id=${ids.name} autocomplete="off" spellcheck="false" maxlength="31" placeholder="support" value=${form.name} onInput=${edit("name")} />
     <label for=${ids.model}>Model provider</label>
     <select id=${ids.model} value=${form.model} onChange=${edit("model")}>
-      ${PROVIDERS.map((provider) => html`<option value=${provider}>${provider}${provider === VERIFIED ? "" : " (config only)"}</option>`)}
+      ${PROVIDERS.map((provider) => html`<option value=${provider}>${provider}${VERIFIED.includes(provider) ? "" : " (config only)"}</option>`)}
     </select>
-    <label for=${ids.modelId}>Model id (optional; OpenRouter needs one)</label>
+    <label for=${ids.modelId}>Model id (optional; replaces the provider's default)</label>
     <input id=${ids.modelId} autocomplete="off" spellcheck="false" placeholder=${`${form.model}/…`} value=${form.modelId} onInput=${edit("modelId")} />
     <${Action} type="submit" tone="secondary" disabled=${working ? "Working…" : problem}>Preview<//>
     <${Notice} notice=${notice} onDismiss=${() => setNotice(null)} />
@@ -75,6 +75,7 @@ export function OnboardAgentFile({ busy: outerBusy, onAdded }) {
       <ul class="plain">${preview.files.map((file) => html`<li key=${file.path}><code><${Text} value=${file.path} /></code> <span class="muted small" title=${file.sha256}>${shortDigest(file.sha256)}</span></li>`)}</ul>
       <p>Gateway aliases <${Text} value=${preview.aliases.join(", ")} /> call <code><${Text} value=${preview.model_id} /></code>; the stack needs <code><${Text} value=${preview.key} /></code>. The gate refuses deploys after review_by <${Text} value=${preview.review_by} />.</p>
       ${preview.verified ? null : html`<p class="muted"><${Text} value=${preview.model} /> is config-only: it has not been run end to end.</p>`}
+      ${modelIdNote(preview.verified, form.model, form.modelId) ? html`<p class="muted"><${Text} value=${modelIdNote(preview.verified, form.model, form.modelId)} /></p>` : null}
       ${preview.warnings.map((warning) => html`<p class="notice warn"><${Text} value=${warning} /></p>`)}
       <${Table} label="What the agent uses" columns=${["Ref", "From", "Code"]}>
         ${preview.refs.map((ref, index) => html`<tr key=${`${index} ${ref.ref}`}>

@@ -12,9 +12,12 @@ project's own `registry/` (release refuses path prompts, and evals have no path 
 
 Four providers are offered through LiteLLM (#905): gemini, anthropic, openai and openrouter, each
 with its key read by LiteLLM from a local secret file (`os.environ/KEY` in the config, never the
-value). Only gemini has been run end to end; the others are config-only (`verified` false in
-`--json`): the eval judge needs strict `json_schema` output, unverified on them. `--model-id`
-replaces the provider's default model; openrouter has none, so it needs one. Templates are string
+value). gemini and openrouter have been run end to end (openrouter with its default
+`openrouter/google/gemini-3.8-flash`, #1020); anthropic and openai are config-only (`verified`
+false in `--json`): the eval judge needs strict `json_schema` output, unverified on them.
+`verified` is per provider: it covers the gateway and judge path with the default model, not how
+well another `--model-id` answers (on OpenRouter, `anthropic/claude-haiku-5.5` failed one of the
+two cases). `--model-id` replaces the provider's default model. Templates are string
 constants here, filled only with a validated name, a date, fixed provider values and a model id
 checked against a strict pattern, so no other user text reaches YAML.
 
@@ -64,12 +67,16 @@ class Provider:
     segments: int = 1  # path segments `--model-id` needs after `PROVIDER/`
 
 
-# Defaults are model ids in the LiteLLM 1.106.2 model map (the pinned service/litellm@1.0.0).
+# Defaults are model ids in the LiteLLM 1.106.2 model map (the pinned service/litellm@1.0.0);
+# openrouter's is the model it ran end to end with through that LiteLLM (#1020,
+# docs/superpowers/verification/providers.md).
 PROVIDERS = {
     "anthropic": Provider("anthropic/claude-opus-5-5", "ANTHROPIC_API_KEY", False),
     "gemini": Provider("gemini/gemini-3.8-flash", "GEMINI_API_KEY", True),
     "openai": Provider("openai/gpt-5.6", "OPENAI_API_KEY", False),
-    "openrouter": Provider(None, "OPENROUTER_API_KEY", False, segments=2),
+    "openrouter": Provider(
+        "openrouter/google/gemini-3.8-flash", "OPENROUTER_API_KEY", True, segments=2
+    ),
 }
 # The gateway's model-name alphabet (gateway_keys._MODEL_NAME), at most 128 characters.
 MODEL_ID_PATTERN = r"[A-Za-z0-9._:/-]{1,128}"
