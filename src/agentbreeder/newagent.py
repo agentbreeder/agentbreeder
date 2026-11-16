@@ -52,6 +52,7 @@ from pathlib import Path
 from agentbreeder import example, registry
 
 RUNTIME = "runtime/adk@1.3.0"
+GATEWAY = "service/litellm@1.0.0"  # the gateway version the starter's stack.yaml names
 VERSION = "0.1.0"
 REVIEW_DAYS = 180
 SUMMARY_VERSION = 1  # the `--json` shape (and its `error` form) in docs/commands/new.md
@@ -441,11 +442,14 @@ def check_gateway(
     """A generated gateway config must pass the review `services up` applies and serve exactly
     `aliases`, every one with `model_id` (also used by `--stack-for`), plus the `embedding`
     (alias, model) when given."""
-    from agentbreeder import gateway_keys
+    from agentbreeder import gateway_keys, gateway_providers
     from agentbreeder.strict_yaml import StrictYamlError, load_file
 
+    caps = gateway_providers.builtin_caps(GATEWAY)
+    if caps is None:  # a packaging bug: the starter names a built-in this release ships
+        raise NewAgentError("TEMPLATE_INVALID", f"{GATEWAY} is not a built-in gateway")
     try:
-        review = gateway_keys.config_review(config)
+        review = gateway_keys.config_review(config, caps)
         entries = load_file(config, 256 * 1024)["model_list"]
         served = [(entry["model_name"], entry["litellm_params"]["model"]) for entry in entries]
     except (gateway_keys.GatewayError, StrictYamlError, OSError) as error:

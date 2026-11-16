@@ -82,6 +82,9 @@ ALLOWED = {
     # stack.yaml's agents for the identity strip (#823): pydantic models, no state or Docker.
     "agentbreeder.services",
     "agentbreeder.services.schema",
+    # The gateway-only credential names services.schema refuses as bindings (#1025): patterns
+    # and constants; its registry and schema imports run only inside builtin_caps.
+    "agentbreeder.gateway_providers",
 }
 
 

@@ -20,6 +20,7 @@ from pydantic import (
     model_validator,
 )
 
+from agentbreeder.gateway_providers import GATEWAY_ONLY
 from agentbreeder.manifest import (
     _ALIAS,
     _ENVIRONMENT,
@@ -218,6 +219,18 @@ class Environment(_Strict):
             raise ValueError(
                 "[SECRET_RESERVED] bindings may not use a provider key name when guardrails "
                 "are required"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def no_gateway_only_bindings(self):
+        # The model gateway's cloud credentials (#1025 D3) never go into an agent container,
+        # whether or not guardrails are required. A naming check, apart from the floor's.
+        reserved = sorted(set(self.bindings) & GATEWAY_ONLY)
+        if reserved:
+            raise ValueError(
+                f"[SECRET_RESERVED] bindings may not use {', '.join(reserved)}: model gateway "
+                "credentials are for the built-in gateway only"
             )
         return self
 

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from conftest import actor, v2_manifest_data
+from conftest import GATEWAY_CAPS, actor, v2_manifest_data
 from test_gateway_keys import gateway, manifest, minting, running  # noqa: F401  (fixtures)
 from test_services_engine import FakeDocker, engine
 
@@ -62,7 +62,7 @@ def _write(tmp_path: Path, data: dict, name: str = "config.yaml") -> Path:
 
 
 def _review(tmp_path, data=None):
-    return config_review(_write(tmp_path, CONFIG if data is None else data))
+    return config_review(_write(tmp_path, CONFIG if data is None else data), GATEWAY_CAPS)
 
 
 def _with_params(**params):
@@ -197,7 +197,7 @@ def test_configs_without_guardrails_are_unchanged(tmp_path):
     review = _review(tmp_path, data)
     assert review.guardrails == [] and review.effective() == []
     northwind = Path(registry.__file__).parent / "examples/northwind/stack/litellm/config.yaml"
-    assert config_review(northwind).guardrails == []
+    assert config_review(northwind, GATEWAY_CAPS).guardrails == []
 
 
 # -- config review: one read, the guardrails hash --------------------------------------------
@@ -219,7 +219,7 @@ def test_the_file_is_read_once(tmp_path, monkeypatch):
         raise AssertionError("config_review read the file twice")
 
     monkeypatch.setattr(Path, "read_bytes", refuse)
-    review = config_review(path)
+    review = config_review(path, GATEWAY_CAPS)
     assert len(reads) == 1
     monkeypatch.undo()
     assert review.sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
@@ -252,7 +252,9 @@ def test_guardrails_hash_follows_guardrails_and_logging(tmp_path, edit):
 def test_guardrails_hash_ignores_yaml_formatting(tmp_path):
     flow = _write(tmp_path, CONFIG, "a.yaml")
     flow.write_text(yaml.safe_dump(CONFIG, default_flow_style=True))
-    assert config_review(flow).guardrails_sha256 == _review(tmp_path).guardrails_sha256
+    assert (
+        config_review(flow, GATEWAY_CAPS).guardrails_sha256 == _review(tmp_path).guardrails_sha256
+    )
 
 
 # -- guardrails_effective -----------------------------------------------------------------------
@@ -515,7 +517,7 @@ def _guarded(**floor):
 
 
 def test_up_records_the_mounted_config_hash(stack, tmp_path):
-    expected = config_review(stack / "litellm.yaml").guardrails_sha256
+    expected = config_review(stack / "litellm.yaml", GATEWAY_CAPS).guardrails_sha256
     grant, operator, compose = _up(stack, _guarded(required=True, approved_sha256=expected))
     record = operator["environments"]["dev"]["guardrails"]
     assert record == {
@@ -614,7 +616,7 @@ def test_stack_floor_needs_the_reviewed_hash(stack):
 def test_the_grant_text_lists_entities_not_values(stack):
     from agentbreeder.services.plan import grant_text
 
-    expected = config_review(stack / "litellm.yaml").guardrails_sha256
+    expected = config_review(stack / "litellm.yaml", GATEWAY_CAPS).guardrails_sha256
     grant, _, _ = _up(stack, _guarded(required=True, approved_sha256=expected))
     text = grant_text(grant)
     assert f"guardrails sha256 {expected}" in text

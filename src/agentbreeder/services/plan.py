@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote
 
-from agentbreeder import gateway_keys
+from agentbreeder import gateway_keys, gateway_providers
 from agentbreeder.lock import BUILTIN_LABEL
 from agentbreeder.services import mcp_stack, refs
 from agentbreeder.services.lock import LockedStack
@@ -334,20 +334,30 @@ class Plan:
 
     # -- the grant --------------------------------------------------------------------------------
 
-    def _review(self) -> gateway_keys.ConfigReview | None:
+    def gateway_caps(self) -> gateway_providers.GatewayCaps:
+        gateway = self.locked.stack.environment.gateway
+        return gateway_providers.caps_from_spec(
+            self.spec(gateway), self.locked.stack.services[gateway].ref
+        )
+
+    def gateway_review(self) -> gateway_keys.ConfigReview | None:
+        """The reviewed gateway config, for the gateway that runs it; None without one."""
         config = self.files.get(self.locked.stack.environment.gateway, {}).get("config")
         if config is None:
             return None
         try:
-            return gateway_keys.config_review(config)
+            return gateway_keys.config_review(config, self.gateway_caps())
         except gateway_keys.GatewayError as error:
             raise ServiceError(error.code, str(error)) from None
 
     def _gateway_config(self) -> dict | None:
-        review = self._review()
+        review = self.gateway_review()
         if review is None:
             return None
         shown = {"sha256": review.sha256, "providers": dict(sorted(review.providers.items()))}
+        routes = review.grant_routes()
+        if routes:  # only for #1025 providers: other stacks keep their grant digest
+            shown["routes"] = routes
         if review.guardrails:  # only then: a stack without guardrails keeps its grant digest
             shown["guardrails_sha256"] = review.guardrails_sha256
             # Everything the hash covers, so the approver sees what they approve.
@@ -425,7 +435,7 @@ class Plan:
         `required` later by hand never verifies."""
         stack = self.locked.stack
         floor = stack.environment.guardrails
-        review = self._review()
+        review = self.gateway_review()
         gateway = stack.environment.gateway
         if review is not None and review.guardrails:
             problem = self._presidio_problem(gateway)

@@ -1494,19 +1494,15 @@ def test_granted_fallbacks_fail_closed(monkeypatch, tmp_path, failure):
     # Unreachable after the lock's own check; a bypass must not silently drop an edge.
     from types import SimpleNamespace
 
-    from agentbreeder import gateway_keys
     from agentbreeder.services import operator as operator_writer
 
-    def review(path):
-        if failure == "unreadable":
-            raise gateway_keys.GatewayError("GATEWAY_CONFIG", "config.yaml: unreadable")
+    def review():
+        if failure == "unreadable":  # Plan.gateway_review turns a GatewayError into this
+            raise ServiceError("GATEWAY_CONFIG", "config.yaml: unreadable")
         return SimpleNamespace(fallbacks={"m1": ["m2"]})
 
-    monkeypatch.setattr(gateway_keys, "config_review", review)
     stack = SimpleNamespace(environment=SimpleNamespace(gateway="gw", models=["m1"]))
-    plan = SimpleNamespace(
-        locked=SimpleNamespace(stack=stack), files={"gw": {"config": tmp_path / "c.yaml"}}
-    )
+    plan = SimpleNamespace(locked=SimpleNamespace(stack=stack), gateway_review=review)
     with pytest.raises(ServiceError) as caught:
         operator_writer._granted_fallbacks(plan)
     expected = "GATEWAY_FALLBACK_UNGRANTED" if failure == "ungranted" else "GATEWAY_CONFIG"

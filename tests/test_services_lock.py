@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from conftest import GATEWAY_CAPS
 from test_services_schema import LITELLM, PHOENIX, POSTGRES, PROXY, STACK
 
 from agentbreeder import gateway_keys, registry
@@ -172,13 +173,13 @@ def test_gateway_config_must_parse(project, tmp_path):
 def test_config_aliases_parser(tmp_path):
     path = tmp_path / "c.yaml"
     path.write_text(yaml.safe_dump(LITELLM_CONFIG))
-    assert gateway_keys.config_aliases(path) == {"support-model", "support-judge"}
+    assert gateway_keys.config_aliases(path, GATEWAY_CAPS) == {"support-model", "support-judge"}
     path.write_text("model_list:\n  - {litellm_params: {}}\n")
     with pytest.raises(gateway_keys.GatewayError, match="model_name"):
-        gateway_keys.config_aliases(path)
+        gateway_keys.config_aliases(path, GATEWAY_CAPS)
     path.write_text("a: [unclosed")
     with pytest.raises(gateway_keys.GatewayError) as caught:
-        gateway_keys.config_aliases(path)
+        gateway_keys.config_aliases(path, GATEWAY_CAPS)
     assert caught.value.code == "GATEWAY_CONFIG"
 
 
@@ -209,11 +210,11 @@ NORTHWIND_GATEWAY = (
 def _review(tmp_path, data):
     path = tmp_path / "c.yaml"
     path.write_text(yaml.safe_dump(data))
-    return gateway_keys.config_review(path)
+    return gateway_keys.config_review(path, GATEWAY_CAPS)
 
 
 def test_config_review_accepts_the_northwind_gateway():
-    review = gateway_keys.config_review(NORTHWIND_GATEWAY)
+    review = gateway_keys.config_review(NORTHWIND_GATEWAY, GATEWAY_CAPS)
     assert "support-model" in review.aliases
     assert review.providers["support-model"] == "gemini (GEMINI_API_KEY)"
     assert review.providers["support-model-openrouter"] == "openrouter (OPENROUTER_API_KEY)"
@@ -282,7 +283,7 @@ def test_config_review_shape_errors(tmp_path, text):
     path = tmp_path / "c.yaml"
     path.write_text(text)
     with pytest.raises(gateway_keys.GatewayError) as caught:
-        gateway_keys.config_review(path)
+        gateway_keys.config_review(path, GATEWAY_CAPS)
     assert caught.value.code == "GATEWAY_CONFIG"
 
 
@@ -357,6 +358,6 @@ def test_a_granted_fallback_target_is_accepted(project, tmp_path):
 
 def test_northwind_grants_its_fallback_alias():
     stack = yaml.safe_load((NORTHWIND_GATEWAY.parents[2] / "stack.yaml").read_text())
-    review = gateway_keys.config_review(NORTHWIND_GATEWAY)
+    review = gateway_keys.config_review(NORTHWIND_GATEWAY, GATEWAY_CAPS)
     targets = {t for ts in review.fallbacks.values() for t in ts}
     assert targets and targets <= set(stack["environment"]["models"])

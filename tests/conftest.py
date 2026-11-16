@@ -9,9 +9,16 @@ import yaml
 
 from agentbreeder import deployer as deployer_module
 from agentbreeder import operator_config
+from agentbreeder.gateway_providers import GatewayCaps
 
 AUTHORITY = "tenant-a"
 IMAGE = "sha256:" + "a" * 64
+# The gateway every config_review test reviews for: today's built-in service/litellm@1.0.0,
+# which imports the four key-only providers' keys (#1025: `caps` is required).
+GATEWAY_CAPS = GatewayCaps(
+    "service/litellm@1.0.0",
+    frozenset({"GEMINI_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"}),
+)
 
 
 @pytest.fixture(autouse=True)

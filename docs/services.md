@@ -201,12 +201,39 @@ Phoenix's UI: sign in as `admin@localhost` with the password in the stack state 
 - Only allow-listed keys per section; no custom endpoints (`api_base`, `base_url`, headers) or
   callbacks.
 - Every `model_list[].litellm_params.model` is `PROVIDER/MODEL` with `PROVIDER` one of `anthropic`,
-  `gemini`, `openai`, `openrouter` (#1031). Other prefixes (`vertex_ai/`, `bedrock/`, `azure/`,
-  `ollama/`, …) and bare names (`gpt-4o`) are refused, because LiteLLM would fall back to the
+  `gemini`, `openai`, `openrouter` (#1031), matched exactly, and the rest 1–256 printable ASCII
+  characters with no space. Unknown
+  prefixes and bare names (`gpt-4o`) are refused, because LiteLLM would fall back to the
   provider SDK's default credential chain, which on a cloud host can reach the machine's own
-  identity. More providers are planned in #1025, each with explicit credentials.
+  identity.
 - `api_key` is absent or `os.environ/<the provider's own key>`; `os.environ/` is otherwise allowed
   only for `general_settings.master_key` (`LITELLM_MASTER_KEY`) and `database_url` (`DATABASE_URL`).
+- `model_info` may set only `mode` (`chat` or `embedding`) (#1025 D13). Price keys
+  (`input_cost_per_token`, …), `id`, `access_groups` and every other key are refused: a repo must
+  not set the price that budgets are enforced against. Before #1025 any plain `model_info` key
+  passed; no shipped config used one.
+- The config is reviewed for the gateway that runs it. Ollama (`ollama/`, `ollama_chat/`), Vertex
+  AI (`vertex_ai/`), Bedrock (`bedrock/`) and Azure OpenAI (`azure/`) have review rules (per
+  provider model patterns, required explicit credentials, and endpoint rules; see the #1025 spec),
+  but no `service/litellm` version supports them yet: `service/litellm@1.0.0` imports only the
+  four keys above, so `up` refuses an entry for any of them with
+  `GATEWAY_PROVIDER_UNSUPPORTED`. Each provider is added in its own gateway version after a real
+  run; none is supported or verified today.
+- Their credentials (`VERTEX_SERVICE_ACCOUNT_JSON`, `BEDROCK_ACCESS_KEY_ID`,
+  `BEDROCK_SECRET_ACCESS_KEY`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`) are gateway-only
+  imports: `secret set --from-env`, MCP versions and every service other than the built-in
+  `service/litellm` gateway are refused them (`IMPORT_DENIED`, `IMPORT_GATEWAY_ONLY`). A project
+  registry version named `service/litellm` is project code and is refused too. They never go into
+  an agent container: an operator `bindings` entry or a manifest `secrets` entry with one of these
+  names is refused (`SECRET_RESERVED`) in every environment, however its value was stored. When a
+  gateway version supports one of these providers, `up` refuses to start it while any alias in
+  the config (granted or not) lacks its credential (`MODEL_CREDENTIAL_MISSING`), so LiteLLM never
+  falls back to a default credential chain; `next` lists those keys as required the same way.
+- `next` checks model keys only for a gateway version this release ships; for a project or
+  unknown `service/litellm` version its keys step says not checked (`up` still reviews the config
+  against the version it resolves). A project registry copy that shadows a shipped version is
+  reviewed by `next` as the shipped one; `up` reviews the copy it resolves, and refuses
+  gateway-only imports from it.
 - Prompt and reply logging stays off (#1028). If present, `litellm_settings.turn_off_message_logging`
   must be `true`, `litellm_settings.set_verbose` must be `false` (its debug log prints request
   bodies), and `general_settings.store_prompts_in_spend_logs` must be `false`, each as a YAML

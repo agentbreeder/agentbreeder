@@ -23,7 +23,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from agentbreeder import gateway_keys, secret_files
+from agentbreeder import secret_files
 from agentbreeder.operator_config import OperatorModel
 from agentbreeder.services.plan import Plan
 from agentbreeder.services.refs import Reference, expand, placeholders
@@ -76,11 +76,10 @@ def _granted_fallbacks(plan: Plan) -> dict[str, list[str]]:
     """The gateway config's fallbacks from granted aliases (#1033). The lock already refused
     any target outside `environment.models`; a deployment key is minted with these too."""
     stack = plan.locked.stack
-    config = plan.files[stack.environment.gateway]["config"]
-    try:
-        edges = gateway_keys.config_review(config).fallbacks
-    except gateway_keys.GatewayError as error:
-        raise ServiceError(error.code, str(error)) from None
+    review = plan.gateway_review()  # the lock refused a gateway without a config
+    if review is None:
+        raise ServiceError("GATEWAY_CONTRACT", "the gateway service needs a `config` file param")
+    edges = review.fallbacks
     granted = set(stack.environment.models)
     if not {t for targets in edges.values() for t in targets} <= granted:
         raise ServiceError("GATEWAY_FALLBACK_UNGRANTED", "a fallback target is not granted")

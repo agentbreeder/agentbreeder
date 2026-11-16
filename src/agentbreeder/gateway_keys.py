@@ -19,6 +19,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
+from agentbreeder import gateway_providers
+from agentbreeder.gateway_providers import EntryRefused, GatewayCaps
 from agentbreeder.operator_config import Gateway, OperatorConfig, resolve_credential
 
 PREFIX = "agentbreeder-"
@@ -288,13 +290,9 @@ def client(operator: OperatorConfig, name: str) -> LiteLLM | None:
 
 
 # A stack's gateway config comes from the repo, so it is reviewed before any key reaches it
-# (#739 security review): keys may only flow to their own provider's default endpoint.
-PROVIDER_KEYS = {
-    "gemini": "GEMINI_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-}
+# (#739 security review): keys may only flow to their own provider's default endpoint. The
+# per-provider rules (#1025) live in gateway_providers; these are the four key-only providers.
+PROVIDER_KEYS = dict(gateway_providers.KEY_ONLY_KEYS)
 _ENV = "os.environ/"
 _SECTIONS = {
     "model_list": None,
@@ -329,21 +327,6 @@ _SECTIONS = {
     },
 }
 _ENTRY = {"model_name", "litellm_params", "model_info"}
-_PARAMS = {
-    "model",
-    "api_key",
-    "timeout",
-    "stream_timeout",
-    "max_retries",
-    "dimensions",
-    "rpm",
-    "tpm",
-    "max_tokens",
-    "temperature",
-    "top_p",
-    "drop_params",
-    "reasoning_effort",
-}
 _MODEL_NAME = re.compile(r"[A-Za-z0-9._:/-]{1,128}")
 _FALLBACKS = ("fallbacks", "context_window_fallbacks")
 _GENERAL_ENV = {"master_key": _ENV + "LITELLM_MASTER_KEY", "database_url": _ENV + "DATABASE_URL"}
@@ -354,7 +337,6 @@ _LOGGING = {
     ("litellm_settings", "set_verbose"): False,  # debug logs print request bodies
     ("general_settings", "store_prompts_in_spend_logs"): False,
 }
-_PROVIDER_LIST = ", ".join(sorted(PROVIDER_KEYS))
 
 # -- guardrails (#1024 G1b, spec §4.2 as amended by the G0 results §12.2) -----------------------
 _GUARDRAIL_ENTRY = {"guardrail_name", "litellm_params"}
@@ -399,6 +381,17 @@ class ConfigReview:
     guardrails_sha256: str = ""
     # The §4.6 logging settings as LiteLLM will apply them (defaults filled in).
     logging: dict[str, bool] = field(default_factory=dict)
+
+    # alias -> the variables it needs at `up` (#1025 §5.3): read these, never parse labels.
+    required_env: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    # alias -> {"provider": ..., plus the printed route fields: project, location, region, ...}
+    routes: dict[str, dict] = field(default_factory=dict)
+    key_only: set[str] = field(default_factory=set)  # aliases of the four key-only providers
+
+    def grant_routes(self) -> dict[str, dict]:
+        """The routes the services grant shows (none for key-only aliases, so their stacks
+        keep their grant digest)."""
+        return gateway_providers.grant_routes(self.routes, self.key_only)
 
     def effective(self) -> list[str]:
         """The checks that count toward a floor: `presidio:<mode>` for each `default_on`
@@ -540,11 +533,15 @@ def _guardrails(path: Path, value) -> list[dict]:
     return [dict(entry) for entry in value]
 
 
-def config_review(path: Path) -> ConfigReview:
+def config_review(path: Path, caps: GatewayCaps) -> ConfigReview:
     """Parse a LiteLLM proxy config and refuse anything that could send a credential somewhere
     other than its provider: only allow-listed keys per section, no custom endpoints or
     callbacks, and `os.environ/` only for the master key, the database URL and each model's own
-    provider key."""
+    provider credentials (gateway_providers). `caps` is the gateway that will run the config
+    (required, so an omitted gateway fails closed): a provider whose imports it lacks is
+    refused (`GATEWAY_PROVIDER_UNSUPPORTED`)."""
+    if not isinstance(caps, GatewayCaps):
+        raise TypeError("config_review needs the gateway's GatewayCaps")
     import hashlib
 
     from agentbreeder.strict_yaml import StrictYamlError, load_bytes, read_file
@@ -591,6 +588,9 @@ def config_review(path: Path) -> ConfigReview:
 
     aliases: set[str] = set()
     providers: dict[str, str] = {}
+    required_env: dict[str, tuple[str, ...]] = {}
+    routes: dict[str, dict] = {}
+    key_only: set[str] = set()
     for index, entry in enumerate(models):
         name = entry.get("model_name") if isinstance(entry, dict) else None
         if not isinstance(name, str) or not name:
@@ -601,27 +601,25 @@ def config_review(path: Path) -> ConfigReview:
         if set(entry) - _ENTRY:
             raise _unsafe(path, f"{where} key")
         params = entry.get("litellm_params") or {}
-        if not isinstance(params, dict) or set(params) - _PARAMS:
-            raise _unsafe(path, f"{where}.litellm_params key (custom endpoints are refused)")
         info = entry.get("model_info") or {}
-        if not isinstance(info, dict) or not all(map(_scalar, [*params.values(), *info.values()])):
+        if not isinstance(params, dict) or not isinstance(info, dict):
             raise _unsafe(path, f"{where} value (plain values only)")
-        model = params.get("model")
-        provider, _, rest = model.partition("/") if isinstance(model, str) else ("", "", "")
-        if provider not in PROVIDER_KEYS or not rest:
-            # Unknown prefixes and bare names fall back to the provider SDK's default credential
-            # chain, which on a cloud host can reach the machine's own identity (#1031).
-            raise _unsafe(
-                path,
-                f"{where}.litellm_params.model (use PROVIDER/MODEL, PROVIDER one of: "
-                f"{_PROVIDER_LIST})",
-            )
-        key = params.get("api_key")
-        if key is not None:
-            if key != _ENV + PROVIDER_KEYS[provider]:
-                raise _unsafe(path, f"{where}.litellm_params.api_key (use the provider's own key)")
-            allowed_env.add(f"{where}.litellm_params.api_key")
-        providers[name] = f"{provider} ({key[len(_ENV) :] if key else 'no key'})"
+        if not all(map(_scalar, [*params.values(), *info.values()])):
+            raise _unsafe(path, f"{where} value (plain values only)")
+        route = _entry_route(path, where, params, info, caps)
+        if name in routes and (not route.key_only or name not in key_only):
+            # The grant shows one line per alias: an alias served by several deployments of a
+            # #1025 provider would hide a route (the key-only providers keep today's rule).
+            if routes[name] != route.route or providers[name] != route.label:
+                raise _unsafe(path, f"{where}.model_name (repeats an alias with another route)")
+        allowed_env.update(f"{where}.litellm_params.{param}" for param in route.env_params)
+        providers[name] = route.label
+        required_env[name] = tuple(
+            dict.fromkeys((*required_env.get(name, ()), *route.required_env))
+        )
+        routes[name] = route.route
+        if route.key_only:
+            key_only.add(name)
         aliases.add(name)
     edges: dict[str, list[str]] = {}
     for section, keys in _SECTIONS.items():
@@ -648,13 +646,25 @@ def config_review(path: Path) -> ConfigReview:
         providers,
         hashlib.sha256(raw).hexdigest(),
         edges,
-        guardrails,
-        hashlib.sha256(canonical.encode()).hexdigest(),
-        logging,
+        guardrails=guardrails,
+        guardrails_sha256=hashlib.sha256(canonical.encode()).hexdigest(),
+        logging=logging,
+        required_env=required_env,
+        routes=routes,
+        key_only=key_only,
     )
 
 
-def config_aliases(path: Path) -> set[str]:
+def _entry_route(path: Path, where: str, params: dict, info: dict, caps: GatewayCaps):
+    try:
+        return gateway_providers.review_entry(where, params, info, caps)
+    except EntryRefused as refused:
+        if not refused.sentence:
+            raise _unsafe(path, refused.where) from None
+        raise GatewayError(refused.code, f"{path.name}: {refused.where}") from None
+
+
+def config_aliases(path: Path, caps: GatewayCaps) -> set[str]:
     """The model aliases a LiteLLM proxy config serves (`model_list[].model_name`), after
-    `config_review` accepted the config."""
-    return config_review(path).aliases
+    `config_review` accepted the config for the gateway `caps`."""
+    return config_review(path, caps).aliases

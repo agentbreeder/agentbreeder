@@ -19,9 +19,10 @@ import urllib.request
 
 import pytest
 import yaml
+from conftest import GATEWAY_CAPS
 from test_services_engine import PY
 
-from agentbreeder import gateway_keys, registry
+from agentbreeder import gateway_keys, gateway_providers, registry
 from agentbreeder.gate import _guardrails_failure
 from agentbreeder.operator_config import load_operator_config
 from agentbreeder.services.engine import Engine
@@ -202,7 +203,10 @@ def project(tmp_path, monkeypatch):
     # Imported into the gateway as its OpenAI key (the scripted provider ignores it). It also
     # makes LiteLLM's `/openai/*` passthrough live, which the key's routes must refuse.
     monkeypatch.setenv("OPENAI_API_KEY", "-".join(["sk", "scripted", "provider"]))
-    monkeypatch.setattr(gateway_keys, "_PARAMS", gateway_keys._PARAMS | {"api_base"})
+    # The scripted provider's address (#1025: params are per provider in gateway_providers).
+    monkeypatch.setattr(
+        gateway_providers, "COMMON_PARAMS", gateway_providers.COMMON_PARAMS | {"api_base"}
+    )
     root = tmp_path / "project"
     version = root / "registry" / "service" / "provider" / "1.0.0"
     (version / "files").mkdir(parents=True)
@@ -211,7 +215,7 @@ def project(tmp_path, monkeypatch):
     (version / "files" / "provider.py").write_text(PROVIDER)
     config = root / "litellm.yaml"
     config.write_text(yaml.safe_dump(CONFIG, sort_keys=False))
-    approved = gateway_keys.config_review(config).guardrails_sha256
+    approved = gateway_keys.config_review(config, GATEWAY_CAPS).guardrails_sha256
     (root / "stack.yaml").write_text(yaml.safe_dump(_stack(approved), sort_keys=False))
     instance = Engine(root)
     yield root, instance, approved

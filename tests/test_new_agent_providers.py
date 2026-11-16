@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
+from conftest import GATEWAY_CAPS
 
 from agentbreeder import cli, gateway_keys, guide_checks, newagent, registry
 
@@ -84,7 +85,7 @@ def test_default_model_and_key_fill_both_aliases(model, tmp_path):
     assert summary["verified"] is (model != "anthropic")
     path = tmp_path / "config.yaml"
     path.write_text(plan.files["stack/litellm/config.yaml"])
-    review = gateway_keys.config_review(path)
+    review = gateway_keys.config_review(path, GATEWAY_CAPS)
     assert review.aliases == {"chat", "judge"}
     assert set(review.providers.values()) == {f"{model} ({key})"}
 
@@ -134,7 +135,7 @@ def test_a_model_id_with_a_colon_is_quoted_and_reads_back_exactly(tmp_path):
     assert {e["litellm_params"]["model"] for e in config(plan)["model_list"]} == {ROUTER}
     path = tmp_path / "config.yaml"
     path.write_text(plan.files["stack/litellm/config.yaml"])
-    review = gateway_keys.config_review(path)
+    review = gateway_keys.config_review(path, GATEWAY_CAPS)
     assert set(review.providers.values()) == {"openrouter (OPENROUTER_API_KEY)"}
 
 
@@ -224,7 +225,7 @@ def test_create_writes_a_project_for_each_provider(tmp_path, model, model_id):
     project = tmp_path / "hello"
     assert (project / "agent.lock").is_file()
     assert set(plan.published) == {"prompt/hello-prompt@0.1.0", "eval/hello-evals@0.1.0"}
-    review = gateway_keys.config_review(project / "stack/litellm/config.yaml")
+    review = gateway_keys.config_review(project / "stack/litellm/config.yaml", GATEWAY_CAPS)
     key = newagent.PROVIDERS[model].key
     assert set(review.providers.values()) == {f"{model} ({key})"}
     assert plan.summary(dry_run=False)["model_id"] == plan.model_id
@@ -442,5 +443,7 @@ def test_the_starter_pins_message_logging_off_and_the_gateway_accepts_it(tmp_pat
     assert loaded["litellm_settings"] == {"turn_off_message_logging": True}
     assert loaded["general_settings"]["store_prompts_in_spend_logs"] is False
     newagent.create(plan)
-    review = gateway_keys.config_review(tmp_path / "hello" / "stack/litellm/config.yaml")
+    review = gateway_keys.config_review(
+        tmp_path / "hello" / "stack/litellm/config.yaml", GATEWAY_CAPS
+    )
     assert review.aliases == {"chat", "judge"}

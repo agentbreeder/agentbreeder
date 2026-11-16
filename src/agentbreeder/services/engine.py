@@ -20,13 +20,14 @@ from pathlib import Path
 
 from agentbreeder import env_import, hints, registry, safe_text, secret_files
 from agentbreeder import mcp as mcp_kind
+from agentbreeder.gateway_providers import GATEWAY_ONLY
 from agentbreeder.lock import BUILTIN_LABEL
 from agentbreeder.registry import RegistryError
 from agentbreeder.services import mcp_stack
 from agentbreeder.services import operator as operator_writer
 from agentbreeder.services.compose import PROBE_IMAGE, DockerCLI
 from agentbreeder.services.dockerfile import check as _check_dockerfile
-from agentbreeder.services.lock import LockedStack, StackLock, lock_stack
+from agentbreeder.services.lock import LockedStack, StackLock, lock_stack, reads_gateway_only
 from agentbreeder.services.plan import Plan, grant_digest, grant_text
 from agentbreeder.services.schema import ServiceError, Stack, load_stack
 from agentbreeder.services.state import (
@@ -267,6 +268,54 @@ class Engine:
             plan.secrets[name] = own
             self.docker.redactions.extend(own.values())
 
+    @staticmethod
+    def _import(plan: Plan, service: str, name: str, env_file: Path | None) -> str | None:
+        """Read an imported variable. The only caller passing `allow_gateway_only` (#1025
+        §3.5): for a `GATEWAY_ONLY` name, and only when `service` is the built-in gateway by
+        its locked origin (never a relay, never a project version named service/litellm)."""
+        allow = name in GATEWAY_ONLY and reads_gateway_only(
+            service, plan.spec(service), plan.locked.origins, plan.locked.relays
+        )
+        return env_import.lookup(name, env_file, allow_gateway_only=allow)
+
+    def _check_model_credentials(self, plan: Plan) -> None:
+        """Before any container starts (#1025 §4.4, §3.2): every gateway-only credential the
+        reviewed config needs has a value, imported now or stored by an earlier run, so LiteLLM
+        never falls back to a default credential chain; and every Vertex entry's project is the
+        service-account key's own project. Errors name the alias and variable, never a value."""
+        review = plan.gateway_review()
+        if review is None:
+            return
+        gateway = plan.locked.stack.environment.gateway
+        secret_of = {s.import_: key for key, s in plan.spec(gateway).secrets.items() if s.import_}
+        values = plan.secrets.get(gateway, {})
+
+        def value(name: str) -> bytes | None:
+            return values.get(secret_of[name]) if name in secret_of else None
+
+        for alias, names in sorted(review.required_env.items()):
+            for name in names:
+                if name in GATEWAY_ONLY and not value(name):
+                    raise ServiceError(
+                        "MODEL_CREDENTIAL_MISSING",
+                        f"model alias {alias} needs {name}; set it in the environment or pass "
+                        "--env-file",
+                    )
+        projects = {
+            alias: route["project"]
+            for alias, route in sorted(review.routes.items())
+            if route["provider"] == "vertex"
+        }
+        if projects:
+            key_project = _vertex_key_project(value("VERTEX_SERVICE_ACCOUNT_JSON"))
+            for alias, project in projects.items():
+                if project != key_project:
+                    raise ServiceError(
+                        "VERTEX_PROJECT_MISMATCH",
+                        f"model alias {alias} names vertex_project {project}, but "
+                        "VERTEX_SERVICE_ACCOUNT_JSON is a key for another project",
+                    )
+
     def _secret(self, plan, service, key, source, env_file) -> bytes | None:
         current = self.state.read_secret(service, key)
         if source.import_:
@@ -274,7 +323,7 @@ class Engine:
             if current is not None and origin != "import":
                 raise ServiceError("SECRET_NOT_OWNED", f"service {service}: secret {key}")
             try:
-                value = env_import.lookup(source.import_, env_file)
+                value = self._import(plan, service, source.import_, env_file)
             except env_import.EnvImportError as error:
                 raise ServiceError(error.code, str(error)) from None
             if value:
@@ -407,6 +456,7 @@ class Engine:
                 self.state.record_port(service, port_name, number)
         self.docker.authorize()
         self.secrets(plan, env_file)
+        self._check_model_credentials(plan)
         for name in plan.locked.resolved.order:
             self.docker.redactions.extend(plan.environment(name).values())
         self._relays(plan, environment)
@@ -1135,3 +1185,27 @@ class Engine:
             f"export AGENTBREEDER_OPERATOR_CONFIG={shlex.quote(str(resolved.operator_config))}",
             f"export AGENTBREEDER_STATE_DIR={shlex.quote(str(resolved.state_dir))}",
         ]
+
+
+VERTEX_KEY_LIMIT = 16 * 1024  # the launcher's one-line secret file limit
+
+
+def _vertex_key_project(data: bytes | None) -> str:
+    """The `project_id` of a service-account key JSON. The full checks (type, token_uri,
+    universe_domain, canonical form) are the launcher's, in the gateway version that ships
+    Vertex; this reads only what binding the project needs. Never echoes the value."""
+    invalid = ServiceError(
+        "VERTEX_KEY_INVALID", "VERTEX_SERVICE_ACCOUNT_JSON is not a service-account key"
+    )
+    if not data or len(data) > VERTEX_KEY_LIMIT:
+        raise invalid
+    try:
+        key = json.loads(data)
+    except (ValueError, RecursionError):
+        raise invalid from None
+    if not isinstance(key, dict) or key.get("type") != "service_account":
+        raise invalid
+    project = key.get("project_id")
+    if not isinstance(project, str) or not project:
+        raise invalid
+    return project
