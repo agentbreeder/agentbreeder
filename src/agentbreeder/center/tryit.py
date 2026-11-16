@@ -16,13 +16,22 @@ Pure functions: the server checks the request with `turn_request`, builds the ar
   `cost` is the turn's cost in USD that `runtime/adk@1.2.0` reports (`cost_usd`, the sum of
   LiteLLM's per-call estimates, #906), passed only as a finite number from 0 up to `MAX_USD`;
   older runtimes don't report it and it is null.
+- A failed model call (`runtime/adk@1.3.0` and later, #1062): when the agent's error answer has a
+  `code` in MODEL_CODES, that code replaces AGENT_ERROR, with the runtime's fixed message (it has
+  the next step), the `correlation_id` (the turn id, which the agent's log line carries) and, for a
+  rate limit, `retry_after_s`. A successful turn also passes on the gateway's `fallbacks` and
+  `served_by` aliases (1.3.0), and `unknown_tools` (tool names the model asked for that the agent
+  does not have; the runtime refused them) and `cached_prompt_tokens` (1.4.0). Older runtimes send
+  none of these, and each is null or empty.
 - `customer_id` and `session_id` are sent as typed; the runtime does not authenticate them
   (S-12c, #780), which the screen says.
 - A turn's trace (#907): `traces --trace ID --stack DIR --environment ENV --json` (contract:
   docs/traces.md), built by `trace_argv` and checked by `trace_answer`. Only the span tree's
   names, kinds, models, token counts (and whether each span's counts are in the trace's total,
   #1009), tool names, latency, status and error text are passed on, with whether the trace is
-  still arriving (no root span yet, #1010).
+  still arriving (no root span yet, #1010), and the root span's facts (`route_facts`: fallbacks,
+  serving aliases, cached prompt tokens, refused unknown tool names and a guardrail block's name
+  and entity type, never the matched text).
   `traces` never reads prompts, replies or tool arguments and results; error text is redacted and
   cut by `traces` but is the runtime's own text, so it can quote what the agent was given.
 """
@@ -57,6 +66,26 @@ MAX_TEXT = 200  # `phoenix_traces.TEXT`
 MAX_NOTES = 10
 SPAN_STATUS = ("ok", "error", "unset")
 ATTRIBUTION = ("exact", "window")
+# A failed model call's code from runtime/adk@1.3.0, and MODEL_BLOCKED (a gateway guardrail,
+# runtime/adk@1.4.0): `commands/invoke.py` MODEL_CODES (a test keeps them equal). Any other
+# error answer is AGENT_ERROR.
+MODEL_CODES = frozenset(
+    {
+        "MODEL_BLOCKED",
+        "MODEL_BUDGET_EXCEEDED",
+        "MODEL_RATE_LIMITED",
+        "MODEL_ACCESS_DENIED",
+        "MODEL_REQUEST_REFUSED",
+        "MODEL_UNAVAILABLE",
+    }
+)
+MAX_MODEL_ERROR = 600  # the runtime's fixed messages are about 250 characters
+MAX_RETRY_AFTER = 24 * 3600  # seconds; a longer wait is not believed
+MAX_ROUTE = 10  # aliases and unknown tool names: the runtime and `traces` keep at most 10
+# `phoenix_traces.ALIAS`, `.UNKNOWN_TOOL` and `.ENTITY` (runtime/adk@1.3.0 and 1.4.0).
+ALIAS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+UNKNOWN_TOOL = re.compile(r"[A-Za-z0-9_.?\[\]-]{1,80}")
+ENTITY = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
 
 
 def turn_request(name: str, body: dict) -> dict:
@@ -129,6 +158,55 @@ def _id(value: object, pattern: re.Pattern) -> str | None:
     return value if isinstance(value, str) and pattern.fullmatch(value) else None
 
 
+def _matching(value: object, pattern: re.Pattern) -> list[str]:
+    """At most MAX_ROUTE strings of `value` that match `pattern`; anything else is dropped."""
+    if not isinstance(value, list):
+        return []
+    return [
+        item for item in value[:MAX_ROUTE] if isinstance(item, str) and pattern.fullmatch(item)
+    ]
+
+
+def _seconds(value: object) -> int | None:
+    """`retry_after_s` as whole seconds (rounded up), or None when it is not a believable wait."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value) or not 0 < value <= MAX_RETRY_AFTER:
+        return None
+    return math.ceil(value)
+
+
+def _cached(value: object, prompt: int | None) -> int | None:
+    """Cached prompt tokens are a part of the prompt tokens: a figure above them is dropped."""
+    cached = _count(value)
+    return cached if cached is not None and (prompt is None or cached <= prompt) else None
+
+
+def _guardrail(value: object) -> dict | None:
+    """`traces`' `{"action": "blocked", "name", "entity"}` (runtime/adk@1.4.0), else None. Only
+    the guardrail's name and the entity type; `traces` never reads the matched text."""
+    if not isinstance(value, dict) or value.get("action") != "blocked":
+        return None
+    return {
+        "action": "blocked",
+        "name": _id(value.get("name"), ALIAS),
+        "entity": _id(value.get("entity"), ENTITY),
+    }
+
+
+def route_facts(found: dict, prompt: int | None) -> dict:
+    """A trace's root-span facts from `traces --json` (docs/traces.md): the gateway's fallbacks
+    and serving aliases (runtime/adk@1.3.0), cached prompt tokens, refused unknown tool names and
+    a guardrail block (1.4.0). Null or empty for older runtimes."""
+    return {
+        "fallbacks": _count(found.get("fallbacks")),
+        "served_by": _matching(found.get("served_by"), ALIAS),
+        "cached_prompt_tokens": _cached(found.get("cached_prompt_tokens"), prompt),
+        "unknown_tools": _matching(found.get("unknown_tools"), UNKNOWN_TOOL),
+        "guardrail": _guardrail(found.get("guardrail")),
+    }
+
+
 def maybe_sent(problem: dict) -> bool:
     """For a failure with no JSON answer (`invoke --json` prints one for each of its own coded
     errors): False when the child never ran or `invoke` stopped before sending (it could not
@@ -162,9 +240,24 @@ def turn_answer(data: object, latency_ms: int) -> tuple[dict | None, dict | None
         return None, {"code": "TRY_INVALID", "message": "The answer does not match its contract"}
     reply = response.get("reply")
     if status != 200 or not isinstance(reply, str):
+        code = response.get("code")
+        if status != 200 and isinstance(code, str) and code in MODEL_CODES:
+            # The runtime's fixed message for the code, with its next step (#1062).
+            detail = _text(response.get("error"), MAX_MODEL_ERROR) or "the model call failed"
+            details = {
+                "sent": True,
+                "latency_ms": latency_ms,
+                "status": status,
+                "correlation_id": _id(response.get("correlation_id"), HEX32),
+                "retry_after_s": _seconds(response.get("retry_after_s"))
+                if code == "MODEL_RATE_LIMITED"
+                else None,
+            }
+            return details, {"code": code, "message": f"The agent answered {status}: {detail}"}
         detail = _text(response.get("error"), MAX_ERROR) or "no reply in the answer"
         problem = {"code": "AGENT_ERROR", "message": f"The agent answered {status}: {detail}"}
         return {"sent": True, "latency_ms": latency_ms}, problem
+    prompt = _count(response.get("prompt_tokens"))
     turn = {
         "deployment": _id(data.get("deployment"), HEX32),
         "reply": reply[:MAX_REPLY],
@@ -178,9 +271,18 @@ def turn_answer(data: object, latency_ms: int) -> tuple[dict | None, dict | None
         "sources": _names(response.get("sources")),
         "model_calls": _count(response.get("model_calls")),
         "tokens": {
-            "prompt": _count(response.get("prompt_tokens")),
+            "prompt": prompt,
             "output": _count(response.get("output_tokens")),
+            # runtime/adk@1.4.0 (#1056): a part of `prompt`, as the provider reported it.
+            "cached": _cached(response.get("cached_prompt_tokens"), prompt),
         },
+        # runtime/adk@1.3.0 (#1039): how many gateway fallbacks were tried, and which aliases
+        # served the turn's model calls.
+        "fallbacks": _count(response.get("fallbacks")),
+        "served_by": _matching(response.get("served_by"), ALIAS),
+        # runtime/adk@1.4.0 (#1074): tool names the model asked for that the agent does not have;
+        # the runtime refused them, so they are not tool calls.
+        "unknown_tools": _matching(response.get("unknown_tools"), UNKNOWN_TOOL),
         "latency_ms": latency_ms,
         # Seam: #907 fills `url` from a recorded Phoenix origin.
         "trace": {"id": _id(response.get("trace_id"), HEX32), "url": None},
@@ -273,6 +375,7 @@ def trace_answer(data: object, trace_id: str) -> tuple[dict | None, dict | None]
     tokens = found.get("tokens") if isinstance(found.get("tokens"), dict) else {}
     tools = found.get("tool_calls") if isinstance(found.get("tool_calls"), list) else []
     notes = data.get("notes") if isinstance(data.get("notes"), list) else []
+    prompt = _count(tokens.get("prompt"))
     trace = {
         "trace_id": trace_id,
         "deployment_id": _id(found.get("deployment_id"), HEX32),
@@ -281,7 +384,7 @@ def trace_answer(data: object, trace_id: str) -> tuple[dict | None, dict | None]
         "status": _pick(found.get("status"), ("ok", "error")),
         "models": _names(found.get("models")),
         "tokens": {
-            "prompt": _count(tokens.get("prompt")),
+            "prompt": prompt,
             "completion": _count(tokens.get("completion")),
             "total": _count(tokens.get("total")),
         },
@@ -294,6 +397,7 @@ def trace_answer(data: object, trace_id: str) -> tuple[dict | None, dict | None]
             for item in tools[:MAX_SPANS]
             if isinstance(item, dict)
         ][:MAX_ITEMS],
+        **route_facts(found, prompt),
         "spans": spans,
         "truncated": found.get("spans_truncated") is True
         or (isinstance(raw, list) and len(raw) > MAX_SPANS),

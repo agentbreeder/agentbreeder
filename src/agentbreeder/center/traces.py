@@ -9,9 +9,12 @@ Pure functions: the server checks the query with `list_request`, builds the argv
   phoenix 1.0.x); the console server never reads a credential. `traces` never reads prompts,
   replies or tool arguments and results, and redacts every string with the same values as `logs`.
 - Only an allow-listed summary per trace is passed on: its id, start, latency, status,
-  attribution, models, token counts, tool calls (name, status, latency), span count and whether
-  it is still arriving (no root span yet, #1010). The span tree opens per trace through the Try
-  it trace route (`traces --trace ID`, `tryit.trace_answer`), so this answer carries no spans.
+  attribution, models, token counts, tool calls (name, status, latency), span count, whether
+  it is still arriving (no root span yet, #1010), and the root span's facts (#1062,
+  `tryit.route_facts`): gateway fallbacks and serving aliases, cached prompt tokens, refused
+  unknown tool names, and a guardrail block's name and entity type. The span tree opens per
+  trace through the Try it trace route (`traces --trace ID`, `tryit.trace_answer`), so this
+  answer carries no spans.
   Phoenix's origin, the project name and the session and turn ids stay on the server.
 - A trace attributed to another deployment is dropped: the CLI attributes every listed trace to
   the ID it was asked for, so one that is not is a contract break, never shown as this one's.
@@ -39,6 +42,7 @@ from agentbreeder.center.tryit import (
     _names,
     _pick,
     _text,
+    route_facts,
 )
 
 DEFAULT_LAST = 20  # `phoenix_traces.DEFAULT_LAST`
@@ -89,6 +93,7 @@ def _trace(found: object, deployment_id: str) -> dict | None:
     tokens = found.get("tokens") if isinstance(found.get("tokens"), dict) else {}
     tools = found.get("tool_calls") if isinstance(found.get("tool_calls"), list) else []
     spans = found.get("spans")
+    prompt = _count(tokens.get("prompt"))
     return {
         "trace_id": found["trace_id"],
         "start_time": _when(found.get("start_time")),
@@ -97,7 +102,7 @@ def _trace(found: object, deployment_id: str) -> dict | None:
         "attribution": _pick(found.get("attribution"), ATTRIBUTION),
         "models": _names(found.get("models")),
         "tokens": {
-            "prompt": _count(tokens.get("prompt")),
+            "prompt": prompt,
             "completion": _count(tokens.get("completion")),
             "total": _count(tokens.get("total")),
         },
@@ -110,6 +115,7 @@ def _trace(found: object, deployment_id: str) -> dict | None:
             for item in tools[:MAX_SPANS]
             if isinstance(item, dict)
         ][:MAX_ITEMS],
+        **route_facts(found, prompt),  # fallbacks, aliases, cached, unknown tools, guardrail
         "span_count": min(len(spans), MAX_SPANS) if isinstance(spans, list) else 0,
         "spans_truncated": found.get("spans_truncated") is True
         or (isinstance(spans, list) and len(spans) > MAX_SPANS),

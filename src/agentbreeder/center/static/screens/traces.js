@@ -8,7 +8,7 @@ import { agentName } from "../lib/agents.js";
 import { isCandidate } from "../lib/format.js";
 import { visible } from "../lib/text.js";
 import { DEFAULT_LAST, LAST_CHOICES, arrivingText, defaultDeployment, startText, toolCallsText, traceLine, tracesPath, tracesProblemText, windowText } from "../lib/traces.js";
-import { productionRow, tracePath } from "../lib/tryit.js";
+import { productionRow, traceFlags, tracePath } from "../lib/tryit.js";
 import { Action, Card, CopyButton, Notice, Text } from "../ui/components.js";
 import { useView } from "../ui/data.js";
 import { html, useState } from "../ui/preact.js";
@@ -20,6 +20,7 @@ function TraceItem({ project, trace }) {
   return html`<li class="trace-item">
     <div><strong><${Text} value=${startText(trace.start_time)} /></strong> <span class="small"><${Text} value=${traceLine(trace)} /></span></div>
     <div class="small">Tool calls: ${tools ? html`<${Text} value=${tools} />` : html`<span class="muted">none</span>`}</div>
+    ${traceFlags(trace).map((flag, index) => html`<div class="small" key=${index}><${Text} value=${flag} /></div>`)}
     <div class="small muted">Trace <code><${Text} value=${trace.trace_id} /></code> <${CopyButton} value=${trace.trace_id} label="trace ID" /></div>
     ${path ? html`<${TracePanel} path=${path} />` : null}
   </li>`;
