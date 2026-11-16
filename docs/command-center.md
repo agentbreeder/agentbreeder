@@ -957,6 +957,33 @@ no traces. Tested with a fake CLI, and run against a live Phoenix on Northwind (
 was partial (6 of 11 spans, no root, and wrongly "Matched by time"; #1010). A later read had the
 full tree. The tree's token total counts each model call twice (#1009).
 
+**Runtime 1.3.0 and 1.4.0 facts** (#1062, on `main`, not in a published preview; tested with a
+fake CLI only, not yet against a live runtime). The 1.3.0 fields follow `invoke --json`
+([`commands/invoke.md`](commands/invoke.md)) and `traces --json` ([`traces.md`](traces.md)).
+`runtime/adk@1.4.0` (`MODEL_BLOCKED`, unknown tools, cached prompt tokens, a guardrail block) is
+not merged yet: the console reads its fields as its pending `invoke`, `traces` and `cost` docs
+describe them, and they show nothing until a 1.4.0 runtime and CLI send them.
+
+- **A failed model call keeps its code.** When the agent's error answer has a `code` of
+  `MODEL_BUDGET_EXCEEDED`, `MODEL_RATE_LIMITED`, `MODEL_ACCESS_DENIED`, `MODEL_REQUEST_REFUSED` or
+  `MODEL_UNAVAILABLE` (`runtime/adk@1.3.0`), or `MODEL_BLOCKED` (422, a gateway guardrail,
+  `runtime/adk@1.4.0`), the turn shows that code instead of `AGENT_ERROR`. It shows the runtime's
+  message, which has the next step, and the correlation ID with Copy. The agent's log has the
+  detail under that ID (the **Logs** tab, or `agentbreeder logs`). A rate limit also shows the
+  gateway's wait (`retry_after_s`) when the message does not already name it. For
+  `MODEL_RATE_LIMITED` and `MODEL_UNAVAILABLE`, whose next step is to send again, it also says
+  that tools may already have run in the turn, so sending it again is a second turn.
+- **A reply's Turn details** add a gateway fallback (`fallbacks`, `served_by`: "A gateway fallback
+  served this turn (served by ALIAS)."), tool names the model asked for that the agent does not
+  have (`unknown_tools`, which the runtime refused, so they are not tool calls), and the cached
+  part of the prompt tokens ("1,812 in (1,500 cached), 64 out").
+- **A trace** (Trace spans and the Traces tab) adds the root span's facts: the fallback, the
+  cached prompt tokens, the refused unknown tool names, and a guardrail block ("Blocked by
+  guardrail NAME (ENTITY)"). That is only the guardrail's name and the entity type, never the
+  matched text.
+- Older runtimes send none of these fields, and nothing is shown for them. Each value is checked
+  for type and size, and a cached figure above the prompt tokens is dropped.
+
 A later message continues the conversation's session (`--session`); **New conversation** starts a
 new one. **Customer ID** is optional and sent as `--customer`.
 
@@ -1221,7 +1248,10 @@ twice (#1009).
 Home's **LLM cost** card shows one registered project's model spend: the project in scope first,
 with a **Project** picker when there are several. It shows the total with its currency, the calls
 and failed calls, the window in UTC days, the time it was read ("as of …"), and a table per model
-(the gateway alias and the provider model, calls, tokens in and out, spend). An agent's
+(the gateway alias and the provider model, calls, tokens in, cached tokens in, tokens out, spend).
+**Cached in** (#1056, #1062) is the part of the prompt tokens that the provider read from its
+cache, as `cost --json` reports it (`cached_prompt_tokens`). It shows "-" when the CLI does not
+report it, and an agent's sum is "-" when any of its keys does not. An agent's
 **Overview** has its own **LLM cost** card. It shows the agent's deployment keys (production,
 candidates and removed deployments, by name) with their target and state, the agent's total, and
 their models added up. Both cards pick a window of the last 7, 30 or 90 days, and **Refresh**

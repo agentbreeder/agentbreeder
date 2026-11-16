@@ -81,8 +81,11 @@ DEFAULT = {
     "follow": {},
     # `invoke NAME - --json` (Try it): the message is read from stdin. {"reply", "tools",
     # "sources", "trace_id", "seconds"} change the answer; {"error": {code, message, sent}} fails
-    # it (exit 2, or 1 when sent). The reply defaults to an echo of the message. Every call's
-    # argv and stdin are appended to `invoke-calls.json` in the fake directory.
+    # it (exit 2, or 1 when sent). The reply defaults to an echo of the message. {"fields"} are
+    # added to the runtime's answer (runtime/adk@1.3.0 and 1.4.0: fallbacks, served_by,
+    # unknown_tools, cached_prompt_tokens, #1062); with {"status": N} other than 200 they are the
+    # whole error answer instead (a MODEL_* code, exit 1). Every call's argv and stdin are
+    # appended to `invoke-calls.json` in the fake directory.
     "invoke": {},
     # `list --all --json` (Agents, #823): {"deployments", "skipped"}; null lists `deployments`
     # as rows of a stack whose project is not registered.
@@ -97,7 +100,9 @@ DEFAULT = {
     # {"missing": N} answers TRACES_NOT_FOUND to the first N calls. Every call's argv is appended
     # to `traces-calls.json` in the fake directory. `traces ID ... --json` (an agent's Traces tab)
     # answers {"list": [trace, ...]} (each given the asked-for deployment ID unless it has one),
-    # or two default traces; "error" fails it the same way.
+    # or two default traces; "error" fails it the same way. {"root": {...}} adds the root span's
+    # facts to the `--trace` answer (fallbacks, served_by, cached_prompt_tokens, unknown_tools,
+    # guardrail; runtime/adk@1.3.0 and 1.4.0, #1062).
     "traces": {},
     # `tool log REF ... --json` (a tool's execution log, #828): {"calls", "notes", "credential",
     # "truncated", "phoenix_url"} change the answer and "seconds" slows a read without
@@ -182,6 +187,16 @@ def invoke(argv: list[str], data: dict) -> int:
         print(json.dumps({"schema_version": 1, "error": problem}))
         print(f"[{problem['code']}] {problem['message']}", file=sys.stderr)
         return 1 if problem.get("sent") else 2
+    status = settings.get("status", 200)
+    if status != 200:  # the agent's error answer: `invoke --json` prints it whole, exit 1
+        answer = {"schema_version": 1, "deployment": "d" * 32, "name": argv[1], "status": status}
+        answer |= {"endpoint": "http://127.0.0.1:9001", "response": settings.get("fields", {})}
+        print(json.dumps(answer, indent=2))
+        print(
+            f"[{settings['fields'].get('code', 'AGENT_ERROR')}] {argv[1]} answered",
+            file=sys.stderr,
+        )
+        return 1
     session = argv[argv.index("--session") + 1] if "--session" in argv else "session-1"
     response = {
         "reply": settings.get("reply", f"You said: {message}"),
@@ -200,6 +215,7 @@ def invoke(argv: list[str], data: dict) -> int:
     }
     if "cost_usd" in settings:  # runtime/adk@1.2.0 and later; older runtimes send no field
         response["cost_usd"] = settings["cost_usd"]
+    response |= settings.get("fields", {})
     answer = {"schema_version": 1, "deployment": "d" * 32, "name": argv[1], "status": 200}
     answer |= {"endpoint": "http://127.0.0.1:9001", "response": response}
     print(json.dumps(answer, indent=2))
@@ -263,6 +279,7 @@ def traces(argv: list[str], data: dict) -> int:
         "spans": spans,
         "spans_truncated": False,
     }  # fmt: skip
+    trace |= settings.get("root", {})
     answer = {"schema_version": 1, "phoenix": "http://127.0.0.1:6006", "traces": [trace]}
     answer |= {"overlapping": [], "truncated": False, "notes": settings.get("notes", [])}
     print(json.dumps(answer))

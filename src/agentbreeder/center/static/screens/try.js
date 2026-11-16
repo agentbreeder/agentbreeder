@@ -15,12 +15,14 @@ import {
   MAX_MESSAGE,
   addPending,
   attributionText,
+  correlationText,
   costText,
   customerProblem,
   descendants,
   MAX_SPAN_DEPTH,
   emptyConversation,
   failureText,
+  fallbackText,
   latencyText,
   messageProblem,
   namesText,
@@ -31,10 +33,12 @@ import {
   spanTree,
   thrownEnvelope,
   tokensText,
+  traceFlags,
   traceProblemText,
   tracePath,
   traceSummary,
   unavailable,
+  unknownToolsText,
 } from "../lib/tryit.js";
 import { Action, Card, CopyButton, Notice, Text, ViewState, nextId, useConsole } from "../ui/components.js";
 import { useView } from "../ui/data.js";
@@ -198,7 +202,7 @@ function Turn({ turn, name, project }) {
   return html`<li class=${`turn ${turn.state}`}>
     <div class="bubble you"><span class="who">You</span><p class="turn-text"><${Text} value=${turn.message} /></p></div>
     ${turn.state === "pending" ? html`<div class="bubble agent pending" aria-busy="true"><span class="who"><${Text} value=${name} /></span><p class="muted">Waiting for the reply (up to 3 minutes)…</p></div>` : null}
-    ${turn.state === "failed" ? html`<div class="bubble agent failed"><span class="who"><${Text} value=${name} /></span><${Notice} notice=${{ tone: "error", text: failureText(turn.problem) }} /></div>` : null}
+    ${turn.state === "failed" ? html`<div class="bubble agent failed"><span class="who"><${Text} value=${name} /></span><${Notice} notice=${{ tone: "error", text: failureText(turn.problem) }} />${turn.problem.correlation ? html`<p class="small">Correlation ID <code><${Text} value=${turn.problem.correlation} /></code> <${CopyButton} value=${turn.problem.correlation} label="correlation ID" /> <span class="muted"><${Text} value=${correlationText(turn.problem)} /></span></p>` : null}</div>` : null}
     ${turn.state === "reply"
       ? html`<div class="bubble agent">
           <span class="who"><${Text} value=${name} /></span>
@@ -214,16 +218,20 @@ function Turn({ turn, name, project }) {
 function Inspector({ turn, project }) {
   const trace = turn.trace || {};
   const cost = costText(turn.cost);
+  const fallback = fallbackText(turn.fallbacks, turn.served_by);
+  const unknown = unknownToolsText(turn.unknown_tools);
   return html`<details class="inspector">
     <summary>Turn details <span class="muted small">${latencyText(turn.latency_ms)} · ${tokensText(turn.tokens)} tokens${cost ? ` · ${cost}` : ""}</span></summary>
     <dl class="facts">
       <dt>Tools</dt><dd><${Text} value=${namesText(turn.tools)} /></dd>
+      ${unknown ? html`<dt>Unknown tools</dt><dd><${Text} value=${unknown} /></dd>` : null}
       <dt>Sources</dt><dd><${Text} value=${namesText(turn.sources)} /></dd>
       <dt>Latency</dt><dd>${latencyText(turn.latency_ms)} <span class="muted small">(console to reply, through invoke)</span></dd>
       <dt>Tokens</dt><dd>${tokensText(turn.tokens)}${Number.isInteger(turn.model_calls) ? html` <span class="muted small">over ${turn.model_calls} model call${turn.model_calls === 1 ? "" : "s"}</span>` : null}</dd>
       <dt>Cost</dt><dd>${cost ? html`<${Text} value=${cost} /> <span class="muted small">(LiteLLM's estimate, reported by the runtime)</span>` : html`<span class="muted">Not measured: this runtime did not report it (runtime/adk 1.2.0 and later do when every model call had a cost)</span>`}</dd>
       <dt>Trace</dt><dd>${trace.id ? html`<code><${Text} value=${trace.id} /></code> <${CopyButton} value=${trace.id} label="trace ID" />` : html`<span class="muted">No trace for this turn</span>`}</dd>
       ${turn.model ? html`<dt>Model alias</dt><dd><${Text} value=${turn.model} /></dd>` : null}
+      ${fallback ? html`<dt>Fallback</dt><dd><${Text} value=${fallback} /></dd>` : null}
     </dl>
   </details>
   ${tracePath(project.id, trace.id) ? html`<${TracePanel} path=${tracePath(project.id, trace.id)} />` : null}`;
@@ -283,6 +291,7 @@ export function TracePanel({ path }) {
         : null}
       ${state.phase === "loaded"
         ? html`<p><${Text} value=${traceSummary(trace)} /></p>
+            ${traceFlags(trace).map((flag, index) => html`<p class="small" key=${index}><${Text} value=${flag} /></p>`)}
             <p class="muted small"><${Text} value=${attributionText(trace)} /> Prompts, replies and tool arguments are never read; error text is the runtime's own and can quote what the agent was given.</p>
             ${trace.incomplete ? html`<${Action} tone="secondary" small=${true} onClick=${() => load(true)}>Read again<//>` : null}
             ${(Array.isArray(trace.notes) ? trace.notes : []).map((note, index) => html`<p class="muted small" key=${index}><${Text} value=${note} /></p>`)}

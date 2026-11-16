@@ -35,11 +35,14 @@ function Total({ answer, total }) {
 function Counts({ item, currency }) {
   return html`<td class="num">${count(item.calls)}</td>
     <td class="num">${count(item.prompt_tokens)}</td>
+    <td class="num">${count(item.cached_prompt_tokens)}</td>
     <td class="num">${count(item.completion_tokens)}</td>
     <td class="num"><${Text} value=${money(item.cost_usd, currency)} /></td>`;
 }
 
-const COUNT_COLUMNS = ["Calls", "Tokens in", "Tokens out", "Spend"];
+// "Cached in" is the part of "Tokens in" the provider read from its cache (#1056); "-" when the
+// CLI does not report it.
+const COUNT_COLUMNS = ["Calls", "Tokens in", "Cached in", "Tokens out", "Spend"];
 
 function ModelTable({ label, models, currency }) {
   return html`<${Table} label=${label} columns=${["Model", ...COUNT_COLUMNS]}>

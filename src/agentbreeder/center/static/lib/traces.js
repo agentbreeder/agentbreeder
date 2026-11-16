@@ -2,7 +2,7 @@
 // GET /api/projects/:id/deployments/:deployment/traces (center/traces.py); one trace's span tree is
 // the Try it trace route (lib/tryit.js `tracePath`).
 
-import { latencyText } from "./tryit.js";
+import { latencyText, traceTokensText } from "./tryit.js";
 
 const DEPLOYMENT_ID = /^[0-9a-f]{32}$/;
 
@@ -39,10 +39,8 @@ export function traceLine(trace) {
   if (Number.isFinite(trace.latency_ms)) parts.push(latencyText(trace.latency_ms));
   const models = Array.isArray(trace.models) ? trace.models.filter((m) => typeof m === "string") : [];
   if (models.length) parts.push(`model${models.length === 1 ? "" : "s"} ${models.join(", ")}`);
-  const tokens = trace.tokens || {};
-  const prompt = count(tokens.prompt);
-  const completion = count(tokens.completion);
-  if (prompt !== null || completion !== null) parts.push(`${prompt ?? "?"} in, ${completion ?? "?"} out tokens`);
+  const tokens = traceTokensText(trace); // with the cached part (runtime/adk@1.4.0)
+  if (tokens) parts.push(`${tokens} tokens`);
   const spans = count(trace.span_count) ?? 0;
   parts.push(`${spans} span${spans === 1 ? "" : "s"}${trace.incomplete ? " so far" : ""}${trace.spans_truncated ? " (Phoenix had more)" : ""}`);
   if (trace.incomplete) parts.push("still arriving");

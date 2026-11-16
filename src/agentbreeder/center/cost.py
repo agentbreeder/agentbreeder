@@ -14,6 +14,7 @@ and passes the answer through `cost_answer` before the browser sees it.
 - Every count and amount is type-checked; any bad one makes the whole answer
   COST_INVALID, never a quiet zero. Text fields from the gateway lose their control and invisible
   format characters and are cut. Only known keys go on.
+- `cached_prompt_tokens` (#1056) is null when the CLI does not report it (before it did).
 - `as_of` is when the server got the answer (UTC). Spend logs reach LiteLLM's database about a
   minute after a call, so the latest calls can be missing.
 """
@@ -114,6 +115,16 @@ def _bucket(item: Any) -> dict:
     }
     if bucket["failed"] > bucket["calls"] or bucket["unpriced"] > bucket["calls"]:
         raise _Invalid
+    # #1056: the part of the prompt tokens the provider read from its cache, as LiteLLM recorded
+    # it. A `cost` before it sends no field (null here); one above the prompt tokens is a
+    # contract break, since `cost` counts each row's at most its own prompt tokens.
+    if "cached_prompt_tokens" in item:
+        cached = _count(item["cached_prompt_tokens"])
+        if cached > bucket["prompt_tokens"]:
+            raise _Invalid
+        bucket["cached_prompt_tokens"] = cached
+    else:
+        bucket["cached_prompt_tokens"] = None
     bucket["cost_usd"] = _usd(item.get("cost_usd"))
     return bucket
 
