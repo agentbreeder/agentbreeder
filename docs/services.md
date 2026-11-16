@@ -141,7 +141,32 @@ agentbreeder services start|stop|restart [DIR] NAME [--yes] [--json]   # one con
   data volumes. `--purge --yes` deletes everything `up` made: volumes, built service images, and
   the state directory (generated secrets, operator config, deploy history), so the next `up`
   starts from scratch. Both refuse while a deployment in the stack is still active
-  (`agentbreeder remove ID --local --stack .` first).
+  (`agentbreeder remove ID --local --stack .` first). On `main`, not in a published preview
+  (#1048): `down` also removes the stack's networks that Compose leaves behind. Compose removes
+  only the networks the current compose file names, so a dropped `mcp:` entry's private network
+  (`agentbreeder-<stack-id>-mcp-<name>`) used to stay, as did any network from an earlier
+  render. `down` lists the networks labelled `io.agentbreeder.stack=<stack-id>` and named after
+  the stack, and removes them, also after a failed `up`. A network something outside the stack
+  is still attached to (a leftover agent container or the kind node on `<stack>-agents`) is kept
+  and reported (`Kept network …`, `networks_left` in `--json`), never forced; `docker network
+  inspect NAME` shows what holds it. This is checked with unit tests against a fake Docker; the
+  real-Docker assertions (`tests/test_mcp_relay_docker.py`, `tests/test_services_docker.py`) are
+  opt-in and have not been run yet. If the network cannot be listed, `down` carries on with
+  volumes, images and state.
+
+  Networks left by earlier versions are not pruned automatically. To clean them up by hand, list
+  them, check that no container uses them, then remove them one at a time:
+
+  ```bash
+  docker network ls --filter label=io.agentbreeder.stack --format '{{.Name}}\t{{.Label "io.agentbreeder.stack"}}'
+  docker network inspect --format '{{.Name}}: {{len .Containers}} containers' NAME
+  docker network rm NAME     # only one with 0 containers whose stack you no longer run
+  ```
+
+  Every stack network has carried the `io.agentbreeder.stack` label since stacks shipped (#734),
+  so the first command lists them all.
+
+  Running `agentbreeder services down` in the project removes its stack's leftovers itself.
 - **`start`, `stop` and `restart`** (on `main`) act on one existing container through
   `docker compose`, without re-rendering or recreating anything. `stop` and `restart` refuse
   (`SERVICE_IN_USE`) while deployments use the stack, unless `--yes`. Every write (`up`, `down`,
@@ -413,7 +438,8 @@ logs mcp-<name>` shows a relay's log lines.
 
 Dropping an `mcp:` entry removes its relay container on the next `up` (it holds the
 credential), unless an active deployment still uses it (`MCP_GRANT_IN_USE`). Other services
-dropped from `stack.yaml` keep running until `agentbreeder services down`.
+dropped from `stack.yaml` keep running until `agentbreeder services down`, which also removes the
+relay's private network (#1048, on `main`).
 
 What the relay does **not** do:
 

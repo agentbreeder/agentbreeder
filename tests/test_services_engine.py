@@ -91,6 +91,8 @@ class FakeDocker(DockerCLI):
         super().__init__(run=self._refuse)
         self.events: list[tuple] = []
         self.volumes: dict[str, str] = {}
+        self.networks: dict[str, str] = {}  # name -> its io.agentbreeder.stack label
+        self.attached: set[str] = set()  # networks something outside the stack still uses
         self.running: dict[str, dict] = {}
         self.images: set[str] = set()
         self.generation = 0
@@ -117,6 +119,8 @@ class FakeDocker(DockerCLI):
                 "health": "healthy",
                 "config": config,
             }
+        for key in document.get("networks", {}).values():
+            self.networks.setdefault(key["name"], key["labels"]["io.agentbreeder.stack"])
         for key in document.get("volumes", {}).values():
             if key["name"] not in self.volumes:
                 self.volume_count += 1
@@ -127,8 +131,24 @@ class FakeDocker(DockerCLI):
         return copy.deepcopy(self.running)
 
     def down(self, state):
+        """Like compose: only the networks the current compose file names are removed."""
         self.events.append(("down",))
         self.running.clear()
+        if state.compose_path.exists():
+            document = yaml.safe_load(state.compose_path.read_text())
+            for key in document.get("networks", {}).values():
+                if key["name"] not in self.attached:
+                    self.networks.pop(key["name"], None)
+
+    def stack_networks(self, state):
+        ours = (name for name, stack in self.networks.items() if stack == state.id)
+        return sorted(n for n in ours if n == state.project or n.startswith(state.project + "-"))
+
+    def remove_network(self, name):
+        if name in self.attached:
+            raise ServiceError("DOCKER_FAILED", "removing a network failed")
+        self.events.append(("rm-network", name))
+        del self.networks[name]
 
     def read_logs(self, state, service, tail, since=None):
         return f"{service} started with token {self.secret_seen}\n", False
@@ -544,6 +564,101 @@ def test_down_refuses_with_active_deployments_and_scopes_volumes(env):
         instance.close()
 
 
+def _project(docker, result):
+    return f"agentbreeder-{result['stack']}"
+
+
+def test_down_leaves_no_stack_network(env):
+    docker = FakeDocker()
+    result, _ = up(env, docker)
+    project = _project(docker, result)
+    assert project in docker.networks  # up made the stack network
+    instance = engine(env, docker)
+    try:
+        removed = instance.down()
+    finally:
+        instance.close()
+    assert removed["networks_left"] == []
+    assert [n for n in docker.networks if n.startswith(project)] == []
+
+
+def test_down_removes_networks_a_past_render_had_and_only_this_stacks(env):
+    """#1048: a dropped mcp: entry's private network is no longer in the compose file, so
+    compose down skips it; down removes it by the stack's label. Other stacks' networks, even
+    with a look-alike name, stay."""
+    docker = FakeDocker()
+    result, _ = up(env, docker)
+    project, stack = _project(docker, result), result["stack"]
+    docker.networks[f"{project}-mcp-mock"] = stack  # left from a render with an mcp: entry
+    docker.networks[f"{project}-mcp-github"] = stack
+    docker.networks["agentbreeder-other-12345678-mcp-mock"] = "other-12345678"
+    docker.networks[f"{project}-lookalike"] = "other-12345678"  # not our label
+    docker.networks["unrelated"] = stack  # our label, not our name
+    instance = engine(env, docker)
+    try:
+        removed = instance.down()
+    finally:
+        instance.close()
+    assert removed["networks_removed"] == [f"{project}-mcp-github", f"{project}-mcp-mock"]
+    assert sorted(docker.networks) == sorted(
+        ["agentbreeder-other-12345678-mcp-mock", f"{project}-lookalike", "unrelated"]
+    )
+
+
+def test_down_after_a_failed_up_leaves_no_stack_network(env):
+    """A failed `up` re-rendered the compose file after an earlier one had a network it no
+    longer names (a dropped mcp: entry's): compose down skips it, the label pass removes it."""
+    docker = FakeDocker()
+    result, _ = up(env, docker)
+    stale = f"{_project(docker, result)}-mcp-mock"
+    docker.networks[stale] = result["stack"]  # from the earlier render
+    docker.healthy = False
+    with pytest.raises(ServiceError, match="SERVICE_UNHEALTHY"):
+        up(env, docker)
+    instance = engine(env, docker)
+    try:
+        removed = instance.down()
+        assert docker.stack_networks(instance.state) == []
+    finally:
+        instance.close()
+    assert removed["networks_removed"] == [stale]
+    assert removed["networks_left"] == []
+
+
+def test_a_network_listing_failure_does_not_stop_purge(env):
+    docker = FakeDocker()
+    result, _ = up(env, docker)
+
+    def refuse(state):
+        raise ServiceError("DOCKER_FAILED", "listing networks failed")
+
+    docker.stack_networks = refuse
+    state_dir = Path(result["state_dir"]).parents[2]
+    instance = engine(env, docker)
+    try:
+        removed = instance.down(purge=True)
+    finally:
+        instance.close()
+    assert removed["networks_removed"] == [] and removed["networks_left"] == []
+    assert removed["volumes_removed"] and not state_dir.exists()
+
+
+def test_down_keeps_and_reports_a_network_still_in_use(env, capsys):
+    docker = FakeDocker()
+    result, _ = up(env, docker)
+    project, stack = _project(docker, result), result["stack"]
+    docker.networks[f"{project}-mcp-mock"] = stack
+    docker.attached.add(f"{project}-mcp-mock")
+    instance = engine(env, docker)
+    try:
+        removed = instance.down()
+    finally:
+        instance.close()
+    assert removed["networks_left"] == [f"{project}-mcp-mock"]
+    assert f"{project}-mcp-mock" in docker.networks
+    assert removed["stack"] == stack  # down itself still succeeded
+
+
 def test_down_purge_removes_everything_the_stack_made(env):
     # A built service (fakegw) so there is a stack image to remove; another stack's image stays.
     gateway = {k: v for k, v in FAKEGW.items() if k != "image"} | {"build": "Dockerfile"}
@@ -721,8 +836,16 @@ def test_cli_up_status_env_logs_down(env, fake_docker, capsys, monkeypatch):
     capsys.readouterr()
     assert cli.main(["services", "down", str(env), "--volumes"]) == 2
     assert "CONFIRM_REQUIRED" in capsys.readouterr().err
+    stack_id = next(iter(set(fake_docker.networks.values())))
+    fake_docker.networks[f"agentbreeder-{stack_id}-mcp-old"] = stack_id  # from a past render
+    fake_docker.networks[f"agentbreeder-{stack_id}-mcp-busy"] = stack_id
+    fake_docker.attached.add(f"agentbreeder-{stack_id}-mcp-busy")
     assert cli.main(["services", "down", str(env), "--volumes", "--yes"]) == 0
-    assert "Removed volume" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Removed volume" in out
+    assert f"Removed network agentbreeder-{stack_id}-mcp-old\n" in out
+    assert f"Kept network agentbreeder-{stack_id}-mcp-busy (still in use" in out
+    fake_docker.attached.clear()
     assert cli.main(["services", "down", str(env), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["volumes_removed"] == []
     assert cli.main(["services", "down", str(env), "--purge"]) == 2
