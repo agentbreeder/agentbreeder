@@ -436,6 +436,22 @@
    "exec": false,
    "sha256": "57483a1440e10cc0b120e885f0e860ab27f0262255f03e3af16514d938718add"
   },
+  "builtin_registry/service/mcp-relay/1.0.2/Dockerfile": {
+   "exec": false,
+   "sha256": "b85a38cca46b41f674710000a50e6a03c185e4d2d5a3e52690db9569d317ba64"
+  },
+  "builtin_registry/service/mcp-relay/1.0.2/manifest.yaml": {
+   "exec": false,
+   "sha256": "b6068ee7fefac42ed145353c1d423c496f2095beb4ca5fa577075105dca8c028"
+  },
+  "builtin_registry/service/mcp-relay/1.0.2/relay/relay.py": {
+   "exec": false,
+   "sha256": "f8342f32804fd17191ae1453b70ab53430521e646bc05c479ec175e5c3010e2e"
+  },
+  "builtin_registry/service/mcp-relay/1.0.2/service.yaml": {
+   "exec": false,
+   "sha256": "57483a1440e10cc0b120e885f0e860ab27f0262255f03e3af16514d938718add"
+  },
   "builtin_registry/service/phoenix/1.0.0/files/bootstrap.py": {
    "exec": true,
    "sha256": "35938b83cbcb96445225fcff6887eee67752cc5982ba6f39b77b7c451b18a0d8"

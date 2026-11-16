@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { agentOf, pageLabel, production, releaseEval, rowAgents } from "../../src/agentbreeder/center/static/lib/audit.js";
+import { agentOf, mcpCall, pageLabel, production, releaseEval, rowAgents } from "../../src/agentbreeder/center/static/lib/audit.js";
 
 const IMAGE = "sha256:" + "a".repeat(64);
 const OTHER = "sha256:" + "b".repeat(64);
@@ -82,4 +82,28 @@ test("page label", () => {
   assert.equal(pageLabel([], 50), "Page 1, 50 rows, newest first.");
   assert.equal(pageLabel([51, 2], 1), "Page 3, 1 row, newest first.");
   assert.equal(pageLabel([], 0), "No rows on this page.");
+});
+
+test("a relay tool call names its server and tool; an ungranted name only by its hash (#1068)", () => {
+  const call = (context) => mcpCall({ action: "mcp_tool_call", context });
+  const id = "0".repeat(31) + "1";
+  assert.deepEqual(call({ server: "github", tool: "list_issues", tool_sha256: null, correlation_id: id }), {
+    server: "github",
+    tool: "list_issues",
+    correlation: id,
+  });
+  assert.deepEqual(call({ server: "github", tool: null, tool_sha256: "ab".repeat(8) }), {
+    server: "github",
+    tool: "ungranted tool " + "ab".repeat(8),
+    correlation: null,
+  });
+  assert.equal(call({ server: "Git Hub", tool: "x" }), null);
+  assert.equal(call({ server: "github", tool: "../x" }), null);
+  assert.equal(call({ server: "github", tool: null, tool_sha256: "zz" }), null);
+  assert.equal(call(null), null);
+  assert.equal(mcpCall({ action: "deploy", context: { server: "github", tool: "x" } }), null);
+  assert.equal(mcpCall(null), null);
+  assert.equal(call({ server: "github", tool: "x", correlation_id: "short" }).correlation, null);
+  // A granted tool may be named "ungranted": it is shown by name.
+  assert.equal(call({ server: "github", tool: "ungranted", tool_sha256: null }).tool, "ungranted");
 });

@@ -54,6 +54,8 @@ class Plan:
     service_files: dict[str, Path] = field(default_factory=dict)  # copies of files/ dirs
     # Extra read-only binds (relays: grants and pins), service -> [(source, target)].
     binds: dict[str, list[tuple[Path, str]]] = field(default_factory=dict)
+    # Writable binds (relays: their audit records, #1068), service -> [(source, target)].
+    writable_binds: dict[str, list[tuple[Path, str]]] = field(default_factory=dict)
     # File modes of /run/secrets copies (relay credentials are 0400, spec §7.6.11).
     secret_modes: dict[str, int] = field(default_factory=dict)
 
@@ -289,6 +291,8 @@ class Plan:
             volumes.append(_bind(path, f"/run/params/{name}"))
         for source, target in self.binds.get(service, []):
             volumes.append(_bind(source, target))
+        for source, target in self.writable_binds.get(service, []):
+            volumes.append({**_bind(source, target), "read_only": False})
         for name, target in sorted(spec.volumes.items()):
             volumes.append({"type": "volume", "source": f"{service}-{name}", "target": target})
         if volumes:

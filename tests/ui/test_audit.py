@@ -131,6 +131,50 @@ def test_a_row_without_an_agent_says_so(page, console):
     expect(page.get_by_role("row", name=re.compile("idp_disable"))).to_contain_text("not recorded")
 
 
+def test_a_relay_tool_call_names_its_server_and_tool(page, console):
+    """#1068: MCP tool calls through the relay are audit rows; an ungranted name only by hash."""
+    context = {
+        "correlation_id": "f" * 32,
+        "server": "github",
+        "tool": "list_issues",
+        "tool_sha256": None,
+        "environment": "dev",
+        "relay": "service/mcp-relay@1.0.2",
+        "relay_at": "2026-11-13T18:00:00+00:00",
+        "ms": 812,
+    }
+    refused = {**context, "correlation_id": "e" * 32, "tool": None, "tool_sha256": "ab" * 8}
+    console.scenario(
+        audit_rows=[
+            _row(
+                1,
+                action="mcp_tool_call",
+                decision="allow",
+                deployment_id=LIVE,
+                agent="support",
+                actor="support",
+                context=context,
+            ),
+            _row(
+                2,
+                action="mcp_tool_call",
+                decision="deny",
+                deployment_id=LIVE,
+                agent="support",
+                actor="support",
+                reasons=[{"code": "TOOL_NOT_GRANTED", "message": "not granted"}],
+                context=refused,
+            ),
+        ]
+    )
+    open_audit(page, console)
+    rows = page.get_by_role("table", name="Audit rows, newest first").locator("tbody tr")
+    expect(rows.nth(1)).to_contain_text("github · list_issues")
+    expect(rows.nth(1)).to_contain_text("Correlation " + "f" * 12)
+    expect(rows.nth(0)).to_contain_text("github · ungranted tool " + "ab" * 8)
+    expect(rows.nth(0)).to_contain_text("TOOL_NOT_GRANTED")
+
+
 def test_pages_past_fifty_and_back(page, console):
     console.scenario(audit_rows=[_row(seq) for seq in range(1, 121)])
     open_audit(page, console)

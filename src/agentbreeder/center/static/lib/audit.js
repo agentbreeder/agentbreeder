@@ -94,6 +94,26 @@ export function releaseEval(row, agent) {
   };
 }
 
+const MCP_SERVER = /^[a-z][a-z0-9_]{0,31}$/;
+const MCP_TOOL = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/;
+const HEX16 = /^[0-9a-f]{16}$/;
+
+/**
+ * A relay tool-call row's server and tool (#1068): {server, tool, correlation}, where `tool` is
+ * the tool's name, or "ungranted tool <sha256 prefix>" for a refused name the relay never
+ * records in plain. Null for any other row, or a context not in the relay's shape.
+ */
+export function mcpCall(row) {
+  if (!row || row.action !== "mcp_tool_call" || !row.context || typeof row.context !== "object") return null;
+  const { server, tool, tool_sha256: digest, correlation_id: correlation } = row.context;
+  if (typeof server !== "string" || !MCP_SERVER.test(server)) return null;
+  let name = null;
+  if (typeof tool === "string" && MCP_TOOL.test(tool)) name = tool;
+  else if (tool === null && typeof digest === "string" && HEX16.test(digest)) name = `ungranted tool ${digest}`;
+  if (!name) return null;
+  return { server, tool: name, correlation: typeof correlation === "string" && /^[0-9a-f]{32}$/.test(correlation) ? correlation : null };
+}
+
 /** The page cursors: `stack` holds the `before` of each page opened from the newest. */
 export function pageLabel(stack, count) {
   if (!count) return "No rows on this page.";
