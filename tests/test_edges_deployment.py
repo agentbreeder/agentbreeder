@@ -444,7 +444,7 @@ class FakeBoundary:
 
     def write_pin(self, record, pin):
         self.calls.append("write_pin")
-        self.pins[record["id"]] = {**pin, "deployment": record["id"], "token_sha256": "x"}
+        self.pins[record["id"]] = {**pin, "deployment": record["id"], "pep_protocol": 2}
         return "token"
 
     def set_serving(self, record, serving):
