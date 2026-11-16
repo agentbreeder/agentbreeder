@@ -47,7 +47,7 @@ up per key and per model.
 ## Output
 
 The table groups by deployment key (`--by deployment`, the default: ID, name, state, calls,
-failed calls, tokens in/out, USD) or by model (`--by model`: the gateway alias, the provider
+failed calls, tokens in/out, cached tokens in, USD) or by model (`--by model`: the gateway alias, the provider
 model, and the same counts), with a total. A key that names no deployment in this state is shown
 with `not in this state` (another state directory, or history that was deleted); an eval judge
 key as `eval run <run>`.
@@ -63,7 +63,8 @@ key as `eval run <run>`.
   "keys": [
     {"key_alias": "agentbreeder-<id>", "kind": "deployment", "id": "<id>", "name": "hello",
      "target": "local", "state": "ready", "environment": "dev",
-     "calls": 7, "failed": 0, "prompt_tokens": 77, "completion_tokens": 140,
+     "calls": 7, "failed": 0, "prompt_tokens": 77, "cached_prompt_tokens": 0,
+     "completion_tokens": 140,
      "cost_usd": 0.003108, "unpriced": 0,
      "models": [{"model_group": "chat", "model": "openai/gpt-5.6", "calls": 5, "...": "..."}]}
   ],
@@ -74,7 +75,12 @@ key as `eval run <run>`.
 ```
 
 `kind` is `deployment`, `eval` (with `run` instead of the deployment fields) or `unknown` (with
-`id` only). Keys and models are sorted by cost, highest first. Text fields come from the gateway
+`id` only). `cached_prompt_tokens` (`CACHED IN` in the table; #1056, on `main`, not in a published
+preview) is the part of the prompt tokens the provider reported reading from its cache, as LiteLLM
+recorded it in each spend log row (`additional_usage_values.cache_read_input_tokens` or
+`usage_object.prompt_tokens_details.cached_tokens`, whichever is larger); a row whose figure is
+above its own prompt tokens counts 0. Nothing is estimated, and the USD is LiteLLM's figure, which
+already prices cached tokens if LiteLLM knows the provider's cache price. Keys and models are sorted by cost, highest first. Text fields come from the gateway
 and are passed on as they are in JSON; the table shows them on one line with control characters
 replaced and the counts and USD right-aligned (USD to 6 decimals in the table, 8 in JSON).
 

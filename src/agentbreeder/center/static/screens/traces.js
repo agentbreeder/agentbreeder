@@ -8,7 +8,7 @@ import { agentName } from "../lib/agents.js";
 import { isCandidate } from "../lib/format.js";
 import { visible } from "../lib/text.js";
 import { DEFAULT_LAST, LAST_CHOICES, arrivingText, defaultDeployment, startText, toolCallsText, traceLine, tracesPath, tracesProblemText, windowText } from "../lib/traces.js";
-import { productionRow, tracePath } from "../lib/tryit.js";
+import { productionRow, traceFlags, tracePath } from "../lib/tryit.js";
 import { Action, Card, CopyButton, Notice, Text } from "../ui/components.js";
 import { useView } from "../ui/data.js";
 import { html, useState } from "../ui/preact.js";
@@ -20,6 +20,7 @@ function TraceItem({ project, trace }) {
   return html`<li class="trace-item">
     <div><strong><${Text} value=${startText(trace.start_time)} /></strong> <span class="small"><${Text} value=${traceLine(trace)} /></span></div>
     <div class="small">Tool calls: ${tools ? html`<${Text} value=${tools} />` : html`<span class="muted">none</span>`}</div>
+    ${traceFlags(trace).map((flag, index) => html`<div class="small" key=${index}><${Text} value=${flag} /></div>`)}
     <div class="small muted">Trace <code><${Text} value=${trace.trace_id} /></code> <${CopyButton} value=${trace.trace_id} label="trace ID" /></div>
     ${path ? html`<${TracePanel} path=${path} />` : null}
   </li>`;
@@ -48,12 +49,12 @@ function TraceList({ project, deployment, last }) {
   </div>`;
 }
 
-export function Traces({ project, name, rows }) {
+export function Traces({ project, name, rows, loading = false }) {
   const own = Array.isArray(rows) ? rows.filter((row) => row && agentName(row) === name && typeof row.id === "string") : [];
   const [chosen, setChosen] = useState("");
   const [last, setLast] = useState(DEFAULT_LAST);
   const deployment = own.some((row) => row.id === chosen) ? chosen : defaultDeployment(own, productionRow(own, name));
-  return html`<${Card} title="Traces">
+  return html`<${Card} title="Traces" busy=${loading}>
     ${own.length
       ? html`<div class="row">
             <label class="field">
@@ -70,7 +71,9 @@ export function Traces({ project, name, rows }) {
             </label>
           </div>
           <${TraceList} key=${`${deployment} ${last}`} project=${project} deployment=${deployment} last=${last} />`
-      : html`<p class="muted">No deployment of this agent in this project, so there are no traces to read.</p>`}
+      : loading
+        ? html`<p class="muted">Loading deployments…</p>`
+        : html`<p class="muted">No deployment of this agent in this project, so there are no traces to read.</p>`}
     <p class="muted small">From this stack's Phoenix (<code>agentbreeder traces</code>). Prompts, replies and tool arguments are never read. Error text in a span tree is the runtime's own and can quote what the agent was given.</p>
   <//>`;
 }

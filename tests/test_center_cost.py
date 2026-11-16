@@ -134,8 +134,11 @@ def test_cost_is_read_with_a_fixed_argv(center, project, cookie, tmp_path):  # n
     assert got["currency"] == "USD" and got["source"] == "litellm spend logs"
     assert got["days"] == 30 and got["since"] == expected["since"]
     assert datetime.strptime(got["as_of"], "%Y-%m-%dT%H:%M:%SZ")
-    assert got["keys"] == [{**KEY, "models_cut": 0}]
-    assert got["models"] == [MODEL] and got["total"] == TOTAL
+    # This answer is from a `cost` before #1056: no cached prompt tokens, so they are unknown.
+    unknown = {"cached_prompt_tokens": None}
+    model = {**MODEL, **unknown}
+    assert got["keys"] == [{**KEY, **unknown, "models": [model], "models_cut": 0}]
+    assert got["models"] == [model] and got["total"] == {**TOTAL, **unknown}
     assert got["keys_cut"] == 0 and got["models_cut"] == 0 and got["truncated"] is False
 
 
@@ -170,7 +173,20 @@ def test_unknown_keys_are_dropped(center, project, cookie, tmp_path):  # noqa: F
     _, data, _ = read(center, project, cookie)
     text = json.dumps(data)
     assert "marker" not in text
-    assert set(data["data"]["keys"][0]) == set(KEY) | {"models_cut"}
+    assert set(data["data"]["keys"][0]) == set(KEY) | {"models_cut", "cached_prompt_tokens"}
+
+
+def test_cached_prompt_tokens_are_passed_on(center, project, cookie, tmp_path):  # noqa: F811
+    """#1056: `cost --json` has the cached part of the prompt tokens per key, model and total."""
+    model = {**MODEL, "cached_prompt_tokens": 40}
+    key = {**KEY, "cached_prompt_tokens": 40, "models": [model]}
+    total = {**TOTAL, "cached_prompt_tokens": 40}
+    answer(tmp_path, answer_for(TEMPLATE, keys=[key], models=[model], total=total))
+    got = read(center, project, cookie)[1]["data"]
+    assert got["keys"][0]["cached_prompt_tokens"] == 40
+    assert got["keys"][0]["models"][0]["cached_prompt_tokens"] == 40
+    assert got["models"][0]["cached_prompt_tokens"] == 40
+    assert got["total"]["cached_prompt_tokens"] == 40
 
 
 def test_text_loses_control_and_invisible_characters(center, project, cookie, tmp_path):  # noqa: F811
@@ -228,6 +244,12 @@ def test_long_lists_are_cut_and_counted(center, project, cookie, tmp_path):  # n
         {"models": [{**MODEL, "cost_usd": 1e30}]},
         {"total": None},
         {"total": {**TOTAL, "unpriced": 99}},
+        # #1056: a cached figure is a count, at most the prompt tokens; null is not "none sent".
+        {"total": {**TOTAL, "cached_prompt_tokens": 56}},
+        {"total": {**TOTAL, "cached_prompt_tokens": None}},
+        {"keys": [{**KEY, "cached_prompt_tokens": -1}]},
+        {"models": [{**MODEL, "cached_prompt_tokens": "40"}]},
+        {"models": [{**MODEL, "cached_prompt_tokens": True}]},
     ],
 )
 def test_bad_answers_are_invalid(center, project, cookie, tmp_path, change):  # noqa: F811

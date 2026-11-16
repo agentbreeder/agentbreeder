@@ -61,7 +61,7 @@ def test_agent_refs_parse_and_existing_refs_are_unchanged():
     assert Ref.parse("agent/support-bot@1.4.0") == Ref("agent", "support-bot", "1.4.0")
     for text in ("runtime/adk@1.1.0", "tool/orders@1.0.0", "mcp/github@1.0.0"):
         assert str(Ref.parse(text)) == text
-    with pytest.raises(RegistryError, match=r"kinds: runtime, .*mcp, agent\)") as raised:
+    with pytest.raises(RegistryError, match=r"kinds: runtime, .*mcp, skill, agent\)") as raised:
         Ref.parse("agents/x@1.0.0")
     assert raised.value.code == "REF_INVALID"
     with pytest.raises(RegistryError, match="REF_UNPINNED"):

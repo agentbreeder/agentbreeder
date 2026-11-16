@@ -219,13 +219,39 @@ def _line(trace: dict) -> str:
             _ms(trace["latency_ms"]),
             trace["status"],
             f"tokens {tokens['prompt']}/{tokens['completion']}",
+            _cached(trace),
             ", ".join(trace["models"]) or "-",
             f"tools: {tools}" if tools else "",
+            _unknown(trace),
             _fallback(trace),
+            _blocked(trace),
             "(still arriving)" if trace.get("incomplete") else "",
         )
         if part
     )
+
+
+def _cached(trace: dict) -> str:
+    """`cached N` when the provider reported cached prompt tokens (runtime/adk@1.4.0, #1056)."""
+    cached = trace.get("cached_prompt_tokens")
+    return f"cached {cached}" if cached else ""
+
+
+def _unknown(trace: dict) -> str:
+    """`unknown tools: NAME` for tool names the model invented (runtime/adk@1.4.0, #1074):
+    refused by the runtime, not tool calls."""
+    names = trace.get("unknown_tools") or []
+    return f"unknown tools (refused): {', '.join(names)}" if names else ""
+
+
+def _blocked(trace: dict) -> str:
+    """`blocked by guardrail NAME (ENTITY)` for a gateway guardrail block (#1024 G2)."""
+    guardrail = trace.get("guardrail")
+    if not guardrail:
+        return ""
+    name = guardrail.get("name") or "a guardrail"
+    entity = f" ({guardrail['entity']})" if guardrail.get("entity") else ""
+    return f"blocked by guardrail {name}{entity}"
 
 
 def _fallback(trace: dict) -> str:

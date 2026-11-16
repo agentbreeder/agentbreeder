@@ -105,6 +105,9 @@ class AgentFile(_Strict):
     # Agent-level guardrails (#1053): optional guardrails the environment's gateway config
     # defines. They add to the environment floor and never remove or weaken it.
     guardrails: list[str] = Field(default_factory=list, max_length=10)
+    # Skills (#1059, skills spec §6): optional; an agent file without them is unchanged. Kept
+    # in its own block, separate from `guardrails:` (#1053).
+    skills: list[RefEntry] = Field(default_factory=list, max_length=10)
 
     @field_validator("guardrails")
     @classmethod
@@ -131,6 +134,7 @@ class AgentFile(_Strict):
         expected += [(f"mcp[{i}].ref", m.ref, "mcp") for i, m in enumerate(self.mcp)]
         if self.evals:
             expected.append(("evals.ref", self.evals.ref, "eval"))
+        expected += [(f"skills[{i}].ref", s.ref, "skill") for i, s in enumerate(self.skills)]
         seen: dict[str, str] = {}
         for where, text, kind in expected:
             try:
@@ -160,7 +164,8 @@ class AgentFile(_Strict):
         return self
 
     def refs(self) -> list[str]:
-        """Every registry ref, in a stable order (runtime, prompt, knowledge, tools, evals)."""
+        """Every registry ref, in a stable order (runtime, prompt, knowledge, tools, mcp, evals,
+        skills)."""
         result = [self.runtime]
         if self.prompt.ref:
             result.append(self.prompt.ref)
@@ -168,6 +173,7 @@ class AgentFile(_Strict):
         result += [m.ref for m in self.mcp]
         if self.evals:
             result.append(self.evals.ref)
+        result += [s.ref for s in self.skills]
         return result
 
     def paths(self) -> list[str]:

@@ -180,16 +180,19 @@ test("tabs are Overview, Try it, Releases and Logs, and Try it keeps its address
 test("the gate strip says loading until its first reads answer, never 'No release recorded' (#1073)", () => {
   const byKey = (steps) => Object.fromEntries(steps.map((step) => [step.key, step]));
   const both = byKey(gateStrip({ loading: { releases: true, deployments: true } }));
-  for (const key of ["build", "candidate", "evals"]) {
-    assert.equal(both[key].state, "loading", key);
-    assert.equal(both[key].detail, "Loading releases…", key);
-  }
-  for (const key of ["identity", "production"]) assert.equal(both[key].detail, "Loading deployments…", key);
+  for (const key of ["build", "candidate", "evals", "identity", "production"]) assert.equal(both[key].state, "loading", key);
+  for (const key of ["build", "evals"]) assert.equal(both[key].detail, "Loading releases…", key);
+  for (const key of ["candidate", "production"]) assert.equal(both[key].detail, "Loading releases and deployments…", key);
+  assert.equal(both.identity.detail, "Loading deployments…");
+  // Production waits on the releases too: "differs" comes from them, so it never says "passed" early.
   const releases = byKey(gateStrip({ production: PRODUCTION, loading: { releases: true } }));
   assert.equal(releases.build.state, "loading");
-  assert.equal(releases.production.state, "passed");
+  assert.equal(releases.identity.state, "passed");
+  assert.equal(releases.production.state, "loading");
+  assert.equal(releases.production.detail, "Loading releases…");
   const deployments = byKey(gateStrip({ run: RELEASE, loading: { deployments: true } }));
   assert.equal(deployments.build.state, "passed");
+  assert.equal(deployments.evals.state, "passed");
   assert.equal(deployments.candidate.detail, "Loading deployments…");
   assert.equal(deployments.production.state, "loading");
   assert.equal(byKey(gateStrip({}))["build"].detail, "No release recorded"); // answered, empty

@@ -363,6 +363,58 @@ def test_summarize_reads_the_fallback_attributes(fallbacks, served_by, expected)
     assert (trace["fallbacks"], trace["served_by"]) == expected
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(1024, 1024), (0, 0), (None, None), ("1024", None), (True, None), (-3, None)],
+)
+def test_summarize_reads_cached_prompt_tokens(value, expected):
+    """#1056: runtime/adk@1.4.0's `agentbreeder.cached_prompt_tokens` on the root span."""
+    extra = {} if value is None else {phoenix_traces.CACHED: value}
+    trace = phoenix_traces.summarize("1" * 32, "support", turn("1" * 32, **extra), show())
+    assert trace["cached_prompt_tokens"] == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (["delete_everything"], ["delete_everything"]),
+        (("a.b-c", "sk-[redacted]", "x?y"), ["a.b-c", "sk-[redacted]", "x?y"]),
+        (["has space", "new\nline", 7, "x" * 81, ""], []),
+        ("delete_everything", []),
+        (None, []),
+        ([f"t{n}" for n in range(20)], [f"t{n}" for n in range(10)]),
+    ],
+)
+def test_summarize_reads_unknown_tools(value, expected):
+    """#1074: tool names the model invented are listed apart, never as tool calls."""
+    extra = {} if value is None else {phoenix_traces.UNKNOWN_TOOLS: value}
+    trace = phoenix_traces.summarize("1" * 32, "support", turn("1" * 32, **extra), show())
+    assert trace["unknown_tools"] == expected
+    assert all(call["name"] not in expected for call in trace["tool_calls"])
+
+
+@pytest.mark.parametrize(
+    ("attributes", "expected"),
+    [
+        (
+            {"action": "blocked", "name": "pii-block", "entity": "US_SSN"},
+            {"action": "blocked", "name": "pii-block", "entity": "US_SSN"},
+        ),
+        (
+            {"action": "blocked", "name": "a b", "entity": "my ssn is 536"},
+            {"action": "blocked", "name": None, "entity": None},
+        ),
+        ({"action": "masked", "name": "pii-mask"}, None),
+        ({}, None),
+    ],
+)
+def test_summarize_reads_a_guardrail_block(attributes, expected):
+    """#1024 G2: the guardrail name and entity type only; anything else is dropped."""
+    extra = {f"agentbreeder.guardrail.{k}": v for k, v in attributes.items()}
+    trace = phoenix_traces.summarize("1" * 32, "support", turn("1" * 32, **extra), show())
+    assert trace["guardrail"] == expected
+
+
 def test_summarize_redacts_and_flattens_untrusted_text():
     rows = [
         span("1" * 32, "1" * 16, None, "turn hidden-value\x1b[31m‮", "AGENT", status="ERROR",
@@ -754,6 +806,24 @@ def test_a_fallback_turn_is_marked_in_the_text(phoenix, wired, capsys):
     assert code == 0, err
     lines = [line for line in out.splitlines() if "tokens" in line]
     assert ["fallback: chat-or" in line for line in lines] == [False, True]  # newest first
+
+
+def test_cached_unknown_tools_and_blocks_are_marked_in_the_text(phoenix, wired, capsys):
+    marked = {
+        phoenix_traces.CACHED: 1024,
+        phoenix_traces.UNKNOWN_TOOLS: ["delete_everything"],
+        phoenix_traces.GUARDRAIL_ACTION: "blocked",
+        phoenix_traces.GUARDRAIL_NAME: "pii-block",
+        phoenix_traces.GUARDRAIL_ENTITY: "US_SSN",
+    }
+    phoenix.projects = {"support": [*turn("2" * 32, 2, D2, **marked), *turn("3" * 32, 3, D2)]}
+    code, out, err = run([D2, "--state-dir", str(wired.state_dir)], capsys)
+    assert code == 0, err
+    newer, older = [line for line in out.splitlines() if "tokens" in line]
+    assert "cached" not in newer and "unknown tools" not in newer and "blocked" not in newer
+    assert "cached 1024" in older
+    assert "unknown tools (refused): delete_everything" in older
+    assert "blocked by guardrail pii-block (US_SSN)" in older
 
 
 def test_window_text_warns(phoenix, wired, capsys):

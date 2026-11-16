@@ -408,6 +408,15 @@ def build(
         runtime_dir = artifacts / "runtime" / registry.Ref.parse(agent.runtime).name
         serving = _runtime_serving(runtime_dir, agent.runtime)
         capabilities = _runtime_capabilities(runtime_dir, agent.runtime)
+        if agent.skills and "skills" not in capabilities:
+            # No runtime loads skills yet (#1059 RT); refused before docker build, so a skill's
+            # scripts/ never reaches an image. Before a runtime claims `skills`, RT must run
+            # skill_check.check on each placed skill and place it without scripts/ (spec §7).
+            raise BuildError(
+                "RUNTIME_NO_SKILLS",
+                f"{agent.runtime} does not load skills, so the agent's skills: would never "
+                "reach the model; remove skills: until a runtime version supports them",
+            )
         if agent.mcp and "mcp" not in capabilities:
             raise BuildError(
                 "MCP_RUNTIME_UNSUPPORTED",

@@ -181,11 +181,11 @@ function Tabs({ name, tab }) {
   </nav>`;
 }
 
-function Overview({ project, name, agent, production, candidate, failedRun }) {
+function Overview({ project, name, agent, production, candidate, failedRun, loading = false }) {
   const file = agent.data;
   return html`
     ${failedRun ? html`<${GateFailed} key=${failedRun} project=${project} name=${name} run=${failedRun} agentFile=${file} />` : null}
-    <${Card} title="Production">
+    <${Card} title="Production" busy=${loading}>
       ${production
         ? html`<dl class="facts">
             <dt>Target</dt><dd><${Text} value=${production.target} /></dd>
@@ -194,7 +194,9 @@ function Overview({ project, name, agent, production, candidate, failedRun }) {
             <dt>Image</dt><dd>${production.image ? html`<code><${Text} value=${production.image} /></code>` : html`<span class="muted">none</span>`}</dd>
             <dt>Deployment</dt><dd><code><${Text} value=${production.id} /></code></dd>
           </dl>`
-        : html`<p class="muted">No production deployment in this project. <a href=${href("/release")}>Build and release</a> it.</p>`}
+        : loading
+          ? html`<p class="muted">Loading deployments…</p>`
+          : html`<p class="muted">No production deployment in this project. <a href=${href("/release")}>Build and release</a> it.</p>`}
       ${candidate ? html`<p><span class="badge candidate">candidate, temporary</span> <code><${Text} value=${candidate.name} /></code> is running: a release is in progress, or one was cut short (check Deployments).</p>` : null}
     <//>
     <${Card} title="agent.yaml" busy=${agent.loading}>
@@ -243,26 +245,34 @@ function Releases({ name, releases }) {
   <//>`;
 }
 
-function Logs({ name, rows }) {
+function Logs({ name, rows, loading = false }) {
   const own = Array.isArray(rows) ? rows.filter((row) => row && agentName(row) === name) : [];
-  return html`<${Card} title="Logs">
+  return html`<${Card} title="Logs" busy=${loading}>
     ${own.length
       ? html`<ul class="plain">${own.map((row) => html`<li key=${row.id}><${Text} value=${row.name} /> <span class="muted small"><${Text} value=${`${row.target}, ${row.state}`} /></span>${isCandidate(row) ? html` <span class="badge candidate">candidate, temporary</span>` : null} <${LogsLink} kind="deployment" name=${row.id} label=${`Logs of ${visible(row.name)} on ${visible(row.target)}`} /></li>`)}</ul>`
-      : html`<p class="muted">No running deployment of this agent, so there are no logs to read.</p>`}
+      : loading
+        ? html`<p class="muted">Loading deployments…</p>`
+        : html`<p class="muted">No running deployment of this agent, so there are no logs to read.</p>`}
   <//>`;
 }
 
+/** True until `view` has answered for `path` (useView records the path of each answer). */
+function unanswered(view, path) {
+  return !view.error && view.path !== path;
+}
+
 function AgentDetail({ project, name, tab }) {
-  const [deployments] = useView(`/api/projects/${project.id}/deployments`, project.id);
-  const [releases] = useView(`/api/projects/${project.id}/releases`, project.id);
+  const paths = { deployments: `/api/projects/${project.id}/deployments`, releases: `/api/projects/${project.id}/releases` };
+  const [deployments] = useView(paths.deployments, project.id);
+  const [releases] = useView(paths.releases, project.id);
   const [identity] = useView(`/api/projects/${project.id}/identity`, project.id);
   const [agent] = useView(`/api/projects/${project.id}/agent`, project.id);
   const rows = Array.isArray(deployments.data) ? deployments.data : [];
   const production = productionRow(rows, name);
   const candidate = candidateOf(rows, name);
   const { entries, own } = releasesFor(releases.data, name);
-  // Only a first read with no answer yet is "loading": a later refresh keeps the last answer.
-  const loading = { releases: !releases.data && !releases.error, deployments: !deployments.data && !deployments.error };
+  // "Loading" until a read answers for this path; a refresh keeps the last answer.
+  const loading = { releases: unanswered(releases, paths.releases), deployments: unanswered(deployments, paths.deployments) };
   const steps = gateStrip({ run: latestRun(entries), released: releasedImage(entries), production, candidate, loading });
   return html`
     <p><a href=${href("/agents")}>← All agents</a></p>
@@ -274,25 +284,26 @@ function AgentDetail({ project, name, tab }) {
       ${releases.data && !own ? html`<p class="muted small">Build, Candidate and Evals are not shown: this project's releases are another agent's.</p>` : null}
     </section>
     <${Tabs} name=${name} tab=${tab} />
-    ${tab === "overview" ? html`<${Overview} project=${project} name=${name} agent=${agent} production=${production} candidate=${candidate} failedRun=${own ? gateFailedRun(entries) : null} />` : null}
+    ${tab === "overview" ? html`<${Overview} project=${project} name=${name} agent=${agent} production=${production} candidate=${candidate} failedRun=${own ? gateFailedRun(entries) : null} loading=${loading.deployments} />` : null}
     ${tab === "try" ? html`<${TryIt} project=${project} params=${{ name }} />` : null}
     ${tab === "releases" ? html`<${Releases} name=${name} releases=${releases} />` : null}
-    ${tab === "logs" ? html`<${Logs} name=${name} rows=${deployments.data} />` : null}
-    ${tab === "traces" ? html`<${Traces} project=${project} name=${name} rows=${deployments.data} />` : null}
+    ${tab === "logs" ? html`<${Logs} name=${name} rows=${deployments.data} loading=${loading.deployments} />` : null}
+    ${tab === "traces" ? html`<${Traces} project=${project} name=${name} rows=${deployments.data} loading=${loading.deployments} />` : null}
   `;
 }
 
 /**
  * One screen for every tab (the tab is a route parameter), so switching tabs re-renders instead of
- * remounting: focus stays on the tab link and the views already read are kept. Keyed by name, so
- * another agent starts fresh.
+ * remounting: focus stays on the tab link and the views already read are kept. Keyed by project
+ * and name, so another agent, or the same name in another project, starts fresh (#1073): no
+ * view of the previous one is shown as this one's.
  */
 function AgentScreen({ project, params }) {
   const tab = params.tab || "overview";
   if (!TABS.some(([key]) => key === tab)) {
     return html`<p>This agent has no "<${Text} value=${tab} />" tab. <a href=${href("/agents/:name", { name: params.name })}>Open its overview</a>.</p>`;
   }
-  return html`<${AgentDetail} key=${params.name} project=${project} name=${params.name} tab=${tab} />`;
+  return html`<${AgentDetail} key=${`${project.id} ${params.name}`} project=${project} name=${params.name} tab=${tab} />`;
 }
 
 /** The routes, for screens/index.js. Tabs share one section: switching tabs keeps focus. The

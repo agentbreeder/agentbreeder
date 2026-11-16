@@ -31,6 +31,7 @@ never silently shadows another.
 
 ```
 agentbreeder registry new tool orders --dir .         # scaffold ./tool-orders to edit
+agentbreeder registry new skill refund-policy [--scripts] --dir .   # ./skill-refund-policy (--scripts: a script skill)
 agentbreeder registry publish ./tool-orders [--to registry] [--dry-run | --expect-digest SHA256] [--json]
 #   prints ref, sha256, path
 agentbreeder registry import ../shared/prompt-x [--as NAME] [--version X.Y.Z] [--project DIR] [--json]
@@ -424,6 +425,52 @@ sha256, diff, dry_run}`. Then build and release (`agentbreeder next` prints the 
 **What records an edit.** `registry edit` and `agent set-ref` change only the project's files:
 the new version directory and `agent.yaml`. Neither writes an audit-chain row; the record is the
 files and your git history if you commit them.
+
+## Skills (on `main`, not in a published preview)
+
+A `skill` version is an [Agent Skills](https://agentskills.io)-style folder: instructions the
+model loads when it needs them (#1059). **No runtime loads skills yet**: today you can author,
+publish, verify, show, diff, lock and find them (`used-by`); `build` refuses `skills:` in
+`agent.yaml` (`RUNTIME_NO_SKILLS`).
+
+```
+registry/skill/refund-policy/1.2.0/
+  manifest.yaml     # kind: skill, name, version, description, [scripts]
+  SKILL.md          # front matter (name, description) + Markdown body
+  references/       # optional: flat .md or .txt files
+  scripts/          # script skills only; every file declared in manifest.yaml
+```
+
+- **Instruction pack or script skill.** A version with no `scripts/` and no `scripts:` key is an
+  instruction pack: text that steers the agent. **A version with any `scripts/` entry, or a
+  `scripts:` key, is code**, like a tool: `list` marks it `(code)` (`"runs_code": true` in
+  `--json`), `import` and `fork` print the code notice, and the console asks the "this code runs"
+  confirm. The decision comes from the version's files, never the kind alone, and fails closed:
+  a version whose manifest cannot be read counts as code. Nothing runs a script yet.
+- **`SKILL.md`** is UTF-8, at most 32 KiB, and starts with a `---` front matter block, read with
+  the same strict YAML rules as `agent.yaml`. The front matter has exactly `name` and
+  `description`, both equal to the manifest's, and optionally `license` and `compatibility`. Any
+  other key is refused (`SKILL_FIELD_UNSUPPORTED`), including `metadata` and `allowed-tools`,
+  which some skill tools use to add tools or state.
+- **The description is in every turn** of every agent that pins the skill, so treat it as part
+  of the prompt: one line of 1 to 1024 characters, with no line break, control, bidi or invisible
+  character. The same rule applies to script descriptions, every string in a script's
+  `parameters` (which may use only `type`, `properties`, `required`, `description`, `enum` and
+  `items`), and `license` and `compatibility` (at most 500 characters).
+- **The name** is kebab-case (`refund-policy`); a script skill's name is at most 24 characters,
+  so each script's tool name, `skill_<name with _>__<script>`, fits.
+- **`references/`** holds at most 20 flat files named like `eu-rules.md` (`.md` or `.txt`, UTF-8,
+  at most 64 KiB each).
+- **`scripts:`** (script skills) declares 1 to 10 scripts, each `{name, path, description,
+  parameters}`: `name` matches `[a-z][a-z0-9_]{0,23}`, `path` is `scripts/<module>.py` (at most
+  64 KiB), and `parameters` is a JSON Schema object. A file in `scripts/` that is not declared, or
+  a declared one that is missing, is `SKILL_UNDECLARED_SCRIPT`.
+- **Nothing else** may be in the version (no `assets/`, no README): `SKILL_INVALID`.
+
+`publish`, `import`, `fork`, `edit` and `verify` run these checks. `show` adds `skill` (the
+front matter, body, reference paths, and each script with its tool name) or, for a version that
+breaks the rules, `skill: null` and `skill_error`. The lock hashes the whole version, `scripts/`
+included. The console's registry browser does not list skills yet.
 
 ## Publishing and integrity
 
