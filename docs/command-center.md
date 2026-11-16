@@ -510,7 +510,9 @@ itself.
   server's version declares and the agent doesn't have yet. The console reads them from that
   version's `mcp.yaml` (`registry show --json`, parsed as text and never run) and shows each
   one's `effect`. To revoke, it offers the agent's granted tools, including one a newer version
-  no longer declares. The CLI makes the real check (`MCP_TOOL_UNDECLARED`).
+  no longer declares. A tool is marked "no longer declared" only after the declared tools have
+  been read; until then it says "checking the declared tools", and "declared tools unavailable"
+  if they can't be read (#1043). The CLI makes the real check (`MCP_TOOL_UNDECLARED`).
 - **Review, then write exactly that**, as with "Move agent to this version". A dry run shows the
   diff and the tools the agent has after it. The write is bound to the digest of the
   `stack.yaml` it reviewed (`--expect-base`). If the file changed in between, the write is

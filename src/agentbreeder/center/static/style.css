@@ -388,6 +388,13 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
 .grants .check { align-self: flex-start; }
 .builder form .check input { width: auto; }
 
+/* Grouped choices (#1043): the MCP grant form's Change and Tools; a radio or checkbox keeps its
+   own width (the 440px text-input width made labels drift right), and the border is the theme's. */
+.choices { border: 1px solid var(--border); border-radius: 6px; padding: 4px 12px 8px; margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.choices legend { padding: 0 4px; font-weight: 500; }
+.choices .check { align-self: flex-start; min-height: 28px; }
+.choices .check input { min-height: auto; padding: 0; }
+.choices p { margin: 4px 0; }
 /* MCP servers in the services review (#831) */
 .mcp-review { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 0; display: flex; flex-direction: column; gap: 6px; }
 .mcp-review li + li { margin-top: 8px; }
