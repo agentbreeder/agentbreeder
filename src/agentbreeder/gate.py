@@ -228,13 +228,15 @@ class IdentityGate:
                     "approval_required": sorted(capabilities.approval_required)
                     if capabilities
                     else sorted(approval_required or []),
-                    # The verified guardrails on the deployment's gateway route (#1024): the
+                    # The guardrails on the deployment's gateway route (#1024, #1053): the
                     # environment floor's effective checks when the running gateway config is
-                    # the approved one (later, plus agent-level additions).
+                    # the approved one, plus `agent:<name>` for each agent-level guardrail.
                     "guardrails": sorted(
                         guardrails
                         if guardrails is not None
-                        else self._verified_guardrails(context.environment)
+                        else effective_guardrails(
+                            self._verified_guardrails(context.environment), manifest
+                        )
                     ),
                 },
             },
@@ -340,15 +342,18 @@ class IdentityGate:
                 "for the built-in gateway only",
             )
         environment = model.environments.get(context.environment)
-        if environment is not None and environment.guardrails_required:
+        required = environment is not None and environment.guardrails_required
+        if required or manifest.guardrails:
             reserved = sorted(set(manifest.secrets) & PROVIDER_KEY_NAMES)
             if reserved:
                 # A provider key would let the agent call the provider around the gateway's
-                # guardrails. A naming check only; the docs say a renamed key is not detected.
+                # guardrails (the floor's, or its own agent guardrails, #1053). A naming check
+                # only; the docs say a renamed key is not detected.
                 return decision.deny(
                     "SECRET_RESERVED",
-                    f"{', '.join(reserved)} may not be mounted when guardrails are required",
+                    f"{', '.join(reserved)} may not be mounted when guardrails apply",
                 )
+        if required:
             evaluated.append("guardrails")
             denied = _guardrails_failure(environment.guardrails, context.environment)
             if denied:  # none of these is overridable in audit mode
@@ -356,6 +361,12 @@ class IdentityGate:
         if manifest.model_access is not None:
             evaluated.append("model_access")
             denied = self._model_access(manifest.model_access, context)
+            if denied:
+                return decision.deny(*denied)
+        if manifest.guardrails:
+            # Agent-level guardrails (#1053) only add to the floor; none is overridable.
+            evaluated.append("guardrails.agent")
+            denied = _agent_guardrails_failure(environment, manifest.guardrails, context)
             if denied:
                 return decision.deny(*denied)
         if manifest.policy and manifest.policy.restrictions and model.pdp is None:
@@ -475,7 +486,7 @@ def revision_digest(
     from agentbreeder.policy import SCHEMA_VERSION
 
     body = {
-        "manifest": manifest.model_dump(mode="json"),
+        "manifest": manifest.revision_dump(),
         "image": image_digest(manifest.image),
         "principal": [principal.provider, principal.authority, principal.id]
         if principal
@@ -489,6 +500,52 @@ def revision_digest(
         "obligations": sorted(decision.obligations),
     }
     return "sha256:" + hashlib.sha256(canonical(body).encode()).hexdigest()
+
+
+def effective_guardrails(floor: list[str], manifest: Manifest | None) -> list[str]:
+    """The floor's verified checks plus `agent:<name>` per agent-level guardrail (#1053)."""
+    agent = manifest.guardrails if manifest is not None and manifest.guardrails else []
+    return sorted({*floor, *(f"agent:{name}" for name in agent)})
+
+
+def _agent_guardrails_failure(environment, names: list[str], context) -> tuple[str, str] | None:
+    """Every agent guardrail must be an optional guardrail that `services up` recorded for
+    the environment's running gateway config (#1053), and when the floor names an approved
+    guardrails hash, the running config must be that one (also when the floor isn't required:
+    the agent guardrails' definitions are part of the hash)."""
+    floor = environment.guardrails if environment is not None else None
+    if (
+        floor is not None
+        and floor.approved_sha256 is not None
+        and floor.running_sha256 != floor.approved_sha256
+    ):
+        return (
+            "GUARDRAILS_CHANGED",
+            f"Environment {context.environment}: the running gateway guardrails "
+            f"({(floor.running_sha256 or 'none')[:12]}) are not the approved ones "
+            f"({floor.approved_sha256[:12]}), so agent guardrails can't be checked",
+        )
+    available = (
+        set(environment.guardrails.optional)
+        if environment is not None and environment.guardrails is not None
+        else set()
+    )
+    missing = sorted(set(names) - available)
+    if not missing:
+        return None
+    shown = ", ".join(name[:64] for name in missing[:5])
+    if not available:
+        return (
+            "GUARDRAIL_UNDEFINED",
+            f"Environment {context.environment}'s gateway defines no agent guardrails "
+            f"(asked for {shown}); add a default_on: false guardrail to its config, set "
+            "environment.guardrails in stack.yaml and run agentbreeder services up",
+        )
+    return (
+        "GUARDRAIL_UNDEFINED",
+        f"Environment {context.environment}'s gateway does not define {shown} as an agent "
+        f"guardrail (defined: {', '.join(sorted(available)[:10])})",
+    )
 
 
 def _guardrails_failure(floor, environment: str) -> tuple[str, str] | None:

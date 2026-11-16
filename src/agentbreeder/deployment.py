@@ -13,12 +13,20 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from pydantic import ValidationError as PydanticValidationError
+
 from agentbreeder import gateway_keys, secret_files
 from agentbreeder import mcp as mcp_relay
 from agentbreeder.audit import AuditError, AuditEvent
 from agentbreeder.deployer import Deployer, os_deployer
 from agentbreeder.egress.boundary import Boundary, BoundaryUnverified
-from agentbreeder.gate import GateDecision, GateDenied, IdentityGate, image_digest
+from agentbreeder.gate import (
+    GateDecision,
+    GateDenied,
+    IdentityGate,
+    effective_guardrails,
+    image_digest,
+)
 from agentbreeder.identity import ProviderError
 from agentbreeder.kubernetes import Kubernetes
 from agentbreeder.manifest import Manifest
@@ -639,10 +647,22 @@ class DeploymentService:
                     "environment": environment
                     and (fields.get("context") or {}).get("environment"),
                 },
-                # Under a guardrails floor the key reaches only the routes the Presidio hook
-                # covers (#1024 G1b): not `/openai/*` passthrough, `/v1/moderations` or admin.
-                routes=gateway_keys.key_routes(environment),
+                # Under a guardrails floor, or with agent guardrails, the key reaches only the
+                # routes the Presidio hook covers (#1024 G1b): not `/openai/*` passthrough,
+                # `/v1/moderations` or admin.
+                routes=gateway_keys.key_routes(environment, manifest.guardrails),
             )
+            if manifest.guardrails:
+                # #1053: before the key value is written anywhere, so it is never usable
+                # without its agent guardrails.
+                try:
+                    client.attach_guardrails(key_alias, manifest.guardrails)
+                except gateway_keys.GatewayError:
+                    try:
+                        client.revoke(key_alias)
+                    except gateway_keys.GatewayError:
+                        pass  # reconcile revokes the key of a failed deployment
+                    raise
             mount = secret_files.write_generated(
                 self.store.directory, identifier, GATEWAY_KEY_FILE, GATEWAY_KEY_ENV, key.encode()
             )
@@ -660,10 +680,47 @@ class DeploymentService:
                     {"code": "GATEWAY_KEY", "message": key_alias},
                     # The models the key holds, fallback targets included (aliases only).
                     {"code": "GATEWAY_KEY_MODELS", "message": ", ".join(models)},
+                    *self._guardrail_reasons(manifest, environment),
                 ],
             )
         )
         return mount
+
+    @staticmethod
+    def _floor_checks(environment) -> list[str]:
+        if environment is None or environment.guardrails is None:
+            return []
+        return environment.guardrails.verified
+
+    def _guardrail_reasons(self, manifest, environment) -> list[dict]:
+        """The effective guardrails on the key (#1053): the floor's verified checks plus
+        `agent:<name>` per agent guardrail. Recorded only when there are any."""
+        effective = effective_guardrails(self._floor_checks(environment), manifest)
+        if not effective:
+            return []
+        return [{"code": "GUARDRAILS_EFFECTIVE", "message": ", ".join(effective)}]
+
+    def guardrails(self, record: dict, manifest: Manifest, client=None) -> dict | None:
+        """`status`'s guardrails block (#1053): the environment floor's verified checks now,
+        the agent's guardrails, their union, and whether the gateway's policy for the key
+        still matches (`drift`, None when it does or there is no gateway to ask)."""
+        environment = self.operator.model.environments.get(record.get("environment") or "")
+        floor = self._floor_checks(environment)
+        agent = list(manifest.guardrails or [])
+        if not floor and not agent and (environment is None or environment.guardrails is None):
+            return None
+        block = {
+            "floor": floor,
+            "agent": agent,
+            "effective": effective_guardrails(floor, manifest),
+            "drift": None,
+        }
+        if client is not None and record["state"] not in ("removed", "disabled", "failed"):
+            try:
+                block["drift"] = client.guardrail_drift(gateway_keys.alias(record["id"]), agent)
+            except gateway_keys.GatewayError as error:
+                block["drift"] = f"unverifiable: {error.code}"
+        return block
 
     def _revoke_key(self, manifest_or_data, identifier, attempt, actor) -> str | None:
         """Best-effort revoke; returns None, 'revoked' or 'revoke_failed' (reconcile retries)."""
@@ -677,6 +734,9 @@ class DeploymentService:
             if client is None:
                 return None
             client.revoke(gateway_keys.alias(identifier))
+            if isinstance(data, dict) and data.get("guardrails"):
+                # #1053: after the key, so the key never runs without its policy.
+                client.detach_guardrails(gateway_keys.alias(identifier))
             outcome = "revoked"
         except (gateway_keys.GatewayError, OperatorConfigError):
             outcome = "revoke_failed"
@@ -1561,6 +1621,19 @@ class DeploymentService:
                     }
             except (gateway_keys.GatewayError, OperatorConfigError) as error:
                 record = {**record, "gateway_key": {"error": str(error)}}
+        try:
+            manifest = Manifest.model_validate(self.store.manifest(record["id"]))
+        except PydanticValidationError:
+            return record
+        client = None
+        if manifest.guardrails and record["state"] != "removed":
+            try:
+                client = self._gateway(self.store.manifest(record["id"]))
+            except OperatorConfigError:
+                client = None
+        guardrails = self.guardrails(record, manifest, client)
+        if guardrails is not None:
+            record = {**record, "guardrails": guardrails}
         return record
 
     def reconcile(self, actor: Deployer | None = None) -> list[dict]:
@@ -1570,6 +1643,7 @@ class DeploymentService:
         with self.store.lock():
             attempt = uuid.uuid4().hex
             self._audit(self._event(attempt, "reconcile", "started", actor))
+            policy_lists: dict = {}  # gateway -> (policies, attachments), read once (#1053)
             for record in self.store.active_all():
                 if record["state"] in ("failed", "starting") and self.boundary.enforced(record):
                     # Reconcile holds the lifecycle lock, so `starting` here means a deploy was
@@ -1603,6 +1677,8 @@ class DeploymentService:
                         compliance += ":cleanup_failed"
                 else:
                     compliance = self.verify(record)
+                    if compliance == "compliant":
+                        compliance = self._guardrail_compliance(record, policy_lists)
                     if record["state"] == "ready" and self.boundary.enforced(record):
                         outcome = self._ensure_boundary(record, attempt, actor)
                         if outcome != "verified":
@@ -1614,6 +1690,7 @@ class DeploymentService:
                     {"id": record["id"], "name": record["name"], "compliance": compliance}
                 )
             results += self._revoke_orphan_keys(attempt, actor)
+            results += self._detach_orphan_policies(attempt, actor)
             results += self._prune_mcp_grants(attempt, actor)
             self._audit(
                 self._event(
@@ -1625,6 +1702,87 @@ class DeploymentService:
                 )
             )
         return results
+
+    def _detach_orphan_policies(self, attempt, actor) -> list[dict]:
+        """Delete the guardrail policies (#1053) of deployments this store knows are removed,
+        disabled or failed, e.g. after a detach that failed once the key was revoked. Other
+        policies are left alone, like other keys in `_revoke_orphan_keys`."""
+        results = []
+        for name in self.operator.model.gateways:
+            try:
+                client = gateway_keys.client(self.operator, name)
+                if client is None:
+                    continue
+                names = {
+                    str(p.get("policy_name"))
+                    for p in client.policies()
+                    if str(p.get("policy_name", "")).startswith(gateway_keys.PREFIX)
+                }
+                for policy in sorted(names):
+                    identifier = policy.removeprefix(gateway_keys.PREFIX)
+                    if not re.fullmatch(r"[0-9a-f]{32}", identifier):
+                        continue
+                    try:
+                        record = self.store.get(identifier)
+                    except DeploymentError:
+                        continue  # not ours
+                    if record["state"] not in ("removed", "disabled", "failed"):
+                        continue
+                    client.detach_guardrails(policy)
+                    self._audit(
+                        self._event(
+                            attempt,
+                            "gateway_policy",
+                            "removed",
+                            actor,
+                            deployment_id=identifier,
+                            reasons=[{"code": "GATEWAY_POLICY_ORPHAN", "message": policy}],
+                        )
+                    )
+                    results.append(
+                        {"id": identifier, "name": policy, "compliance": "gateway_policy_removed"}
+                    )
+            except (gateway_keys.GatewayError, OperatorConfigError):
+                continue  # `_revoke_orphan_keys` already reported this gateway
+        return results
+
+    def _guardrail_compliance(self, record: dict, lists: dict | None = None) -> str:
+        """DRIFT_GUARDRAILS when the gateway's policy for a ready deployment with agent
+        guardrails no longer adds exactly them, or a policy that can remove guardrails reaches
+        its key (#1053). Reported, never repaired: redeploy to re-attach. `lists` caches each
+        gateway's policies and attachments for one reconcile run."""
+        if record["state"] != "ready":
+            return "compliant"
+        data = self.store.manifest(record["id"])
+        try:
+            manifest = Manifest.model_validate(data)
+        except PydanticValidationError:
+            return "unverifiable:MANIFEST_INVALID"
+        if not manifest.guardrails:
+            return "compliant"
+        lists = {} if lists is None else lists
+        try:
+            client = self._gateway(data)
+            if client is None:
+                return "compliant"
+            gateway = manifest.model_access.gateway
+            if gateway not in lists:
+                try:
+                    lists[gateway] = (client.policies(), client.policy_attachments())
+                except gateway_keys.GatewayError as error:
+                    lists[gateway] = error  # one failing gateway is asked once per run
+            if isinstance(lists[gateway], gateway_keys.GatewayError):
+                raise lists[gateway]
+            alias = gateway_keys.alias(record["id"])
+            expected = list(manifest.guardrails)
+            drift = gateway_keys.guardrail_drift(
+                alias, expected, *lists[gateway]
+            ) or client.resolve_problem(alias, expected)
+        except gateway_keys.GatewayError as error:
+            return f"unverifiable:{error.code}"
+        except OperatorConfigError:
+            return "unverifiable:GATEWAY_CREDENTIAL"
+        return "noncompliant:DRIFT_GUARDRAILS" if drift else "compliant"
 
     def _revoke_orphan_keys(self, attempt, actor) -> list[dict]:
         """Revoke keys of deployments THIS store knows are removed, disabled or failed (e.g. a
@@ -1647,6 +1805,12 @@ class DeploymentService:
                     if record["state"] not in ("removed", "disabled", "failed"):
                         continue
                     client.revoke(key_alias)
+                    try:
+                        guarded = bool(self.store.manifest(identifier).get("guardrails"))
+                    except (DeploymentError, ValueError, TypeError, AttributeError):
+                        guarded = True  # unreadable: detach anyway, it is idempotent
+                    if guarded:
+                        client.detach_guardrails(key_alias)  # #1053
                     self._audit(
                         self._event(
                             attempt,

@@ -157,6 +157,12 @@ a Presidio `guardrails:` list; `stack.yaml` `environment.guardrails` and the ope
 (`GUARDRAILS_CHANGED`); keys under a required floor get `allowed_routes`. No manifest, JSON Schema or
 `SCHEMA_VERSION` change. Website: no change until release R. Cloud: a `CLAUDE.md` note only.
 
+**Agent guardrails, #1053, per side.** OSS (on `main`): `agent.yaml` and the manifest gain an
+optional `guardrails` list (JSON Schema updated; digests, revisions and package bytes are unchanged
+when it is unset), `services up` writes `guardrails.optional`, and deploy attaches a LiteLLM policy
+to the key alias. Website: no change until release R. Cloud: a `CLAUDE.md` note only; it has no
+code reference to the manifest's `guardrails` or the operator config.
+
 **Sub-agents, #1058 AY (epic #1057), per side.** OSS (on `main`): `agent.yaml` gains optional
 `subagents:` (≤ 5, depth 1) and `limits:`, and `evals` gains `tag_threshold`; `build` refuses them
 until a runtime lists the `subagents` capability (`RUNTIME_NO_SUBAGENTS`). The deploy manifest,

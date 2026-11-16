@@ -143,6 +143,9 @@ class ModelAccess(_Strict):
         return value
 
 
+_GUARDRAIL = r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+
+
 class McpAccess(_Strict):
     """Tools of one MCP server (an `mcp/<name>@X.Y.Z` registry version) this deployment uses
     through its stack's relay. The operator environment grants them; the relay holds the
@@ -177,12 +180,36 @@ class Manifest(BaseModel):
     policy: PolicySelection | None = None
     model_access: ModelAccess | None = None
     mcp_access: list[McpAccess] | None = Field(default=None, min_length=1, max_length=10)
+    # Agent-level guardrails (#1053): names of optional guardrails the environment's gateway
+    # config defines. They only add to the environment floor; the deploy attaches them to
+    # this deployment's gateway key through LiteLLM's policy engine.
+    guardrails: list[str] | None = Field(default=None, min_length=1, max_length=10)
 
     def digest(self) -> str:
         """Spec digest. Optional fields added later are left out when unset, so a manifest
         deployed before they existed keeps the same digest (no NAME_CONFLICT on redeploy)."""
-        exclude = {name for name in ("model_access", "mcp_access") if getattr(self, name) is None}
+        exclude = {
+            name
+            for name in ("model_access", "mcp_access", "guardrails")
+            if getattr(self, name) is None
+        }
         return hashlib.sha256(self.model_dump_json(exclude=exclude).encode()).hexdigest()
+
+    def revision_dump(self) -> dict:
+        """The manifest as the revision digest hashes it: `guardrails` (#1053) is left out
+        when unset, so the revisions of manifests without it do not change."""
+        exclude = {"guardrails"} if self.guardrails is None else None
+        return self.model_dump(mode="json", exclude=exclude)
+
+    @field_validator("guardrails")
+    @classmethod
+    def guardrail_names(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None and (
+            any(not re.fullmatch(_GUARDRAIL, name) for name in value)
+            or len(set(value)) != len(value)
+        ):
+            raise ValueError("guardrails must be unique gateway guardrail names")
+        return value
 
     @model_validator(mode="after")
     def version_fields(self):
@@ -199,6 +226,8 @@ class Manifest(BaseModel):
             refs = [entry.ref.split("@")[0] for entry in self.mcp_access]
             if len(set(refs)) != len(refs):
                 raise ValueError("mcp_access names each MCP server once")
+        if self.guardrails is not None and self.model_access is None:
+            raise ValueError("guardrails apply to gateway model calls: they need model_access")
         return self
 
     @model_validator(mode="after")

@@ -1415,7 +1415,8 @@ def _package_view(ref: Ref, items: list[_File]) -> dict:
         return refused("agent.lock is too large")
     if by_path["agent.yaml"].sha256 != record.inputs.agent_yaml_sha256:
         return refused("agent.yaml differs from the hash in package.json")
-    return {"package": _clean_value(record.model_dump(mode="json")), "package_error": None}
+    # The canonical package.json (unset optional fields such as `deploy.guardrails` left out).
+    return {"package": _clean_value(json.loads(record.to_bytes())), "package_error": None}
 
 
 MAX_CONTEXT = 1000

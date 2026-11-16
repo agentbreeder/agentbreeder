@@ -390,6 +390,23 @@
       ],
       "default": null,
       "title": "Mcp Access"
+    },
+    "guardrails": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Guardrails"
     }
   },
   "required": [

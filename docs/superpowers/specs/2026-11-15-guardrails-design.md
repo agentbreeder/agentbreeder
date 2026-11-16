@@ -640,6 +640,38 @@ The question: an environment-level floor plus agent-level guardrails from `agent
   The environment floor stays the `default_on` set from §4. An agent can add checks but cannot take
   any away. The agent's set would then join `guardrails_sha256` and the Cedar `guardrails` attribute.
   This needs its own spec delta before G1b.
+- **As built (#1053, owner decisions 2026-11-15 and 2026-11-16: policy engine, additive only, no
+  opt-out).** The config's `policies:` and `policy_attachments:` stay refused. Instead, deploy
+  uses the policy API with the master key: `POST /policies` (`policy_name` = the key alias,
+  `guardrails_add` only) and `POST /policies/attachments` (`keys: [alias]` only). It does this after
+  `/key/generate`, because LiteLLM 1.106.2 refuses an attachment naming a missing alias, and
+  before the key value is written. A failed attach revokes the key. Remove revokes the key, then
+  deletes the attachment and every version of the policy (`/policies/name/<alias>/all-versions`).
+  The proxy re-syncs DB policies into every worker, replacing what it held, so a delete takes
+  effect. Optional guardrails are `default_on: false` entries in the same reviewed list (they join
+  `guardrails_sha256`). The review refuses an optional BLOCK of an entity that any `default_on` or
+  other optional guardrail masks, because attached guardrails run after the globals.
+  `services up` records `optional` only when the setup checks pass. The gate denies other names
+  with `GUARDRAIL_UNDEFINED`, Cedar gets `agent:<name>`, and the mint audit records
+  `GUARDRAILS_EFFECTIVE`. `reconcile` reports `DRIFT_GUARDRAILS` when the deployment's policy is
+  missing, wider or different, or when any policy that can remove guardrails reaches the key.
+  An agent key cannot call the policy routes: they are not among the routes LiteLLM allows a
+  non-admin key, and the key's `allowed_routes` leaves them out as well.
+- **Real Docker (#1053, 2026-11-16, macOS, `tests/test_agent_guardrails_docker.py`, 125 s,
+  passed).** The stack is §12.3's plus an optional `agent-ip-block` (IP_ADDRESS BLOCK). There
+  are two keys minted as `deploy` does it: X attaches the guardrail and Y attaches nothing.
+  - The floor masked an email and blocked an SSN for both keys, and neither value reached the
+    provider.
+  - X's IP address was refused with 400 on chat, embeddings and streaming chat. Y's identical
+    call passed with 200 and reached the provider unchanged.
+  - Nine attempts to drop a level each got 400 for both the IP and the SSN, 18 out of 18. The
+    attempts were: `guardrails: []`, `metadata.guardrails`, `policies` and
+    `metadata.policies`, `disable_global_guardrails`, `opted_out_global_guardrails`, a spoofed
+    `user_api_key_alias`, tags in the body and the header, and `x-litellm-disable-guardrails`.
+  - Both keys got 403 on all five policy routes, 10 out of 10. These were create, attach, both
+    lists and delete.
+  - Detaching X's policy let X's IP through, and `guardrail_drift` then reported drift.
+  - No seeded PII appeared in the gateway or Presidio logs.
 
 ### 12.9 Not run in G0
 
