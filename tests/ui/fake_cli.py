@@ -32,6 +32,8 @@ DEFAULT = {
     "keys": [{"name": "GOOGLE_API_KEY", "optional": False, "stored": False}],
     "deployments": [],
     "audit_rows": [],
+    # Seconds `audit list` waits before answering (a slow first read of releases, #1073).
+    "audit_seconds": 0,
     "audit_verify": {
         "ok": True,
         "rows": 0,
@@ -807,6 +809,7 @@ def main(argv: list[str]) -> int:
     elif argv and argv[0] == "list":
         print(json.dumps(data["deployments"]))
     elif head == ["audit", "list"]:
+        time.sleep(float(data.get("audit_seconds", 0)))
         # As the CLI: newest first, `--before SEQ` keeps older rows, then `--limit`.
         rows = sorted(data["audit_rows"], key=lambda row: -row["seq"])
         if "--before" in argv:

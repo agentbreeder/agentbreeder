@@ -155,14 +155,14 @@ export function Agents() {
 function GateStrip({ steps }) {
   return html`<ol class="gate-strip" aria-label="Gate">
     ${steps.map((step) => html`<li class=${`gate-step ${step.state}`} key=${step.key}>
-      <span class="gate-icon" aria-hidden="true">${step.state === "passed" ? "✓" : step.state === "failed" ? "✕" : step.state === "running" ? "…" : step.state === "differs" ? "≠" : "○"}</span>
+      <span class="gate-icon" aria-hidden="true">${step.state === "passed" ? "✓" : step.state === "failed" ? "✕" : step.state === "running" ? "…" : step.state === "differs" ? "≠" : step.state === "loading" ? "◌" : "○"}</span>
       <span class="gate-label">${step.label}</span><span class="visually-hidden">: ${STEP_WORDS[step.state]}.</span>
       <span class="gate-detail muted small"><${Text} value=${step.detail} /></span>
     </li>`)}
   </ol>`;
 }
 
-function IdentityStrip({ name, identity, production }) {
+function IdentityStrip({ name, identity, production, loading = false }) {
   const known = Boolean(identity.data);
   const declared = known && identity.data.agents ? identity.data.agents[name] : null;
   const missing = known ? html`<span class="muted">not declared in stack.yaml</span>` : html`<span class="muted">unknown</span>`;
@@ -170,7 +170,7 @@ function IdentityStrip({ name, identity, production }) {
     <div><dt>Principal</dt><dd>${declared ? html`<code><${Text} value=${name} /></code> <span class="muted small">declared in stack.yaml: the static demo principal <code>services up</code> writes</span>` : missing}</dd></div>
     <div><dt>Sponsor</dt><dd>${declared ? html`<${Text} value=${declared.sponsor} />` : missing}</dd></div>
     <div><dt>Review by</dt><dd>${declared ? html`<${Text} value=${declared.review_by} />${declared.review_by < localDate() ? html` <span class="identity failed">review date has passed: the gate refuses deploys</span>` : null}` : missing}</dd></div>
-    <div><dt>Identity check</dt><dd>${production ? html`<span class=${`identity ${identityTone(production.compliance)}`}><${Text} value=${identityText(production.compliance)} /></span> <span class="muted small">recorded at deploy or by the last reconcile; deployment changed <${Text} value=${auditTime(production.updated)} /></span>` : html`<span class="muted">no production deployment</span>`}</dd></div>
+    <div><dt>Identity check</dt><dd>${production ? html`<span class=${`identity ${identityTone(production.compliance)}`}><${Text} value=${identityText(production.compliance)} /></span> <span class="muted small">recorded at deploy or by the last reconcile; deployment changed <${Text} value=${auditTime(production.updated)} /></span>` : html`<span class="muted">${loading ? "Loading deployments…" : "no production deployment"}</span>`}</dd></div>
     ${identity.error ? html`<div><dt>stack.yaml</dt><dd class="muted"><${Text} value=${identity.error.message} /></dd></div>` : null}
   </dl>`;
 }
@@ -261,12 +261,14 @@ function AgentDetail({ project, name, tab }) {
   const production = productionRow(rows, name);
   const candidate = candidateOf(rows, name);
   const { entries, own } = releasesFor(releases.data, name);
-  const steps = gateStrip({ run: latestRun(entries), released: releasedImage(entries), production, candidate });
+  // Only a first read with no answer yet is "loading": a later refresh keeps the last answer.
+  const loading = { releases: !releases.data && !releases.error, deployments: !deployments.data && !deployments.error };
+  const steps = gateStrip({ run: latestRun(entries), released: releasedImage(entries), production, candidate, loading });
   return html`
     <p><a href=${href("/agents")}>← All agents</a></p>
     <section class="card agent-head" aria-label="Gate and identity" aria-busy=${deployments.loading || releases.loading ? "true" : "false"}>
       <${GateStrip} steps=${steps} />
-      <${IdentityStrip} name=${name} identity=${identity} production=${production} />
+      <${IdentityStrip} name=${name} identity=${identity} production=${production} loading=${loading.deployments} />
       ${deployments.error ? html`<p class="muted small">Deployments: <${Text} value=${deployments.error.message} /></p>` : null}
       ${releases.error ? html`<p class="muted small">Releases: <${Text} value=${releases.error.message} /></p>` : null}
       ${releases.data && !own ? html`<p class="muted small">Build, Candidate and Evals are not shown: this project's releases are another agent's.</p>` : null}

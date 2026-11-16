@@ -289,6 +289,7 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
 .gate-step.failed { border-top-color: var(--destructive); }
 .gate-step.running { border-top-color: var(--chart-2); }
 .gate-step.differs { border-top-color: var(--warning); }
+.gate-step.loading { border-top-style: dashed; }
 .gate-icon { font-weight: 700; }
 .gate-step.passed .gate-icon { color: var(--success); }
 .gate-step.failed .gate-icon { color: var(--destructive); }
