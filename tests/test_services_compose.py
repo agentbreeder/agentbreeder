@@ -189,6 +189,20 @@ def test_containers_parses_lines_and_arrays(state):
     assert docker.containers(state)["d"]["id"] == "4"
 
 
+def test_stack_networks_by_label_and_name(state):
+    run = Recorder(
+        (0, f"{state.project}\n{state.project}-mcp-mock\nunrelated\n", ""),
+        (0, "", ""),
+    )
+    docker = DockerCLI(run=run)
+    assert docker.stack_networks(state) == [state.project, f"{state.project}-mcp-mock"]
+    argv = run.calls[0][0]
+    assert argv[1:3] == ["network", "ls"]
+    assert argv[-2:] == ["--filter", f"label=io.agentbreeder.stack={state.id}"]
+    docker.remove_network(f"{state.project}-mcp-mock")
+    assert run.calls[1][0][1:] == ["network", "rm", f"{state.project}-mcp-mock"]
+
+
 def test_volumes_images_and_builds(state, tmp_path):
     run = Recorder(
         (0, "2026-11-08T00:00:00Z\n", ""),

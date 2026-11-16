@@ -384,6 +384,26 @@ class DockerCLI:
     def remove_volume(self, name: str) -> None:
         self.run("volume", "rm", name, what="removing a volume")
 
+    def stack_networks(self, state: StackState) -> list[str]:
+        """This stack's networks still in Docker: labelled with its id and named
+        `<project>-…` or `<project>`. `compose down` removes only the networks the current
+        compose file names, so a network a past render had (a dropped `mcp:` entry's private
+        network, #1048) is found here."""
+        output = self.run(
+            "network",
+            "ls",
+            "--format",
+            "{{.Name}}",
+            "--filter",
+            f"label={LABEL_STACK}={state.id}",
+            what="listing networks",
+        )
+        prefix = f"{state.project}-"
+        return sorted(n for n in output.splitlines() if n == state.project or n.startswith(prefix))
+
+    def remove_network(self, name: str) -> None:
+        self.run("network", "rm", name, what="removing a network")
+
     def stack_images(self, state: StackState) -> list[str]:
         """Service images built for this stack (`agentbreeder-svc/<stack-id>-<service>:<hash>`)."""
         prefix = f"agentbreeder-svc/{state.id}-"

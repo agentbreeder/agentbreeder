@@ -82,14 +82,16 @@ MCP_TOOL = r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$"  # services.schema.MCP_TOOL
 # names of the parts the spec uses beyond the model, prompt and evals every spec has. A provider
 # must also be verified (`PROVIDERS`).
 # One knowledge version was run end to end with gemini alone and with one path tool, and one path
-# tool alone (#833); MCP was not, so any combination with MCP stays unverified. Every run had one
-# tool, so a spec with more tools is unverified too (`VERIFIED_TOOLS`).
+# tool alone (#833), and one knowledge version with openai alone (#1020,
+# `openai/text-embedding-3-small`); MCP was not, so any combination with MCP stays unverified.
+# Every run had one tool, so a spec with more tools is unverified too (`VERIFIED_TOOLS`).
 VERIFIED: frozenset[tuple[str, ...]] = frozenset(
     {(), ("knowledge",), ("tools",), ("knowledge", "tools")}
 )
 VERIFIED_TOOLS = 1  # the most tools a verified spec has
 # The providers a combination with a tool was run with (#833); openrouter ran model + prompt +
-# evals alone (#1020), so a tool on any other provider stays unverified.
+# evals alone and openai that plus one knowledge version (#1020), so a tool on any other provider
+# stays unverified.
 TOOL_PROVIDERS = frozenset({"gemini"})
 STACK_SERVICES = frozenset({"postgres", "litellm"})  # services the generated stack has
 # A provider's embedding model in the pinned LiteLLM 1.106.2 model map and its largest output

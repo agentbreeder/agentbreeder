@@ -85,7 +85,7 @@ async function send(client, path, body) {
 }
 
 function Steps({ steps }) {
-  return html`<ul class="plain">${steps.map((step, index) => html`<li key=${index}><${Text} value=${step.text} /> <code><${Text} value=${step.command} /></code></li>`)}</ul>`;
+  return html`<ul class="plain">${steps.map((step, index) => html`<li key=${index}><${Text} value=${step.text} />${step.command ? html` <code><${Text} value=${step.command} /></code>` : null}</li>`)}</ul>`;
 }
 
 function ChangeGrant({ project, files, servers, onChanged }) {
@@ -195,7 +195,7 @@ function GrantReview({ summary, project, busy, onWrite }) {
     <${Text} block value=${summary.diff} label="stack.yaml change" />
     <p><${Text} value=${`After this, ${summary.agent} has on mcp.${summary.server}: ${now || "no tools"}.`} /></p>
     <p class="muted small">It takes effect at the next <code>services up</code>, and the agent uses a tool only when its <code>agent.yaml</code> asks for it (<code>mcp: [{ref, tools}]</code>).</p>
-    ${summary.in_use.length ? html`<div class="notice warn" role="status"><${Steps} steps=${grantSteps(summary, project.path, project.environment).slice(0, -1)} /><p>The revoke is still written.</p></div>` : null}
+    ${summary.in_use.length ? html`<div class="notice warn" role="status"><${Steps} steps=${grantSteps(summary, project.path, project.environment).slice(0, -1)} /></div>` : null}
     <p class="muted small">stack.yaml digest ${summary.base_sha256.slice(7, 23)}…</p>
     <${Actions} disabled=${busy}>
       <${Action} onClick=${onWrite}>${summary.verb === "grant" ? "Write grant" : "Write revoke"}<//>

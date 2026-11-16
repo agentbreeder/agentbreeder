@@ -153,9 +153,18 @@ def project(tmp_path, monkeypatch):
     yield engine
     try:
         engine.active_deployments = lambda: []
+        project_name, stack_id = engine.state.project, engine.state.id
         engine.down(purge=True)
+        # #1048: the test drops its mcp: entry, so the relay's private network is no longer in
+        # the compose file; down still removes it, and no network of this stack is left.
+        assert stack_networks(stack_id) == [], project_name
     finally:
         engine.close()
+
+
+def stack_networks(stack_id: str) -> list[str]:
+    label = f"label=io.agentbreeder.stack={stack_id}"
+    return docker("network", "ls", "--format", "{{.Name}}", "--filter", label).split()
 
 
 def run_client(engine, script, *args) -> str:

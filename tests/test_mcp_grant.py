@@ -24,7 +24,7 @@ from test_services_engine import write_project
 
 from agentbreeder import mcpgrant, registry
 from agentbreeder.mcpgrant import GrantError, change
-from agentbreeder.services.schema import ServiceError, load_stack
+from agentbreeder.services.schema import load_stack
 from agentbreeder.services.state import ROOT_ENV
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mcp_github_project"
@@ -370,7 +370,7 @@ def _relay_agents(result) -> dict:
     return json.loads(Path(source).read_text())["agents"]
 
 
-def test_grant_then_up_reaches_the_relay_and_up_refuses_a_held_revoke(project):  # noqa: F811
+def test_grant_then_up_reaches_the_relay_and_a_held_revoke_applies(project):  # noqa: F811
     write_project(project, stack=mcp_stack_data(tools=("list_issues",)))
     docker = RelayDocker()
     result, _ = run_up(project, docker)
@@ -383,13 +383,16 @@ def test_grant_then_up_reaches_the_relay_and_up_refuses_a_held_revoke(project): 
     _active_grant(result, ["create_issue", "list_issues"])  # a deployment holds both
     revoked = change(project, "revoke", "demo-agent", "github", ["create_issue"])
     assert revoked["in_use"][0]["tools"] == ["create_issue"]
-    with pytest.raises(ServiceError, match="MCP_GRANT_IN_USE"):
-        run_up(project, docker)
+    # #1072: revoke then up applies cleanly; the deployment loses the tool at once.
+    result, _ = run_up(project, docker)
+    assert _relay_agents(result) == {"demo-agent": ["list_issues"]}
+    assert any("no longer has create_issue" in w for w in result["warnings"])
 
     for path in (stack_dir(result) / "grants" / "dev" / "github").glob("*.json"):
         path.unlink()  # what `remove` does to the deployment's grant file
     result, _ = run_up(project, docker)
     assert _relay_agents(result) == {"demo-agent": ["list_issues"]}
+    assert not any("no longer has" in w for w in result["warnings"])
 
 
 # -- the CLI ------------------------------------------------------------------------------------
@@ -497,7 +500,7 @@ def test_cli_refusal_text_and_json(proj, cli_env):
     assert bad.returncode == 2 and "sha256:<64 hex digits>" in bad.stderr
 
 
-def test_cli_revoke_in_use_names_remove_then_up(project, cli_env):  # noqa: F811
+def test_cli_revoke_in_use_says_up_applies_it(project, cli_env):  # noqa: F811
     result, _ = run_up(project, RelayDocker())
     _active_grant(result, ["create_issue", "list_issues"])
     env = {**cli_env, ROOT_ENV: os.environ[ROOT_ENV]}
@@ -509,9 +512,11 @@ def test_cli_revoke_in_use_names_remove_then_up(project, cli_env):  # noqa: F811
     use = next(
         i for i, line in enumerate(lines) if line.startswith("In use: deployment " + "d" * 32)
     )
-    assert "remove " + "d" * 32 + " --local --stack" in lines[use + 1]
-    assert lines[use + 2].startswith("Next: ") and "services up" in lines[use + 2]
-    assert lines[use + 2].endswith("--environment dev")
+    # #1072: no remove step; the next `services up` applies the revoke.
+    assert "takes it away" in lines[use] and "TOOL_NOT_GRANTED" in lines[use]
+    assert not any("remove " + "d" * 32 in line for line in lines)
+    assert lines[use + 1].startswith("Next: ") and "services up" in lines[use + 1]
+    assert lines[use + 1].endswith("--environment dev")
 
 
 # -- the fixture --------------------------------------------------------------------------------
@@ -646,8 +651,7 @@ def test_fixture_live_grant_and_revoke(tmp_path):  # pragma: no cover - live
             ).stdout
         )
         assert revoked["in_use"][0]["deployment"] == deployment
-        held = up()
-        assert held.returncode != 0 and "MCP_GRANT_IN_USE" in held.stderr
+        assert up().returncode == 0  # #1072: the held revoke applies
         run("remove", deployment, "--local", "--stack", str(root))
         deployment = None
         assert up().returncode == 0

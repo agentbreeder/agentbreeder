@@ -195,11 +195,12 @@ test("next steps: remove a deployment holding a revoked tool, reconcile an unrea
   };
   const steps = grantSteps(summary, "/p/my gh", "dev");
   assert.deepEqual(steps.map((step) => step.command), [
-    `agentbreeder remove ${"d".repeat(32)} --local --stack '/p/my gh'`,
+    null, // #1072: a held revoke applies at services up; nothing to run first
     "agentbreeder reconcile --stack '/p/my gh' --environment dev",
     "agentbreeder services up '/p/my gh' --environment dev",
   ]);
-  assert.match(steps[0].text, /MCP_GRANT_IN_USE/);
+  assert.match(steps[0].text, /TOOL_NOT_GRANTED/);
+  assert.doesNotMatch(steps[0].text, /MCP_GRANT_IN_USE/);
   assert.deepEqual(grantSteps({ in_use: [] }, "/p", "dev").map((step) => step.command), ["agentbreeder services up /p --environment dev"]);
 });
 

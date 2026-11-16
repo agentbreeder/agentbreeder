@@ -75,14 +75,16 @@ test("bodies carry the spec, and create the previewed digest", () => {
 test("an unverified combination names what has not been run end to end", () => {
   assert.equal(unverifiedText(null), null);
   assert.equal(unverifiedText(preview()), null);
-  const openai = preview({ model: "openai", combination: { parts: ["model", "prompt", "evals"], verified: false } });
-  assert.match(unverifiedText(openai), /^Not run end to end yet: the openai provider\./);
+  const anthropic = preview({ model: "anthropic", combination: { parts: ["model", "prompt", "evals"], verified: false } });
+  assert.match(unverifiedText(anthropic), /^Not run end to end yet: the anthropic provider\./);
   const tools = preview({ combination: { parts: ["model", "prompt", "evals", "tools", "mcp"], verified: false } });
   assert.match(unverifiedText(tools), /yet: a new agent with tools and MCP servers\./);
   const both = { ...tools, model: "anthropic" };
   assert.match(unverifiedText(both), /the anthropic provider, and a new agent with tools and MCP servers/);
   const router = { ...tools, model: "openrouter" }; // a verified provider is not named (#1020)
   assert.match(unverifiedText(router), /^Not run end to end yet: a new agent with tools and MCP servers\./);
+  const openai = { ...tools, model: "openai" }; // nor is openai, verified since #1020
+  assert.match(unverifiedText(openai), /^Not run end to end yet: a new agent with tools and MCP servers\./);
 });
 
 test("create waits for a fresh, verified, confirmed preview", () => {

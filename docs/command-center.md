@@ -528,9 +528,10 @@ itself.
   `services up`, and that an agent uses a tool only when its `agent.yaml` asks for it. After a
   write the screen names the `services up` command, which Services runs from its review (next
   section).
-- **A revoke an active deployment still holds** is written and reported, with the CLI's next
-  steps. `services up` refuses to narrow the grant (`MCP_GRANT_IN_USE`) until you run
-  `agentbreeder remove ID --local --stack DIR`. An unreadable grant file names `reconcile`.
+- **A revoke an active deployment still holds** is written and reported: the next `services up`
+  takes the tool away from that deployment (the relay refuses it, `TOOL_NOT_GRANTED`), and the
+  agent must be released without it to deploy again (#1072). An unreadable grant file names
+  `reconcile`.
 - **Refusals a person can act on have fixed words**: an unknown agent (add it with its sponsor
   and review date by hand) or server, an undeclared or invalid tool, a rewrite that would change
   more of `stack.yaml` than the grant (`STACK_EDIT_AMBIGUOUS`: edit by hand), and a file that
@@ -582,8 +583,9 @@ The credential is a key like any other in the form. **Confirm and start** runs t
   allowed servers, as it does in a terminal (trust on first use). The job log shows every tool
   definition pinned. A **changed** definition is accepted only through the reviewed repin below;
   without it the relay keeps that tool hidden.
-- **What the CLI still refuses** is shown as the job's failure: a narrowed grant still held by a
-  deployment (`MCP_GRANT_IN_USE`), and an undeclared tool in a grant (`MCP_TOOL_UNDECLARED`).
+- **What the CLI still refuses** is shown as the job's failure: a dropped `mcp:` entry still used
+  by a deployment, or an unreadable grant file (`MCP_GRANT_IN_USE`), and an undeclared tool in a
+  grant (`MCP_TOOL_UNDECLARED`).
 - `agentbreeder up --yes` with a project directory now starts a stack whose MCP servers are all
   built in, as `services up --yes` does. A stack with any other server is not started, with the
   consent message, because `--yes` alone never allows one.
@@ -976,11 +978,11 @@ Try it is also the **Try it** tab of the agent's detail (below), at the same add
 ### Onboard an agent.yaml alone (#823, third part): on `main`, not in a published preview
 
 Home's **Add a project** card has a fourth form, **An agent.yaml alone**: the path of an
-`agent.yaml` (or its directory), the agent's `name:` and a model provider (gemini or
-openrouter, which have been run end to end with their default models, or anthropic and openai,
-which are config-only), with an optional model id that replaces the default; with another model
-id for a verified provider, the preview says only the default has been run end to end
-(openrouter since #1020, on `main`, not in a published preview). It is a three-tier
+`agent.yaml` (or its directory), the agent's `name:` and a model provider (gemini, openai or
+openrouter, which have been run end to end with their default models, or anthropic, which is
+config-only), with an optional model id that replaces the default; with another model id for a
+verified provider, the preview says only the default has been run end to end (openrouter and
+openai since #1020, on `main`, not in a published preview). It is a three-tier
 confirm:
 
 1. **Preview** runs `agentbreeder new agent NAME --model PROVIDER [--model-id=ID]
@@ -1023,8 +1025,8 @@ verification.
 ### Build an agent (#833, M17): on `main`, not in a published preview
 
 Home's **Add a project** card links to **Build an agent** (`#/build`), a form beside a sticky
-preview. The form has the agent's name, the model provider (gemini and openrouter, the latter
-since #1020; anthropic and openai are marked "not run end to end") with an optional model id (a
+preview. The form has the agent's name, the model provider (gemini, openai and openrouter, the
+latter two since #1020; anthropic is marked "not run end to end") with an optional model id (a
 verified provider with another model id is created, with a note that only its default model has
 been run end to end), the prompt, the eval
 cases (the eval-set case editor's rows, without the cited-sources check, at most 100 cases), and,
@@ -1119,7 +1121,12 @@ project, target, state, image, identity check, endpoint and last release:
   of a release name no agent, so they count as the runs of the project's `agent.yaml` only: any
   other agent deployed in that stack shows "unknown", as do unregistered projects. The list reads
   each registered project's releases one after another (each is a `services env` and an `audit
-  list` child), again whenever the list is read again.
+  list` child), again whenever a job ends.
+- **Refresh (#1073):** while any job runs in the console, the list is read again every 3 seconds,
+  so a release's candidate appears and goes and its production row changes without a reload. A
+  read still running at the next tick is left to finish, for up to two ticks, and then started again.
+  When a job ends, the list and its last releases are read again. The agent's detail reads its
+  deployments and releases again when a job in its project ends.
 
 Opening an agent from "All projects" switches the scope to its project. The detail
 (`#/agents/NAME`) has:

@@ -99,6 +99,9 @@ def test_echo_stack_lifecycle(projects):
     # down keeps data and secrets; up again recreates nothing new in the volume.
     minted = one.state.read_secret("echo", "minted")
     one.down()
+    # #1048: no network of this stack is left after up -> down.
+    label = f"label=io.agentbreeder.stack={one.state.id}"
+    assert docker("network", "ls", "--quiet", "--filter", label) == ""
     assert (
         docker("ps", "--all", "--quiet", "--filter", f"label=io.agentbreeder.stack={one.state.id}")
         == ""
