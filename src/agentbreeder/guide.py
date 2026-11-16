@@ -84,6 +84,7 @@ REASONS: dict[str, tuple[str, ...]] = {
         "SERVICES_DOWN",
         "SERVICES_UNHEALTHY",
         "ENVIRONMENT_MISSING",
+        "SERVICES_UP_FAILED",
     ),
     "build": ("REF_UNPINNED", "LOCK_STALE", "NOT_BUILT", "BUILD_STALE"),
     "release": (
@@ -146,6 +147,7 @@ CODE_ACTIONS: dict[str, frozenset[str]] = {
     "SERVICES_DOWN": frozenset({"services-up"}),
     "SERVICES_UNHEALTHY": frozenset({"services-up"}),
     "ENVIRONMENT_MISSING": frozenset({"services-up"}),
+    "SERVICES_UP_FAILED": frozenset({"services-up"}),
     "NOT_BUILT": frozenset({"build"}),
     "BUILD_STALE": frozenset({"build"}),
     "RELEASE_GATE_FAILED": frozenset({"release"}),
@@ -332,10 +334,19 @@ class Service(_Model):
     health: Literal["healthy", "unhealthy", "starting", "none"]
 
 
+class UpFailure(_Model):
+    """The last confirmed `services up` of the environment failed (#1042): its code and the
+    cause it named, if any. Never the message."""
+
+    code: Code
+    cause: Code | None
+
+
 class ServicesData(_Model):
     services: list[Service] = Field(max_length=100)
     grant_recorded: bool
     environment_written: bool
+    up_failure: UpFailure | None = None
 
 
 class BuildData(_Model):

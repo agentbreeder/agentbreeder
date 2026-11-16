@@ -3,7 +3,7 @@
 // in process) and each relay's state and upstream drift (`services status --json`). Every value
 // is untrusted text; the screen renders it through <Text>. Nothing here touches the DOM.
 //
-// Stable exports: RELAY_STATES, TOOL_STATES, serverRows, grantRows, repinCommand, shellWord,
+// Stable exports: RELAY_STATES, TOOL_STATES, serverRows, grantRows, relayLogsCommand, repinCommand, shellWord,
 // shortHash; for grant and revoke (part 2): grantProblem, grantWriteProblem, grantChoices, choiceNote, grantedTools,
 // grantSteps; for the repin review (#964): pinsCommand, pinsProblem, repinServers.
 
@@ -23,6 +23,9 @@ export const TOOL_STATES = {
   unknown: "Pinned (upstream not checked)",
 };
 
+import { CAUSE_WORDS } from "./format.js";
+
+const CODE = /^[A-Z][A-Z0-9_]{2,39}$/;
 const text = (value) => (typeof value === "string" ? value : "");
 const names = (value) => (Array.isArray(value) ? value.filter((item) => typeof item === "string") : []);
 const object = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : null);
@@ -42,6 +45,11 @@ export function shellWord(value) {
   return `'${word.replaceAll("'", "'\\''")}'`;
 }
 
+/** The terminal read of one relay's log (#1042), as the CLI's probe failure names it. */
+export function relayLogsCommand(path, relay) {
+  return `agentbreeder services logs ${text(path) ? shellWord(path) : "DIR"} ${shellWord(relay)}`;
+}
+
 /** The terminal command that reviews changed tool definitions (#964 brings it to the console). */
 export function repinCommand(path, environment) {
   const dir = text(path) ? shellWord(path) : "DIR";
@@ -51,7 +59,7 @@ export function repinCommand(path, environment) {
 
 /**
  * One row per `mcp:` server: {name, ref, relay, origin, upstream, lockCurrent, relayState,
- * state, stateText, error, unpinned, tools: [{name, hash, state, stateText}]}. `files` is the
+ * state, stateText, error, cause, causeText, unpinned, tools: [{name, hash, state, stateText}]}. `files` is the
  * `mcp` view's data, `status` the `services` view's data (either may be null).
  */
 export function serverRows(files, status) {
@@ -87,6 +95,10 @@ export function serverRows(files, status) {
       state,
       stateText: state ? RELAY_STATES[state] : "",
       error: text(live && live.error),
+      // #1042: why the relay's upstream check failed (`services status --json` `cause`), its
+      // meaning in fixed words, and the terminal read of the relay's log.
+      cause: CODE.test(text(live && live.cause)) ? live.cause : "",
+      causeText: CODE.test(text(live && live.cause)) && Object.hasOwn(CAUSE_WORDS, live.cause) ? CAUSE_WORDS[live.cause] : "",
       unpinned: names(live && live.unpinned),
       tools,
     };

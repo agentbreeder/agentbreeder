@@ -112,13 +112,44 @@ export function jobOutcome(job) {
   if (job.kind === "services-up" && (job.lines || []).some((line) => typeof (line && line.text) === "string" && line.text.startsWith("[PINS_CHANGED] "))) {
     return { tone: "warn", text: "The MCP tool definitions changed since your review: pins unchanged, the rest of Start ran. Review the repin again." };
   }
-  if (job.kind === "release") {
-    return { tone: "error", text: job.exit_code === 5 ? "The eval gate failed. Production is unchanged." : "The release failed. See its log." };
+  const gate = (job.kind === "release" || job.kind === "promote") && job.exit_code === 5;
+  if (job.kind === "release" && gate) return { tone: "error", text: "The eval gate failed. Production is unchanged." };
+  if (job.kind === "promote" && gate) return { tone: "error", text: "Cluster evals failed. The log says what was restored." };
+  // #1042: a coded failure says its code, the CLI's message (its own next step) and, for a
+  // cause it names, what that cause means.
+  const failure = jobFailure(job);
+  const head = job.kind === "release" ? "The release failed" : job.kind === "promote" ? "Deploy to cluster failed" : `${label} failed${job.exit_code != null ? ` (exit ${job.exit_code})` : ""}`;
+  if (failure) {
+    const why = failure.cause && Object.hasOwn(CAUSE_WORDS, failure.cause) ? ` ${CAUSE_WORDS[failure.cause]}` : "";
+    return { tone: "error", text: `${head}: ${failure.code}${failure.cause ? ` (cause ${failure.cause})` : ""}. ${failure.message.replace(/\.?$/, ".")}${why}`, failure };
   }
-  if (job.kind === "promote") {
-    return { tone: "error", text: job.exit_code === 5 ? "Cluster evals failed. The log says what was restored." : "Deploy to cluster failed. See its log." };
-  }
-  return { tone: "error", text: `${label} failed${job.exit_code != null ? ` (exit ${job.exit_code})` : ""}. See its log.` };
+  return { tone: "error", text: `${head}. See its log.` };
+}
+
+const FAILURE_CODE = /^[A-Z][A-Z0-9_]{2,39}$/;
+
+/** What a cause a coded failure names means, in fixed words (#1042). */
+export const CAUSE_WORDS = {
+  UPSTREAM_AUTH: "The MCP server refused the credential: check its key (Keys, or the env file), then start services again.",
+  UPSTREAM_TIMEOUT: "The MCP server did not answer in time: check that it is reachable, then start services again.",
+  UPSTREAM_ERROR: "The MCP server answered with an error: read the relay's log.",
+  UPSTREAM_INVALID: "The MCP server sent an answer the relay refuses: read the relay's log.",
+  UPSTREAM_PROTOCOL_UNSUPPORTED: "The MCP server does not speak the protocol the relay needs.",
+};
+
+/**
+ * A finished job's coded failure, {code, message, cause}, from the CLI's last `[CODE] message`
+ * line the server stored (`failure_code`, `failure_message`); null without one. `cause` is the
+ * relay's decision an `MCP_PROBE_FAILED` message names in parentheses, else null.
+ */
+export function jobFailure(job) {
+  if (!job || job.state !== "failed") return null;
+  const code = typeof job.failure_code === "string" && FAILURE_CODE.test(job.failure_code) ? job.failure_code : null;
+  if (!code) return null;
+  const message = visible(typeof job.failure_message === "string" ? job.failure_message : "").slice(0, 300);
+  // Only the probe failure names a cause in its message (the relay's decision code).
+  const cause = code === "MCP_PROBE_FAILED" ? message.match(/\(([A-Z][A-Z0-9_]{2,39})\)/) : null;
+  return { code, message, cause: cause ? cause[1] : null };
 }
 
 /** The install line for a missing cluster tool, with the restart `up` needs (#811 item 5). */

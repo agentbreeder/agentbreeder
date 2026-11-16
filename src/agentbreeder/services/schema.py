@@ -36,9 +36,13 @@ SHELLS = frozenset(
 
 
 class ServiceError(ValueError):
-    def __init__(self, code: str, message: str):
+    """A coded failure. `cause` is an optional second code saying why (#1042), such as the
+    relay's `UPSTREAM_AUTH` behind `MCP_PROBE_FAILED`; the message names it too."""
+
+    def __init__(self, code: str, message: str, cause: str | None = None):
         super().__init__(f"[{code}] {message}")
         self.code = code
+        self.cause = cause
 
 
 class _Strict(BaseModel):

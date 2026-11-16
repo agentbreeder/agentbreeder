@@ -1,8 +1,9 @@
 """Build a new agent, part 2 (#833, M17 console half): the tool and MCP pickers over the roots a
 new project resolves (here an AGENTBREEDER_REGISTRY_PATH root with `tool/clock` and the built-in
 `mcp/` servers), the picks in the real `new agent --from-spec` preview, the "this code runs in
-agents" confirm for a tool from outside the built-ins, and Create off for a combination not run
-end to end."""
+agents" confirm for a tool from outside the built-ins (gemini + one tool is verified, so the
+confirm alone gates Create), and Create off for a combination not run end to end (a tool with an
+MCP server)."""
 
 from __future__ import annotations
 
@@ -43,7 +44,9 @@ def test_a_path_tool_needs_the_code_confirm_and_is_not_created(page, console):
     )
     tool.select_option("tool/clock@0.2.0")
     pane = preview(page)
-    expect(pane).to_contain_text("Not run end to end yet: a new agent with tools.")
+    # gemini + one tool is a verified combination (#833): only the code confirm holds Create.
+    expect(pane).to_contain_text("Run end to end:")
+    expect(pane).not_to_contain_text("Not run end to end yet")
     parts = pane.get_by_role("table", name="Parts the agent uses")
     expect(parts).to_contain_text("tool/clock@0.2.0")
     expect(parts).to_contain_text("Runs in agents")
@@ -53,15 +56,25 @@ def test_a_path_tool_needs_the_code_confirm_and_is_not_created(page, console):
     checkbox = confirm.get_by_label("I trust this code to run in agents")
     create = page.get_by_role("button", name="Create agent and add project")
     expect(create).to_be_disabled()
+    expect(page.get_by_text("Confirm that this code runs in agents first.")).to_be_visible()
     checkbox.check()
-    # Confirmed, but the combination has not been run end to end: still off.
-    expect(create).to_be_disabled()
-    expect(page.get_by_text("This combination has not been run end to end.")).to_be_visible()
+    expect(create).to_be_enabled()
     # Another pick marks the preview out of date and clears the confirm.
     tool.select_option("tool/clock@0.1.0")
     expect(page.get_by_role("complementary", name="Preview (out of date)")).to_be_visible()
+    expect(create).to_be_disabled()
     preview(page)
     expect(checkbox).not_to_be_checked()
+    # A tool with an MCP server has not been run end to end: off even when confirmed.
+    page.get_by_label("MCP server github").select_option("mcp/github@1.0.0")
+    page.get_by_role("group", name="Tools granted to github").get_by_label("get_me").check()
+    pane = preview(page)
+    expect(pane).to_contain_text("Not run end to end yet: a new agent with MCP servers and tools.")
+    pane.get_by_role("group", name="This code runs in agents").get_by_label(
+        "I trust this code to run in agents"
+    ).check()
+    expect(create).to_be_disabled()
+    expect(page.get_by_text("This combination has not been run end to end.")).to_be_visible()
     assert not (home(console) / "agentbreeder-projects" / "helper").exists()
 
 

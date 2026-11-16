@@ -85,6 +85,8 @@ export function createJobs({ client, setTimer = setTimeout, clearTimer = clearTi
     entry.project = job.project || entry.project;
     entry.state = job.state;
     entry.exit_code = job.exit_code ?? null;
+    entry.failure_code = job.failure_code ?? null; // #1042: the CLI's coded last line, if any
+    entry.failure_message = job.failure_message ?? null;
     entry.cancelling = Boolean(job.cancelling);
     entry.canStop = Boolean(job.can_stop);
     if (job.state === "running") {

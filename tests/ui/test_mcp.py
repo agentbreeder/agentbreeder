@@ -152,6 +152,44 @@ def test_mcp_screen_has_no_serious_axe_findings(scheme_page, console):  # noqa: 
     assert blocking(scheme_page, "mcp") == []
 
 
+PROBE_LINE = (
+    "[MCP_PROBE_FAILED] the github relay couldn't list upstream tools (UPSTREAM_AUTH); "
+    "see `agentbreeder services logs mcp-github`"
+)
+
+
+def test_a_failed_upstream_check_names_its_cause_and_the_relay_log(page, console):
+    """#1042: the server card says why the upstream check failed and where to read more."""
+    unverified = {"state": "unverified", "error": "MCP_PROBE_FAILED", "cause": "UPSTREAM_AUTH"}
+    console.scenario(services=RUNNING, mcp_status={"github": unverified})
+    project = open_mcp(page, console)
+    card = page.get_by_role("region", name="mcp.github", exact=True)
+    expect(card).to_contain_text("MCP_PROBE_FAILED (cause UPSTREAM_AUTH)")
+    expect(card).to_contain_text("refused the credential")
+    expect(card).to_contain_text(f"agentbreeder services logs {project} mcp-github")
+
+
+def test_a_start_that_fails_at_the_probe_says_why_in_the_job_row(page, console):
+    """#1042: the job row names the code, its cause and the CLI's next step, not only
+    "failed (exit 2). See its log"."""
+    console.scenario(
+        plan_mcp=[BUILT_IN],
+        keys=KEYS,
+        job_lines={"services-up": ["Starting postgres", PROBE_LINE]},
+        job_exit={"services-up": 2},
+    )
+    sign_in(page, console)
+    page.get_by_role("button", name="Review and update").click()
+    page.get_by_role("button", name="Confirm and start").click()
+    dock = page.get_by_role("complementary", name="Jobs")
+    expect(dock).to_contain_text(
+        "Start services failed (exit 2): MCP_PROBE_FAILED (cause UPSTREAM_AUTH)"
+    )
+    expect(dock).to_contain_text("see `agentbreeder services logs mcp-github`")
+    expect(dock).to_contain_text("refused the credential")
+    expect(dock).not_to_contain_text("See its log")
+
+
 # -- grant and revoke (#831 part 2): the real `mcp grant|revoke` on the copy's stack.yaml ---------
 
 

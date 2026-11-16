@@ -529,24 +529,25 @@ def test_parts_says_so_when_the_registries_cannot_be_read(center, cookie, monkey
     assert "/private" not in data["error"]["message"]
 
 
-def test_a_picked_path_tool_is_previewed_as_code_not_run_end_to_end(
+def test_a_picked_path_tool_with_an_mcp_server_is_not_run_end_to_end(
     center, cookie, home, calls, path_registry
 ):
     tools = ["tool/clock@0.2.0"]
+    mcp = [{"ref": "mcp/github@1.0.0", "tools": ["get_me"]}]
     data, [(status, refused, _)] = preview_then_create(
-        center, cookie, True, calls=calls, tools=tools
+        center, cookie, True, calls=calls, tools=tools, mcp=mcp
     )
     shown = data["data"]
     assert shown["combination"] == {
-        "parts": ["model", "prompt", "evals", "tools"],
+        "parts": ["model", "prompt", "evals", "mcp", "tools"],
         "verified": False,
     }
-    [ref] = shown["refs"]
-    assert ref["ref"] == "tool/clock@0.2.0" and ref["root_kind"] == "path"
-    assert ref["runs_code"] is True and shown["runs_code"] is True
+    tool = next(ref for ref in shown["refs"] if ref["kind"] == "tool")
+    assert tool["ref"] == "tool/clock@0.2.0" and tool["root_kind"] == "path"
+    assert tool["runs_code"] is True and shown["runs_code"] is True
     agent = next(e for e in shown["files"] if e["path"] == "agent.yaml")["content"]
     assert '- {ref: "tool/clock@0.2.0"}' in agent
-    assert calls[0]["spec"]["tools"] == ["tool/clock@0.2.0"]
+    assert calls[0]["spec"]["tools"] == tools
     # Not run end to end, so Create refuses it even when the code is confirmed.
     assert status == 400 and refused["error"]["code"] == "COMBINATION_UNVERIFIED"
     assert not (home / "agentbreeder-projects" / "helper").exists()
@@ -572,26 +573,18 @@ def test_a_tool_the_server_does_not_declare_is_the_clis_refusal(center, cookie, 
     assert len(calls) == 1
 
 
-def test_once_verified_a_path_tool_is_created_after_the_code_confirm(
-    center, cookie, home, calls, path_registry, monkeypatch
+def test_a_picked_path_tool_is_created_only_after_the_code_confirm(
+    center, cookie, home, calls, path_registry
 ):
-    """When a run adds `("tools",)` to `agentspec.VERIFIED`, Create works with no console
-    change. Simulated: every dry-run answer of the real CLI is marked verified."""
-    real = center._new_agent
-
-    def verified(argv):
-        data = real(argv)
-        if "--dry-run" in argv:
-            data["combination"]["verified"] = True
-        return data
-
-    monkeypatch.setattr(center, "_new_agent", verified)
+    """gemini with one path tool was run end to end (#833, `agentspec.VERIFIED`), so Create
+    works for it with no console change, once the code is confirmed."""
     tools = ["tool/clock@0.2.0"]
     destination = home / "agentbreeder-projects" / "helper"
     data, [(status, refused, _), (written, added, _)] = preview_then_create(
         center, cookie, False, True, calls=calls, tools=tools
     )
     assert data["data"]["runs_code"] is True
+    assert data["data"]["combination"]["verified"] is True  # the real CLI's answer
     assert status == 400 and refused["error"]["code"] == "CODE_CONFIRM_REQUIRED"
     # The refused create re-checked the plan and wrote nothing; only the confirmed one wrote.
     assert ["--dry-run" in call["argv"] for call in calls] == [True, True, True, False]

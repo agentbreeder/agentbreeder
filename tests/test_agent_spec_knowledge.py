@@ -200,26 +200,53 @@ def test_openai_uses_its_embedding_model(tmp_path, kb_root):
     assert extra["combination"]["verified"] is False
 
 
-def test_only_knowledge_alone_is_verified():
-    """The #833 run covered one knowledge version with gemini and no tools or MCP servers."""
-    assert agentspec.VERIFIED == frozenset({(), ("knowledge",)})
-    for parts in (("knowledge", "tools"), ("knowledge", "mcp"), ("knowledge", "mcp", "tools")):
-        assert parts not in agentspec.VERIFIED
+def test_the_verified_combinations():
+    """The #833 runs: gemini with one knowledge version, one path tool, or both; never MCP."""
+    assert agentspec.VERIFIED == frozenset(
+        {(), ("knowledge",), ("tools",), ("knowledge", "tools")}
+    )
+    assert agentspec.VERIFIED_TOOLS == 1
+    assert agentspec.TOOL_PROVIDERS == {"gemini"}  # openrouter ran without tools (#1020)
+    assert not any("mcp" in parts for parts in agentspec.VERIFIED)
+
+
+def publish_echo(tmp_path: Path, root: Path, *names: str) -> list[str]:
+    sources = tmp_path / "tool-sources"
+    for name in names:
+        registry.publish(registry.scaffold("tool", name, sources), root)
+    return [f"tool/{name}@0.1.0" for name in names]
+
+
+def test_knowledge_with_one_tool_is_verified(tmp_path, kb_root):
+    tools = publish_echo(tmp_path, kb_root, "echo")
+    _plan, extra = plan_for(tmp_path, with_knowledge() | {"tools": tools})
+    assert extra["combination"] == {
+        "parts": ["model", "prompt", "evals", "knowledge", "tools"],
+        "verified": True,
+    }
+    assert [row["kind"] for row in extra["refs"]] == ["knowledge", "tool"]
+    assert extra["runs_code"] is True
 
 
 @pytest.mark.parametrize(
-    "extra_parts",
+    ("changes", "parts"),
     [
-        {"tools": ["tool/echo@0.1.0"]},
-        {"mcp": [{"ref": "mcp/github@1.0.0", "tools": ["get_me"]}]},
+        ({"mcp": [{"ref": "mcp/github@1.0.0", "tools": ["get_me"]}]}, {"knowledge", "mcp"}),
+        ({"tools": 2}, {"knowledge", "tools"}),  # two tools: every run had one
+        ({"model": "openai", "tools": 1}, {"knowledge", "tools"}),
+        (
+            {"tools": 1, "mcp": [{"ref": "mcp/github@1.0.0", "tools": ["get_me"]}]},
+            {"knowledge", "mcp", "tools"},
+        ),
     ],
 )
-def test_knowledge_with_tools_or_mcp_is_unverified(tmp_path, kb_root, extra_parts):
-    sources = tmp_path / "tool-sources"
-    registry.scaffold("tool", "echo", sources)
-    registry.publish(next(sources.iterdir()), kb_root)
-    _plan, extra = plan_for(tmp_path, with_knowledge() | extra_parts)
-    assert {"knowledge", *extra_parts} <= set(extra["combination"]["parts"])
+def test_knowledge_beyond_what_was_run_is_unverified(tmp_path, kb_root, changes, parts):
+    if "tools" in changes:
+        changes = changes | {
+            "tools": publish_echo(tmp_path, kb_root, *["echo", "clock"][: changes["tools"]])
+        }
+    _plan, extra = plan_for(tmp_path, with_knowledge() | changes)
+    assert parts <= set(extra["combination"]["parts"])
     assert extra["combination"]["verified"] is False
 
 

@@ -333,6 +333,55 @@ def test_services_unreadable_is_blocked(stacked, stacks):
     assert services.state == "blocked" and services.reason.code == "SERVICES_UNREADABLE"
 
 
+def test_a_failed_services_up_is_reported_with_its_code(stacked, stacks):
+    """#1042: after a `services up` that started the containers and failed at the MCP probe,
+    `next` says it failed, with its code and cause, not "has not run"."""
+    state, _ = bring_up(stacked, stacks, environment="staging")
+    state.put("up_failure:dev", json.dumps({"code": "MCP_PROBE_FAILED", "cause": "UPSTREAM_AUTH"}))
+    result = guide_checks.compute(stacked, probe=probe(stacks))
+    services = steps(result)["services"]
+    assert services.state == "next" and services.reason.code == "SERVICES_UP_FAILED"
+    assert "MCP_PROBE_FAILED (UPSTREAM_AUTH)" in services.reason.message
+    assert "has not run" not in services.reason.message
+    assert services.fix.action == "services-up"
+    assert "refused the credential" in services.fix.note
+    assert services.data.up_failure.code == "MCP_PROBE_FAILED"
+    assert services.data.up_failure.cause == "UPSTREAM_AUTH"
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        ({"code": "PORT_BUSY", "cause": None}, ("PORT_BUSY", None)),
+        ({"code": "PORT_BUSY", "cause": "not a code"}, ("PORT_BUSY", None)),
+        ({"code": "lower"}, None),
+        (["MCP_PROBE_FAILED"], None),
+        ("{not json", None),
+    ],
+)
+def test_an_up_failure_record_is_read_strictly(stacked, stacks, stored, expected):
+    state, _ = bring_up(stacked, stacks, environment="staging")
+    state.put("up_failure:dev", stored if isinstance(stored, str) else json.dumps(stored))
+    services = steps(guide_checks.compute(stacked, probe=probe(stacks)))["services"]
+    if expected is None:
+        assert services.reason.code == "ENVIRONMENT_MISSING" and services.data.up_failure is None
+    else:
+        assert services.reason.code == "SERVICES_UP_FAILED"
+        assert (services.data.up_failure.code, services.data.up_failure.cause) == expected
+        assert "Fix what services up reported (PORT_BUSY)" in services.fix.note
+
+
+def test_an_up_failure_after_an_older_success_reopens_the_step(stacked, stacks):
+    """An older operator config does not hide a later failed run (#1042); with no record the
+    same stack is done."""
+    state, _ = bring_up(stacked, stacks)
+    assert steps(guide_checks.compute(stacked, probe=probe(stacks)))["services"].state == "done"
+    state.put("up_failure:dev", json.dumps({"code": "MCP_PROBE_FAILED", "cause": "UPSTREAM_AUTH"}))
+    services = steps(guide_checks.compute(stacked, probe=probe(stacks)))["services"]
+    assert services.state == "next" and services.reason.code == "SERVICES_UP_FAILED"
+    assert services.data.environment_written is True
+
+
 def test_environment_missing(stacked, stacks):
     bring_up(stacked, stacks, environment="staging")
     result = guide_checks.compute(stacked, probe=probe(stacks))
@@ -1058,3 +1107,11 @@ def test_approve_note_never_cuts_a_long_project_path(tmp_path):
 def test_approve_note_drops_a_path_with_a_control_character(tmp_path):
     ctx = SimpleNamespace(project=tmp_path / "a\nb", environment="dev")
     assert "\n" not in guide_checks._approve_note(ctx)
+
+
+def test_a_changed_repin_says_to_review_it_again(stacked, stacks):
+    state, _ = bring_up(stacked, stacks, environment="staging")
+    state.put("up_failure:dev", json.dumps({"code": "PINS_CHANGED", "cause": None}))
+    services = steps(guide_checks.compute(stacked, probe=probe(stacks)))["services"]
+    assert services.reason.code == "SERVICES_UP_FAILED"
+    assert "review the repin again" in services.fix.note

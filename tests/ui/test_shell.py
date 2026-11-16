@@ -227,6 +227,26 @@ def test_disabled_controls_say_why(page, console):
     expect(page.locator(".reason")).to_have_count(1)  # one shared reason, not one per button
 
 
+def test_a_coded_release_failure_names_its_code_in_the_job_row(page, console):
+    """#1042: a release refused with a coded line shows the code and the CLI's own next step in
+    the job row, not only "The release failed. See its log."."""
+    line = (
+        "[DEPLOYER_UNVERIFIED] A verified deployer identity is required (agentbreeder login); "
+        "production unchanged"
+    )
+    console.scenario(job_lines={"release": ["release: Starting", line]}, job_exit={"release": 2})
+    sign_in(page, console)
+    go(page, console, "/release", "Build and release")
+    page.get_by_role("button", name="Run release").click()
+    dock = page.get_by_role("complementary", name="Jobs")
+    expect(dock).to_contain_text(
+        "The release failed: DEPLOYER_UNVERIFIED. A verified deployer identity is required "
+        "(agentbreeder login); production unchanged.",
+        timeout=15000,
+    )
+    expect(dock).not_to_contain_text("See its log")
+
+
 def test_cancel_is_offered_once(page, console):
     console.scenario(job_seconds=20)
     sign_in(page, console)

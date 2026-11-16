@@ -3203,6 +3203,17 @@ def test_guide_view_runs_next_with_fixed_arguments_and_validates_it(
     assert argv == ["next", project["path"], "--environment", "dev", "--json"]
 
 
+def test_guide_view_passes_a_failed_services_up(center, project, cookie, tmp_path):
+    """#1042: `SERVICES_UP_FAILED` with its `up_failure` data is in the contract the console
+    checks, so Home shows it."""
+    _guide(tmp_path, name="services-up-failed")
+    _, data, _ = api(center, "GET", f"/api/projects/{project['id']}/guide", cookie=cookie)
+    assert data["error"] is None
+    (services,) = [step for step in data["data"]["steps"] if step["id"] == "services"]
+    assert services["reason"]["code"] == "SERVICES_UP_FAILED"
+    assert services["data"]["up_failure"] == {"code": "MCP_PROBE_FAILED", "cause": "UPSTREAM_AUTH"}
+
+
 def test_guide_view_refuses_output_that_breaks_the_contract(center, project, cookie, tmp_path):
     _guide(tmp_path, edit=lambda data: data.update(complete=True))
     _, data, _ = api(center, "GET", f"/api/projects/{project['id']}/guide", cookie=cookie)

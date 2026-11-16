@@ -187,7 +187,7 @@ def test_a_picked_tool_resolves_from_the_registry_path(tmp_path, tool_root, iden
     assert stat.S_IMODE((project / "agent.lock").stat().st_mode) == 0o644
     assert extra["runs_code"] is True
     assert extra["refs"][0]["root_kind"] == "path"
-    assert extra["combination"]["verified"] is False
+    assert extra["combination"]["verified"] is True  # one path tool, run end to end (#833)
 
     identity = {"provider": "static", "ref": "agent-1", "environment": "dev"}
     identity_env.config["gateways"] = {
@@ -468,6 +468,28 @@ def test_text_output_names_code_from_other_roots(tmp_path, tool_root, capsys):
     out = capsys.readouterr().out
     assert "not shipped with AgentBreeder: tool/echo@0.1.0 (path)" in out
     assert "Dry run: nothing was written." in out
+    assert "has not been run end to end" not in out  # one path tool is verified (#833)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"tools": ["tool/echo@0.1.0", "tool/clock@0.1.0"]},  # every run had one tool
+        {"tools": ["tool/echo@0.1.0"], "mcp": [{"ref": "mcp/github@1.0.0", "tools": ["get_me"]}]},
+        {"tools": ["tool/echo@0.1.0"], "model": "openai"},
+        # openrouter is a verified provider (#1020), but only model + prompt + evals ran on it
+        {"tools": ["tool/echo@0.1.0"], "model": "openrouter"},
+    ],
+)
+def test_tools_beyond_what_was_run_are_unverified(tmp_path, tool_root, capsys, changes):
+    sources = tmp_path / "more-sources"
+    registry.publish(registry.scaffold("tool", "clock", sources), tool_root)
+    path = write_spec(tmp_path, spec(**changes))
+    argv = ["new", "agent", "helper", "--from-spec", str(path), "--dry-run"]
+    assert cli.main([*argv, "--dir", str(tmp_path / "helper"), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["combination"]["verified"] is False
+    assert cli.main([*argv, "--dir", str(tmp_path / "helper")]) == 0
+    assert "has not been run end to end" in capsys.readouterr().out
 
 
 def test_end_to_end_subprocess(tmp_path):

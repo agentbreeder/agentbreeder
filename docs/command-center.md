@@ -482,7 +482,10 @@ tools, and changes a grant (see the next section).
   update, then Review repin; see "Repin" below), or in a terminal with `agentbreeder services
   pins DIR` and `services up DIR --environment ENV --repin --expect-pins DIGEST`, which the screen
   names with the project's path. A relay that is not running, or could not be checked, says so
-  and claims nothing about its pins.
+  and claims nothing about its pins. A failed check names its code and cause
+  (`MCP_PROBE_FAILED (cause UPSTREAM_AUTH)`), says in fixed words what a known cause means (the
+  upstream refused the credential, timed out, answered with an error or an invalid answer, or
+  speaks an unsupported protocol) and gives the `services logs DIR mcp-NAME` command (#1042).
 - **Grants per agent** (`environment.agents.AGENT.mcp`): each agent's tools per server, a tool
   not pinned yet marked. A grant takes effect at the next `services up`, and an agent uses a tool
   only when its `agent.yaml` asks for it; the screen says both.
@@ -1060,8 +1063,10 @@ It is a three-tier confirm:
    `AGENTBREEDER_REGISTRY_PATH`. The built-in MCP servers ship with AgentBreeder and do not ask.
    A form edit, a different pick included, clears the tick.
 3. **Create agent and add project** is on only for a combination run end to end
-   (`combination.verified`: today gemini with a prompt and evals; no combination with tools or
-   MCP servers has been run end to end yet). Otherwise the preview names what has not been run
+   (`combination.verified`: today gemini with a prompt and evals, alone or with one path tool, on
+   `main`, not in a published preview, #833, and openrouter with a prompt and evals alone,
+   #1020; no combination with two or more tools or with MCP servers has been run end to end
+   yet). Otherwise the preview names what has not been run
    (the provider, "a new agent with tools", "… with MCP servers") and says `agentbreeder new agent
    --from-spec` writes it anyway. Create sends the previewed `plan_sha256`; the server runs the dry
    run again with `--expect-digest`, refuses `COMBINATION_UNVERIFIED` or `CODE_CONFIRM_REQUIRED`
@@ -1082,12 +1087,14 @@ Tested on the server against the real `new agent --from-spec` (the argv, the spe
 and removal, preview, create, a changed plan, an unverified provider, bad requests; the code
 confirm's refusal with a stubbed plan; the pickers' list over a path registry, a symlinked and a
 broken version, servers whose `mcp.yaml` is a link or cannot be read, a picked path tool
-previewed as code and refused as unverified, the same tool created only after the code confirm
-once the CLI's answer is marked verified (simulated), a granted MCP server, an undeclared tool) and with Playwright and axe in light and dark, where the fake CLI hands
+with an MCP server previewed as code and refused as unverified, the same tool alone created
+only after the code confirm, a granted MCP server, an undeclared tool) and with Playwright and axe in light and dark, where the fake CLI hands
 `new agent --from-spec` to the real command (the code confirm box with a path tool, the MCP grant
-checkboxes). A built agent, with or without tools, has not yet been taken through `services up`
-and `release` from the console: that is the M17 verification. When that run adds a combination to
-`agentspec.VERIFIED`, Create turns on for it with no console change.
+checkboxes). A built agent with a tool has not yet been taken through `services up` and `release` from the
+console: that is the M17 verification. The same gemini spec with one path tool, alone and with one
+knowledge version, was run end to end through `new agent --from-spec` (#833), which put it in
+`agentspec.VERIFIED`. Create turned on for the tool-only spec with no console change; the form
+still refuses knowledge.
 
 ### Agents (#823, second part): on `main`, not in a published preview
 
@@ -1419,6 +1426,27 @@ free stderr, the shared cap, the stored `job_failed` fields for coded, uncoded, 
 approval and gate exits, with a planted value never stored), with Playwright against a fake CLI
 (events on Home, a new event re-reading status, a failed watch, axe in light and dark), and with
 `node --test` for the wording. Not yet run against real services: that is the M5 acceptance.
+
+### Coded failures in job rows (#1042): on `main`, not in a published preview
+
+When a job fails and the CLI's last line is its own `[CODE] message`, the console keeps that
+line with the job (`failure_code`, `failure_message` on the job rows: redacted as the log is,
+control characters removed, the message capped at 300 characters; `center.sqlite3` schema version
+3, so an older console refuses that file afterwards with "upgrade AgentBreeder"). The job row then says the code, the cause an `MCP_PROBE_FAILED` message names in parentheses, and the CLI's
+message, which carries its own next step: "Start services failed (exit 2): MCP_PROBE_FAILED (cause
+UPSTREAM_AUTH). the github relay couldn't list upstream tools (UPSTREAM_AUTH); see `agentbreeder
+services logs mcp-github`.", followed by fixed words for a known cause. A release refused before
+any approval reads "The release failed: DEPLOYER_UNVERIFIED. A verified deployer identity is
+required (agentbreeder login); production unchanged.". An eval gate failure (exit 5) keeps its own
+words, and a failure with no coded line still says "See its log.". The Home checklist shows `next`'s
+`SERVICES_UP_FAILED` (the last confirmed `services up` of the environment failed, for example
+at the MCP probe) with its code, cause and note, not "services up has not run".
+
+Tested: server tests (the coded line kept on the job row and in the activity read, none for an
+uncoded failure or a success, redaction and the cap), JS tests of the wording, and UI tests over
+the fake CLI (a Start services job failing at the probe, a coded release failure, the MCP grants
+card's cause and log command, and the Home checklist). Not yet seen against a real failing relay
+in the console.
 
 ## How it stays the same engine
 
