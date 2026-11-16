@@ -179,8 +179,9 @@ directory once), separately:
 
 - **declared**: each field of `agent.yaml` or `stack.yaml` that `build` or `services up` reads a
   ref from (`runtime`, `prompt.ref`, `knowledge[i].ref`, `tools[i].ref`, `mcp[i].ref`,
-  `evals.ref`; `services.NAME.ref`, `mcp.NAME.ref`) whose value is exactly the ref, never free
-  text such as a description;
+  `evals.ref`, `skills[i].ref`, and on `main` `subagents[i].prompt.ref`,
+  `subagents[i].tools[j].ref`, `subagents[i].mcp[j].ref`; `services.NAME.ref`, `mcp.NAME.ref`)
+  whose value is exactly the ref, never free text such as a description;
 - **locked**: the `agent.lock` or `stack.lock` entry for the ref (hash and source root);
 - **deployed**: recorded deployments of the project's agent in state `ready` whose image is the
   image in the project's build record, `deploy/<agent>.build.json` (written by `build` and
@@ -407,9 +408,10 @@ writes a tool that passes them: one function `echo_<name>` in `src/tool_<name>.p
 
 **`agent set-ref OLD NEW [--project DIR] [--dry-run | --expect-base SHA256] [--json]`** moves the
 project's agent to another version. It is an exact-string replacement in `DIR/agent.yaml`, so
-comments and formatting stay. It refuses unless `OLD` is the value of one ref field `build` reads
-(`REF_NOT_DECLARED`) and occurs exactly once in the file as a whole ref (a comment or description
-naming it too is `REF_AMBIGUOUS`; `…@1.0.10` does not contain `…@1.0.1`), `NEW` is the same kind
+comments and formatting stay. It refuses unless `OLD` is the value of a ref field `build` reads
+(`REF_NOT_DECLARED`) and occurs in the file as a whole ref exactly as often as it is declared (a
+ref the agent shares with its sub-agents moves in every field at once, on `main`; a comment or
+description naming it too is `REF_AMBIGUOUS`; `…@1.0.10` does not contain `…@1.0.1`), `NEW` is the same kind
 (`REF_INVALID`), resolves in the project's search roots (`REF_NOT_FOUND`), is not another field's
 kind/name (`REF_DUPLICATE`), and the rewritten file still validates with every other ref unchanged.
 `NEW` may have another name (a fork made with `--as`). The diff is printed first; the file is

@@ -98,13 +98,15 @@ def set_ref(
     except UnicodeDecodeError:
         raise RegistryError("AGENT_INVALID", f"{AGENT_FILE} is not UTF-8 text") from None
     refs = _refs(text, AGENT_FILE)
+    # A ref the agent shares with its sub-agents (#1058) is declared in several fields; one
+    # version per name, so they move together.
     at = [where for where, value in refs if value == str(old_ref)]
-    if len(at) != 1:
+    if not at:
         raise RegistryError(
             "REF_NOT_DECLARED", f"{AGENT_FILE} does not declare {old_ref} in a ref field"
         )
     for where, value in refs:
-        other = Ref.parse(value) if where != at[0] and value else None
+        other = Ref.parse(value) if where not in at and value else None
         if other is not None and (other.kind, other.name) == (new_ref.kind, new_ref.name):
             raise RegistryError(
                 "REF_DUPLICATE",
@@ -118,7 +120,7 @@ def set_ref(
             f"{AGENT_FILE} writes {old_ref} in a form set-ref cannot replace exactly (quoted "
             "with escapes or split over lines); edit the file by hand",
         )
-    if len(found) != 1:
+    if len(found) != len(at):
         raise RegistryError(
             "REF_AMBIGUOUS",
             f"{old_ref} occurs {len(found)} times in {AGENT_FILE} (a comment or another field "
@@ -126,10 +128,11 @@ def set_ref(
         )
     registry.resolve(new_ref, registry.roots(project_dir))  # REF_NOT_FOUND / REF_CONFLICT
     updated = pattern.sub(lambda _: str(new_ref), text)
-    expected = [(where, str(new_ref) if where == at[0] else value) for where, value in refs]
+    expected = [(where, str(new_ref) if where in at else value) for where, value in refs]
     if _refs(updated, f"{AGENT_FILE} after the change") != expected:
         raise RegistryError(
-            "REF_AMBIGUOUS", f"replacing {old_ref} would change more than {at[0]}; edit by hand"
+            "REF_AMBIGUOUS",
+            f"replacing {old_ref} would change more than {', '.join(at)}; edit by hand",
         )
     data = updated.encode("utf-8")
     result = {

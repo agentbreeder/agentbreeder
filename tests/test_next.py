@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from test_release import (  # noqa: F401 - fixtures
     Evaluator,
     FakeRuntime,
@@ -272,6 +273,28 @@ def test_keys_for_a_fallback_alias_the_agent_uses_stay_required(stacked, stacks)
     assert granted != STACK and uses_fallback != agent
     (stacked / "stack.yaml").write_text(granted)
     (stacked / "agent.yaml").write_text(uses_fallback)
+    config = stacked / "stack" / "litellm" / "config.yaml"
+    config.write_text(CONFIG + "litellm_settings:\n  fallbacks: [{support-model: [fallback]}]\n")
+    keys = steps(guide_checks.compute(stacked, probe=probe(stacks, environ={})))["keys"]
+    assert keys.data.required == ["GEMINI_API_KEY", "OPENROUTER_API_KEY"]
+
+
+def test_keys_for_a_fallback_alias_a_subagent_uses_stay_required(stacked, stacks):
+    # #1058: a sub-agent's alias is the agent's too (AgentFile.aliases()).
+    granted = STACK.replace(
+        "[support-model, support-judge]", "[support-model, support-judge, fallback]"
+    )
+    agent = yaml.safe_load((stacked / "agent.yaml").read_text())
+    agent["subagents"] = [
+        {
+            "name": "billing",
+            "description": "Billing.",
+            "model": {"alias": "fallback"},
+            "prompt": {"path": "billing.md"},
+        }
+    ]
+    (stacked / "stack.yaml").write_text(granted)
+    (stacked / "agent.yaml").write_text(yaml.safe_dump(agent))
     config = stacked / "stack" / "litellm" / "config.yaml"
     config.write_text(CONFIG + "litellm_settings:\n  fallbacks: [{support-model: [fallback]}]\n")
     keys = steps(guide_checks.compute(stacked, probe=probe(stacks, environ={})))["keys"]

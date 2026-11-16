@@ -2,7 +2,7 @@
 
 Build an agent file into an image and a deploy manifest (never deploys).
 
-Implemented: `build` (see [`agent-yaml.md`](../agent-yaml.md)).
+Implemented: `build` (see [`agent-yaml.md`](../agent-yaml.md)). On `main` (not in a published preview), `build` checks `subagents:` and refuses it on a runtime without the `subagents` capability (`RUNTIME_NO_SUBAGENTS`); see "Sub-agents" in [`agent-yaml.md`](../agent-yaml.md#sub-agents-on-main-not-in-a-published-preview).
 
 The deploy manifest (`deploy/<name>.deploy.yaml`, plus `<name>-candidate.deploy.yaml` when the
 environment has a candidate identity) is made in two steps. The template holds what comes from

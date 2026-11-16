@@ -64,7 +64,7 @@ def released(
             raise ReleaseError(
                 "RELEASE_EVIDENCE_INVALID", "That release's audit row is malformed; release again"
             ) from error
-        if recorded < needed:
+        if recorded < needed or _tag_threshold_lowered(reasons, agent.evals.tag_threshold):
             raise ReleaseError(
                 "RELEASE_THRESHOLD_LOWERED",
                 "That release ran below the threshold in agent.yaml; release again",
@@ -78,3 +78,14 @@ def released(
         "NO_RELEASE_EVIDENCE",
         f"No audited release promoted this image; run `{hints.command('release')}`",
     )
+
+
+def _tag_threshold_lowered(reasons: dict, needed: float | None) -> bool:
+    """`evals.tag_threshold` (#1058): a release without one, or with a lower one, did not
+    check the tags the way agent.yaml asks now."""
+    if needed is None:
+        return False
+    try:
+        return float(reasons.get("RELEASE_TAG_THRESHOLD", -1)) < needed
+    except (TypeError, ValueError):
+        return True
