@@ -450,3 +450,28 @@ th[scope="row"] { color: var(--foreground); }
 /* LLM cost (#906) */
 .cost-total strong { font-size: 1.25rem; }
 .cost-controls { align-items: flex-end; margin-bottom: 8px; }
+
+/* Glass surfaces (design v2 §6.2, #1113): a copy of the .glass rules in website/brand.css's
+ * `@layer utilities`. tests/test_brand_tokens.py fails when the two differ. Unused until the
+ * console rollout (#1116). A layered rule loses to any unlayered one: an element given .glass must
+ * not also set its own background, border or box-shadow outside a layer (L removes those from
+ * header.top, .menu-body and dialog.confirm). */
+@layer utilities {
+  .glass, .glass-strong {
+    border: 1px solid var(--glass-border);
+    box-shadow: inset 0 1px 0 var(--glass-highlight), var(--elev-2);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  }
+  .glass { background: var(--glass); }
+  .glass-strong { background: var(--glass-strong); }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass, .glass-strong { background: var(--glass-fallback); }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .glass, .glass-strong { background: var(--glass-fallback); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  }
+  @media (forced-colors: active) {
+    .glass, .glass-strong { background: Canvas; border-color: CanvasText; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  }
+}

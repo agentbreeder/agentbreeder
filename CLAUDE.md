@@ -185,6 +185,16 @@ its JSON Schema and `SCHEMA_VERSION` are unchanged; a sub-agent only adds its al
 `model_access.aliases`. Eval cases gain sub-agent and skill rules and `tags`. Website: no change
 until release R. Cloud: a `CLAUDE.md` note only; it has no code that reads `agent.yaml`.
 
+**Design system v2 tokens, #1119 T (epic #1112), per side.** Merges with the website switch (W
+#1115), not before (DS9 as amended), because the console's palette changes with it. OSS: `website/brand.css` gets the v2
+palette and tokens (`--brand`, glass, `--elev-*`, tints, syntax), the `.glass` utilities in
+`@layer utilities` and `@theme` mappings (`--shadow-*` → `--elev-*`, `--blur-glass`, a Geist
+`--font-display`, a `clamp` `--text-display`); the console copies the blocks (its palette changes)
+and the glass rules (`style.css`). Website: T alone changes nothing visible (`globals.css` pins the
+old shadows until W removes the pin). Cloud: C (#1117) re-vendors `tokens.css` from the T PR's head
+commit and adds a CI pin at a commit SHA; C blocks the switch, and the pin moves to the `main`
+commit when T merges (see `docs/cross-repo-sync.md`).
+
 ## 🎯 When Adding a New Feature
 
 1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?
