@@ -164,10 +164,11 @@ the LiteLLM gateway, using the `openai/<alias>` route with `reasoning_effort` se
 
 ### `runtime/adk@1.2.0`
 
-On `main`, not in a published preview (#828). Northwind uses it; it released 61/61 on `1.2.0`
-from `main` (2b4e4cf, macOS, 2026-11-15), and in that run every `invoke` turn returned `cost_usd`,
-which added up, within rounding, to LiteLLM's spend log for the key's chat calls (see
-[`cost.md`](cost.md#per-turn-cost-runtimeadk120)). `1.2.0` is `1.1.0` (so it includes the MCP client) plus:
+On `main`, not in a published preview (#828). Northwind used it until the `1.3.0` relock; it
+released 61/61 on `1.2.0` from `main` (2b4e4cf, macOS, 2026-11-15), and in that run every `invoke`
+turn returned `cost_usd`, which added up, within rounding, to LiteLLM's spend log for the key's
+chat calls (see [`cost.md`](cost.md#per-turn-cost-runtimeadk120)). `1.2.0` is `1.1.0` (so it
+includes the MCP client) plus:
 
 - **Cost per turn:** each `/invoke` reply has `cost_usd`, the sum of the LiteLLM gateway's
   `x-litellm-response-cost` response header over the turn's model calls, in US dollars. It is
@@ -194,7 +195,12 @@ reliable for honest tools and against the model, not against hostile tool code.
 
 ### `runtime/adk@1.3.0`
 
-On `main`, not in a published preview (#1030, #1034, #1039). `1.3.0` is `1.2.0` plus:
+On `main`, not in a published preview (#1030, #1034, #1039). Northwind uses it: from a wheel
+of the relock branch in a clean sandbox (macOS, Docker Desktop, 2026-11-15) it released 61/61, a
+refund turn was served by `support-model`, a turn with the primary model broken in the sandbox's
+gateway config was served by the OpenRouter fallback (`fallbacks`, `served_by`, the `invoke` note
+and `traces` all showed it), and a sandbox copy redeployed with `budget_usd: 0.002` got
+`MODEL_BUDGET_EXCEEDED` on its third turn. `1.3.0` is `1.2.0` plus:
 
 - **Coded model errors.** A failed model call is answered with a fixed message, never the
   gateway's or provider's text:
@@ -244,8 +250,8 @@ is no code, so a spent budget reads as "try again". The reply never carried the 
 the stored turn error and ADK's logged traceback did, with LiteLLM's masked key fragment
 unredacted. A rate-limited turn could wait up to about two minutes without saying so.
 
-The `new agent` starter uses `1.3.0` (its stack stays on `postgres-pgvector@1.1.0`); Northwind
-stays on `1.2.0` until it is relocked with a full eval run.
+The `new agent` starter and Northwind use `1.3.0` (the starter's stack stays on
+`postgres-pgvector@1.1.0`).
 
 Agents built from `agent.yaml` can't yet run behind the opt-in MCP egress sidecar
 (`runtime_enforcement: mcp_http`): the deploy is refused with `MODEL_ACCESS_UNSUPPORTED`, because

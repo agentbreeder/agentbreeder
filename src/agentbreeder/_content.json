@@ -534,15 +534,15 @@
   },
   "examples/northwind/README.md": {
    "exec": false,
-   "sha256": "2217b9e2e215c01a48c829e94f694533ffa5184410acf3e552aa6028fa2483d4"
+   "sha256": "3069a2d43f2f19221b40f4cbc92bd842d8705bf4e2ed7114de710cb12ea88fea"
   },
   "examples/northwind/agent.lock": {
    "exec": false,
-   "sha256": "e207bc7d4df107d666278e81a798f6a2f6c7c3f8dfd81221566ce2ef73712a6f"
+   "sha256": "270fb09e15683d4db196557033d888a95170fd0ad8cd9f5c9651b070cc2963dc"
   },
   "examples/northwind/agent.yaml": {
    "exec": false,
-   "sha256": "2bd8f85837fa462b2d95ae914c6789c0214b8da47f69dca427f17a564bb5187f"
+   "sha256": "63569a2a9f670da0b8774020e364c7c88f5fcf079aef271c66234f415d708663"
   },
   "examples/northwind/registry/eval/northwind-golden/1.0.0/fixtures.sql": {
    "exec": false,
