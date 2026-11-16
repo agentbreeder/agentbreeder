@@ -5,7 +5,7 @@
 // <Text>. Nothing here touches the DOM.
 //
 // Stable exports: WINDOWS, costPath, money, count, modelLabel, keyLabel, agentCost, costNotes,
-// costRefusal, asOfText, windowText, partial.
+// costRefusal, asOfText, windowText, partial, amount, LOCAL_LABEL.
 
 import { agentName } from "./agents.js";
 
@@ -25,6 +25,14 @@ const text = (value) => (typeof value === "string" && value ? value : "");
 export function money(value, currency) {
   if (!isAmount(value)) return "-";
   return `${text(currency) || "USD"} ${value.toFixed(value < 1 ? 6 : 2)}`;
+}
+
+/** A bucket's amount, or the local-model label when every call went to a local model (Ollama,
+ * #1025 O1): those have no price, never $0 (`agentbreeder cost` shows the same label). */
+export const LOCAL_LABEL = "no price (local model)";
+export function amount(item, currency) {
+  if (item && isCount(item.calls) && item.calls > 0 && item.local === item.calls) return LOCAL_LABEL;
+  return money(item ? item.cost_usd : undefined, currency);
 }
 
 export function count(value) {
@@ -50,10 +58,10 @@ export function keyLabel(key) {
   return `${text(key.id) || "unknown"} (not in this state)`;
 }
 
-const BUCKET = ["calls", "failed", "prompt_tokens", "completion_tokens", "unpriced"];
+const BUCKET = ["calls", "failed", "prompt_tokens", "completion_tokens", "unpriced", "local"];
 
 function emptyBucket(extra = {}) {
-  return { ...extra, calls: 0, failed: 0, prompt_tokens: 0, completion_tokens: 0, unpriced: 0, cost_usd: 0 };
+  return { ...extra, calls: 0, failed: 0, prompt_tokens: 0, completion_tokens: 0, unpriced: 0, local: 0, cost_usd: 0 };
 }
 
 function add(bucket, item) {
@@ -94,6 +102,8 @@ export function costNotes(answer, total, { keys = true } = {}) {
   if (answer && answer.truncated) notes.push("LiteLLM had more spend log rows than are read, so these totals are partial. Pick a shorter window.");
   const unpriced = total && isCount(total.unpriced) ? total.unpriced : 0;
   if (unpriced) notes.push(`${count(unpriced)} ${unpriced === 1 ? "call has" : "calls have"} no price in LiteLLM's list and ${unpriced === 1 ? "is" : "are"} not in the amounts.`);
+  const local = total && isCount(total.local) ? total.local : 0;
+  if (local) notes.push(`${count(local)} ${local === 1 ? "call" : "calls"} went to a local model (Ollama): ${LOCAL_LABEL}, not in the amounts.`);
   if (keys && answer && isCount(answer.keys_cut) && answer.keys_cut) notes.push(`${count(answer.keys_cut)} smaller keys are not listed.`);
   if (answer && answer.models_cut) notes.push(`${count(answer.models_cut)} smaller models are not listed.`);
   return notes;

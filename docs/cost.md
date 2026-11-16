@@ -34,6 +34,10 @@ up per key and per model.
   30-day budget window; `cost` adds up the logs instead.
 - **Only AgentBreeder keys are counted.** Calls made with the master key or a key minted by hand
   are not.
+- Calls to a local model (Ollama, #1025 O1; LiteLLM's `custom_llm_provider` `ollama` or
+  `ollama_chat`) have no price: they are counted in `local`, never as $0.00, and a row of only
+  such calls shows `no price (local model)` (in the console too). LiteLLM records their spend as
+  0.0, so a budget would not count them; that was not run.
 - Calls with no usable price (missing, negative, not a number, or above 10^12 USD) are counted
   (`unpriced`) but are not in the USD totals. Calls LiteLLM marks `failure` are counted in
   `failed`; in the run below LiteLLM recorded failed calls at 0 USD.

@@ -618,3 +618,49 @@ def test_cost_state_os_error(gateway_env, state_dir, capsys, monkeypatch):
     assert code == 2
     assert err.strip() == "[STATE_UNREADABLE] Cannot read local state; check permissions"
     assert error_of(out)["code"] == "STATE_UNREADABLE"
+
+
+# -- #1025 O1: a local model (Ollama) has no price, not $0 (D11) ------------------------------
+
+
+def test_local_model_calls_are_counted_apart_from_priced_ones():
+    prefix = gateway_keys.PREFIX
+    rows = [
+        row(prefix + DEPLOYED, 0.0, request_id="a", model="ollama_chat/llama3.2:3b",
+            custom_llm_provider="ollama_chat"),
+        row(prefix + DEPLOYED, 0.0, request_id="b", group="embed", model="ollama/nomic-embed-text",
+            custom_llm_provider="ollama"),
+        row(prefix + DEPLOYED, 0.002, request_id="c", custom_llm_provider="openai"),
+        row(prefix + DEPLOYED, None, request_id="d", custom_llm_provider="openai"),
+    ]  # fmt: skip
+    result = llmcost.summarize(rows, records())
+    total = result["total"]
+    assert (total["calls"], total["local"], total["unpriced"]) == (4, 2, 1)
+    assert total["cost_usd"] == pytest.approx(0.002)
+    by_group = {m["model_group"]: m for m in result["models"]}
+    assert by_group["embed"]["local"] == 1 and by_group["chat"]["local"] == 1
+
+
+def test_cost_labels_a_local_only_bucket_no_price(gateway_env, spend, state_dir, capsys):
+    prefix = gateway_keys.PREFIX
+    spend.rows = [
+        row(prefix + DEPLOYED, 0.0, request_id="a", model="ollama_chat/llama3.2:3b",
+            custom_llm_provider="ollama_chat"),
+        row(prefix + REMOVED, 0.004, request_id="b"),
+    ]  # fmt: skip
+    code, out, err = run_cli(capsys, "--state-dir", str(state_dir), "--by", "model")
+    assert code == 0, err
+    lines = out.splitlines()
+    assert lines[2].split() == ["chat", "openai/gpt-5.6", "1", "0", "10/20", "0.004000"]
+    assert lines[3].split()[:2] == ["chat", "ollama_chat/llama3.2:3b"]
+    assert lines[3].endswith("no price (local model)")
+    assert lines[4].split()[-1] == "0.004000"  # a mixed total keeps its USD figure
+    assert "1 call(s) went to a local model (Ollama): no price (local model)" in out
+    code, out, _ = run_cli(capsys, "--state-dir", str(state_dir), "--json")
+    assert json.loads(out)["total"]["local"] == 1
+
+
+def test_spend_logs_keep_the_provider(spend):
+    spend.rows = [row("x", request_id="r", custom_llm_provider="ollama_chat")]
+    (kept,), _ = LiteLLM(spend.url, MASTER).spend_logs("s", "e")
+    assert kept["custom_llm_provider"] == "ollama_chat"

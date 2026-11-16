@@ -10,8 +10,8 @@ const DIGEST = `sha256:${"b".repeat(64)}`;
 const ref = (kind, root_kind, runs_code) => ({ ref: `${kind}/x@1.0.0`, kind, root_kind, runs_code });
 
 test("the providers are new agent's", () => {
-  assert.deepEqual(PROVIDERS, ["anthropic", "gemini", "openai", "openrouter"]);
-  assert.deepEqual(VERIFIED, ["gemini", "openai", "openrouter"]);
+  assert.deepEqual(PROVIDERS, ["anthropic", "gemini", "ollama", "openai", "openrouter"]);
+  assert.deepEqual(VERIFIED, ["gemini", "ollama", "openai", "openrouter"]);
 });
 
 test("a verified provider with another model id says only its default ran", () => {

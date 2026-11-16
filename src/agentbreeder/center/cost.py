@@ -112,7 +112,13 @@ def _bucket(item: Any) -> dict:
         key: _count(item.get(key))
         for key in ("calls", "failed", "prompt_tokens", "completion_tokens", "unpriced")
     }
-    if bucket["failed"] > bucket["calls"] or bucket["unpriced"] > bucket["calls"]:
+    # `local`: calls to a local model (Ollama, #1025 O1), which have no price; absent from a
+    # CLI before it.
+    bucket["local"] = _count(item["local"]) if "local" in item else 0
+    if (
+        bucket["failed"] > bucket["calls"]
+        or bucket["unpriced"] + bucket["local"] > bucket["calls"]
+    ):
         raise _Invalid
     bucket["cost_usd"] = _usd(item.get("cost_usd"))
     return bucket

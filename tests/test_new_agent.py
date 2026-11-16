@@ -89,7 +89,7 @@ def test_an_unknown_provider_is_refused():
     with pytest.raises(newagent.NewAgentError) as error:
         newagent.plan("hello", "mistral")
     assert error.value.code == "MODEL_UNSUPPORTED"
-    assert sorted(newagent.PROVIDERS) == ["anthropic", "gemini", "openai", "openrouter"]
+    assert sorted(newagent.PROVIDERS) == ["anthropic", "gemini", "ollama", "openai", "openrouter"]
 
 
 def test_plan_fills_the_stated_fields():

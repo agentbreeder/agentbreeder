@@ -270,6 +270,11 @@ class Plan:
                 "networks": self.joins(service),
             }
         )
+        if self._maps_host(service):
+            # Linux needs the mapping (Docker Desktop resolves the name everywhere already).
+            # It reaches every host port bound to the bridge: the reviewed api_base, exactly
+            # http://host.docker.internal:11434, is the control (#1025 §6.2, residual R2).
+            definition["extra_hosts"] = ["host.docker.internal:host-gateway"]
         ports = [
             {
                 "target": port.port,
@@ -313,6 +318,16 @@ class Plan:
             LABEL_CONFIG: digest[:16],
         }
         return definition
+
+    def _maps_host(self, service: str) -> bool:
+        """Whether `service` gets host.docker.internal: the stack's gateway, declaring
+        `reaches_host`, whose reviewed config routes an alias to a host port (Ollama)."""
+        if service != self.locked.stack.environment.gateway or not self.spec(service).reaches_host:
+            return False
+        review = self.gateway_review()
+        return review is not None and any(
+            route.get("host_port") is not None for route in review.routes.values()
+        )
 
     def compose_file(self, services: dict[str, dict]) -> dict:
         labels = {LABEL_STACK: self.stack_id}
@@ -533,6 +548,14 @@ def _gateway_line(review: dict | None) -> list[str]:
     return [
         f"  config sha256 {review['sha256'][:16]}…; keys go only to their provider:",
         *(f"    {alias}: {route}" for alias, route in review["providers"].items()),
+        *(
+            [
+                "  litellm can reach the host: Ollama at host.docker.internal:11434 (on Linux, "
+                "also any other host port bound to the docker bridge)"
+            ]
+            if any("host_port" in route for route in review.get("routes", {}).values())
+            else []
+        ),
     ]
 
 

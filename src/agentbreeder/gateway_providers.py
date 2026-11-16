@@ -9,10 +9,10 @@ it requires (each with its own pattern, since they are printed in the grant), an
 The four key-only providers (Gemini, OpenRouter, OpenAI, Anthropic) behave as before, labels
 included, so their grant digests do not change. Ollama, Vertex AI, Bedrock and Azure OpenAI
 are in the table, but a provider is accepted only when the stack's gateway imports every
-credential it needs (`GatewayCaps`) and, for Ollama, can reach the host port. No built-in
-`service/litellm` version declares those imports yet: each provider slice adds its own version
-after a real run (spec §6, D12), so on today's built-in gateway every new provider is refused
-with `GATEWAY_PROVIDER_UNSUPPORTED`.
+credential it needs (`GatewayCaps`) and, for Ollama, can reach the host port. Each provider
+slice adds its own `service/litellm` version after a real run (spec §6, D12): 1.2.0 reaches
+host port 11434, so it serves Ollama (#1025 O1); no version imports the Vertex, Bedrock or
+Azure credentials yet, so those are refused with `GATEWAY_PROVIDER_UNSUPPORTED`.
 
 Every check is literal (`re.fullmatch` with `\\Z`-anchored patterns, no DNS) and no config value
 is echoed in an error: messages name the location only.
@@ -103,10 +103,10 @@ class GatewayCaps:
 
 
 def caps_from_spec(spec, ref: str) -> GatewayCaps:
-    """The caps of a resolved gateway `ServiceSpec`. `reaches_host` is read when the spec
-    declares it (a later `service/litellm` version, slice O1); today none does."""
+    """The caps of a resolved gateway `ServiceSpec`: its imports and its `reaches_host`
+    ports (`service/litellm@1.2.0` declares 11434, for Ollama)."""
     imports = frozenset(s.import_ for s in spec.secrets.values() if s.import_)
-    return GatewayCaps(ref, imports, frozenset(getattr(spec, "reaches_host", None) or ()))
+    return GatewayCaps(ref, imports, frozenset(spec.reaches_host))
 
 
 def builtin_caps(ref: str) -> GatewayCaps | None:

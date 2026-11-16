@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { WINDOWS, agentCost, asOfText, costNotes, costPath, costRefusal, count, keyLabel, modelLabel, money, partial, windowText } from "../../src/agentbreeder/center/static/lib/cost.js";
+import { LOCAL_LABEL, WINDOWS, agentCost, amount, asOfText, costNotes, costPath, costRefusal, count, keyLabel, modelLabel, money, partial, windowText } from "../../src/agentbreeder/center/static/lib/cost.js";
 
 const ID = "0123456789abcdef0123456789abcdef";
 const CANDIDATE_ID = "fedcba9876543210fedcba9876543210";
@@ -96,4 +96,14 @@ test("the read time and window", () => {
   assert.equal(asOfText({ as_of: "yesterday" }), "");
   assert.equal(windowText(ANSWER), "2026-10-16 to 2026-11-14 (UTC days)");
   assert.equal(windowText({}), "");
+});
+
+test("a local model (Ollama, #1025 O1) has no price, not $0", () => {
+  assert.equal(amount({ calls: 2, local: 2, cost_usd: 0 }, "USD"), LOCAL_LABEL);
+  assert.equal(amount({ calls: 3, local: 2, cost_usd: 0.004 }, "USD"), "USD 0.004000");
+  assert.equal(amount({ calls: 0, local: 0, cost_usd: 0 }, "USD"), "USD 0.000000");
+  assert.equal(amount(undefined, "USD"), "-");
+  assert.deepEqual(costNotes({}, { local: 1 }), ["1 call went to a local model (Ollama): no price (local model), not in the amounts."]);
+  const summed = agentCost({ keys: [{ key_alias: "agentbreeder-0123456789abcdef0123456789abcdef", kind: "deployment", id: "0123456789abcdef0123456789abcdef", name: "a", target: "local", state: "ready", environment: "dev", calls: 1, failed: 0, prompt_tokens: 1, completion_tokens: 1, cost_usd: 0, unpriced: 0, local: 1, models: [] }] }, "a");
+  assert.equal(summed.total.local, 1);
 });

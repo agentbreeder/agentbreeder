@@ -7,10 +7,10 @@ import { starterNameProblem } from "./guide.js";
 
 // `newagent.PROVIDERS` and the ones run end to end with their default model (`verified`; a
 // server test keeps both equal). A preview's own `verified` is the CLI's answer and wins.
-export const PROVIDERS = ["anthropic", "gemini", "openai", "openrouter"];
-export const VERIFIED = ["gemini", "openai", "openrouter"];
+export const PROVIDERS = ["anthropic", "gemini", "ollama", "openai", "openrouter"];
+export const VERIFIED = ["gemini", "ollama", "openai", "openrouter"];
 // The default model each verified provider ran with (`newagent.PROVIDERS[...].model`).
-export const DEFAULT_MODEL = {"gemini": "gemini/gemini-3.8-flash", "openai": "openai/gpt-5.6", "openrouter": "openrouter/google/gemini-3.8-flash"};
+export const DEFAULT_MODEL = {"gemini": "gemini/gemini-3.8-flash", "ollama": "ollama_chat/llama3.2:3b", "openai": "openai/gpt-5.6", "openrouter": "openrouter/google/gemini-3.8-flash"};
 
 /**
  * What `verified` does not cover, or null: a verified provider ran end to end with its default

@@ -22,7 +22,7 @@ import re
 from agentbreeder.center.files import BadRequest
 
 # `newagent.PROVIDERS` and `newagent.NAME_PATTERN` (tests keep them equal).
-PROVIDERS = ("anthropic", "gemini", "openai", "openrouter")
+PROVIDERS = ("anthropic", "gemini", "ollama", "openai", "openrouter")
 NAME = re.compile(r"^[a-z]([a-z0-9-]{0,29}[a-z0-9])?$")
 MODEL_ID = re.compile(r"[A-Za-z0-9._:/-]{1,128}")  # `newagent.MODEL_ID_PATTERN`
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")

@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError, model_validator
 
 from agentbreeder.gateway_providers import GATEWAY_ONLY
 from agentbreeder.registry import Ref, RegistryError
@@ -258,6 +258,10 @@ class ServiceSpec(_Strict):
     tmpfs: list[str] = Field(default_factory=list)
     health: Health | None = None
     egress: bool = False
+    # Host ports the service may reach at host.docker.internal (#1025 §6.2): at most one, and
+    # only the built-in gateway may declare it (lock.py checks the origin). Compose maps the
+    # name only when the reviewed config uses it (an Ollama entry).
+    reaches_host: list[StrictInt] = Field(default_factory=list, max_length=1)
     init: OneShot | None = None
     bootstrap: OneShot | None = None
     outputs: dict[str, Output] = Field(default_factory=dict, max_length=20)
@@ -287,6 +291,9 @@ class ServiceSpec(_Strict):
             if not _matches(ABS_PATH, target):
                 raise ValueError("volume targets must be absolute container paths")
         _tmpfs(self.tmpfs, set(self.volumes.values()))
+        for port in self.reaches_host:
+            if not 1 <= port <= 65535:
+                raise ValueError("reaches_host lists host ports (1-65535)")
         if self.volumes and self.user in ("image", "host"):
             raise ValueError("a service with a data volume needs a fixed user (uid:gid)")
         clash = set(self.secrets) & set(self.inputs)
