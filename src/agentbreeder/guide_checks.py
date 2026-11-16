@@ -361,11 +361,22 @@ def _keys(ctx: _Context) -> dict:
             _fix(note=f"Fix {config}; `services up` refuses it as it is"),
             empty,
         )
+    # A key that only serves fallback targets of granted aliases enables only the fallback
+    # route (#1033): optional, unless the project's agent asks for that alias itself.
+    granted = set(ctx.stack.environment.models)
+    used = {ctx.agent.model.alias} if ctx.agent is not None else set()
+    fallback_only = {
+        target
+        for source, targets in review.fallbacks.items()
+        if source in granted
+        for target in targets
+    } - used
     required = sorted(
         {
             match.group(1)
             for alias, text in review.providers.items()
             if alias in set(ctx.stack.environment.models)
+            and alias not in fallback_only
             and (match := re.search(r"\(([A-Z_][A-Z0-9_]{0,127})\)$", text))
         }
     )

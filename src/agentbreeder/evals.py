@@ -391,7 +391,7 @@ def run(
         try:
             key = client.mint(
                 key_alias,
-                [eval_set.judge_alias],
+                env.key_models([eval_set.judge_alias]),  # with its granted fallbacks (#1033)
                 5.0,
                 300,
                 {"agentbreeder": True, "eval_run": run_id},

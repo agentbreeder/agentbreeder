@@ -1332,3 +1332,59 @@ def test_an_unreadable_container_state_fails_without_more_time(env, failure):
     with pytest.raises(ServiceError, match="SERVICE_UNHEALTHY"):
         slow_up(env, docker)
     assert docker.timeouts == [engine_module.PROBE_SECONDS]
+
+
+def test_up_writes_the_granted_fallbacks_into_the_operator_config(env):
+    # #1033: the deployment key's mint reads them, so a fallback keeps working when granted.
+    (env / "gw" / "config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "model_list": [
+                    {"model_name": "m1", "litellm_params": {"model": "gemini/x"}},
+                    {"model_name": "m2", "litellm_params": {"model": "openrouter/v/x"}},
+                    {"model_name": "m3", "litellm_params": {"model": "gemini/y"}},
+                ],
+                "litellm_settings": {
+                    "fallbacks": [{"m1": ["m2"]}, {"m1": ["m2"]}],
+                    "context_window_fallbacks": [{"m1": ["m3"]}],
+                },
+            }
+        )
+    )
+    stack = copy.deepcopy(STACK)
+    stack["environment"]["models"] = ["m1", "m2", "m3"]
+    (env / "stack.yaml").write_text(yaml.safe_dump(stack))
+    result, _ = up(env, FakeDocker())
+    dev = load_operator_config(Path(result["operator_config"])).model.environments["dev"]
+    assert dev.fallbacks == {"m1": ["m2", "m3"]}
+    assert dev.key_models(["m1"]) == ["m1", "m2", "m3"]
+
+
+def test_up_without_fallbacks_writes_no_fallbacks_key(env):
+    result, _ = up(env, FakeDocker())
+    document = yaml.safe_load(Path(result["operator_config"]).read_text())
+    assert "fallbacks" not in document["environments"]["dev"]
+
+
+@pytest.mark.parametrize("failure", ["ungranted", "unreadable"])
+def test_granted_fallbacks_fail_closed(monkeypatch, tmp_path, failure):
+    # Unreachable after the lock's own check; a bypass must not silently drop an edge.
+    from types import SimpleNamespace
+
+    from agentbreeder import gateway_keys
+    from agentbreeder.services import operator as operator_writer
+
+    def review(path):
+        if failure == "unreadable":
+            raise gateway_keys.GatewayError("GATEWAY_CONFIG", "config.yaml: unreadable")
+        return SimpleNamespace(fallbacks={"m1": ["m2"]})
+
+    monkeypatch.setattr(gateway_keys, "config_review", review)
+    stack = SimpleNamespace(environment=SimpleNamespace(gateway="gw", models=["m1"]))
+    plan = SimpleNamespace(
+        locked=SimpleNamespace(stack=stack), files={"gw": {"config": tmp_path / "c.yaml"}}
+    )
+    with pytest.raises(ServiceError) as caught:
+        operator_writer._granted_fallbacks(plan)
+    expected = "GATEWAY_FALLBACK_UNGRANTED" if failure == "ungranted" else "GATEWAY_CONFIG"
+    assert caught.value.code == expected

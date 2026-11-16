@@ -132,6 +132,7 @@ environments:
     targets: [local]
     gateway: litellm-local
     models: [support-model, support-embedding]
+    # fallbacks: {support-model: [support-model-openrouter]}   # granted models only; `services up` writes it (#1033)
     ceilings: {budget_usd: 50, rpm: 300}                       # required with a gateway
     services: {traces_url: …, tools_proxy_url: …}            # → AGENTBREEDER_SERVICE_<NAME>
     bindings: {DATABASE_URL: secret://northwind-db}
