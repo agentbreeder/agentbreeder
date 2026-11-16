@@ -1,6 +1,9 @@
 # Guardrails on model input and output (#1024)
 
-Status: spec r3 (2026-11-15), for owner decisions D1–D10 (§10). Nothing here is implemented.
+Status: spec r4 (2026-11-15). The owner accepted the recommended D1–D10 (#1024 comment, 2026-11-15 17:32), with agent-level
+guardrails additive only (#1053). r4 adds the G0
+results (§12) and the changes they force (§12.10). D8's amendment and the agent-level design in §12.8
+need the owner. Nothing here is implemented.
 Parent: #1017 (model layer epic), phase 3. Related: #1023 (direct providers; shares the
 policy-schema change and the runtime version plan, §7).
 
@@ -52,7 +55,7 @@ action (G-C) is deferred (D1).
 ### 4.1 Presidio service
 
 - A new built-in `service/presidio@1.0.0` runs the analyzer and the anonymizer: two images pinned by
-  digest from `mcr.microsoft.com` (arm64 and amd64 checked in G0, D9).
+  digest from `mcr.microsoft.com` (D9). G0 checked both platforms' manifests and ran amd64 only (§12.1).
 - It sets `egress: false` and `ports: {http: {expose: internal}}`. An `internal` port joins only the
   stack network. Agent containers join only `<project>-agents` (`services/plan.py` `joins`), so
   agents cannot reach Presidio. The analyzer and anonymizer have no auth, so an acceptance test
@@ -314,7 +317,8 @@ claimed, until G2 lands.
 - **D8** A block answers `/chat` with HTTP 422 and a coded body, and the turn is recorded as
   failed. *Rec: yes.*
 - **D9** Use Microsoft's published Presidio images from `mcr.microsoft.com`, pinned by digest, with
-  arm64 and amd64 checked and the two-week rule applied. *Rec: yes.*
+  arm64 and amd64 checked and the two-week rule applied. *Rec: yes.* (G0: both manifests present,
+  amd64 run only; an arm64 run is a G1b item, §12.9.)
 - **D10** Where `approved_sha256` comes from for a `services up`-generated environment. Either:
   - (a) the stack's `stack.yaml` environment, which `services up` copies after printing the
     guardrails for review, as with MCP pins; or
@@ -326,7 +330,7 @@ claimed, until G2 lands.
 ## 11. Slices (after D1–D10)
 
 - **G0:** verification on the pinned images, with no product code. Write the results into this spec
-  as r3:
+  as r3 (written as r4, §12):
   - the guardrail fields;
   - the request-side overrides;
   - the routes the hook covers;
@@ -344,7 +348,311 @@ claimed, until G2 lands.
 - **G2:** `RUNTIME_GUARDRAILS_UNSUPPORTED`; runtime events and spans in the next free runtime version, coded block replies, reconcile
   drift, docs, and a recorded run against real Gemini.
 
-## 12. Review log
+## 12. G0 results (r4, 2026-11-15)
+
+Run on macOS 13 (Intel, Docker Desktop 27.5.1, linux/amd64) in a throwaway sandbox stack: one
+Docker network holding the pinned LiteLLM image with the image's own `litellm` entrypoint, its own
+Postgres, both Presidio images, a scripted OpenAI-compatible fake provider that logged every
+request body it received, and a fault proxy in front of each Presidio service. The keys were LiteLLM
+virtual keys minted the way `gateway_keys.mint` mints them (`/key/generate` with `key_alias`,
+`models`, `metadata`). The PII was synthetic (`jane.doe@example.com`, `212-555-0147`, SSN
+`536-22-8174`, test card `4111 1111 1111 1111`, IP `203.0.113.7`). Real Gemini
+(`gemini/gemini-2.5-flash`) was called for one mask turn and one block turn. No product code was
+changed. After the run Docker matched the pre-run snapshot (images, containers, networks, volumes),
+and the key files were deleted. The raw outputs stayed in the session scratchpad and were not kept.
+
+"Provider saw" below means what the fake provider logged.
+
+### 12.1 Images and the hook
+
+| Image | Pin | Platforms | Built |
+|---|---|---|---|
+| LiteLLM 1.106.2 | `ghcr.io/berriai/litellm-database@sha256:35f2cec3…5d91e79` (unchanged, `service/litellm@1.0.0`) | amd64 here; arm64 not rechecked in G0 | not checked in G0 |
+| Presidio analyzer 2.2.362 | `mcr.microsoft.com/presidio-analyzer@sha256:286e3fa7f3a7426e775e8564fe1870f1ba8f999d3ab8bbb8cc46a44355d9d6e9` (multi-arch index) | linux/amd64 `d459416c…`, linux/arm64 `51c773df…` | 2026-03-15 |
+| Presidio anonymizer 2.2.362 | `mcr.microsoft.com/presidio-anonymizer@sha256:a10a12a2a613d13cf29d3ad3641e3258444dd8c90403dd644a0a114c472c2483` (multi-arch index) | linux/amd64 `652493f6…`, linux/arm64 `29bf3829…` | 2026-03-15 |
+
+- 2.2.362 is the newest tag. It is eight months old, so it passes the two-week rule (D9). Only the
+  amd64 images were run.
+- The analyzer is 965 MB and the anonymizer 231 MB. The anonymizer was healthy in under 10 s. The
+  analyzer was ready before LiteLLM, which took 35–80 s to start.
+- The pinned LiteLLM image's Presidio hook (`proxy/guardrails/guardrail_hooks/presidio.py`) works
+  with no extra package. It needs only `PRESIDIO_ANALYZER_API_BASE` and
+  `PRESIDIO_ANONYMIZER_API_BASE` in the environment, so `files/start.py` does not change (§4.1):
+  `service/litellm@1.1.0` sets the two variables in `env`.
+
+### 12.2 Guardrail fields the pinned image honours
+
+From `PresidioConfigModel` and `CustomGuardrail.__init__` in the image, plus the live runs:
+
+| Field | Seen | Allow-list (r4) |
+|---|---|---|
+| `guardrail`, `mode`, `default_on`, `pii_entities_config`, `presidio_language`, `presidio_score_thresholds` | yes, as §4.2 | as §4.2 |
+| `presidio_entities_deny_list` | in the model | refuse |
+| `presidio_analyze_chunk_size_bytes` | default 500 000; larger texts are chunked (§12.5) | refuse (keep the default) |
+| `stream_scope` | default `both` (streaming and not) | refuse (a value of `non_streaming` would skip streamed calls) |
+| `timeout` | a `CustomGuardrail` argument; with none set, a stalled analyzer failed after 300 s | allow one number, 1–60 (not run with a value) |
+| `apply_to_output`, `output_parse_pii`, `logging_only`, `mock_testing`, `mock_redacted_text`, `presidio_ad_hoc_recognizers`, `api_base`, `api_key` | in the model | refuse (as §4.2, plus `apply_to_output` and `mock_testing`) |
+
+- `presidio_language` other than `en` fails every call. With `xx` the analyzer answered HTTP 500 "No
+  matching recognizers were found to serve the request", and the gateway refused every request with
+  400, even a request with no PII. So `en` only (§4.2) stands.
+- **`mode` is not a direction.** A `pre_call` guardrail also checked the model's response. A
+  response with a test card number was blocked by `pii-block`, a `pre_call` guardrail that was the
+  only one listing `CREDIT_CARD`. A `post_call` SSN BLOCK guardrail was also configured, but the
+  error named `pii-block`. The `post_call` MASK guardrail masked responses. So on this image a
+  `pre_call` guardrail also checks responses. The config had `apply_to_output` and
+  `output_parse_pii` unset. The hook's own `async_post_call_success_hook` checks output only when one
+  of them is set, so another path does the output check, probably the unified `apply_guardrail` path
+  (`presidio.py`, `input_type="response"`). That was not traced. It is observed behaviour with an
+  unknown mechanism, and G1 pins it with a test on this digest. The refusal of `apply_to_output` and
+  `output_parse_pii` (§4.2) must not remove output coverage, and that test checks it.
+- §4.5's split of MASK between `pre_call` (the provider receives tags) and `post_call` (the agent
+  receives tags) therefore does not hold on this image. A `pre_call` MASK guardrail did both.
+- The guardrails ran one after another, in config order, on one request (the analyzer saw the
+  entity lists in that order). A MASK guardrail rewrites the text before later guardrails see it,
+  so an entity that one guardrail masks cannot be blocked by a later one. This is inferred from the
+  order and not run.
+
+### 12.3 Request-side overrides (D4): none switched a guardrail off
+
+With `pii-mask` (MASK email, phone) and `pii-block` (BLOCK SSN, card) both `default_on` `pre_call`,
+a message with an SSN and an email was sent to `/v1/chat/completions` with each override below.
+The override set was not repeated on other routes, and no `post_call`-only guardrail was put through
+it (§12.9). **Every one was still blocked
+with 400, and the provider received nothing:**
+
+- body `guardrails: []`, `guardrails: ["pii-mask"]`, and
+  `guardrails: [{"pii-block": {"extra_body": {...}}}]` (the source drops `extra_body` without an
+  Enterprise licence, `CustomGuardrail.get_guardrail_dynamic_request_body_params`);
+- `metadata.guardrails: []` and `litellm_metadata.guardrails: []`;
+- `disable_global_guardrails` and `disable_global_guardrail`, in the body, `metadata` and
+  `litellm_metadata`;
+- a forged `metadata.user_api_key_metadata` or `user_api_key_team_metadata` carrying
+  `disable_global_guardrails` or `opted_out_global_guardrails`;
+- `opted_out_global_guardrails`, in the body and in `metadata`;
+- `guardrail_config.language` (`xx`, `es`), in the body and in `metadata`. It never reached
+  Presidio: the analyzer log shows only `en`;
+- `policies: []`, and a config-defined policy whose `guardrails.remove` lists both guardrails,
+  requested in the body or in `metadata`;
+- `litellm_disabled_callbacks`, `callbacks: []`, `mock_response`, `metadata.applied_guardrails`,
+  `no-log`, and a nested `extra_body`;
+- headers `x-litellm-disable-guardrails`, `x-litellm-guardrails` and `x-litellm-tags`;
+- `stream: true`;
+- the PII in a list-form `content` text part, a `system` message, a `tool` message, or after a
+  `name` field.
+
+So the D4 stop rule did not trigger for these requests on `/v1/chat/completions`, and G1 may go
+ahead. The route gaps in §12.4 are coverage gaps, not overrides: the caller switches nothing off and
+uses another URL or field. `allowed_routes` closes them, so it is mandatory and tested (§12.10). The image strips these fields itself
+(`_UNTRUSTED_ROOT_CONTROL_FIELDS`, `_UNTRUSTED_METADATA_CONTROL_FIELDS` in
+`proxy/litellm_pre_call_utils.py`).
+
+**What does switch the global guardrails off is key metadata set when the key is minted.** A key
+minted with `metadata: {disable_global_guardrails: true}` sent the SSN to the provider, and the
+response named no guardrail at all. A key with `metadata: {opted_out_global_guardrails:
+["pii-block"]}` sent the SSN with only `pii-mask` applied. Only the minting side (`gateway_keys.mint`,
+using the master key) can set these. §4.3's reserved-key list becomes an **allow-list**, because a
+deny-list goes stale with each LiteLLM upgrade:
+- `mint` sends only `key_alias`, `models`, `max_budget`, `budget_duration`, `rpm_limit`,
+  `duration`, `allowed_routes` and `metadata`;
+- `metadata` holds only AgentBreeder's own keys.
+
+Everything else is refused, including the top-level `guardrails`, `policies`, `permissions`,
+`disable_global_guardrails`, `team_id`, `config`, `object_permission`, `tags` and `agent_id` fields,
+and the metadata keys `disable_global_guardrails`, `opted_out_global_guardrails`, `guardrails`,
+`policies`, `permissions`, `litellm_disabled_callbacks`, `logging` and `tags`. The source lists these
+in `GenerateRequestBase`/`KeyRequestBase`. Team metadata carries the same switches, so keys never get
+a `team_id`.
+
+A request can **add** a guardrail that is not `default_on` by naming it (`guardrails:
+["key-ip-block"]` blocked an IP for a key that does not otherwise run it). That only adds checks.
+
+### 12.4 Routes and content the hook covers
+
+Each route was sent a BLOCK message (SSN) and a MASK message (email, phone) with an agent key
+(models limited to the sandbox aliases, no `allowed_routes`):
+
+| Route | BLOCK | MASK, provider saw | Response masked (REPLY with PII) |
+|---|---|---|---|
+| `/chat/completions`, `/v1/chat/completions` | 400 | tags | yes |
+| `/v1/chat/completions` with `stream: true` | 400 | tags | yes, in the stream chunks |
+| `/v1/embeddings` | 400 | tags | — |
+| `/v1/completions` (text) | 400 | tags | yes |
+| `/v1/responses` | 400 | tags | yes |
+| `/v1/messages` (Anthropic shape; sent on as `/v1/responses`) | 400 | tags | yes |
+| `/gemini/...` passthrough naming an alias | 400 (routed through the router) | not run | — |
+| **`/v1/moderations`** | **not checked: provider saw the SSN** | **provider saw the email** | — |
+| **`/openai/*`, `/openai_passthrough/*`** (with `OPENAI_API_KEY` set) | 400 (the guardrail runs) | **not masked: its rewrite is not applied to the forwarded body; provider saw the raw email** (chat and embeddings), sent with the gateway's own OpenAI key | — |
+| `/anthropic/*`, `/vertex_ai/*` | refused (model not on the key, or no Vertex credential) | — | — |
+| `/utils/token_counter` | not checked; no provider call | — | — |
+
+Inside a chat request, the hook reads only the `text` of `messages[].content`. **Not checked:** an
+assistant message's `tool_calls[].function.arguments` (the provider saw an SSN and an email),
+`tools[].function.description` (provider saw both), an `image_url` URL (provider saw the SSN), and
+the `user` field. `user` was not forwarded to the provider, but LiteLLM stored it as an end-user ID in
+`LiteLLM_EndUserTable` and `LiteLLM_DailyEndUserSpend`.
+
+**The key's routes can be limited on the OSS image.** A key minted with `allowed_routes:
+["/v1/chat/completions", "/chat/completions", "/v1/embeddings", "/embeddings"]` worked on chat and
+embeddings and got 403 ("Virtual key is not allowed to call this route") on `/openai/*`,
+`/v1/moderations`, `/v1/responses` and `/key/generate`. ADK's `LiteLlm` client worked with such a key
+(§12.6). `/v1/messages` was not sent with this key. It is not on the list, so a 403 is expected, but
+that was not run. Only these four 403s were seen, so G1 asserts the 403 across the OpenAI-compatible,
+passthrough and management routes, and checks whether the match is exact or by prefix. The
+`/openai/*` gap needs `OPENAI_API_KEY` in the litellm environment. `service/litellm`'s launcher puts
+an imported OpenAI key there (inferred from `files/start.py`, not run in G0). So the route limit
+cannot be left out. G1 therefore mints every key in a guardrails-required environment with `allowed_routes`, and
+the claim (§5) names chat completions and embeddings. Embedding calls that go through the gateway
+are covered. Whether knowledge ingest and RAG embeddings use this route is checked in G1, not here.
+A test asserts the 403 on each excluded route.
+
+### 12.5 Failure behaviour (D5): every case failed closed
+
+The provider received nothing in any case below. "Clean" is a message with no PII.
+
+| Case | Client gets | Message (as returned) |
+|---|---|---|
+| analyzer HTTP 500, 413, non-JSON body, or `{"error":…}` (clean or MASK message) | 400 | "Presidio analyzer returned invalid response; cannot verify PII when PII protection is configured: …" plus up to 200 characters of Presidio's body |
+| analyzer stopped (unreachable) | 500 | "Presidio PII analysis failed: ClientConnectorDNSError" |
+| analyzer stalls (no response) | 500 after **300 s** | "Presidio PII analysis failed: TimeoutError" |
+| anonymizer HTTP 500, 413, non-JSON, error JSON, or stopped, on a MASK hit | 500 | "Presidio anonymizer returned HTTP 500: …", "Presidio PII anonymization failed: …" |
+| same anonymizer faults, clean message | 200 | the anonymizer is not called when nothing matched |
+| config `presidio_language: xx` | 400 on every call | analyzer 500 "No matching recognizers…" |
+| oversized: 594 kB with an SSN at the end | 400 block after 44 s | chunked analysis found it |
+| oversized: 2.16 MB with an email at the end | 200 after 127 s; provider saw the tag | chunked analysis masked it |
+
+- G1 sets `timeout` (§12.2), because 300 s is longer than the runtime's 90 s model timeout.
+- Large bodies are analysed, not refused. They are slow (about 1 min per MB here). There was no
+  size cap before Presidio. LiteLLM's own body limit was not tested.
+- The Presidio error bodies that came back held no input text in these runs, but the gateway copies
+  up to 200 characters of them into its error. The runtime's fixed message (§4.5) stays.
+
+### 12.6 Response shapes and the ADK exception
+
+- **Block, on input or output:** HTTP 400, `{"error": {"message": "Blocked entity detected:
+  US_SSN by Guardrail: pii-block. This entity is not allowed to be used in this request.", "type":
+  "invalid_request_error", "code": "400"}}` (`/v1/messages` uses Anthropic's error shape). The
+  message holds the entity type and the guardrail name, not the matched text. An output block is the
+  same message as an input block, and it named the `pre_call` guardrail (§12.2).
+- **Mask:** HTTP 200. The provider receives `<EMAIL_ADDRESS>`, `<PHONE_NUMBER>`, and the client sees
+  the same tags in a masked response.
+- In a container installed from `runtime/adk@1.2.0`'s `requirements.lock` (google-adk 2.12.0,
+  litellm 1.108.3), an `LlmAgent` with `LiteLlm(model="openai/<alias>", api_base=<gateway>)` raised:
+
+  | Case | Exception | `status_code` |
+  |---|---|---|
+  | block on input, block on output (fake provider and real Gemini) | `litellm.exceptions.BadRequestError` ("litellm.BadRequestError: OpenAIException - Blocked entity detected: US_SSN by Guardrail: pii-block. …") | 400 |
+  | analyzer HTTP 500 | `litellm.exceptions.BadRequestError` ("… Presidio analyzer returned invalid response …") | 400 |
+  | analyzer unreachable | `litellm.exceptions.InternalServerError` ("… Presidio PII analysis failed: ClientConnectorDNSError") | 500 |
+
+  No exception message held seeded PII. A mask turn replied normally, and real Gemini repeated the
+  message back as "my email is <EMAIL_ADDRESS> and my phone is <PHONE_NUMBER>."
+- So a block and a fail-closed error both arrive as the same exception class with status 400. The
+  runtime can tell them apart only by the message prefix ("Blocked entity detected" against
+  "Presidio …"). G2 pins both prefixes in a test against the pinned image, and maps an unknown 400 to
+  a generic model error, never to a block.
+
+### 12.7 Logs and stored records
+
+- At `LITELLM_LOG=WARNING` (the value `service/litellm@1.0.0` sets), with
+  `turn_off_message_logging: true`, `set_verbose: false`, `store_prompts_in_spend_logs: false` and
+  `disable_error_logs: true`: no seeded PII in the LiteLLM container log, the Presidio analyzer or
+  anonymizer logs, `LiteLLM_SpendLogs` (its guardrail fields hold entity types, offsets and
+  scores), `LiteLLM_ErrorLogs` (0 rows) or `LiteLLM_AuditLog` (0 rows).
+- **At `LITELLM_LOG=DEBUG` the LiteLLM log held the seeded email, phone and SSN** although the four
+  settings above were on. `guardrails_effective` therefore also requires the litellm service's
+  `LITELLM_LOG` to be `WARNING` or higher. It is a service env value, not a config field, so G1
+  checks it in the service plan.
+- A full dump of the LiteLLM database found the seeded PII only in `LiteLLM_EndUserTable` and
+  `LiteLLM_DailyEndUserSpend`, from the `user` field (§12.4). Acceptance criterion 8 adds those
+  tables to its grep, and G1 checks whether the runtime sends `user`.
+
+### 12.8 Hierarchical guardrails (owner request, 2026-11-15; #1053)
+
+The question: an environment-level floor plus agent-level guardrails from `agent.yaml`.
+
+- **Per-key guardrails need LiteLLM Enterprise.** `/key/generate` with a top-level `guardrails`
+  field returned 403 ("only available for LiteLLM Enterprise users: guardrails"). A key minted with
+  `metadata: {guardrails: [...]}` was created, but **every call with it returned 403** (the same
+  Enterprise message), and no guardrail ran.
+- **The policy engine works on the OSS image.** In the gateway config,
+  `policies: {agent-a-extra: {guardrails: {add: [key-ip-block]}}}` with
+  `policy_attachments: [{policy: agent-a-extra, keys: [g0-agent-a]}]` ran `key-ip-block` (a
+  non-`default_on` BLOCK on IP addresses) for the key aliased `g0-agent-a` only. Another key's IP
+  went to the provider.
+- **A request could not remove the attached guardrail.** Still blocked: body `guardrails: []`,
+  `metadata.guardrails: []`, body or `metadata` `policies: ["weaken"]` (a policy whose `remove`
+  lists it), `opted_out_global_guardrails`, `disable_global_guardrails`, tags in the body and in
+  `x-litellm-tags`, and a forged `metadata.user_api_key_alias`. It also ran on `/v1/embeddings` and
+  on streamed calls.
+- **Both levels run, globals first.** The analyzer saw the `default_on` guardrails in config order,
+  then the attached one. The first block stopped the call: a message with both an IP and an SSN was
+  refused by the global `pii-block`.
+- **Matching.** An attachment matches on `key_alias` and `team_alias` from authentication, and on
+  `model` and `tags`, which come from the request. The proposed shape uses neither `models` nor
+  `tags`, so a request cannot match or unmatch an attachment. A request can name any registered
+  policy in `policies`. With `add` only, that can only add checks. `matches_pattern` treats a
+  trailing `*` as a prefix match, so `services up` refuses an alias containing `*`. A key with no
+  alias matches only `*` patterns, which the shape does not allow.
+- **What this means for the design** (needs the owner, not decided here): an agent's guardrails can
+  be gateway config entries that are not `default_on`, attached to that deployment's key alias by a
+  policy attachment that `services up` generates. `config_review` would then allow `policies` and
+  `policy_attachments` in a narrow shape:
+  - `guardrails.add` only (no `remove`, `inherit`, `condition` or `pipeline`);
+  - attachments by exact key alias only (no `scope: "*"`, `teams`, `models`, `tags` or wildcard
+    aliases).
+
+  The environment floor stays the `default_on` set from §4. An agent can add checks but cannot take
+  any away. The agent's set would then join `guardrails_sha256` and the Cedar `guardrails` attribute.
+  This needs its own spec delta before G1b.
+
+### 12.9 Not run in G0
+
+- An arm64 run of either Presidio image (only the manifests were checked).
+- The override set (§12.3) on routes other than `/v1/chat/completions`, and on a `post_call`-only
+  guardrail.
+- Whether an agent key without `allowed_routes` can call `/key/update` or `/key/generate` to rewrite
+  its own metadata. LiteLLM normally keeps those routes for admin keys, but this was not run. Only
+  the 403 with `allowed_routes` was seen. Such a self-edit would be a D4-class switch-off.
+  `allowed_routes` is what closes it, and G1 tests it.
+- MASK through the `/gemini/...` passthrough, and `/v1/messages` with a route-limited key.
+- The `timeout` field with a value.
+- The real `service/litellm` launcher (`files/start.py`). The sandbox ran the image's `litellm`
+  entrypoint with the same config path, user (65532) and environment names.
+- A `post_call` block on a response that asks for tool calls.
+- An agent container's reachability of Presidio (acceptance 9; G1b, using the stack's real
+  networks).
+- Fallbacks beyond one case: `fake-broken` → `fake-model` was blocked (SSN) before any call and
+  masked (email) on the fallback.
+
+### 12.10 Changes to the design from G0
+
+- **§4.1:** Presidio 2.2.362 pins as in §12.1. `files/start.py` unchanged; `service/litellm@1.1.0`
+  adds the two `PRESIDIO_*` env values. The LiteLLM digest is unchanged.
+- **§4.2:** the allow-list rows in §12.2, `timeout` (1–60) added, and
+  `presidio_entities_deny_list`, `presidio_analyze_chunk_size_bytes`, `stream_scope`,
+  `apply_to_output` and `mock_testing` refused. `guardrails_effective` also requires
+  `LITELLM_LOG` at `WARNING` or higher (§12.7). Within one config, an entity that a guardrail masks
+  may not be blocked by a later one (§12.2).
+- **§4.3:** D4 stays satisfied for the requests tested (§12.3). `mint` becomes an allow-list of
+  fields and metadata keys (§12.3). In a guardrails-required environment it always sets
+  `allowed_routes` to the chat-completions and embeddings routes (§12.4).
+- **§4.5:** MASK direction follows §12.2, not the mode name.
+- **§4.5 and D8 (amendment, needs the owner):** an input block and an output block cannot be told
+  apart (§12.2, §12.6). Proposed: one code, `MODEL_BLOCKED` (HTTP 422), in place of
+  `MODEL_INPUT_BLOCKED` and `MODEL_OUTPUT_BLOCKED`. Fail-closed errors map to `GUARDRAIL_UNAVAILABLE`
+  by message prefix (§12.6).
+- **§4.6 and acceptance 8:** add the `LITELLM_LOG` requirement and the end-user tables.
+- **§5:** the routes are chat completions (streamed and not) and embeddings, with `allowed_routes`
+  set. The claim also excludes tool-call arguments, tool definitions and image URLs inside a chat
+  request (§12.4).
+- **§6:** T2 is closed by §12.3. T8's residual narrows to the content not checked inside chat
+  requests. A new T10, "a key minted with guardrail-disabling metadata", is mitigated by the `mint`
+  refusal and a unit test per name.
+- **§9:** acceptance 2 uses one block code. Acceptance 7 asserts the 403 on each excluded route.
+  Acceptance 3 adds the anonymizer and the 300 s default timeout.
+
+## 13. Review log
 
 | Round | Reviewer | Lens | Result |
 |---|---|---|---|
@@ -352,3 +660,4 @@ claimed, until G2 lands.
 | r1 | Claude Sonnet (read-only subagent) | /security | CHANGES REQUESTED: 3 high (route coverage overstated, `start.py` cannot strip request fields, vacuous configs pass the allow-list), 5 medium, 3 low. One claim refuted: `expose: gateway` is not a scope, but `internal` already keeps agents off Presidio (`services/plan.py` `joins`). Fixed in r2: §3, §4.2, §4.3, §4.5 fail-closed cases, §4.6 logging settings, §5 claim narrowed, §6 T7–T9 |
 | r2 | Claude Sonnet (read-only subagent) | /architect + /security | CHANGES REQUESTED: r1 fixes confirmed; 2 medium here (the gate cannot compute effectiveness from a hash; `mint` takes free metadata and 1.2.0 copies block text into replies). Fixed in r3: `services up` records `effective`, `mint` refuses reserved keys, `RUNTIME_GUARDRAILS_UNSUPPORTED`, D10(b) wording |
 | r3 | Claude Sonnet (read-only subagent) | /architect + /security | APPROVED. One low gap (no gate re-check of the runtime's guardrails capability) closed in §7 |
+| r4 | Claude Sonnet (read-only subagent) | /security + accuracy, on the G0 results | CHANGES REQUESTED: 4 medium (the override route was not named; key self-edit not recorded; the mint deny-list should be an allow-list; the output-check mechanism contradicted the source reading), 7 low (D9/§4.1 arm64 wording, §11 "r3", wildcard attachment aliases, `/openai/*` MASK note, and others). It agreed that the route gaps are coverage, not a D4 stop. All applied in r4 |
