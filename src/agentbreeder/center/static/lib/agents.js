@@ -139,8 +139,23 @@ export function candidateOf(rows, name) {
  * the production deployment. An agent deployed without `release` shows its first three steps as
  * "none"; production running another image than `released` (the newest promoted or rolled-back
  * image, `releasedImage`), for example after a plain deploy, shows "differs".
+ * Until the first read answers (#1073), `loading.releases` makes Build, Candidate and Evals
+ * "loading", and `loading.deployments` makes Candidate, Identity and Production "loading", so a
+ * step never says "No release recorded" or "Not deployed" before it knows.
  */
-export function gateStrip({ run = null, released = null, production = null, candidate = null } = {}) {
+export function gateStrip({ run = null, released = null, production = null, candidate = null, loading = {} } = {}) {
+  const steps = gateSteps({ run, released, production, candidate });
+  const waits = {
+    build: loading.releases,
+    candidate: loading.releases || loading.deployments,
+    evals: loading.releases,
+    identity: loading.deployments,
+    production: loading.deployments,
+  };
+  return steps.map((step) => (waits[step.key] ? { ...step, state: "loading", detail: loading.releases && step.key !== "identity" && step.key !== "production" ? "Loading releases…" : "Loading deployments…" } : step));
+}
+
+function gateSteps({ run, released, production, candidate }) {
   const none = { state: "none", detail: "No release recorded" };
   const build = !run ? none : run.image ? { state: "passed", detail: run.image } : { state: "none", detail: "No image recorded" };
   let candidateStep;
@@ -184,7 +199,7 @@ export function localDate(now = new Date()) {
 }
 
 /** A step's state in words, for screen readers and the title (colour is never the only cue). */
-export const STEP_WORDS = { passed: "passed", failed: "failed", running: "in progress", differs: "differs from the last release", none: "not run" };
+export const STEP_WORDS = { passed: "passed", failed: "failed", running: "in progress", differs: "differs from the last release", none: "not run", loading: "loading" };
 
 /** The detail tabs: [key, label]. Overview is the agent's own address; the others add the key. */
 export const TABS = [

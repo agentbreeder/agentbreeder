@@ -270,6 +270,25 @@ def test_the_list_follows_a_release_while_it_runs_and_when_it_ends(page, console
     expect(rows.first.locator(".gated")).to_have_text("passed 5/5", timeout=10000)
 
 
+def test_the_gate_strip_says_loading_until_releases_answer(page, console):
+    """#1073 (lane V): /deployments answered before /releases, and for that gap the strip said
+    "No release recorded" for an agent that had one. It says "Loading releases…" instead."""
+    console.scenario(deployments=[DEPLOYMENTS[0]], audit_rows=[RELEASE])
+    own_project(console)
+    sign_in(page, console)
+    # Every key again: the fake CLI's scenario file is replaced, not merged.
+    console.scenario(deployments=[DEPLOYMENTS[0]], audit_rows=[RELEASE], audit_seconds=3)
+    page.goto(f"{console.origin}/#/agents/demo")
+    steps = page.get_by_role("list", name="Gate").get_by_role("listitem")
+    expect(steps.nth(0)).to_contain_text("Build: loading.")
+    expect(steps.nth(0)).to_contain_text("Loading releases…")
+    expect(page.get_by_role("list", name="Gate")).not_to_contain_text("No release recorded")
+    expect(steps.nth(4)).to_contain_text("Production: passed.")  # deployments already answered
+    expect(page.locator("dl.identity-strip")).not_to_contain_text("Loading deployments…")
+    expect(steps.nth(0)).to_contain_text("Build: passed.", timeout=15000)
+    expect(steps.nth(2)).to_contain_text("Evals 5/5: passed.")
+
+
 def test_the_agent_page_shows_the_release_when_the_job_ends(page, console):
     """lane V's M17 run: the gate strip said "No release recorded" after a console release."""
     job = {"job_seconds": 8}
