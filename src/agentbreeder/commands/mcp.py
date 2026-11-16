@@ -1,5 +1,5 @@
 """`agentbreeder mcp grant|revoke AGENT SERVER TOOL...`: edit an agent's MCP tool grant in
-stack.yaml (on `main`, not in a published preview).
+stack.yaml.
 
 Exit 0 on success (also when nothing changed), 2 on a refusal. With `--json` the summary goes to
 stdout, and a refusal prints `{"schema_version": 1, "error": {"code", "message"}}` there too; the

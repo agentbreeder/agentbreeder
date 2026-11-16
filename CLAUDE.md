@@ -128,6 +128,14 @@ yet) and GitHub; footer, install pins and `up` claims updated after the public-r
 `install.mdx` carries separate a2 and a1 verification tables. Cloud: no code change; its `CLAUDE.md`
 records the version.
 
+**3.0.0a3 release (#836, milestone R of #812), per side.** OSS: PyPI `3.0.0a3`, npm `3.0.0-alpha.3`,
+cut from `main` with `runtime/adk@1.4.0` (owner decision). The prep PR changes only the version, the
+CHANGELOG (fragments folded) and the pins frozen into the artifacts (`README.md`, `npm/README.md`,
+the Northwind README); the footer badge, `install.mdx` and `what-ships` change in a follow-up PR
+after the public-registry run, and claim only what that run covered. Website: an a3 verification
+table in `install.mdx`. Cloud: no code change (no OSS version pin); its `CLAUDE.md` records the
+version.
+
 **Brand tokens (#817), per side.** OSS: `website/brand.css` gains a light `:root` palette and new
 tokens (`--text-muted`, `--control-border`, status colours), copied to `center/static/brand.css`
 and checked by `tests/test_brand_tokens.py`. Website: no visual change (forced dark). Cloud:
@@ -163,6 +171,7 @@ the `service.yaml` field `reaches_host` (built-in gateway only), `new agent --mo
 (verified on macOS + Docker Desktop only, on `runtime/adk@1.3.0`; Linux and 1.4.0 not run) and the `cost` label `no price (local
 model)` (`local` in `--json`). No manifest, JSON Schema or `agent.lock` change. Website: no
 change until release R. Cloud: a `CLAUDE.md` note only.
+
 **Agent guardrails, #1053, per side.** OSS (on `main`): `agent.yaml` and the manifest gain an
 optional `guardrails` list (JSON Schema updated; digests, revisions and package bytes are unchanged
 when it is unset), `services up` writes `guardrails.optional`, and deploy attaches a LiteLLM policy
