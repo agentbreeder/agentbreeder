@@ -20,6 +20,7 @@ const RETRY = 5000;
 export function createJobs({ client, setTimer = setTimeout, clearTimer = clearTimeout, now = Date.now }) {
   const entries = new Map(); // id -> entry
   const versions = new Map(); // project id -> number
+  let ended = 0; // jobs seen ending, in any project or none (#1073: the Agents list)
   const listeners = new Set();
   let running = [];
   let activityTimer = null;
@@ -93,6 +94,7 @@ export function createJobs({ client, setTimer = setTimeout, clearTimer = clearTi
       schedule(entry, RUNNING_POLL);
     } else if (wasRunning) {
       entry.collapsed = true;
+      ended += 1;
       if (entry.project) versions.set(entry.project, (versions.get(entry.project) || 0) + 1);
     }
     emit();
@@ -218,5 +220,7 @@ export function createJobs({ client, setTimer = setTimeout, clearTimer = clearTi
     running: () => [...entries.values()].filter((entry) => entry.state === "running"),
     runningIn: (project) => [...entries.values()].find((entry) => entry.state === "running" && entry.project === project) || null,
     version: (project) => versions.get(project) || 0,
+    /** How many followed jobs have ended so far, in any project: views across projects read again when it changes. */
+    ended: () => ended,
   };
 }

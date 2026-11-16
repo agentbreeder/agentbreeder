@@ -1119,7 +1119,12 @@ project, target, state, image, identity check, endpoint and last release:
   of a release name no agent, so they count as the runs of the project's `agent.yaml` only: any
   other agent deployed in that stack shows "unknown", as do unregistered projects. The list reads
   each registered project's releases one after another (each is a `services env` and an `audit
-  list` child), again whenever the list is read again.
+  list` child), again whenever a job ends.
+- **Refresh (#1073):** while any job runs in the console, the list is read again every 3 seconds,
+  so a release's candidate appears and goes and its production row changes without a reload. A
+  read still running at the next tick is left to finish, for up to two ticks, and then started again.
+  When a job ends, the list and its last releases are read again. The agent's detail reads its
+  deployments and releases again when a job in its project ends.
 
 Opening an agent from "All projects" switches the scope to its project. The detail
 (`#/agents/NAME`) has:
