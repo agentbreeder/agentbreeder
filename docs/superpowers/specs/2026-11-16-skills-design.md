@@ -2,6 +2,12 @@
 
 - Status: **r3, reviews converged** (round 3 APPROVED). The r1–r3 architecture and `/security`
   reviews (Claude Sonnet, read-only) are folded in (§18). Owner decisions D1–D12 are open (§16). No code in this PR.
+- **Status note (2026-11-16):** the owner accepted every recommendation (D1–D12). The kind (b)
+  deploy contract is fixed in `2026-11-16-skills-script-runner-addendum.md`, which **supersedes
+  §9.2–§9.5 where they differ**: the gate's policy request does not carry the manifest, so in v1
+  no policy can match `skill_sandbox` (§9.5's "through the manifest field" is corrected there); the
+  runner never sends its token; the Linux transport is a mounted socket directory; and `remove`
+  keeps the sandbox image. Implementation plan: `docs/superpowers/plans/2026-11-16-sub-agents-and-skills.md`.
 - Issue #1059, part of epic #1057. Sibling spec: `2026-11-16-sub-agents-design.md` (#1058).
 - **Scope from the owner (2026-11-15): both kinds.** (a) **Instruction packs:** text only, loaded
   on demand. (b) **Agent-Skills-style folders:** a `SKILL.md` plus scripts, which are code and take
