@@ -290,6 +290,7 @@ def plan(
             ("knowledge", agent.knowledge),
             ("tools", agent.tools),
             ("mcp", agent.mcp),
+            ("subagents[].tools", [t for sub in agent.subagents for t in sub.tools]),
         )
         if present
     ]
@@ -300,7 +301,7 @@ def plan(
             "stack does not have; write stack.yaml by hand (docs/services.md)",
         )
     refs = _refs(agent, directory)
-    aliases = [agent.model.alias]
+    aliases = agent.aliases()  # the agent's alias, then each sub-agent's (#1058)
     if agent.evals is not None:
         judge = _judge_alias(agent.evals.ref, directory)
         if judge not in aliases:

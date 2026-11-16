@@ -1880,6 +1880,18 @@ def _ref_positions(kind: str, data: dict):
                 for index, entry in enumerate(data[field]):
                     if isinstance(entry, dict):
                         yield f"{field}[{index}].ref", entry.get("ref")
+        # Sub-agents (#1058): each one's prompt, tools and mcp, as AgentFile.refs() reads them.
+        if isinstance(data.get("subagents"), list):
+            for i, sub in enumerate(data["subagents"]):
+                if not isinstance(sub, dict):
+                    continue
+                if isinstance(sub.get("prompt"), dict):
+                    yield f"subagents[{i}].prompt.ref", sub["prompt"].get("ref")
+                for field in ("tools", "mcp"):
+                    if isinstance(sub.get(field), list):
+                        for index, entry in enumerate(sub[field]):
+                            if isinstance(entry, dict):
+                                yield f"subagents[{i}].{field}[{index}].ref", entry.get("ref")
         return
     for section in ("services", "mcp"):
         if isinstance(data.get(section), dict):

@@ -85,8 +85,8 @@ def _config(agent: AgentFile, placed: dict[str, Path], context: Path) -> dict:
     def rel(path: Path) -> str:
         return path.relative_to(context).as_posix()
 
-    prompt = placed[agent.prompt.ref or f"path:{Path(agent.prompt.path).as_posix()}"]
-    return {
+    prompt = placed[_prompt_key(agent.prompt)]
+    config = {
         "name": agent.name,
         "description": agent.description,
         "model": {
@@ -125,6 +125,46 @@ def _config(agent: AgentFile, placed: dict[str, Path], context: Path) -> dict:
         "agent_events": agent.agent_events,
         "traces": agent.traces,
     }
+    if agent.subagents:  # only when present, so a file without them builds the same bytes
+        config["subagents"] = [_subagent_config(sub, placed, rel) for sub in agent.subagents]
+        config["limits"] = {"turn_model_calls": agent.turn_model_calls()}
+    return config
+
+
+def _prompt_key(prompt) -> str:
+    return prompt.ref or f"path:{Path(prompt.path).as_posix()}"
+
+
+def _subagent_config(sub, placed: dict[str, Path], rel: Callable[[Path], str]) -> dict:
+    """One `agent.config.json` `subagents[]` entry (sub-agents spec §6): data only."""
+    return {
+        "name": sub.name,
+        "description": sub.description,
+        "model": {
+            "alias": sub.model.alias,
+            "reasoning": sub.model.reasoning,
+            "max_model_calls": sub.model.max_model_calls,
+        },
+        "max_calls_per_turn": sub.max_calls_per_turn,
+        "prompt": {"dir": rel(placed[_prompt_key(sub.prompt)])},
+        "tools": [
+            {
+                "name": registry.Ref.parse(t.ref).name,
+                "version": registry.Ref.parse(t.ref).version,
+                "dir": rel(placed[t.ref]),
+            }
+            for t in sub.tools
+        ],
+        "mcp": [
+            {
+                "name": registry.Ref.parse(m.ref).name,
+                "version": registry.Ref.parse(m.ref).version,
+                "tools": list(m.tools),
+            }
+            for m in sub.mcp
+        ],
+        "knowledge": sub.knowledge,
+    }
 
 
 def _world_readable(context: Path) -> None:
@@ -153,7 +193,7 @@ def _check_tool_modules(agent: AgentFile, placed: dict[str, Path]) -> None:
     """Python caches modules by name, so two tools exporting the same module name would run
     one package's code for the other. Refuse that at build time."""
     owners: dict[str, str] = {}
-    for tool in agent.tools:
+    for tool in _all_tools(agent):  # one Python process runs every agent's tools
         try:
             spec = load_file(placed[tool.ref] / "tool.yaml")
         except StrictYamlError as error:
@@ -166,6 +206,66 @@ def _check_tool_modules(agent: AgentFile, placed: dict[str, Path]) -> None:
                     f"{tool.ref} and {owners[module]} both define Python module {module!r}",
                 )
             owners[module] = tool.ref
+
+
+def _all_tools(agent: AgentFile) -> list:
+    """The parent's tool entries, then each sub-agent's, each ref once."""
+    seen: dict[str, object] = {}
+    for tool in [*agent.tools, *(t for sub in agent.subagents for t in sub.tools)]:
+        seen.setdefault(tool.ref, tool)
+    return list(seen.values())
+
+
+def _function_names(tools: list, placed: dict[str, Path]) -> dict[str, str]:
+    """name -> tool ref for every function the tools define (tool.yaml parsed already by
+    _check_tool_modules)."""
+    names: dict[str, str] = {}
+    for tool in tools:
+        spec = load_file(placed[tool.ref] / "tool.yaml")
+        for function in spec.get("functions") or []:
+            names[str((function or {}).get("name", ""))] = tool.ref
+    return names
+
+
+def _mcp_names(entries: list) -> dict[str, str]:
+    """The `<server>_<tool>` name the model sees -> the mcp ref."""
+    return {
+        f"{registry.Ref.parse(e.ref).name.replace('-', '_')}_{tool}": e.ref
+        for e in entries
+        for tool in e.tools
+    }
+
+
+def _check_subagent_names(agent: AgentFile, placed: dict[str, Path]) -> None:
+    """A sub-agent is the parent's tool `ask_<name>` and an ADK agent of that name (spec §5.3):
+    refuse a clash with the parent's own name, functions, MCP tools or built-in tools, and a
+    clash between tools inside one sub-agent. Messages name the location only."""
+    parent = {re.sub(r"[^a-zA-Z0-9_]", "_", agent.name): "the agent's own name"}
+    parent |= {name: "an ADK built-in tool" for name in ADK_RESERVED_TOOLS}
+    if agent.knowledge:
+        parent[KNOWLEDGE_TOOL] = "knowledge search"
+    parent |= _function_names(agent.tools, placed) | _mcp_names(agent.mcp)
+    for i, sub in enumerate(agent.subagents):
+        tool = f"ask_{sub.name}"
+        if tool in parent:
+            raise BuildError(
+                "SUBAGENT_NAME_CLASH",
+                f"subagents[{i}].name: the agent would see {tool}, which {parent[tool]} "
+                "also defines",
+            )
+        own: dict[str, str] = {name: "an ADK built-in tool" for name in ADK_RESERVED_TOOLS}
+        if sub.knowledge:
+            own[KNOWLEDGE_TOOL] = "knowledge search"
+        for name, ref in [
+            *_function_names(sub.tools, placed).items(),
+            *_mcp_names(sub.mcp).items(),
+        ]:
+            if name in own and own[name] != ref:
+                raise BuildError(
+                    "SUBAGENT_NAME_CLASH",
+                    f"subagents[{i}]: the sub-agent would see {name} from {ref} and {own[name]}",
+                )
+            own[name] = ref
 
 
 # ADK skips an MCP tool with one of these names, so runtime/adk@1.1.0 refuses them at startup.
@@ -417,6 +517,12 @@ def build(
                 f"{agent.runtime} does not load skills, so the agent's skills: would never "
                 "reach the model; remove skills: until a runtime version supports them",
             )
+        if agent.subagents and "subagents" not in capabilities:
+            raise BuildError(
+                "RUNTIME_NO_SUBAGENTS",
+                f"{agent.runtime} does not run sub-agents, so the agent's subagents: would "
+                "never be called; remove subagents: until a runtime version supports them",
+            )
         if agent.mcp and "mcp" not in capabilities:
             raise BuildError(
                 "MCP_RUNTIME_UNSUPPORTED",
@@ -432,18 +538,16 @@ def build(
         placed = {entry.key: entry.path for entry in entries}
         _check_mcp_tools(agent, placed)
         shutil.rmtree(artifacts / "mcp", ignore_errors=True)  # for the relay, not the image
-        if agent.prompt.path:
-            _prompt_as_prompt_md(placed[f"path:{Path(agent.prompt.path).as_posix()}"])
+        for path in agent.paths():  # the parent's and each sub-agent's path prompt
+            _prompt_as_prompt_md(placed[f"path:{Path(path).as_posix()}"])
         _check_tool_modules(agent, placed)
         _check_mcp_names(agent, placed)
+        _check_subagent_names(agent, placed)
         config = _config(agent, placed, context)
         (context / "agent.config.json").write_text(json.dumps(config, indent=2, sort_keys=True))
         _world_readable(context)  # the image runs as uid 65532; COPY keeps these modes
-        aliases = [agent.model.alias]
-        for knowledge in agent.knowledge:
-            alias = _knowledge_alias(placed[knowledge.ref])
-            if alias not in aliases:
-                aliases.append(alias)
+        # The parent's alias, each sub-agent's, then the knowledge embedding alias (spec §6).
+        aliases = agent.aliases([_knowledge_alias(placed[k.ref]) for k in agent.knowledge])
         deploy = template(agent, serving, aliases)  # refuse a bad template before docker build
         image = builder(context, Path(temporary) / "image-id")
     if not image.startswith("sha256:"):
@@ -474,6 +578,8 @@ def build(
         "refs": refs,
         "aliases": aliases,
     }
+    if agent.subagents:  # only when present, so a file without them writes the same record
+        record["subagents"] = [{"name": s.name, "alias": s.model.alias} for s in agent.subagents]
     record_path = output / f"{agent.name}.build.json"
     record_path.write_text(json.dumps(record, indent=2) + "\n")
     return BuildResult(
