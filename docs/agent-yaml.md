@@ -258,8 +258,61 @@ is no code, so a spent budget reads as "try again". The reply never carried the 
 the stored turn error and ADK's logged traceback did, with LiteLLM's masked key fragment
 unredacted. A rate-limited turn could wait up to about two minutes without saying so.
 
-The `new agent` starter and Northwind use `1.3.0` (the starter's stack stays on
-`postgres-pgvector@1.1.0`).
+Northwind uses `1.3.0`.
+
+### `runtime/adk@1.4.0`
+
+On `main`, not in a published preview (#1056, #1074, #1024 G2). The `new agent` starter uses it
+(its stack stays on `postgres-pgvector@1.1.0`). The runtime tests drive the real ADK, LiteLLM and
+OpenAI clients against a scripted gateway. One live run on macOS with Docker Desktop (2026-11-16,
+from a wheel built from the #1056 branch, a local copy of Northwind set to `1.4.0` behind the
+Presidio gateway; the shipped example stays on `1.3.0`) checked cached
+tokens on Gemini, OpenRouter and OpenAI, a guardrail block, `traces` and `cost`, and a `--model
+gemini` starter released 2/2 on `1.4.0`; what it showed is under each item below. Northwind's 61
+evals were not run on `1.4.0`. `1.4.0` is `1.3.0` plus:
+
+- **Cached prompt tokens (#1056).** Each reply has `cached_prompt_tokens`: the prompt tokens the
+  provider said it read from its cache, summed over the turn's model calls. ADK takes them from
+  LiteLLM's usage (`prompt_tokens_details.cached_tokens` and the provider variants). They are a
+  part of `prompt_tokens`, never added to it, and never estimated: `0` when the provider reported
+  none. Each `model_called` event has the call's own figure, and the root `agent_turn` span has
+  `agentbreeder.cached_prompt_tokens`. The `turns` table gets no new column (a database owner may
+  have created it, so a column would need a new memory schema). Whether a provider caches at all is
+  the provider's choice; the runtime asks for nothing. In the live run, Gemini
+  (`gemini-3.8-flash`) reported cached tokens, in the one long session run, only once its prompt passed about 5,000
+  tokens, and not on every turn after that (3,032 of 5,122 on one turn, 0 of 7,649 on a later one;
+  never on Northwind's own 1,800-token prompt), OpenAI
+  (`gpt-5.6`) from that session's second turn (2,438 of 3,628), and OpenRouter
+  (`google/gemini-3.8-flash`) never: its own usage said 0. The sums matched LiteLLM's spend logs.
+- **Tool names the model invented (#1074).** When the model asks for a tool the agent does not
+  have, the runtime answers the model with a fixed error ("There is no tool with that name …",
+  without the list of the agent's tools) and lists the name under `unknown_tools` in the reply,
+  never under `tools`. It writes one `tool_unknown` event (`name`, `agent`, `unknown: true`,
+  `ok: false`), not a `tool:<name>` row, so tool logs don't count it as a call. Its span is not
+  a TOOL span, and the root span has `agentbreeder.unknown_tools`. A name is kept as at most 64
+  characters of letters, digits, `_`, `.` and `-` (anything else becomes `?`), redacted. If an
+  `mcp:` server is down, its tools are missing for that turn, so a call to one may be reported as
+  unknown (not tested). Not seen live: in four Gemini turns and three each on OpenRouter and OpenAI
+  that asked for a tool the agent does not have, `unknown_tools` stayed empty (the model used
+  `lookup_orders` or declined), so this path is checked only by the runtime tests.
+- **Guardrail blocks (#1024 G2).** A turn that a gateway Presidio guardrail blocks (the gateway's
+  HTTP 400 "Blocked entity detected: ENTITY by Guardrail: NAME") is answered `MODEL_BLOCKED`, HTTP
+  422, with a fixed message, the `correlation_id` and no content: neither the matched text nor
+  the entity type nor the guardrail name is in the reply. The gateway can't tell an input block
+  from an output block, so there is one code. The turn writes a `guardrail_blocked` event
+  (`guardrail`, `entity`, `action: blocked`, `code`, `model`), and the root span has
+  `agentbreeder.guardrail.action`, `.name` and `.entity`. The block is matched only at the start
+  of the gateway's error text, so any other 400 (including Presidio being unavailable, which
+  fails closed) stays `MODEL_REQUEST_REFUSED`. It is never retried. In the live run, a message
+  with a US SSN was answered `MODEL_BLOCKED` with the event naming `pii-block` and `US_SSN`, and
+  the gateway also blocked the turn's knowledge-search embedding, so no provider got the number.
+  The agent still stores the customer's message, as for every turn: the blocked message, SSN
+  included, was in the `turns` table and in the input of the trace's `agent_turn` and
+  `retrieve_knowledge` spans. Presidio did not flag `123-45-6789`: that turn was answered normally.
+
+  | `code` | HTTP | When | Next step in the message |
+  |---|---|---|---|
+  | `MODEL_BLOCKED` | 422 | a gateway guardrail blocked the message or the model's answer | rephrase without the blocked content; sending it again won't help |
 
 Agents built from `agent.yaml` can't yet run behind the opt-in MCP egress sidecar
 (`runtime_enforcement: mcp_http`): the deploy is refused with `MODEL_ACCESS_UNSUPPORTED`, because

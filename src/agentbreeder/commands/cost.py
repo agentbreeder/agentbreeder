@@ -134,6 +134,11 @@ def _tokens(bucket: dict) -> str:
     return f"{bucket['prompt_tokens']}/{bucket['completion_tokens']}"
 
 
+def _cached(bucket: dict) -> str:
+    """Cached prompt tokens (#1056), a part of the tokens in: as LiteLLM recorded them."""
+    return str(bucket.get("cached_prompt_tokens", 0))
+
+
 def _who(bucket: dict) -> tuple[str, str, str]:
     if bucket["kind"] == "deployment":
         return bucket["id"], bucket["name"] or "-", bucket["state"] or "-"
@@ -148,7 +153,7 @@ def _print(result: dict, by: str) -> None:
         f"gateway {excerpt(result['gateway'], 80)}"
     )
     if by == "model":
-        rows = [("MODEL ALIAS", "MODEL", "CALLS", "FAILED", "TOKENS IN/OUT", "USD")]
+        rows = [("MODEL ALIAS", "MODEL", "CALLS", "FAILED", "TOKENS IN/OUT", "CACHED IN", "USD")]
         for bucket in result["models"]:
             rows.append(
                 (
@@ -157,11 +162,14 @@ def _print(result: dict, by: str) -> None:
                     str(bucket["calls"]),
                     str(bucket["failed"]),
                     _tokens(bucket),
+                    _cached(bucket),
                     _usd(bucket["cost_usd"]),
                 )
             )
     else:
-        rows = [("DEPLOYMENT", "NAME", "STATE", "CALLS", "FAILED", "TOKENS IN/OUT", "USD")]
+        rows = [
+            ("DEPLOYMENT", "NAME", "STATE", "CALLS", "FAILED", "TOKENS IN/OUT", "CACHED IN", "USD")
+        ]
         for bucket in result["keys"]:
             rows.append(
                 (
@@ -169,6 +177,7 @@ def _print(result: dict, by: str) -> None:
                     str(bucket["calls"]),
                     str(bucket["failed"]),
                     _tokens(bucket),
+                    _cached(bucket),
                     _usd(bucket["cost_usd"]),
                 )
             )
@@ -177,14 +186,14 @@ def _print(result: dict, by: str) -> None:
         print("No model calls by AgentBreeder keys in this window.")
     else:
         rows = [tuple(excerpt(cell, 60) for cell in row) for row in rows]
-        blank = ("",) * (len(rows[0]) - 5)
+        blank = ("",) * (len(rows[0]) - 6)
         rows.append(
             ("Total", *blank, str(total["calls"]), str(total["failed"]))
-            + (_tokens(total), _usd(total["cost_usd"]))
+            + (_tokens(total), _cached(total), _usd(total["cost_usd"]))
         )
         widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
         for row in rows:
-            first = len(row) - 4  # calls, failed, tokens and USD are right-aligned
+            first = len(row) - 5  # calls, failed, tokens, cached and USD are right-aligned
             cells = (
                 cell.rjust(width) if index >= first else cell.ljust(width)
                 for index, (cell, width) in enumerate(zip(row, widths, strict=True))

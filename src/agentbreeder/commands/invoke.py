@@ -21,10 +21,12 @@ from agentbreeder.agentfile import NAME_PATTERN
 
 NAMES = ("invoke",)
 SCHEMA_VERSION = 1
-# A failed model call's code from runtime/adk@1.3.0 (#1030, #1034); its fixed message carries the
-# next step. Any other answer is AGENT_ERROR.
+# A failed model call's code from runtime/adk@1.3.0 (#1030, #1034), and MODEL_BLOCKED (a gateway
+# guardrail, runtime/adk@1.4.0); its fixed message carries the next step. Any other answer is
+# AGENT_ERROR.
 MODEL_CODES = frozenset(
     {
+        "MODEL_BLOCKED",
         "MODEL_BUDGET_EXCEEDED",
         "MODEL_RATE_LIMITED",
         "MODEL_ACCESS_DENIED",
@@ -35,6 +37,8 @@ MODEL_CODES = frozenset(
 TURN_ID = re.compile(r"[0-9a-f]{32}")
 # A gateway alias (the runtime reports only these in `served_by`, #1039).
 ALIAS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+# A tool name the model invented, as runtime/adk@1.4.0 reports it in `unknown_tools` (#1074).
+UNKNOWN_TOOL = re.compile(r"[A-Za-z0-9_.?\[\]-]{1,80}")
 
 
 def register(commands) -> None:
@@ -196,9 +200,9 @@ def _invoke(store, args, message: str) -> int:
         return 1
     reply = answer.body["reply"].strip()
     print(safe_text.visible(reply), flush=True)  # before the stderr notes
-    served = _fallback_note(answer.body)
-    if served:
-        print(served, file=sys.stderr)
+    for note in (_fallback_note(answer.body), _unknown_tools_note(answer.body)):
+        if note:
+            print(note, file=sys.stderr)
     session = answer.body.get("session_id")
     if isinstance(session, str) and invoke.ID.fullmatch(session):
         print(f"Session: {session} (continue with --session {session})", file=sys.stderr)
@@ -235,3 +239,20 @@ def _fallback_note(body: dict) -> str | None:
     ]
     by = f" (served by {', '.join(aliases)})" if aliases else ""
     return f"Note: a gateway fallback served this turn{by}."
+
+
+def _unknown_tools_note(body: dict) -> str | None:
+    """A note when the model asked for tools this agent does not have (runtime/adk@1.4.0
+    `unknown_tools`, #1074): the runtime refused them, so they are not tool calls."""
+    names = body.get("unknown_tools")
+    shown = [
+        n
+        for n in (names if isinstance(names, list) else [])[:10]
+        if isinstance(n, str) and UNKNOWN_TOOL.fullmatch(n)
+    ]
+    if not shown:
+        return None
+    return (
+        f"Note: the model asked for a tool this agent does not have ({', '.join(shown)}); "
+        "the runtime refused it, so it is not a tool call."
+    )

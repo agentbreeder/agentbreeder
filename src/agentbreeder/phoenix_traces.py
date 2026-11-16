@@ -45,6 +45,16 @@ ATTRIBUTE = "agentbreeder.deployment_id"
 FALLBACKS = "agentbreeder.fallbacks"
 SERVED_BY = "agentbreeder.served_by"
 ALIAS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+# runtime/adk@1.4.0, on the root span: cached prompt tokens as the provider reported them (#1056),
+# tool names the model invented (#1074; the runtime keeps [A-Za-z0-9_.-], "?" for anything else,
+# and "[redacted]" for a key-shaped name), and a gateway guardrail block (#1024 G2).
+CACHED = "agentbreeder.cached_prompt_tokens"
+UNKNOWN_TOOLS = "agentbreeder.unknown_tools"
+UNKNOWN_TOOL = re.compile(r"[A-Za-z0-9_.?\[\]-]{1,80}")
+GUARDRAIL_ACTION = "agentbreeder.guardrail.action"
+GUARDRAIL_NAME = "agentbreeder.guardrail.name"
+GUARDRAIL_ENTITY = "agentbreeder.guardrail.entity"
+ENTITY = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
 CANDIDATE_SUFFIX = "-candidate"
 PHOENIX_REF = "service/phoenix@"
 NO_READ_KEY = ("service/phoenix@1.0.",)  # versions whose bootstrap mints no read key
@@ -307,6 +317,25 @@ def _aliases(value) -> list[str]:
     return [a for a in value[:10] if isinstance(a, str) and ALIAS.fullmatch(a)]
 
 
+def _unknown_tools(value) -> list[str]:
+    """`agentbreeder.unknown_tools` as runtime-shaped names (at most 10); anything else dropped."""
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [n for n in value[:10] if isinstance(n, str) and UNKNOWN_TOOL.fullmatch(n)]
+
+
+def _guardrail(attributes: dict) -> dict | None:
+    """{"action": "blocked", "name", "entity"} when a gateway guardrail blocked the turn."""
+    if attributes.get(GUARDRAIL_ACTION) != "blocked":
+        return None
+    name, entity = attributes.get(GUARDRAIL_NAME), attributes.get(GUARDRAIL_ENTITY)
+    return {
+        "action": "blocked",
+        "name": name if isinstance(name, str) and ALIAS.fullmatch(name) else None,
+        "entity": entity if isinstance(entity, str) and ENTITY.fullmatch(entity) else None,
+    }
+
+
 def _when(value) -> datetime | None:
     if not isinstance(value, str) or len(value) > 64:
         return None
@@ -484,6 +513,10 @@ def summarize(
         "served_by": _aliases(attributes.get(SERVED_BY)),
         "models": models,
         "tokens": {"prompt": prompt, "completion": completion, "total": prompt + completion},
+        # The root span's figure (runtime/adk@1.4.0): a part of the prompt tokens; null before.
+        "cached_prompt_tokens": _count(attributes.get(CACHED)),
+        "unknown_tools": _unknown_tools(attributes.get(UNKNOWN_TOOLS)),
+        "guardrail": _guardrail(attributes),
         "tool_calls": [
             {
                 "name": s["tool"] or s["name"],

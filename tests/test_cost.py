@@ -344,6 +344,70 @@ def test_spend_logs_keep_only_what_cost_reads(spend):
     }
 
 
+def test_spend_logs_keep_the_cached_token_fields_as_ints_only(spend):
+    cached = row("x", request_id="r")
+    cached["metadata"].update(
+        additional_usage_values={"cache_read_input_tokens": 7, "other": "big" * 100},
+        usage_object={"prompt_tokens_details": {"cached_tokens": 7, "x": 1}, "y": "z" * 100},
+    )
+    hostile = row("y", request_id="s")
+    hostile["metadata"].update(
+        additional_usage_values={"cache_read_input_tokens": True},
+        usage_object={"prompt_tokens_details": ["7"]},
+    )
+    spend.rows = [cached, hostile]
+    (kept, other), _ = LiteLLM(spend.url, MASTER).spend_logs("s", "e")
+    assert kept["metadata"] == {
+        "user_api_key_alias": "x",
+        "additional_usage_values": {"cache_read_input_tokens": 7},
+        "usage_object": {"prompt_tokens_details": {"cached_tokens": 7}},
+    }
+    assert other["metadata"] == {"user_api_key_alias": "y"}
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        ({"additional_usage_values": {"cache_read_input_tokens": 6}}, 6),
+        ({"usage_object": {"prompt_tokens_details": {"cached_tokens": 4}}}, 4),
+        (
+            {
+                "additional_usage_values": {"cache_read_input_tokens": 6},
+                "usage_object": {"prompt_tokens_details": {"cached_tokens": 4}},
+            },
+            6,
+        ),
+        (
+            {
+                "additional_usage_values": {"cache_read_input_tokens": 0},
+                "usage_object": {"prompt_tokens_details": {"cached_tokens": 4}},
+            },
+            4,
+        ),
+        ({"additional_usage_values": {"cache_read_input_tokens": True}}, 0),
+        ({"additional_usage_values": {"cache_read_input_tokens": -1}}, 0),
+        ({"usage_object": {"prompt_tokens_details": None}}, 0),
+        ({}, 0),
+        (None, 0),
+    ],
+)
+def test_cached_tokens_from_a_spend_log_row(metadata, expected):
+    assert llmcost.cached_tokens(metadata) == expected
+
+
+def test_cached_prompt_tokens_are_summed_and_never_above_the_prompt():
+    alias = gateway_keys.PREFIX + DEPLOYED
+    hit = row(alias, request_id="1")
+    hit["metadata"]["additional_usage_values"] = {"cache_read_input_tokens": 8}
+    impossible = row(alias, request_id="2")  # 10 prompt tokens
+    impossible["metadata"]["additional_usage_values"] = {"cache_read_input_tokens": 11}
+    result = llmcost.summarize([hit, impossible, row(alias, request_id="3")], records())
+    assert result["total"]["cached_prompt_tokens"] == 8
+    assert result["keys"][0]["cached_prompt_tokens"] == 8
+    assert result["keys"][0]["models"][0]["cached_prompt_tokens"] == 8
+    assert result["models"][0]["cached_prompt_tokens"] == 8
+
+
 def test_spend_logs_cut_long_text_as_they_read(spend):
     spend.rows = [row("a" * 5000, model="m" * 5000, request_id=["not", "text"], status={"x": 1})]
     (kept,), _ = LiteLLM(spend.url, MASTER).spend_logs("s", "e")
@@ -435,20 +499,21 @@ def test_cost_table_by_deployment_and_by_model(gateway_env, spend, state_dir, ca
     lines = out.splitlines()
     assert lines[0].startswith("LLM cost ") and lines[0].endswith("(UTC), gateway litellm")
     assert lines[1].split() == ["DEPLOYMENT", "NAME", "STATE", "CALLS", "FAILED", "TOKENS",
-                                "IN/OUT", "USD"]  # fmt: skip
-    assert lines[2].split() == [REMOVED, "old", "removed", "1", "0", "10/20", "0.004000"]
-    assert lines[3].split() == [DEPLOYED, "hello", "ready", "2", "0", "20/40", "0.003000"]
-    assert lines[4].split() == ["eval", "run", "run1", "-", "-", "1", "0", "10/20", "0.000000"]
-    assert lines[5].split() == ["Total", "4", "0", "40/80", "0.007000"]
+                                "IN/OUT", "CACHED", "IN", "USD"]  # fmt: skip
+    assert lines[2].split() == [REMOVED, "old", "removed", "1", "0", "10/20", "0", "0.004000"]
+    assert lines[3].split() == [DEPLOYED, "hello", "ready", "2", "0", "20/40", "0", "0.003000"]
+    assert lines[4].split() == ["eval", "run", "run1", "-", "-", "1", "0", "10/20", "0",
+                                "0.000000"]  # fmt: skip
+    assert lines[5].split() == ["Total", "4", "0", "40/80", "0", "0.007000"]
     assert "1 call(s) had no price" in out
     assert "not a bill" in out and "last minute" in out
     code, out, _ = run_cli(capsys, "--state-dir", str(state_dir), "--by", "model")
     assert code == 0
     lines = out.splitlines()
     assert lines[1].split() == ["MODEL", "ALIAS", "MODEL", "CALLS", "FAILED", "TOKENS", "IN/OUT",
-                                "USD"]  # fmt: skip
-    assert lines[2].split() == ["chat", "openai/gpt-5.6", "3", "0", "30/60", "0.006000"]
-    assert lines[3].split() == ["judge", "anthropic/claude-opus-5-5", "1", "0", "10/20",
+                                "CACHED", "IN", "USD"]  # fmt: skip
+    assert lines[2].split() == ["chat", "openai/gpt-5.6", "3", "0", "30/60", "0", "0.006000"]
+    assert lines[3].split() == ["judge", "anthropic/claude-opus-5-5", "1", "0", "10/20", "0",
                                 "0.001000"]  # fmt: skip
 
 
