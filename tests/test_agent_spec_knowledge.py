@@ -196,8 +196,8 @@ def test_openai_uses_its_embedding_model(tmp_path, kb_root):
     assert params["model"] == "openai/text-embedding-3-small"
     assert params["api_key"] == "os.environ/OPENAI_API_KEY"
     assert extra["knowledge"][0]["embedding_model"] == "openai/text-embedding-3-small"
-    # Only gemini was run end to end with knowledge (#833); openai is config-only.
-    assert extra["combination"]["verified"] is False
+    # openai ran end to end with one knowledge version (#1020), as gemini did (#833).
+    assert extra["combination"]["verified"] is True
 
 
 def test_the_verified_combinations():
@@ -206,7 +206,8 @@ def test_the_verified_combinations():
         {(), ("knowledge",), ("tools",), ("knowledge", "tools")}
     )
     assert agentspec.VERIFIED_TOOLS == 1
-    assert agentspec.TOOL_PROVIDERS == {"gemini"}  # openrouter ran without tools (#1020)
+    # openrouter and openai ran without tools (#1020)
+    assert agentspec.TOOL_PROVIDERS == {"gemini"}
     assert not any("mcp" in parts for parts in agentspec.VERIFIED)
 
 
@@ -233,7 +234,7 @@ def test_knowledge_with_one_tool_is_verified(tmp_path, kb_root):
     [
         ({"mcp": [{"ref": "mcp/github@1.0.0", "tools": ["get_me"]}]}, {"knowledge", "mcp"}),
         ({"tools": 2}, {"knowledge", "tools"}),  # two tools: every run had one
-        ({"model": "openai", "tools": 1}, {"knowledge", "tools"}),
+        ({"model": "openai", "tools": 1}, {"knowledge", "tools"}),  # no tool ran on openai
         (
             {"tools": 1, "mcp": [{"ref": "mcp/github@1.0.0", "tools": ["get_me"]}]},
             {"knowledge", "mcp", "tools"},
@@ -484,7 +485,7 @@ def test_cli_text_output(tmp_path, kb_root, capsys):
     assert SECRET_PROMPT not in out
 
 
-def test_cli_text_output_openai_knowledge_is_unverified(tmp_path, kb_root, capsys):
+def test_cli_text_output_openai_knowledge_is_verified(tmp_path, kb_root, capsys):
     path = write_spec(tmp_path, with_knowledge() | {"model": "openai"})
     code = cli.main(
         ["new", "agent", "helper", "--from-spec", str(path), "--dir", str(tmp_path / "helper")]
@@ -492,7 +493,8 @@ def test_cli_text_output_openai_knowledge_is_unverified(tmp_path, kb_root, capsy
     )
     out = capsys.readouterr().out
     assert code == 0
-    assert "has not been run end to end" in out
+    assert "has not been run end to end" not in out  # #1020
+    assert "config-only" not in out
 
 
 def test_cli_refusal_json(tmp_path, kb_root, capsys):

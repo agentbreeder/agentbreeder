@@ -476,6 +476,7 @@ def test_text_output_names_code_from_other_roots(tmp_path, tool_root, capsys):
     [
         {"tools": ["tool/echo@0.1.0", "tool/clock@0.1.0"]},  # every run had one tool
         {"tools": ["tool/echo@0.1.0"], "mcp": [{"ref": "mcp/github@1.0.0", "tools": ["get_me"]}]},
+        # openai is a verified provider (#1020), but no tool ran on it
         {"tools": ["tool/echo@0.1.0"], "model": "openai"},
         # openrouter is a verified provider (#1020), but only model + prompt + evals ran on it
         {"tools": ["tool/echo@0.1.0"], "model": "openrouter"},
@@ -707,7 +708,10 @@ def test_another_provider_through_the_spec(tmp_path):
     assert extra["combination"]["verified"] is True
     (tmp_path / "openai").mkdir()
     _, extra = make(tmp_path / "openai", spec(model="openai"))
-    assert extra["keys"] == ["OPENAI_API_KEY"] and extra["combination"]["verified"] is False
+    assert extra["keys"] == ["OPENAI_API_KEY"] and extra["combination"]["verified"] is True
+    (tmp_path / "anthropic").mkdir()
+    _, extra = make(tmp_path / "anthropic", spec(model="anthropic"))
+    assert extra["keys"] == ["ANTHROPIC_API_KEY"] and extra["combination"]["verified"] is False
 
 
 def test_a_spec_without_a_model_id_needs_one_only_when_the_provider_has_no_default(

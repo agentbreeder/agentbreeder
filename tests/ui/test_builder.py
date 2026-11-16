@@ -112,23 +112,26 @@ def test_an_edit_marks_the_preview_out_of_date(page, console):
 def test_a_combination_not_run_end_to_end_is_previewed_but_not_created(page, console):
     open_builder(page, console)
     fill(page)
-    page.get_by_label("Model provider").select_option("openai")
+    page.get_by_label("Model provider").select_option("anthropic")
     page.get_by_role("button", name="Preview", exact=True).click()
     pane = page.get_by_role("complementary", name="Preview: nothing is written yet")
-    expect(pane).to_contain_text("Not run end to end yet: the openai provider.")
-    expect(pane).to_contain_text("OPENAI_API_KEY")
+    expect(pane).to_contain_text("Not run end to end yet: the anthropic provider.")
+    expect(pane).to_contain_text("ANTHROPIC_API_KEY")
     expect(page.get_by_role("button", name="Create agent and add project")).to_be_disabled()
     expect(page.get_by_text("This combination has not been run end to end.")).to_be_visible()
 
 
 def test_openrouter_is_created_with_its_default_and_notes_another_model_id(page, console):
-    """#1020: openrouter ran end to end with its default model, so the form needs no model id
-    and Create is on; another model id is still created, with a note that only the default ran."""
+    """#1020: openrouter (and openai) ran end to end with their default models, so the form
+    needs no model id and Create is on; another model id is still created, with a note that only
+    the default ran."""
     open_builder(page, console)
     fill(page)
     provider = page.get_by_label("Model provider")
     expect(provider.locator('option[value="openrouter"]')).to_have_text("openrouter")
-    expect(provider.locator('option[value="openai"]')).to_have_text("openai (not run end to end)")
+    expect(provider.locator('option[value="openai"]')).to_have_text("openai")
+    anthropic = provider.locator('option[value="anthropic"]')
+    expect(anthropic).to_have_text("anthropic (not run end to end)")
     provider.select_option("openrouter")
     page.get_by_role("button", name="Preview", exact=True).click()
     pane = page.get_by_role("complementary", name="Preview: nothing is written yet")
