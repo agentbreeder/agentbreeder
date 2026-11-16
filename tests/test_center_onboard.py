@@ -383,6 +383,10 @@ def test_the_console_rules_are_new_agents():
 def test_the_browser_rules_are_new_agents():
     source = (server.STATIC / "lib" / "onboard.js").read_text()
     assert f"export const PROVIDERS = {json.dumps(list(onboard.PROVIDERS))};" in source
+    verified = [name for name, provider in sorted(newagent.PROVIDERS.items()) if provider.verified]
+    assert f"export const VERIFIED = {json.dumps(verified)};" in source
+    defaults = {name: newagent.PROVIDERS[name].model for name in verified}
+    assert f"export const DEFAULT_MODEL = {json.dumps(defaults)};" in source
 
 
 # -- the real CLI ------------------------------------------------------------------------------

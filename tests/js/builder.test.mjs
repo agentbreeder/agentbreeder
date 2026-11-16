@@ -26,7 +26,7 @@ test("the form says what is wrong, in order", () => {
   const cases = initialCases();
   assert.match(formProblem(form({ name: "Helper" }), cases), /lowercase letter first/);
   assert.match(formProblem(form({ model: "mistral" }), cases), /provider/);
-  assert.match(formProblem(form({ model: "openrouter" }), cases), /OpenRouter needs a model id/);
+  assert.equal(formProblem(form({ model: "openrouter" }), cases), null); // it has a default (#1020)
   assert.equal(formProblem(form({ model: "openrouter", modelId: "openrouter/a/b" }), cases), null);
   assert.match(formProblem(form({ prompt: "é".repeat(16 * 1024 + 1) }), cases), /over 32 KiB/);
   for (const maxCalls of ["0", "21", "1.5", "", "x"]) assert.match(formProblem(form({ maxCalls }), cases), /Model calls/);
@@ -81,6 +81,8 @@ test("an unverified combination names what has not been run end to end", () => {
   assert.match(unverifiedText(tools), /yet: a new agent with tools and MCP servers\./);
   const both = { ...tools, model: "anthropic" };
   assert.match(unverifiedText(both), /the anthropic provider, and a new agent with tools and MCP servers/);
+  const router = { ...tools, model: "openrouter" }; // a verified provider is not named (#1020)
+  assert.match(unverifiedText(router), /^Not run end to end yet: a new agent with tools and MCP servers\./);
 });
 
 test("create waits for a fresh, verified, confirmed preview", () => {

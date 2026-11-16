@@ -280,7 +280,6 @@ def test_names_get_the_starter_checks(tmp_path, name):
     ("changes", "code"),
     [
         ({"model": "llama"}, "MODEL_UNSUPPORTED"),
-        ({"model": "openrouter"}, "MODEL_ID_REQUIRED"),
         ({"model_id": "openai/gpt"}, "MODEL_ID_INVALID"),
         ({"schema_version": 2}, "SPEC_VERSION_UNSUPPORTED"),
         ({"extra": 1}, "SPEC_INVALID"),
@@ -677,7 +676,24 @@ def test_another_provider_through_the_spec(tmp_path):
     data = spec(model="openrouter", model_id="openrouter/google/gemini-x")
     plan, extra = make(tmp_path, data)
     assert extra["keys"] == ["OPENROUTER_API_KEY"]
-    assert extra["combination"]["verified"] is False
+    # openrouter ran end to end (#1020); `verified` is per provider, not per model id
+    assert extra["combination"]["verified"] is True
+    assert plan.model_id == "openrouter/google/gemini-x"
+    (tmp_path / "default").mkdir()
+    plan, extra = make(tmp_path / "default", spec(model="openrouter"))
+    assert plan.model_id == "openrouter/google/gemini-3.8-flash"
+    assert extra["combination"]["verified"] is True
+    (tmp_path / "openai").mkdir()
+    _, extra = make(tmp_path / "openai", spec(model="openai"))
+    assert extra["keys"] == ["OPENAI_API_KEY"] and extra["combination"]["verified"] is False
+
+
+def test_a_spec_without_a_model_id_needs_one_only_when_the_provider_has_no_default(
+    tmp_path, monkeypatch
+):
+    provider = newagent.Provider(None, "OPENROUTER_API_KEY", False, segments=2)
+    monkeypatch.setitem(newagent.PROVIDERS, "openrouter", provider)
+    assert refused(tmp_path, spec(model="openrouter")).code == "MODEL_ID_REQUIRED"
 
 
 @pytest.mark.parametrize("picked", ["tool", "mcp"])

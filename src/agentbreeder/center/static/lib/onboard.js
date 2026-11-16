@@ -5,9 +5,22 @@
 
 import { starterNameProblem } from "./guide.js";
 
-// `newagent.PROVIDERS` (a server test keeps them equal); gemini is the one run end to end.
+// `newagent.PROVIDERS` and the ones run end to end with their default model (`verified`; a
+// server test keeps both equal). A preview's own `verified` is the CLI's answer and wins.
 export const PROVIDERS = ["anthropic", "gemini", "openai", "openrouter"];
-export const VERIFIED = "gemini";
+export const VERIFIED = ["gemini", "openrouter"];
+// The default model each verified provider ran with (`newagent.PROVIDERS[...].model`).
+export const DEFAULT_MODEL = {"gemini": "gemini/gemini-3.8-flash", "openrouter": "openrouter/google/gemini-3.8-flash"};
+
+/**
+ * What `verified` does not cover, or null: a verified provider ran end to end with its default
+ * model only, so another model id may still fail the eval gate on its answers.
+ */
+export function modelIdNote(verified, model, modelId) {
+  if (verified !== true || typeof modelId !== "string" || !modelId.trim()) return null;
+  if (modelId.trim() === DEFAULT_MODEL[model]) return null;
+  return "This provider has been run end to end with its default model, not with this model id: the eval gate may still fail on its answers.";
+}
 
 /** Why the form cannot be previewed yet, as a sentence, or null. */
 export function formProblem({ path, name, model, modelId }) {
@@ -16,7 +29,6 @@ export function formProblem({ path, name, model, modelId }) {
   const nameProblem = starterNameProblem(name.trim());
   if (nameProblem) return nameProblem === "Type a name first." ? "Type the agent's name (its name: in agent.yaml) first." : nameProblem;
   if (!PROVIDERS.includes(model)) return "Pick a model provider first.";
-  if (model === "openrouter" && !modelId.trim()) return "OpenRouter needs a model id, such as openrouter/<vendor>/<model>.";
   return null;
 }
 

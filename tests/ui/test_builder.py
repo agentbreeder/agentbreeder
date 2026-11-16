@@ -97,6 +97,33 @@ def test_a_combination_not_run_end_to_end_is_previewed_but_not_created(page, con
     expect(page.get_by_text("This combination has not been run end to end.")).to_be_visible()
 
 
+def test_openrouter_is_created_with_its_default_and_notes_another_model_id(page, console):
+    """#1020: openrouter ran end to end with its default model, so the form needs no model id
+    and Create is on; another model id is still created, with a note that only the default ran."""
+    open_builder(page, console)
+    fill(page)
+    provider = page.get_by_label("Model provider")
+    expect(provider.locator('option[value="openrouter"]')).to_have_text("openrouter")
+    expect(provider.locator('option[value="openai"]')).to_have_text("openai (not run end to end)")
+    provider.select_option("openrouter")
+    page.get_by_role("button", name="Preview", exact=True).click()
+    pane = page.get_by_role("complementary", name="Preview: nothing is written yet")
+    expect(pane).to_contain_text("openrouter/google/gemini-3.8-flash")
+    expect(pane).to_contain_text("OPENROUTER_API_KEY")
+    expect(pane).to_contain_text("Run end to end: model, prompt, evals.")
+    expect(pane).not_to_contain_text("not with this model id")
+    create = page.get_by_role("button", name="Create agent and add project")
+    expect(create).to_be_enabled()
+    page.get_by_label("Model id (optional; replaces the provider's default)").fill(
+        "openrouter/vendor/other-model"
+    )
+    page.get_by_role("button", name="Preview", exact=True).click()
+    pane = page.get_by_role("complementary", name="Preview: nothing is written yet")
+    expect(pane).to_contain_text("openrouter/vendor/other-model")
+    expect(pane).to_contain_text("not with this model id: the eval gate may still fail")
+    expect(create).to_be_enabled()
+
+
 def test_the_eval_cases_are_edited_and_written(page, console):
     open_builder(page, console)
     fill(page)
