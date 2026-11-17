@@ -182,6 +182,7 @@ agentbreeder services start|stop|restart [DIR] NAME [--yes] [--json]   # one con
 | `service/postgres-pgvector@1.2.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | as 1.1.0, plus `console_database` | as 1.1.0, plus `console` (operator only): a URL for `agentbreeder_console`, which can connect only to `console_database` and has no rights until `init_sql` grants them. |
 | `service/postgres-pgvector@1.1.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | as 1.0.0, plus `roles` (list) and `roles_database` | as 1.0.0, plus `roles.<name>`: a URL for a role that can connect only to `roles_database`, owns only a schema of its own name and has no other rights until `init_sql` grants them. `postgres` and `template1` are closed to applications. |
 | `service/postgres-pgvector@1.0.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | `databases` (list), `init_sql` (file, ≤ 64 KiB, no `\` meta-commands), `init_sql_database` | `databases.<name>`: a URL with that database's own role (never the superuser) |
+| `service/litellm@1.3.0` | as 1.2.0, plus a request filter: the gateway refuses provider-routing, endpoint and credential parameters in requests, and call types other than chat completions and embeddings (#1105; see "Request parameters" below) | as 1.2.0 | as 1.2.0 |
 | `service/litellm@1.2.0` | as 1.1.0, plus Ollama on the operator's host (`reaches_host: [11434]`, #1025 O1) and a stricter launcher: LiteLLM gets only an allow-list of variables, with cloud metadata lookups and credential files turned off | as 1.1.0 | as 1.1.0 |
 | `service/litellm@1.1.0` | as 1.0.0, plus two optional url inputs, `presidio-analyzer` and `presidio-anonymizer`, for Presidio guardrails (#1024) | as 1.0.0 | as 1.0.0 |
 | `service/litellm@1.0.0` | LiteLLM 1.106.2 proxy, `provides: gateway/litellm` | `config` (file, required; reviewed: allow-listed keys, each provider key only to its provider) | `url`; `master_key` (operator only) |
@@ -296,10 +297,9 @@ Ollama running on the operator's own machine, with no key:
 - `cost` and the console's cost screens show `no price (local model)` for Ollama calls, never
   $0.00. LiteLLM records their spend as 0.0, so a budget would not count them; that was not run.
 - Callers' request parameters: `api_base` and `base_url` in a request body are refused by
-  LiteLLM, and a test listener on another host port received nothing. LiteLLM does honour a
-  per-request `custom_llm_provider`, which re-routes an alias to another provider with the
-  key the gateway holds for it. This is true for every provider, not only Ollama, and is a known
-  gap (#1025 §4.2), tracked in #1105.
+  LiteLLM, and a test listener on another host port received nothing. On 1.0.0 to 1.2.0 LiteLLM
+  honours a per-request `custom_llm_provider`, which changes the provider an alias is served by;
+  `service/litellm@1.3.0` refuses it (see "Request parameters" below, #1105).
 
 The 1.2.0 launcher (spec §4.3) also passes LiteLLM only the variables its `service.yaml` sets,
 the image's own (`PATH`, `SSL_CERT_FILE`, `LITELLM_RELEASE_TAG`, four `PRISMA_*`) and its
@@ -311,6 +311,52 @@ parsed or names a gateway-only credential it did not import. In a test with fake
 services on 169.254.169.254 and 169.254.170.2, the launcher's environment sent them nothing
 while the raw environment reached both. These matter on a cloud VM, not on a laptop. Nothing
 blocks the gateway's network egress to metadata addresses (residual R3).
+
+### Request parameters (`service/litellm@1.3.0`)
+
+On `main`, not in a published preview (#1105). An alias's provider, endpoint and credentials come
+from the reviewed gateway config only. Two controls keep a key on its own aliases' providers:
+
+- **Key routes, every gateway version.** Deploy and `eval` mint every key with `allowed_routes`
+  limited to chat completions and embeddings (`/v1/chat/completions`, `/chat/completions`,
+  `/v1/embeddings`, `/embeddings`). LiteLLM's file, batch and provider pass-through routes choose
+  a provider from a path, query parameter or header rather than a model alias, and some of them
+  never reach a pre-call hook, so the key's routes are what closes them. Keys minted before this
+  change keep their old routes until the deployment is redeployed.
+- **Request filter, `service/litellm@1.3.0`.** 1.3.0 is 1.2.0 plus a request filter that its
+  launcher loads as LiteLLM's only callback (the reviewed config itself still may not set
+  `litellm_settings.callbacks`). Before any provider call it refuses a request carrying a
+  provider-routing, endpoint or credential parameter, such as `custom_llm_provider`,
+  `litellm_credential_name`, `api_key`, `api_version` (also as the `api-version` query
+  parameter), `organization`, `extra_headers`, the `aws_*`, `vertex_*` and `azure_*` parameters,
+  or `litellm_params`, at the top level, in `extra_body` or in a request-level fallback, with a
+  400 whose message starts with `GATEWAY_PARAM_REFUSED`. The list is fixed; a fallback nested
+  deeper than the filter reads is refused too. It refuses every other call type that reaches it
+  (pass-through, file upload, responses, messages and the rest) with `GATEWAY_ROUTE_REFUSED`. It
+  does not read request `metadata` or headers: on the pinned LiteLLM, `custom_llm_provider` in
+  metadata and the `x-litellm-api-base`, `x-litellm-base-url`, `api_base`, `x-api-key` and
+  `OpenAI-Organization` headers were ignored in the recorded run, and request tags and tracing
+  metadata (top level or in `extra_body.metadata`) passed.
+
+Each refusal writes one line to the gateway log (`services logs`): `agentbreeder gateway: refused
+<code> field=<name> in=<where> call=<type> key_alias=<alias>`, with no value and no key material.
+1.0.0 to 1.2.0 are unchanged: on them LiteLLM still honours a request's `custom_llm_provider`
+for a model alias. Move the stack's `ref` to `service/litellm@1.3.0` and run `services up` (a new
+lock). Starter stacks and Northwind still name their earlier versions.
+
+Recorded run (2026-11-16, macOS 13 Intel, Docker Desktop, `tests/test_gateway_request_filter_docker.py`):
+a stack with two scripted providers, alias `a` on the gateway's OpenAI key and `b` on its
+Anthropic key, and keys granted `a` only.
+- On 1.3.0, every `custom_llm_provider` value (anthropic, openai, gemini, openrouter,
+  ollama_chat, azure, bedrock), streamed or not, and each other listed parameter got a 400 from
+  the filter or LiteLLM's own 401. Neither provider received anything.
+- The deploy-minted key got 403 on the file, batch, pass-through, responses, messages,
+  completions and moderations routes.
+- Chat, streamed chat, embeddings, the eval judge's `json_schema` call and one real
+  `runtime/adk@1.4.0` turn were served by provider A on its own path.
+- On 1.2.0, the same `custom_llm_provider` requests reached A's endpoint in another provider's
+  wire format (Anthropic messages, Gemini, Ollama, Azure, Bedrock).
+- Not run: Linux, `kind`, real provider endpoints.
 
 ### Gateway guardrails (preview)
 
@@ -445,15 +491,15 @@ guardrail, and there is no opt-out.
   only the floor aren't checked. `reconcile` reports drift but doesn't repair it: redeploy to
   re-attach.
 
-In an environment with a required floor, deploy and `eval` mint every key with LiteLLM
-`allowed_routes` set to `/v1/chat/completions`, `/chat/completions`, `/v1/embeddings` and
+Deploy and `eval` mint every key with LiteLLM `allowed_routes` set to
+`/v1/chat/completions`, `/chat/completions`, `/v1/embeddings` and
 `/embeddings`. The Presidio hook covers those. `/openai/*` passthrough runs the hook but forwards
 the unmasked body, and `/v1/moderations` is not checked at all. Key metadata is an allow-list of
 AgentBreeder's own fields, because LiteLLM reads `disable_global_guardrails` and
 `opted_out_global_guardrails` from it.
 
-Without a required floor, keys carry no `allowed_routes`, as before. Whether such a key can call
-LiteLLM's `/key/update` or `/key/generate` itself has not been tested.
+Before #1105 only keys under a required floor or with agent guardrails carried these routes;
+since then every key does, on every gateway version (see "Request parameters").
 
 What is not covered: calls that bypass the gateway, tool-call arguments, tool definitions and
 image URLs inside a chat request, the request's `user` field (LiteLLM stores it as an end-user ID), what the agent itself stores (spans, sessions, turns), and

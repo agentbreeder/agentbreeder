@@ -284,6 +284,14 @@ providers' parameters is **not known**. So:
   known.
 - If a parameter gets through, or a credential is read back, that provider does not ship until a fix exists (a LiteLLM setting,
   or a request filter in front of the gateway, which would be its own spec). D14.
+- **As built (#1105):** LiteLLM 1.106.2 has no setting for `custom_llm_provider`, so
+  `service/litellm@1.3.0` loads a request filter as LiteLLM's pre-call callback. It refuses the
+  parameters above and the other routing fields (`GATEWAY_PARAM_REFUSED`) and every call type
+  except chat completions and embeddings (`GATEWAY_ROUTE_REFUSED`). LiteLLM's file and batch
+  GET/DELETE routes pick a provider from a query parameter or header and never reach a pre-call
+  hook, so every deployment and eval key is also minted with `allowed_routes` (chat and
+  embeddings), not only under a guardrails floor. The pinned-image check is
+  `tests/test_gateway_request_filter_docker.py`, with 1.2.0 as its control.
 
 ### 4.3 Metadata services and ambient credentials
 
