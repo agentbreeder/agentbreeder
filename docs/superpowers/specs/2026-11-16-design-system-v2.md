@@ -314,6 +314,16 @@ specified here and drawn in #1115:
   delta of ≥ 1.5% inside the sheet (not a pixel count, which the grid alone could satisfy), and the
   owner signs off in the W PR that the sheet reads as glass. If it does not, the washes get
   stronger (≤ 14% alpha); `--glass` does not get lighter, because §5.4's text ratios depend on it.
+- Amendment (owner decision 2026-11-16, "make glass more visible"): the 14% washes gave 0.43%
+  (light) and 0.20% (dark). W adds one more backdrop element, `.hero-glow`, directly behind the
+  sheet: a green and a violet radial of the tint hues at ≤ 85% alpha, not a token and used nowhere
+  else, hidden whenever the glass is off. The §5.1 tint limit and the §5.4 "any tint over
+  background" row do not cover it; text never sits on it outside the sheet, and on the sheet the
+  `--glass` minimums (computed over `--foreground`) still bound contrast. W reports the delta
+  over the glass-exposed part of the sheet (the sheet minus the manifest and the session island),
+  where it passes, and over the whole sheet, where it stays below 1.5%; whether the narrower
+  measure satisfies this criterion is pending the owner's sign-off in the W PR (see
+  `docs/superpowers/verification/design-v2-W.md`).
 
 Other pages use flat `--background`; their only glass is chrome (nav, menus, dialogs) over scrolling
 content.

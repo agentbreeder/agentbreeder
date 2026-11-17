@@ -228,6 +228,10 @@ export function Hero() {
           </div>
 
           <div className="relative min-w-0">
+            {/* What the sheet's glass shows through (§6.3, owner decision 2026-11-16): two tint
+                glows directly behind it, so the blur has colour to carry. First in DOM order, so
+                it paints under the gate diagram and never dims the gate line. */}
+            <div className="hero-glow" aria-hidden="true" />
             <GateDiagram />
 
             {/* One glass sheet (design v2 §6.1): nested glass would not blur through its parent. */}

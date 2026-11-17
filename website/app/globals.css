@@ -434,6 +434,41 @@ figure.shiki:not(.not-fumadocs-codeblock *) {
   mask-image: radial-gradient(closest-side at 72% 50%, black, transparent 140%);
 }
 
+/* The glows directly behind the sheet (owner decision 2026-11-16, "make glass more visible"):
+   the page-wide washes stay at 14%, but at that alpha only ~0.4% of the backdrop survives the
+   84% --glass. These sit behind the sheet's glass-exposed band (the header and the checks),
+   fade out inside their own box (48 px larger than the sheet, so the green one also shows at
+   the sheet's right edge).
+   Dark needs a higher alpha: the same tint lifts a near-black backdrop less. Hidden when the
+   glass is off, so the fallback and forced colours stay flat. */
+.hero-glow {
+  --glow-green: 60%;
+  --glow-violet: 55%;
+  position: absolute;
+  inset: -48px;
+  pointer-events: none;
+  background:
+    radial-gradient(38% 30% at 60% 50%, var(--tint-green), transparent),
+    radial-gradient(34% 16% at 38% 24%, var(--tint-violet), transparent);
+}
+.dark .hero-glow {
+  --glow-green: 85%;
+  --glow-violet: 80%;
+}
+@supports (color: rgb(from red r g b / 50%)) {
+  .hero-glow {
+    background:
+      radial-gradient(38% 30% at 60% 50%, rgb(from var(--tint-green) r g b / var(--glow-green)), transparent),
+      radial-gradient(34% 16% at 38% 24%, rgb(from var(--tint-violet) r g b / var(--glow-violet)), transparent);
+  }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .hero-glow { display: none; }
+}
+@media (prefers-reduced-transparency: reduce), (forced-colors: active) {
+  .hero-glow { display: none; }
+}
+
 /* The gate line (§3): the one animated element. A dot travels the line past the gate: .gate-run
    spans the line and moves by its own width. transform only (§9.2); paused off-screen or in a
    hidden tab (data-paused, set by hero.tsx). */

@@ -2,10 +2,13 @@
 
 Status: **partial** (branch `feat/1115-website-v2`, 2026-11-16, macOS 13, Chromium 148 through
 Playwright 1.64.1, a production build served by `next start` on loopback). The theme, motion,
-keyboard, reflow, axe and literal checks pass. Three acceptance items do not: the §6.3 glass
-luminance delta (owner decision below), the §12 Lighthouse performance score on the docs pages
-(also below target on `main`), and the §14.5 state sheet and §14.10 VoiceOver pass, which were
-not run. Nothing was deployed; no Docker was used.
+keyboard, reflow, axe and literal checks pass. Since the glass revision (below), the §6.3 delta
+reaches 1.5% over the glass-exposed part of the sheet, but not over the whole sheet as §6.3 words
+it; the owner accepts that definition or not in the PR. Not met: the §6.3 delta over the whole
+sheet, the §12 Lighthouse performance score on the docs pages (also below target on `main`), a
+tampered theme value that blanks the page after hydration (found in the glass revision, below), and
+the §14.5 state sheet and §14.10 VoiceOver pass, which were not run. Nothing was deployed; no
+Docker was used.
 
 This is on a branch, not on `main` and not in a published preview. It merges together with T
 (#1119), L (#1116) and C (#1117) at the design v2 switch (DS9 as amended).
@@ -51,7 +54,7 @@ script for the items below, axe through `axe-playwright-python` 0.1.8, and Light
 | Check (spec) | Result |
 |---|---|
 | No flash, `/` and `/docs/install` (§14.3): OS dark and no stored value; stored `dark` with OS light; stored `light` with OS dark — `<html>` class and body background at `DOMContentLoaded` | **pass** (6/6) |
-| Tampered stored theme (§10.2): `"x y"`, `"foo"`, `"<img src=x onerror=alert(1)>"` | **pass**: `"x y"` throws inside next-themes' try (no class), `"foo"` adds the class `foo`, markup is never created. A `value` map would not change this (the script falls back to the raw value), so none was added |
+| Tampered stored theme (§10.2): `"x y"`, `"foo"`, `"<img src=x onerror=alert(1)>"` | **fails** (corrected in the glass revision): markup is never created and `"foo"` only adds the class `foo`, but a value with a space throws in next-themes' React effect (`classList.add`, outside its try) after hydration, and the page shows "This page couldn't load". The first run passed only because the check stopped listening at `DOMContentLoaded`. Present at `2948fe10`; not fixed here (see Known issues) |
 | `localStorage` throwing, OS dark | **fails before hydration**: next-themes' blocking script stops when storage throws, so the first paint is light; after hydration the page is dark. Not a §14.3 website case; fixing it needs another inline script, which §11 rules out |
 | JavaScript off (§14.11) | **pass**: light, the whole session visible, `<h1>` opaque |
 | LCP never hidden (§9.4) | **pass**: `<h1>` opacity 1 at `DOMContentLoaded` |
@@ -62,9 +65,9 @@ script for the items below, axe through `axe-playwright-python` 0.1.8, and Light
 | Drawer: focus trapped, Esc closes and returns focus | **pass** |
 | Reflow (§14.9): 200% zoom at 1280 and WCAG 1.4.12 text spacing on `/` and `/docs/install` | **pass** |
 | axe (§14.6): 11 pages × light/dark × 390/1280 | **pass**: 0 violations of any impact on all 44 runs |
-| Glass vs fallback (§6.3, ≥ 1.5% mean luminance delta inside the sheet) | **fails**: light 0.17% (0.43% over the glass-exposed area), dark 0.08% (0.20%). See below |
+| Glass vs fallback (§6.3, ≥ 1.5% mean luminance delta inside the sheet) | **partial**: the whole sheet, as §6.3 words it, is not met (1280: light 0.68%, dark 0.65%). Over the glass-exposed area (the sheet minus the manifest `pre` and the session island) it is met after the glass revision: 1280 light 1.75%, dark 1.68%; 390 light 1.76%, dark 1.84% (before: 0.43% and 0.20% at 1280). Owner to accept the narrower definition. See below |
 | Lighthouse (§12), mobile, simulated throttling | **partial**, see below |
-| CSS added (§12, ≤ 3 KB gz) | **pass**: +1.8 KB gzipped against `main` (17.8 → 19.6 KB). All JS chunks +4.2 KB gz (toggle, drawer, theme sync, MDX components and motion together) |
+| CSS added (§12, ≤ 3 KB gz) | **pass**: +1.9 KB gzipped against `main` (17.8 → 19.7 KB, after the glass revision). All JS chunks +4.2 KB gz (toggle, drawer, theme sync, MDX components and motion together) |
 | Fonts (§12) | **pass**: Bricolage removed, no new font files |
 | `tests/test_website_tokens.py`, `tests/test_brand_tokens.py` | **pass** on 3.11, 3.12, 3.13 |
 | `npm run build`, `npm run lint` | **pass** |
@@ -97,16 +100,62 @@ so three dark runs each against `main` and W:
 with 78 and 70 had total blocking time spikes of 680 and 890 ms). LCP 2.6–3.5 s, CLS 0 everywhere.
 The §12 Lighthouse target for the docs pages is not met.
 
-### Glass: an owner decision
+### Glass: the revision (owner decision 2026-11-16, "make glass more visible")
 
 §6.3 asks for a ≥ 1.5% mean luminance delta between the glass and its opaque fallback inside
 the hero sheet. With `--glass` at 84% (fixed by §5.4's contrast ratios), at most 16% of the
 backdrop shows through, and most of the sheet is opaque panels (the manifest and the session
-island). With the washes at the spec's maximum of 14%, the delta is 0.43% (light) and 0.20%
-(dark) over the glass-exposed area. The spec's remaining levers are excluded (a lighter `--glass`
-would break §5.4). Options: accept the sheet as it is (the owner signs off that it reads as glass,
-as §6.3 asks either way), lower the threshold, or allow a denser element behind the sheet. The
-screenshots `home-glass-*` and `home-glass-fallback-*` show both renderings.
+island). With only the page-wide washes at 14%, the delta was 0.43% (light) and 0.20% (dark)
+over the glass-exposed area. The owner chose to make the glass more visible.
+
+The change is W-only; no `brand.css` token moved, so the Cloud pin and the console are
+unaffected. A `.hero-glow` element sits in the sheet's column, first in DOM order (so it paints under the
+gate diagram and never dims the gate line), directly behind the sheet: a `--tint-green` radial
+behind the checks band and a `--tint-violet` radial behind the header. Its alpha is far above
+the spec's tint limits (§5.1: tints ≤ 10%; §6.3: washes ≤ 14%): light 60% and 55%, dark 85% and
+80%, through relative colour syntax. The owner's decision amends §6.3 for this one backdrop
+element (see the spec); the tokens are unchanged. A browser without relative colour syntax
+(before Chrome 119, Safari 16.4, Firefox 128) keeps the token alpha, so the glow is nearly
+invisible there and the deltas below hold only with it. The box is 48 px larger than the sheet
+on each side and each ellipse fades out inside it (no clipped edges). It is hidden when `backdrop-filter` is
+unsupported, under `prefers-reduced-transparency` and under forced colours, so every fallback
+stays flat. The page-wide washes are unchanged at 14%.
+
+Measured the same way as before (production build, Chromium, reduced motion, the sheet's
+screenshot with glass against the same with `.glass` forced to `--glass-fallback`; mean absolute
+grey difference; at 390 the sheet is scrolled into view):
+
+The glass-exposed area is the sheet's visible box minus the bounding boxes of `.ab-sheet pre`
+(the manifest) and `.ab-sheet .ab-island` (the session): the header row, the checks band and the
+padding between them.
+
+| Width | Light, glass-exposed / whole sheet | Dark, glass-exposed / whole sheet |
+|---|---|---|
+| 1280, before | 0.43% / 0.17% | 0.20% / 0.08% |
+| 1280, after | **1.75%** / 0.68% | **1.68%** / 0.65% |
+| 390, before | 1.05% / 0.54% | 0.71% / 0.36% |
+| 390, after | **1.76%** / 0.90% | **1.84%** / 0.94% |
+
+The whole-sheet figure stays under 1.5%: about 60% of the sheet is the opaque manifest and the
+session island, which §6.1 and DS12 keep opaque. Reaching 1.5% over the whole sheet would need
+the glass area to carry about 4%, a bit over twice the current glow.
+
+- Contrast: text on the sheet is only `--foreground` and `--text-muted` (§5.4), and §5.4's
+  `--glass` minimums are computed with `--foreground` behind the glass, the worst case in each
+  theme; any tinted backdrop is further from the text colour than that, so the ratios hold (light 13.89 / 5.48,
+  dark 10.17 / 4.72; control border 3.33 / 3.01). axe: 0 violations on 44 runs after the change.
+- Fallback: `home-glass-fallback-*` and `home-forced-colors-light-1280` are flat.
+- Cost: +0.1 KB CSS gzipped (19.7 KB total, +1.9 KB against `main`). Scroll at 4× CPU
+  throttling, `/` and `/docs`, 390 and 1280, both themes: median frame 16.7 ms with or without
+  the glow, no frame regression (one run had a p95 spike on light 1280 with the glow; two
+  reruns were clean, machine load average ~8). Lighthouse `/` dark, five runs: 93, 71, 70, 94, 95 (the two low
+  runs had 1,040 ms total blocking time with the machine at load average ~10; this change adds
+  no JavaScript). No horizontal scroll at 320, 390, 768, 1024.
+- The nav, the docs top bar and menus are `--glass-strong` (92%) chrome; at rest over a flat
+  page they cannot differ from the fallback by design (§6.3: "other pages use flat
+  `--background`"). Cards are opaque by §6.1. Neither was changed.
+
+The owner still signs off in the PR that the sheet reads as glass (§6.3).
 
 ## Screenshots
 
@@ -114,9 +163,16 @@ screenshots `home-glass-*` and `home-glass-fallback-*` show both renderings.
 `<page>-<light|dark>-<320|390|1280>.webp` for `home`, `docs`, `install`, `manifest`, `blog`, `post`
 (why-i-built-agentbreeder), `cloud`, `about` and `404`, all with reduced motion; plus
 `home-drawer-dark-390`, `home-forced-colors-light-1280`, `home-reduced-motion-light-1280`,
-`home-js-off-1280` and the four glass/fallback captures.
+`home-js-off-1280` and the glass/fallback captures `home-glass[-fallback]-<light|dark>-<390|1280>`.
+The home captures and the glass captures were refreshed in the glass revision.
 
 ## Known issues left for follow-ups
+
+- A stored `theme` containing a space (`"x y"`, or any markup-like value) blanks the site after
+  hydration: next-themes' effect calls `classList.add` on the raw value outside its try. Passing
+  `value: { light: 'light', dark: 'dark' }` to the theme provider should make the effect add
+  nothing for an unknown value (the blocking script already catches its own throw); suggested,
+  not verified. Needs its own issue.
 
 - React hydration error #418 on the docs pages (`main` has it too).
 - `/docs/install` Lighthouse performance below 90 (`main` too).
