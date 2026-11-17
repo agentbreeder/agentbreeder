@@ -1,6 +1,8 @@
 /* The console's layout. Colours come only from brand.css (a snapshot of website/brand.css; light by
- * default, dark under html.dark). Green is for the primary action, healthy and gate passed; violet
- * (--chart-2) marks candidates and other temporary things. */
+ * default, dark under html.dark, set before first paint by theme.js). Design v2 (#1113, #1116): the
+ * primary action is monochrome; green is only status text and the gate line (--brand), which marks
+ * "gate passed" and "healthy"; violet (--chart-2) marks candidates and other temporary things.
+ * Glass is only for the sticky header, menus and dialogs; everything else is opaque. */
 
 @font-face {
   font-family: "Geist";
@@ -15,8 +17,13 @@
   font-display: swap;
 }
 
-:root { color-scheme: light; }
+:root { color-scheme: light; --sticky-top: 72px; scroll-padding-top: var(--sticky-top); }
+/* Below 1100 px the header wraps to more than one row, so it scrolls away with the page instead of
+ * covering focused controls (WCAG 2.4.11); sticky things then pin to the top of the viewport. */
+@media (max-width: 1099px) { :root { --sticky-top: 0px; } }
 :root.dark { color-scheme: dark; }
+/* applyTheme sets this for one frame so a theme change does not animate (design v2 §8.1). */
+.no-transition, .no-transition * { transition: none !important; }
 * { box-sizing: border-box; }
 body {
   margin: 0;
@@ -25,7 +32,8 @@ body {
   font: 14px/1.5 "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   font-variant-numeric: tabular-nums;
 }
-a { color: var(--primary); }
+/* Links are text-coloured and underlined: with a monochrome primary, colour alone is no cue. */
+a { color: var(--foreground); text-decoration: underline; text-underline-offset: 3px; }
 h1, h2, h3 { line-height: 1.25; margin: 0 0 8px; }
 h1 { font-size: 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 h1:focus { outline: none; }
@@ -44,10 +52,14 @@ code { font-size: 12.5px; word-break: break-all; }
 .skip { position: absolute; left: 8px; top: -48px; z-index: 10; background: var(--card); color: var(--foreground); padding: 8px 12px; border: 1px solid var(--control-border); border-radius: 6px; }
 .skip:focus { top: 8px; }
 
+/* Glass (.glass-strong, design v2 §6): the background, border colour and shadow come from the
+ * layered utility, so this unlayered rule must not set them (it would win over the layer). */
 header.top {
   display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
-  padding: 10px 24px; border-bottom: 1px solid var(--border); background: var(--card);
+  padding: 10px max(24px, env(safe-area-inset-right)) 10px max(24px, env(safe-area-inset-left));
+  border-width: 0 0 1px; border-radius: 0; position: sticky; top: 0; z-index: 6;
 }
+@media (max-width: 1099px) { header.top { position: static; } }
 .brand { display: flex; flex-direction: column; }
 .top-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .pill {
@@ -62,15 +74,19 @@ header.top {
 .menu summary::-webkit-details-marker { display: none; }
 .menu-body {
   position: absolute; right: 0; top: calc(100% + 6px); z-index: 5; width: 240px; display: grid; gap: 8px;
-  background: var(--popover); color: var(--popover-foreground); border: 1px solid var(--control-border); border-radius: 8px; padding: 12px;
+  color: var(--popover-foreground); border-radius: 16px; padding: 12px;
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--elev-3); /* glass, elevation 3 */
 }
+/* The menu sits inside the glass header, a backdrop root (spec §6.4), so its blur samples only the
+ * header: below the header it reads as the 92% --glass-strong tint, which the §5.4 contrast checks
+ * assume anyway. Three blurred elements at most: header, menu, dialog. */
 
 .layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: calc(100vh - 58px); }
 nav.sidebar { background: var(--sidebar); color: var(--sidebar-foreground); border-right: 1px solid var(--sidebar-border); padding: 16px 8px; }
 nav.sidebar ul { list-style: none; margin: 0 0 12px; padding: 0; }
 nav.sidebar a { display: block; padding: 6px 10px; border-radius: 6px; color: inherit; text-decoration: none; }
-nav.sidebar a:hover { background: var(--sidebar-accent); }
-nav.sidebar a[aria-current="page"] { background: var(--sidebar-accent); font-weight: 600; box-shadow: inset 3px 0 0 var(--sidebar-primary); }
+@media (hover: hover) { nav.sidebar a:hover { background: var(--sidebar-accent); } }
+nav.sidebar a[aria-current="page"] { background: var(--sidebar-accent); font-weight: 600; box-shadow: inset 2px 0 0 var(--sidebar-primary); }
 .nav-heading { margin: 8px 10px 4px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
 
 main { padding: 24px; max-width: 1100px; min-width: 0; }
@@ -96,6 +112,13 @@ button.action.secondary { background: transparent; color: var(--foreground); bor
 button.action.danger { background: transparent; color: var(--destructive); border-color: var(--destructive); font-weight: 500; }
 button.action.ghost { background: transparent; color: var(--foreground); border-color: transparent; font-weight: 500; }
 button.action.small { padding: 3px 10px; min-height: 28px; font-size: 13px; }
+@media (hover: hover) {
+  button.action:not(:disabled):hover { background: color-mix(in srgb, var(--primary) 88%, var(--background)); }
+  button.action.secondary:not(:disabled):hover, button.action.ghost:not(:disabled):hover { background: var(--secondary); }
+  button.action.danger:not(:disabled):hover { background: var(--destructive-subtle); }
+}
+button.action:not(:disabled):active { transform: translateY(1px); }
+button.action.secondary:not(:disabled):active, button.action.ghost:not(:disabled):active { background: var(--accent); }
 button:disabled { opacity: 0.55; cursor: not-allowed; }
 /* #881: a faded red outline still reads as live, so an off danger button looks like an off secondary. */
 button.action.danger:disabled { color: var(--foreground); border-color: var(--control-border); }
@@ -111,7 +134,7 @@ label { font-weight: 500; }
 .notice { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; border-left: 3px solid var(--info); background: var(--info-subtle); padding: 8px 12px; border-radius: 4px; margin-bottom: 12px; }
 .notice.ok { border-color: var(--success); background: var(--success-subtle); }
 .notice.warn { border-color: var(--warning); background: var(--warning-subtle); display: block; }
-.notice.error { border-color: var(--destructive); background: var(--warning-subtle); }
+.notice.error { border-color: var(--destructive); background: var(--destructive-subtle); }
 .notice.blocker { display: block; font-size: 15px; }
 
 .badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
@@ -119,7 +142,9 @@ label { font-weight: 500; }
 .verdict.ok { color: var(--success); font-weight: 600; }
 .verdict.bad { color: var(--destructive); font-weight: 600; }
 
-.table-wrap { overflow-x: auto; margin-bottom: 12px; }
+/* Positioned, so an absolutely placed .visually-hidden cell text stays inside the scroller instead
+ * of widening the page at 320 px (WCAG 1.4.10, tests/ui/test_theme.py). */
+.table-wrap { overflow-x: auto; margin-bottom: 12px; position: relative; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th, td { border-bottom: 1px solid var(--border); padding: 7px 8px; height: 32px; text-align: left; vertical-align: top; }
 th { color: var(--text-muted); font-weight: 500; }
@@ -136,7 +161,7 @@ pre.text {
 
 .dock {
   position: fixed; right: 16px; bottom: 16px; width: min(560px, calc(100vw - 32px)); max-height: 70vh; overflow: auto; z-index: 4;
-  background: var(--card); border: 1px solid var(--control-border); border-radius: 10px; padding: 12px 16px; box-shadow: 0 8px 30px rgb(0 0 0 / 25%);
+  background: var(--card); border: 1px solid var(--control-border); border-radius: 12px; padding: 12px 16px; box-shadow: var(--elev-3);
 }
 .job { border-top: 1px solid var(--border); padding: 10px 0; }
 .outcome { margin: 4px 0 8px; }
@@ -148,8 +173,12 @@ pre.text {
   overflow: auto; padding: 8px 12px; margin-top: 8px; white-space: pre-wrap; word-break: break-word;
 }
 
-dialog.confirm { background: var(--card); color: var(--card-foreground); border: 1px solid var(--control-border); border-radius: 8px; max-width: 460px; padding: 20px; }
-dialog::backdrop { background: rgb(0 0 0 / 50%); }
+/* Glass, elevation 4 (design v2 §6.1): no unlayered background or border colour here. */
+dialog.confirm {
+  color: var(--foreground); border-radius: 16px; max-width: 460px; padding: 20px;
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--elev-4);
+}
+dialog::backdrop { background: var(--scrim); }
 
 .skeleton { display: grid; gap: 8px; margin-bottom: 12px; }
 .skeleton span { display: block; height: 12px; border-radius: 4px; background: var(--secondary); }
@@ -157,13 +186,14 @@ dialog::backdrop { background: rgb(0 0 0 / 50%); }
 .skeleton span:nth-child(3) { width: 60%; }
 
 @media (max-width: 760px) {
-  .layout { grid-template-columns: minmax(0, 1fr); }
-  nav.sidebar { border-right: 0; border-bottom: 1px solid var(--sidebar-border); padding: 8px 16px; display: flex; gap: 12px; overflow-x: auto; }
+  /* The nav row keeps its height; a short page's spare height goes to main, not to the nav. */
+  .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
+  nav.sidebar { position: relative; border-right: 0; border-bottom: 1px solid var(--sidebar-border); padding: 8px 16px; display: flex; gap: 12px; overflow-x: auto; }
   nav.sidebar ul { display: flex; gap: 4px; margin: 0; }
   nav.sidebar a { white-space: nowrap; }
   .nav-heading { display: none; }
   main { padding: 16px; }
-  header.top { padding: 10px 16px; }
+  header.top { padding: 10px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left)); }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
@@ -224,7 +254,19 @@ tr.current td { background: var(--secondary); }
 .log-options, .log-tools { align-items: flex-end; margin-bottom: 12px; gap: 12px; }
 .search-step { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 32px; }
 .row-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
-a.action { text-decoration: none; display: inline-flex; align-items: center; }
+/* In a table the cell stays a cell (a flex td drops out of the row's rule); its actions don't wrap. */
+td.row-actions { display: table-cell; white-space: nowrap; text-align: right; }
+td.row-actions > * + * { margin-left: 8px; }
+/* A link styled as an action (design v2): secondary links get a button edge; ghost links keep
+ * their underline, since a monochrome link has no colour cue. */
+a.action {
+  display: inline-flex; align-items: center; min-height: 32px; padding: 6px 14px; border: 1px solid transparent;
+  border-radius: 6px; color: var(--foreground); font-weight: 500; text-decoration: none;
+}
+a.action.small { min-height: 28px; padding: 3px 10px; font-size: 13px; }
+a.action.secondary { border-color: var(--control-border); }
+a.action.ghost { text-decoration: underline; text-underline-offset: 3px; }
+@media (hover: hover) { a.action:hover { background: var(--secondary); } }
 .logview {
   background: var(--secondary); border-radius: 6px; height: min(60vh, 560px); overflow: auto;
   font: 12.5px/20px "Geist Mono", ui-monospace, monospace; padding: 4px 0;
@@ -285,7 +327,7 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
  * candidates. */
 .gate-strip { list-style: none; margin: 0 0 12px; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
 .gate-step { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: baseline; padding: 8px 10px; border: 1px solid var(--control-border); border-top-width: 3px; border-radius: 6px; }
-.gate-step.passed { border-top-color: var(--success); }
+.gate-step.passed { border-top-color: var(--brand); }
 .gate-step.failed { border-top-color: var(--destructive); }
 .gate-step.running { border-top-color: var(--chart-2); }
 .gate-step.differs { border-top-color: var(--warning); }
@@ -307,7 +349,7 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
 .agent-tabs ul { list-style: none; display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 16px; padding: 0; border-bottom: 1px solid var(--border); }
 .agent-tabs a { display: inline-block; padding: 8px 12px; color: var(--text-muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .agent-tabs a[aria-current="page"] { color: var(--foreground); border-bottom-color: var(--primary); font-weight: 600; }
-.agent-tabs a:hover { color: var(--foreground); }
+@media (hover: hover) { .agent-tabs a:hover { color: var(--foreground); } }
 .facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
 .facts dt { color: var(--text-muted); }
 .facts dd { margin: 0; overflow-wrap: anywhere; }
@@ -356,7 +398,7 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
   display: inline-flex; align-items: center; min-height: 32px; padding: 6px 14px; border: 1px solid var(--control-border);
   border-radius: 6px; color: var(--foreground); font-weight: 500; text-decoration: none;
 }
-.build-link:hover { background: var(--secondary); }
+@media (hover: hover) { .build-link:hover { background: var(--secondary); } }
 .builder { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
 .builder > .card { margin: 0; }
 .builder form textarea, .builder form input, .builder form select { width: 100%; box-sizing: border-box; font: inherit; }
@@ -364,7 +406,7 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
 .builder-more[open] { display: flex; flex-direction: column; gap: 6px; padding-bottom: 12px; }
 .builder-more summary { cursor: pointer; }
 .builder-preview {
-  position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; display: flex; flex-direction: column; gap: 8px;
+  position: sticky; top: calc(var(--sticky-top) + 16px); max-height: calc(100vh - var(--sticky-top) - 32px); overflow: auto; display: flex; flex-direction: column; gap: 8px;
   border: 1px solid var(--border); border-radius: 8px; padding: 16px; background: var(--card); color: var(--card-foreground);
 }
 .builder-preview h2 { margin: 0; font-size: 16px; }
@@ -451,11 +493,33 @@ th[scope="row"] { color: var(--foreground); }
 .cost-total strong { font-size: 1.25rem; }
 .cost-controls { align-items: flex-end; margin-bottom: 8px; }
 
+/* Theme toggle (design v2 §10.1): System, Light and Dark as a radiogroup in the header; the checked
+ * option has the segmented "selected" state (card fill, control edge). */
+.theme-toggle { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--control-border); border-radius: 8px; }
+.theme-toggle button {
+  display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; cursor: pointer;
+  border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-muted);
+}
+.theme-toggle button[aria-checked="true"] { background: var(--card); border-color: var(--control-border); color: var(--foreground); }
+@media (hover: hover) { .theme-toggle button:hover { color: var(--foreground); } }
+@media (pointer: coarse) { .theme-toggle button { width: 44px; height: 44px; } }
+@media (forced-colors: active) {
+  .theme-toggle button[aria-checked="true"] { forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight; }
+}
+.icon { display: block; flex: none; }
+
+/* The gate line (design v2 §3): a 1.5 px --brand ring around a check, beside the word, for "gate
+ * passed" and "healthy" only. The only green outside status text. */
+.gate-check { display: inline-block; flex: none; vertical-align: -3px; }
+.gate-check .gate-ring { stroke: var(--brand); stroke-width: 1.5; }
+.gate-check .gate-tick { stroke: currentColor; stroke-width: 2; }
+@media (forced-colors: active) { .gate-check .gate-ring, .gate-check .gate-tick { stroke: CanvasText; } }
+
 /* Glass surfaces (design v2 §6.2, #1113): a copy of the .glass rules in website/brand.css's
- * `@layer utilities`. tests/test_brand_tokens.py fails when the two differ. Unused until the
- * console rollout (#1116). A layered rule loses to any unlayered one: an element given .glass must
- * not also set its own background, border or box-shadow outside a layer (L removes those from
- * header.top, .menu-body and dialog.confirm). */
+ * `@layer utilities`. tests/test_brand_tokens.py fails when the two differ. Used by header.top,
+ * .menu-body and dialog.confirm (#1116). A layered rule loses to any unlayered one: an element given
+ * .glass must not set its own background or border colour outside a layer (those three set only
+ * border width, radius and their elevation's shadow). */
 @layer utilities {
   .glass, .glass-strong {
     border: 1px solid var(--glass-border);

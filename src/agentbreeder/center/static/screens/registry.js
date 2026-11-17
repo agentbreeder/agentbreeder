@@ -13,6 +13,7 @@ import {
   KINDS, ROOT_LABELS, deployedLines, diffStats, groupByName, hunkHeader, noHunkReason, usedByText, useText, verifyLabel, verifyState,
 } from "../lib/registry.js";
 import { Action, Card, Notice, Table, Text, ViewState, useConfirm } from "../ui/components.js";
+import { GateCheck } from "../ui/icons.js";
 import { EDITABLE_KINDS } from "../lib/edit.js";
 import { Editor, Fork, MoveAgent, editing } from "./edit.js";
 import { useView } from "../ui/data.js";
@@ -71,7 +72,7 @@ function RootBadge({ version }) {
 
 function VerifyBadge({ entry }) {
   const label = verifyLabel(entry);
-  return html`<span class=${`verify ${entry.verify}`}>${entry.verify === "failed" ? "✕ " : entry.verify === "passed" ? "✓ " : ""}${label}</span>`;
+  return html`<span class=${`verify ${entry.verify}`}>${entry.verify === "failed" ? "✕ " : entry.verify === "passed" ? html`<${GateCheck} /> ` : ""}${label}</span>`;
 }
 
 /** The list for one kind. */
