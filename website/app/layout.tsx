@@ -3,7 +3,7 @@ import { GeistSans } from 'geist/font/sans';
 import { GeistMono } from 'geist/font/mono';
 import { RootProvider } from 'fumadocs-ui/provider/next';
 import { ThemeColorSync } from '@/components/theme-color-sync';
-import { THEME_COLOR } from '@/lib/theme';
+import { THEME_COLOR, THEME_GUARD_SCRIPT } from '@/lib/theme';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -40,6 +40,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`} suppressHydrationWarning>
       <body>
         {/*
+          Must stay before RootProvider, whose next-themes script reads the stored theme next:
+          this drops a stored value outside system/light/dark and stops one arriving from another
+          tab (lib/theme.ts, design v2 §10.2).
+        */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_GUARD_SCRIPT }} />
+        {/*
           Light by default, dark by system preference or the toggle (design v2 §10). next-themes
           emits a small blocking script at the top of <body> that sets class="dark" on <html>
           before first paint, so there is no flash. With JavaScript off the page renders light.
@@ -50,6 +56,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             defaultTheme: 'system',
             enableSystem: true,
             themes: ['light', 'dark'],
+            // With a value map next-themes' React effect adds only mapped classes; an unknown
+            // theme adds none instead of throwing in classList.add (design v2 §10.2).
+            value: { light: 'light', dark: 'dark' },
             disableTransitionOnChange: true,
           }}
         >

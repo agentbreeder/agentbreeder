@@ -514,8 +514,17 @@ the browser: no analytics event or request on change.
   off the page renders light (`:root`). The script exists today (with `forcedTheme`); v2 unforces
   it.
 - W checks what the installed next-themes 0.4.6 script does with a stored value outside `themes`
-  (`localStorage.theme = "x y"`). If it adds those classes, W passes a `value` map and asserts the
-  result in a test; either way a tampered value can at most add class names to `<html>`, never markup.
+  (`localStorage.theme = "x y"`). Checked at W: its blocking script adds an unknown value as a class
+  on `<html>`, and its React effect calls `classList.add` on it outside a try, so a value with a
+  space threw after hydration and blanked the page. W therefore (a) passes
+  `value: { light: 'light', dark: 'dark' }`, so the effect adds only mapped classes; (b) renders a
+  guard script (`THEME_GUARD_SCRIPT`, `lib/theme-guard.mjs`) before `RootProvider`. The guard
+  removes a stored value outside `system`/`light`/`dark`, so next-themes falls back to `system`
+  and its blocking script never sees the value. It also stops another tab's `storage` event that
+  carries such a value (a capture listener registered before next-themes' own), because the value
+  map alone throws on a prototype key such as `"constructor"`. A Playwright run checks nine
+  tampered values through hydration and one theme switch, plus seven values from another tab;
+  `tests/test_website_theme_guard.py` runs the guard in Node.
 - `app/docs/layout.tsx`: `themeSwitch: { enabled: true, mode: 'light-dark-system' }`.
 - `globals.css`: delete the legacy `:root` block and both fumadocs overrides; map **every**
   `--color-fd-*` token declared by the installed `fumadocs-ui/style.css` (background, foreground,
@@ -564,11 +573,14 @@ the browser: no analytics event or request on change.
   Lucide paths are inlined as static markup (no package, no CDN, no `dangerouslySetInnerHTML`).
 - Scripts: next-themes' blocking inline script already ships today (with `forcedTheme`); v2 only
   unforces it. The console adds one same-origin file, `theme.js`. The stored preference is compared
-  by `theme.js` against its three literals, so it cannot inject anything. For next-themes, W verifies
-  the behaviour (§10.2); at worst a same-origin value adds class names to `<html>`, never markup. Neither protects against same-origin XSS, which is out of
-  scope.
+  by `theme.js` against its three literals, so it cannot inject anything. The website adds one
+  inline script of its own, the theme guard (§10.2, 334 bytes, built from constants, no
+  user input): it only compares the stored value, or one arriving from another tab, with the
+  three themes and removes it otherwise.
+  With it a tampered value adds no class and cannot break the page. Neither protects against
+  same-origin XSS, which is out of scope.
 - The website has no CSP today, so v2 regresses nothing. A future CSP (DS7) needs a nonce for the
-  next-themes script and `style-src-attr` (or no inline `style` props, §8.5); the hero's inline
+  next-themes script and the theme guard (or a hash for the guard, whose text is constant) and `style-src-attr` (or no inline `style` props, §8.5); the hero's inline
   `<style>` already goes (§9.7).
 - Console CSP (`center/server.py`) is unchanged; `backdrop-filter`, `@supports` and setting
   `style.colorScheme` through the CSSOM need nothing.
@@ -703,3 +715,4 @@ after 3.0.0a3.
 | r2 | `ui-ux-pro-max` | APPROVED (re-ran the §5.4 glass minima, within 0.04). Minors folded in: `theme-color` follows the toggle (§7); reserved bold width (§8.2); explicit `aria-label`s, tooltip visual only, fumadocs switch in the state checks (§10.1); `--brand` text only on opaque surfaces (§5.4); `color-scheme` and the parsers (§5.1); console at 320 px (§14.4); stray reference removed (§8.2). |
 | r3 | Narrow check, all lenses + docs-exception gate (Claude Sonnet, read-only) | APPROVED. Every r2 row verified in its section, no contradictions; no secrets, private or marketing content; claims honest; changelog lint OK. Minor folded in: §5.5 wording on `--foreground` as a backdrop; this row. |
 | T (#1119) | Implementation review (Claude Sonnet, read-only; `frontend-design`, `ui-ux-pro-max`, frontend engineering) | r1 CHANGES REQUESTED, 3 major. Folded in: T merges with the website switch, not before, and C blocks only the switch (DS9 amended; §13, §15, `CLAUDE.md`, `docs/cross-repo-sync.md`); C pins the T PR head commit until T merges (§13); a layered `.glass` loses to unlayered rules, so L and W strip the elements' own background, border and shadow (§6.2, §13). Minors: `--sidebar` contrast pairs, a single console layer. r2 APPROVED. |
+| W (#1115) | Theme guard delta review (Claude Sonnet, read-only; frontend engineering, `/security`) | See `docs/superpowers/verification/design-v2-W.md`, "Stored-theme fix". |

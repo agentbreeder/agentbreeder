@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTheme } from 'next-themes';
 import { MonitorIcon, MoonIcon, SunIcon } from './icons';
-import { THEMES, type ThemeChoice } from '@/lib/theme';
+import { isThemeChoice, type ThemeChoice } from '@/lib/theme';
 
 const OPTIONS: { value: ThemeChoice; label: string; Icon: typeof SunIcon }[] = [
   { value: 'system', label: 'System', Icon: MonitorIcon },
@@ -25,7 +25,7 @@ export function ThemeToggle({ size = 'md' }: { size?: 'md' | 'lg' }) {
   useEffect(() => setMounted(true), []);
 
   const current: ThemeChoice | null =
-    mounted && THEMES.includes(theme as ThemeChoice) ? (theme as ThemeChoice) : mounted ? 'system' : null;
+    mounted && isThemeChoice(theme) ? theme : mounted ? 'system' : null;
   const focusIndex = Math.max(0, OPTIONS.findIndex((o) => o.value === current));
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {

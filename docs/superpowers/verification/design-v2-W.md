@@ -5,8 +5,7 @@ Playwright 1.64.1, a production build served by `next start` on loopback). The t
 keyboard, reflow, axe and literal checks pass. Since the glass revision (below), the §6.3 delta
 reaches 1.5% over the glass-exposed part of the sheet, but not over the whole sheet as §6.3 words
 it; the owner accepts that definition or not in the PR. Not met: the §6.3 delta over the whole
-sheet, the §12 Lighthouse performance score on the docs pages (also below target on `main`), a
-tampered theme value that blanks the page after hydration (found in the glass revision, below), and
+sheet, the §12 Lighthouse performance score on the docs pages (also below target on `main`), and
 the §14.5 state sheet and §14.10 VoiceOver pass, which were not run. Nothing was deployed; no
 Docker was used.
 
@@ -54,7 +53,7 @@ script for the items below, axe through `axe-playwright-python` 0.1.8, and Light
 | Check (spec) | Result |
 |---|---|
 | No flash, `/` and `/docs/install` (§14.3): OS dark and no stored value; stored `dark` with OS light; stored `light` with OS dark — `<html>` class and body background at `DOMContentLoaded` | **pass** (6/6) |
-| Tampered stored theme (§10.2): `"x y"`, `"foo"`, `"<img src=x onerror=alert(1)>"` | **fails** (corrected in the glass revision): markup is never created and `"foo"` only adds the class `foo`, but a value with a space throws in next-themes' React effect (`classList.add`, outside its try) after hydration, and the page shows "This page couldn't load". The first run passed only because the check stopped listening at `DOMContentLoaded`. Present at `2948fe10`; not fixed here (see Known issues) |
+| Tampered stored theme (§10.2): nine values (`"x y"`, `"<img src=x onerror=alert(1)>"`, `""`, a 100,000-character string, `"dark "`, `"foo"`, `"system light"`, `"constructor"`, `"__proto__"`) on `/` and `/docs/install`, OS light and dark, through `DOMContentLoaded`, hydration and one theme switch; plus seven values from another tab | **pass** after the stored-theme fix (below): 36/36 and 7/7, no page error, no class added, effective theme `system`. Before the fix a value with a space blanked the page after hydration (found in the glass revision) |
 | `localStorage` throwing, OS dark | **fails before hydration**: next-themes' blocking script stops when storage throws, so the first paint is light; after hydration the page is dark. Not a §14.3 website case; fixing it needs another inline script, which §11 rules out |
 | JavaScript off (§14.11) | **pass**: light, the whole session visible, `<h1>` opaque |
 | LCP never hidden (§9.4) | **pass**: `<h1>` opacity 1 at `DOMContentLoaded` |
@@ -157,6 +156,59 @@ the glass area to carry about 4%, a bit over twice the current glow.
 
 The owner still signs off in the PR that the sheet reads as glass (§6.3).
 
+## Stored-theme fix (coordinator task, 2026-11-16)
+
+next-themes 0.4.6 passes the stored `theme` to `classList.add` in two places: its blocking script
+(inside a try) and its React effect (outside one). So a value with a space (`"x y"`, a markup-like
+string) threw after hydration and the page showed "This page couldn't load", and any other unknown
+value (`"foo"`) became a class on `<html>`. `main` is not affected: it still forces dark.
+
+The fix has two parts:
+
+- `value: { light: 'light', dark: 'dark' }` on the provider (`app/layout.tsx`). The React effect
+  then adds only mapped classes, so an unknown theme such as `"x y"` adds none instead of throwing.
+  It does not cover a prototype key: `"constructor"` looks up `Object`, and `classList.add` throws
+  on its string form.
+- `THEME_GUARD_SCRIPT` (`lib/theme-guard.mjs`, re-exported by `lib/theme.ts`), rendered first in
+  `<body>`, before next-themes' script. It removes a stored value outside `system`/`light`/`dark`
+  inside a try, so next-themes reads no value and falls back to `system`. It also registers a
+  capture `storage` listener before next-themes registers its own at hydration. For a value from
+  another tab outside the three themes, it calls `stopImmediatePropagation` and removes the value,
+  so next-themes never adopts it, and the other tabs see a null value and reset to `system`. The
+  script is built from `THEMES` with `JSON.stringify` and only compares the value.
+
+Playwright (Chromium, production build), the check script kept outside the repo like the others.
+Nine values are seeded once (`"x y"`, `"<img src=x onerror=alert(1)>"`, `""`, 100,000 × `a`,
+`"dark "`, `"foo"`, `"system light"`, `"constructor"`, `"__proto__"`) on `/` and `/docs/install`,
+OS light and dark. The script listens for page errors and dialogs from navigation through
+`DOMContentLoaded`, hydration (until the toggle shows a checked option) and one click to the other
+theme. At each step it asserts that the page renders, `<html>` has no class beyond the untampered
+baseline plus `light`/`dark`, and no `img[src=x]` exists. After hydration it asserts the effective
+theme matches the OS, storage holds no value, and the toggle shows System. After the switch it
+asserts the new theme is applied and stored. Cross-tab: a second tab writes `"x y"`, `"foo"`,
+`"dark "`, `"constructor"`, `"toString"`, `"__proto__"` or `"hasOwnProperty"` after the first tab
+has hydrated. Page errors that the same page throws untampered are reported and not counted: React
+#418 on the docs pages, also on `main` (Known issues).
+
+| Run | Result |
+|---|---|
+| Fix as committed | **pass**: 36/36 cases and 7/7 cross-tab values, 0 failures |
+| First revision (value map, stored-value guard, a reset to `system` in `ThemeColorSync`), cross-tab | **failed** on the four prototype keys: `classList.add` threw (`function Object() { [native code] }`) and the page broke before the reset ran. Found by the Sonnet review (below); the `storage` listener replaced the reset |
+| Guard emptied in the HTML (value map only), control | the run stops at a stored `"constructor"`: the page never hydrates. Before that, `"foo"` and the long string are classes on `<html>` from next-themes' blocking script, and every value stays stored. The guard is needed for both |
+| axe, 11 pages × light/dark × 390/1280 | **pass**: 0 violations on all 44 runs |
+| `npm run build`, `npm run lint`, `tsc --noEmit` | **pass** |
+| `tests/test_website_theme_guard.py` (new: runs the guard in Node against a fake `localStorage` and `storage` events; skipped without Node), `tests/test_website_tokens.py`, `tests/test_brand_tokens.py` | **pass** on 3.11, 3.12, 3.13 (92 each) |
+
+A future CSP (DS7) needs a nonce or a hash for the guard as well as for next-themes' script (spec
+§11). Blocked storage (`localStorage` throws) is unchanged: the guard's try catches it.
+
+### Review
+
+| Round | Reviewer | Verdict |
+|---|---|---|
+| r1 (uncommitted, on `fc755e05`) | Claude Sonnet, read-only; frontend engineering, security | CHANGES REQUESTED: 1 major, 2 minor, 1 nit. Major: a prototype key from another tab still crashed through the value map (reproduced, fixed with the guard's `storage` listener, now in the Playwright run and the Node test). Minor: the repo test was source substrings only (now runs the guard in Node); the docs overclaimed the cross-tab case (reworded). Nit: CSP line wrap. |
+| r2 (uncommitted, the fix as committed) | same reviewer | APPROVED. Verified listener order (capture listener first, on `window`), the cross-tab convergence (no loop), null and `clear()` events, and that the Node test fails if the guard regresses. Nits: real dispatch order is covered by the Playwright run only, not the Node test; the guard size (now measured, 334 bytes); a tab without the provider keeps its state while storage is empty. |
+
 ## Screenshots
 
 `docs/superpowers/verification/design-v2/website/` (lossless WebP, viewport captures):
@@ -167,12 +219,6 @@ The owner still signs off in the PR that the sheet reads as glass (§6.3).
 The home captures and the glass captures were refreshed in the glass revision.
 
 ## Known issues left for follow-ups
-
-- A stored `theme` containing a space (`"x y"`, or any markup-like value) blanks the site after
-  hydration: next-themes' effect calls `classList.add` on the raw value outside its try. Passing
-  `value: { light: 'light', dark: 'dark' }` to the theme provider should make the effect add
-  nothing for an unknown value (the blocking script already catches its own throw); suggested,
-  not verified. Needs its own issue.
 
 - React hydration error #418 on the docs pages (`main` has it too).
 - `/docs/install` Lighthouse performance below 90 (`main` too).
