@@ -1,12 +1,12 @@
 ---
 title: Install
-description: Install the AgentBreeder 3.0.0a2 preview from PyPI or npm with an exact version pin, and see what has been verified on macOS and Linux.
+description: Install the AgentBreeder 3.0.0a3 preview from PyPI or npm with an exact version pin, and see what has been verified on macOS and Linux.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
 <Callout type="warn" title="Always pin the version">
-  `3.0.0a2` is an alpha preview. A bare `pip install agentbreeder`, `uvx agentbreeder` or
+  `3.0.0a3` is an alpha preview. A bare `pip install agentbreeder`, `uvx agentbreeder` or
   `pipx run agentbreeder` installs **2.7.3**, which is unmaintained and has known functional and
   security issues (see [Legacy 2.x](/docs/legacy-2x)). 3.x is a rebuild: no 2.x command, config or
   data carries over.
@@ -14,7 +14,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 ## Requirements
 
-- macOS (verified end to end) or Linux (install, `--version` and `doctor` only, on `3.0.0a1`; see
+- macOS (verified end to end) or Linux (install, `--version` and `doctor` only, on `3.0.0a3`; see
   [what has been verified](#what-has-been-verified)). Windows is not supported.
 - A running Docker engine with a local context.
 - For pip: Python 3.11 or newer.
@@ -27,16 +27,16 @@ Pick one path. Each runs the same PyPI release.
 
 ```sh title="pip, in a virtual environment"
 python3 -m venv .venv
-.venv/bin/python -m pip install "agentbreeder[eval]==3.0.0a2"
+.venv/bin/python -m pip install "agentbreeder[eval]==3.0.0a3"
 .venv/bin/agentbreeder quickstart
 ```
 
 ```sh title="uvx"
-uvx --from "agentbreeder[eval]==3.0.0a2" agentbreeder quickstart
+uvx --from "agentbreeder[eval]==3.0.0a3" agentbreeder quickstart
 ```
 
 ```sh title="npx"
-npx agentbreeder@3.0.0-alpha.2 quickstart
+npx agentbreeder@3.0.0-alpha.3 quickstart
 ```
 
 The npm package is a launcher with no Python code of its own. It runs the pinned PyPI release
@@ -52,26 +52,27 @@ validate the sample without building or deploying anything. If it stops, run
 
 `npx` and `uvx` run the CLI without installing an `agentbreeder` command. After either, a bare
 `agentbreeder` is either not found or an older install. Repeat the prefix for every command
-(`npx agentbreeder@3.0.0-alpha.2 up`), or install the command with uv:
+(`npx agentbreeder@3.0.0-alpha.3 up`), or install the command with uv:
 
 ```sh
-uv tool install "agentbreeder[eval]==3.0.0a2"
-agentbreeder --version   # 3.0.0a2
+uv tool install "agentbreeder[eval]==3.0.0a3"
+agentbreeder --version   # 3.0.0a3
 ```
 
 This puts `agentbreeder` in uv's executable directory (`~/.local/bin` in our run), which must be on
-your `PATH` ahead of any older install. `uv tool uninstall agentbreeder` removes it. Run on macOS on
-2026-11-11 in a clean sandbox: `--version`, `doctor` and a real `quickstart` (5/5); `up` and
-Northwind have not been run this way.
+your `PATH` ahead of any older install. `uv tool uninstall agentbreeder` removes it. Run on macOS
+in a clean sandbox: on `3.0.0a3` (2026-11-16), `--version` and `doctor` (which warns until uv's
+executable directory is on your `PATH`); on `3.0.0a2` (2026-11-11),
+`--version`, `doctor` and a real `quickstart` (5/5). `up` and Northwind have not been run this way.
 
 ### An older `agentbreeder` on your `PATH`
 
 If a bare `agentbreeder` fails with `ModuleNotFoundError: No module named 'cli'`, or does not report
-`3.0.0a2`, an older install comes first on your `PATH`:
+`3.0.0a3`, an older install comes first on your `PATH`:
 
 1. `which -a agentbreeder` lists every copy, in `PATH` order.
 2. Run each one by its full path with `--version`. The one that fails or reports another version is
-   the old one; leave the `3.0.0a2` copy alone.
+   the old one; leave the `3.0.0a3` copy alone.
 3. Remove the old one with the tool that installed it: `pipx uninstall agentbreeder`,
    `brew uninstall agentbreeder`, or for a pip install `PYTHON -m pip uninstall agentbreeder`, where
    `PYTHON` is the interpreter on the first line of that script. If pip says it is not installed
@@ -92,12 +93,13 @@ agentbreeder services up --environment dev --env-file ~/.env --yes
 agentbreeder release agent.yaml --stack . --environment dev
 ```
 
-With uvx or npx, replace `agentbreeder` with `uvx --from "agentbreeder[eval]==3.0.0a2" agentbreeder`
-or `npx agentbreeder@3.0.0-alpha.2`. On `3.0.0a1` these CLI commands ran from the pip install. On
-`3.0.0a2` they have not been run; Northwind ran through the command center instead, started with
-npx and driven by a script through its API, with no browser.
+With uvx or npx, replace `agentbreeder` with `uvx --from "agentbreeder[eval]==3.0.0a3" agentbreeder`
+or `npx agentbreeder@3.0.0-alpha.3`. On `3.0.0a3` these CLI commands ran from the pip install
+(61/61, a live `invoke`, full teardown); through uvx and npx they have not been run. On `3.0.0a2`,
+Northwind ran through the command center instead, started with npx and driven by a script through
+its API, with no browser.
 
-To use the command center, run `npx agentbreeder@3.0.0-alpha.2 up` and follow the steps in the
+To use the command center, run `npx agentbreeder@3.0.0-alpha.3 up` and follow the steps in the
 browser; see [Local command center](/docs/command-center).
 
 To tear it down, run `agentbreeder remove ID --local --stack .`, then
@@ -105,6 +107,28 @@ To tear it down, run `agentbreeder remove ID --local --stack .`, then
 [Build from agent.yaml](/docs/agent-yaml).
 
 ## What has been verified
+
+`3.0.0a3`, installed from the public registries on 2026-11-16:
+
+| | pip | uvx | npx |
+|---|---|---|---|
+| **macOS:** real `quickstart` (5/5) | Passed | Passed | Passed |
+| **macOS:** Northwind through the CLI (`services up`, `release` 61/61, a live `invoke`, full teardown) | Passed | Not run | Not run |
+| **macOS:** `agentbreeder up` starts (scripted, no browser): one-time link redeemed, UI and API served, link reuse refused | Not run | Not run | Passed |
+| **macOS:** Northwind through `up`, or a `kind` cluster | Not run | Not run | Not run |
+| **Linux:** install, `--version` | Passed | Passed | Passed |
+| **Linux:** `doctor` passes every check | Passed | Ran, Docker unreachable | Ran, Docker unreachable |
+| **Linux:** real `quickstart` or Northwind | Not run | Not run | Not run |
+
+- Northwind runs on `runtime/adk@1.3.0`. The `new agent` starter's `runtime/adk@1.4.0` was not part
+  of this run.
+- On Linux, `doctor` passed every check on the pip path once the user could reach the Docker socket
+  and Compose v2 was installed. On the uvx and npx paths it ran as a user without socket access, and
+  reported Docker as unreachable; it was not rerun with access.
+- `uv tool install` on macOS: `--version` and `doctor` (`doctor` warned that `agentbreeder` was
+  not on `PATH`, because uv's executable directory was not on it).
+- For a few minutes after the upload, uv reported that `agentbreeder==3.0.0a3` did not exist while
+  PyPI already listed it. It resolved on its own; if you see this right after a release, retry.
 
 `3.0.0a2`, installed from the public registries on 2026-11-11:
 
@@ -132,6 +156,10 @@ not run.
   layers on the host were not cleared.
 - Linux means Ubuntu 24.04 in a container, with Node 18.19.1.
 
+For `3.0.0a3`, the wheel and sdist on PyPI and the npm tarball are byte-identical to the ones
+attested by the release workflow. Installing from the hashed requirements file worked on macOS with
+pip and with `uv pip` (`--version` on both; `doctor`, every check passed, in the pip install).
+
 For `3.0.0a2`, the wheel and sdist on PyPI are byte-identical to the ones attested by the release
 workflow, and installing the wheel with pip from the hashed requirements file passed `doctor` and
 started `up` in the TestPyPI rehearsal on macOS (pip only; `uv pip` was not run on `3.0.0a2`). For `3.0.0a1`, the hashed install passed the install smoke test with
@@ -140,7 +168,7 @@ pip and `uv pip`, on macOS from PyPI and on macOS and Ubuntu from TestPyPI.
 ## How long it took
 
 Measured once each on macOS, each path in its own clean sandbox (the `3.0.0a1` rows on
-2026-11-10). Docker images and build layers already on the machine were not cleared, so a first run
+2026-11-10, the `3.0.0a3` rows on 2026-11-16). Docker images and build layers already on the machine were not cleared, so a first run
 on a new machine will take longer.
 
 | Step | Time |
@@ -148,6 +176,9 @@ on a new machine will take longer.
 | Create a virtual environment and `pip install` (`3.0.0a1`) | 9 s |
 | `agentbreeder quickstart`, cold sample build (`3.0.0a1`) | 62 s |
 | `quickstart` including the install, Docker image cache not cleared (`3.0.0a2`: pip, uvx, npx) | 22 s, 9 s, 11 s |
+| `quickstart`, Docker image cache not cleared (`3.0.0a3`): pip after a 10 s install; uvx and npx including the fetch | 15 s, 10 s, 12 s |
+| Northwind: `services up` (5 services, `3.0.0a3`, pip) | 245 s |
+| Northwind: `release` (build, 61 evals, promote, `3.0.0a3`, pip) | 277 s |
 | Command center: start services (5 services, `3.0.0a2`) | 162 s |
 | Command center: release (build, 61 evals, promote, `3.0.0a2`) | 189 s |
 | Command center: connect a `kind` cluster, then start services again after the grant change (`3.0.0a2`) | 45 s + 12 s |
@@ -158,13 +189,13 @@ Not measured: installing Docker, Python, uv or Node, or getting the API keys.
 
 ## Install with hashes
 
-The [`v3.0.0a2` GitHub release](https://github.com/agentbreeder/agentbreeder/releases/tag/v3.0.0a2)
-carries `requirements-3.0.0a2.txt`, with a hash for every package, and a `SHA256SUMS` file.
+The [`v3.0.0a3` GitHub release](https://github.com/agentbreeder/agentbreeder/releases/tag/v3.0.0a3)
+carries `requirements-3.0.0a3.txt`, with a hash for every package, and a `SHA256SUMS` file.
 
 ```sh
-uv pip install --require-hashes -r requirements-3.0.0a2.txt
+uv pip install --require-hashes -r requirements-3.0.0a3.txt
 # or
-pip install --require-hashes -r requirements-3.0.0a2.txt
+pip install --require-hashes -r requirements-3.0.0a3.txt
 ```
 
 Neither uvx nor npx enforces hashes. The npx launcher bounds what resolves with `--exclude-newer`

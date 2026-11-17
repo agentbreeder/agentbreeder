@@ -7,7 +7,7 @@ const WORKS: { title: string; detail: string }[] = [
   {
     title: 'Preview: install from PyPI and npm',
     detail:
-      '3.0.0a2 with pip, uvx or npx, pinned to the exact version. Run from the public registries on macOS on 2026-11-11: quickstart on all three, and Northwind through the command center, driven through its API (npx, scripted). On Linux, only install, --version and doctor, on 3.0.0a1.',
+      '3.0.0a3 with pip, uvx or npx, pinned to the exact version. Run from the public registries on macOS on 2026-11-16: quickstart on all three, and Northwind 61/61 through the CLI from pip. On Linux (Ubuntu 24.04), only install and --version on all three, and doctor on pip.',
   },
   {
     title: 'Manifest validation and doctor',
@@ -54,7 +54,7 @@ const WORKS: { title: string; detail: string }[] = [
   {
     title: 'Preview: local command center',
     detail:
-      'agentbreeder up serves a loopback, single-user UI that runs the same CLI commands, so the gate and audit still apply. From the published 3.0.0a2 via npx on macOS on 2026-11-11, Northwind passed 61/61, driven through its API.',
+      'agentbreeder up serves a loopback, single-user UI that runs the same CLI commands, so the gate and audit still apply. From the published 3.0.0a2 via npx on macOS on 2026-11-11, Northwind passed 61/61, driven through its API; on 3.0.0a3 it was only started and signed in through its API, with no browser.',
   },
   {
     title: 'Preview: Kubernetes on a local cluster',
@@ -72,8 +72,8 @@ const NOT_YET: string[] = [
   'Cloud or production deploy targets (AWS, GCP, Azure, a real Kubernetes cluster)',
   'A multi-user control center or a versioned management API',
   'Authenticated invocation of deployed agents',
-  'A final 3.0.0: 3.0.0a2 is an alpha, with no stability promise',
-  'Verified Linux runs: install and doctor passed on Ubuntu 24.04 with 3.0.0a1, but quickstart and Northwind have only run on macOS with Docker Desktop (Windows is unsupported)',
+  'A final 3.0.0: 3.0.0a3 is an alpha, with no stability promise',
+  'Verified Linux runs: on Ubuntu 24.04 with 3.0.0a3, install and --version passed on all three paths and doctor on pip, but quickstart and Northwind have only run on macOS with Docker Desktop (Windows is unsupported)',
 ];
 
 export function WhatShips() {
@@ -89,7 +89,7 @@ export function WhatShips() {
         <p className="mb-12 max-w-[620px] text-base leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
           AgentBreeder is a focused rebuild, available as the{' '}
           <Link href="/docs/install" style={{ color: 'var(--text)' }}>
-            3.0.0a2 alpha preview
+            3.0.0a3 alpha preview
           </Link>
           . This is the complete list of what it does, and what it doesn&apos;t do yet.
         </p>
