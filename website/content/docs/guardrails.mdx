@@ -1,0 +1,102 @@
+---
+title: Guardrails
+description: "Presidio PII guardrails in the stack's LiteLLM gateway, as an environment floor the deploy gate checks by hash, and per agent on its own gateway key."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="Preview">
+  Real-Docker tests passed on macOS with Docker Desktop: the floor through `services up` with the
+  built-in Presidio services and a scripted model provider (2026-11-15), and agent guardrails on
+  two real gateway keys, minted and attached with the same functions `deploy` uses (2026-11-16).
+  One Northwind run on `runtime/adk@1.4.0` blocked a message holding a US SSN. Guardrails cover
+  model calls through the gateway only.
+</Callout>
+
+## The environment floor
+
+Wire the two Presidio services into `service/litellm@1.1.0` or later and list the checks in the
+gateway config:
+
+```yaml
+# stack.yaml
+services:
+  analyzer: {ref: service/presidio-analyzer@1.0.0}
+  anonymizer: {ref: service/presidio-anonymizer@1.0.0}
+  litellm:
+    ref: service/litellm@1.1.0
+    with: {config: stack/litellm/config.yaml}
+    wire:
+      database-url: postgres.databases.litellm
+      presidio-analyzer: analyzer.url
+      presidio-anonymizer: anonymizer.url
+environment:
+  guardrails: {required: true, approved_sha256: <the sha256 services up prints>}
+```
+
+```yaml
+# stack/litellm/config.yaml
+guardrails:
+  - guardrail_name: pii-block
+    litellm_params:
+      guardrail: presidio
+      mode: pre_call
+      default_on: true
+      pii_entities_config: {US_SSN: BLOCK, CREDIT_CARD: BLOCK}
+      timeout: 30
+```
+
+`services up` reviews the list (Presidio only, `MASK` or `BLOCK` per entity, no custom
+recognizers or endpoints), hashes the guardrails of the config the gateway mounts, and prints the
+sha256. Review it, copy it into `approved_sha256`, and run `services up` again.
+
+With `required: true`:
+
+- `services up` refuses a floor that can't work (`GUARDRAILS_INEFFECTIVE`): the built-in gateway
+  and Presidio services must be wired, there must be a `default_on` `pre_call` check, and message
+  logging must be off.
+- The deploy gate denies, even in audit mode, when no running hash is recorded
+  (`GUARDRAILS_UNVERIFIED`) or it differs from the approved one (`GUARDRAILS_CHANGED`).
+- Deployment keys are limited to the chat-completion and embedding routes, which the Presidio hook
+  covers.
+- A provider key name (`GEMINI_API_KEY` and the like) can't be bound into an agent
+  (`SECRET_RESERVED`; exact names only).
+
+The hash is change detection, not tamper-evidence: the gate trusts the operator config and does
+not re-read the gateway.
+
+## Agent guardrails
+
+A guardrail with `default_on: false` runs for no one until an agent names it:
+
+```yaml
+# agent.yaml
+guardrails: [agent-ip-block]
+```
+
+Deploy attaches it to that deployment's gateway key alone through LiteLLM's policy API, checks
+that the gateway resolves it, and limits the key so it can't change its own policy. The gate
+denies a name the environment doesn't offer (`GUARDRAIL_UNDEFINED`). `status --json` shows the
+effective set, and `reconcile` reports `DRIFT_GUARDRAILS` when the policy is missing, widened or
+joined by one that removes guardrails. Agent guardrails only add to the floor; there is no
+opt-out. The `deploy`, `status` and `reconcile` paths and the `SECRET_RESERVED` refusal are
+covered by unit tests; no agent with `guardrails:` has been deployed end to end yet.
+
+## A blocked turn
+
+The gateway answers a blocked call with HTTP 400. `runtime/adk@1.4.0` turns that into
+`MODEL_BLOCKED` (422, no content) and a `guardrail_blocked` event naming only the guardrail and
+the entity type. `invoke` and `traces` print it.
+
+## What guardrails don't cover
+
+- Calls that bypass the gateway, tool-call arguments, tool definitions and image URLs.
+- What the agent stores itself: in the Northwind run the blocked message was still in its `turns`
+  table and trace spans.
+- Detection quality. Presidio is pattern and NER based: in the Northwind run it did not flag
+  `123-45-6789`, and that turn was answered normally. The review checks the shape of the entity
+  list, not its names, so whoever approves the hash owns the coverage.
+
+Canonical reference:
+[services.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/services.md#gateway-guardrails-preview)
+and [identity-gate.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/identity-gate.md#guardrails-floor).

@@ -1,0 +1,60 @@
+---
+title: Kubernetes on kind
+description: "Promote a released agent image by digest to a local kind cluster behind restricted Pod Security and network policy. No production cluster has been tested."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="Local kind clusters only">
+  Northwind passed 61/61 on `kind` 0.33 on macOS with Docker Desktop: from a checkout
+  (2026-11-10), from the published `3.0.0a2` through `npx` (2026-11-11), and in later runs from
+  `main`. No production or cloud cluster has been tested, and Linux has not been run.
+</Callout>
+
+`agentbreeder promote` deploys the image a release evaluated, by digest, to a local `kind` cluster.
+
+```sh
+agentbreeder release agent.yaml --stack . --environment dev            # local Docker first
+agentbreeder cluster up --stack . --environment dev --yes              # needs kind >= 0.33 and kubectl
+agentbreeder promote agent.yaml --stack . --environment dev --to kubernetes
+agentbreeder forward ID --stack . --environment dev                    # loopback port to the pod
+agentbreeder logs ID --stack . --environment dev
+agentbreeder remove ID --cluster --stack . --environment dev
+agentbreeder cluster down --stack .
+```
+
+`promote` deploys the image `release` evaluated, by digest, through the same identity gate, then
+runs the eval set against the cluster deployment. `deploy` and `remove` take `--local` or
+`--cluster`, matching the manifest's target.
+
+## What the deployer enforces
+
+- A dedicated kubeconfig and context; `KUBECONFIG` and `current-context` are ignored. It must be
+  private, use static credentials and point at a loopback API server.
+- A labelled namespace that enforces the `restricted` Pod Security level.
+- The agent runs as UID 65532 with a read-only root filesystem, no capabilities, resource limits
+  and no service account token. Secrets go to `kubectl` on stdin. Images are referenced by digest.
+- `mcp_access` and runtime enforcement are refused rather than weakened.
+
+On the 2026-11-10 run, network policy blocked the agent pod from the API server, the kubelet and
+the local registry, and blocked other pods from the agent. A privileged pod was refused, no
+secret value was found in the Deployment, logs or `docker inspect`, `remove` left no labelled
+object and revoked the gateway key, and the kill switch stopped both targets.
+
+## Limits
+
+- The stack's services stay in Docker; the `kind` node joins the stack's agents network, which
+  exposes its API server and kubelet ports to agents there (both require credentials).
+- The local registry on `127.0.0.1:5001` is unauthenticated, and Secrets are unencrypted in
+  `kind`'s etcd.
+- `kubectl port-forward` is the only way in. There is no public endpoint.
+- One `kind` cluster per machine.
+
+This shows the deployer working; it is not a production design. Helm, external secret stores and
+real-cluster certification are tracked in
+[#770](https://github.com/agentbreeder/agentbreeder/issues/770). In the
+[console](/docs/command-center), **Connect local cluster** and **Deploy to cluster** run the same
+commands.
+
+Canonical reference:
+[command-center.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/command-center.md#the-kubernetes-target).

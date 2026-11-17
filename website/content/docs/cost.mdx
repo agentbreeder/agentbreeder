@@ -1,0 +1,54 @@
+---
+title: LLM cost
+description: "agentbreeder cost reports LLM spend per deployment and per model from the gateway's LiteLLM spend logs. An estimate from list prices, not a bill."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="Preview">
+  Run on macOS with Docker Desktop against Northwind on Gemini (2026-11-15): a release, one Try it
+  turn and 5 `invoke` turns made 260 model calls, and `cost`, by deployment and by model, equalled
+  a SQL sum of LiteLLM's own spend log (USD 0.264939). Nothing was compared with a provider
+  invoice.
+</Callout>
+
+`agentbreeder cost` reports LLM spend per deployment and per model from the gateway's LiteLLM spend logs. It is an estimate from list prices, not a bill.
+
+```sh
+agentbreeder cost --stack . --environment dev                 # per deployment, last 30 days
+agentbreeder cost --stack . --by model --since 2026-11-01 --json
+```
+
+Each deployment calls the gateway with its own key, so LiteLLM's spend log can be added up per
+deployment and per model. `cost` only reads: it asks the gateway with the master key from the
+operator config and never prints it.
+
+- **Amounts are LiteLLM's estimate** from its model price list, in USD. Your provider's invoice is
+  the record.
+- **Spend logs arrive about a minute late**, so the newest calls can be missing.
+- **Removed deployments still count.** Their keys are revoked; their log rows stay.
+- **Only AgentBreeder's keys are counted**, including eval judge keys (`eval run <run>`).
+- **Ollama calls have no price** and show `no price (local model)`, never $0.00.
+- `CACHED IN` shows prompt tokens the provider read from its cache (`runtime/adk@1.4.0`).
+
+## Cost per turn
+
+`runtime/adk@1.2.0` and later return each turn's cost as `cost_usd`, the sum of the gateway's
+per-call cost header. In the Northwind run the turns matched the spend log's figure for that key's
+chat calls within rounding; the turn figure leaves out the knowledge embedding calls. Older runtimes show
+"Not measured".
+
+## In the console
+
+Home has an **LLM cost** card per project, and an agent's Overview has one for its own
+deployments. Both showed the same figures as `cost` and the spend log in the Northwind run. Try it
+shows each turn's `cost_usd`.
+
+## Budgets
+
+A key's budget is enforced by LiteLLM, on the same estimate. It checks before each call against
+the spend so far, so the turn that crosses the budget still completes. Ollama calls are recorded
+at 0.0, so a budget would not count them (not run). See
+[Models and gateway](/docs/models#budgets-rate-limits-and-fallbacks).
+
+Canonical reference: [cost.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/cost.md).

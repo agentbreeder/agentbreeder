@@ -1,12 +1,12 @@
 ---
 title: Your own agent
-description: Create an agent from agent.yaml, start its services, build it, test it, release it through an eval gate and call it, on local Docker with 3.0.0a2.
+description: "Write an agent in agent.yaml, start its services, build, test, release it through an eval gate and call it on local Docker, step by step."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
 <Callout type="warn">
-  Every command on this page was run on 2026-11-11 with `3.0.0a2` from npm, on macOS
+  Every command above the final section was run on 2026-11-11 with `3.0.0a2` from npm, on macOS
   with Docker Desktop, in a fresh `HOME`, with a Gemini key only. Other model providers and Linux
   have not been run. Local only: nothing here deploys to a cloud or a production cluster.
 </Callout>
@@ -21,6 +21,9 @@ machine that had pulled these images before.
 - Docker running locally, Node.js 18 or newer, and [uv](https://docs.astral.sh/uv/) 0.11.6 or newer.
 - A Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey).
 - `npx agentbreeder@3.0.0-alpha.2 quickstart` has passed (see [Install](/docs/install)).
+
+The pins below (`3.0.0-alpha.2`) are the ones that run used. The published `3.0.0-alpha.3` has
+passed `quickstart` through `npx`, but these steps have not been re-run on it.
 
 `npx` installs no `agentbreeder` command, so define a short one for this shell:
 
@@ -212,17 +215,24 @@ ab services down --purge --yes             # removes the services, their data an
 
 `~/gemini.env` is yours to delete.
 
-## Rough edges in 3.0.0a2
+## The shorter path on `main` (shipping in 3.0.0a3)
 
-Planned for the next preview ([#807](https://github.com/agentbreeder/agentbreeder/issues/807)):
-`agentbreeder next` (checks where you are and prints the next command), `agentbreeder new agent`
-(writes these files for you), `agentbreeder invoke`, and clearer `--stack` hints and gate messages.
-Until then:
+The steps above are the `3.0.0a2` run, kept as it happened. `3.0.0a3` adds the commands that
+replace most of the typing. From a wheel built from `main`, on macOS with Docker Desktop
+(2026-11-13), this ran from an empty `HOME` to a reply in about 90 seconds, `quickstart` included,
+following the printed `Next:` lines (`release` printed none then; run `next` after it):
 
-- Run `build` before the first `release` and after changing any ref; otherwise `release` fails with
-  `LOCK_STALE … run without --locked` (`release` has no such option).
-- `release` refuses `prompt: {path: …}`; publish the prompt as a version.
-- A failed gate prints only the count; read the report for the reasons.
+```sh
+agentbreeder new agent hello --model gemini       # writes the files from step 1, already published
+agentbreeder next hello                           # where you are, and the command to run next
+agentbreeder services up hello --environment dev --env-file ~/gemini.env --yes
+agentbreeder release hello/agent.yaml --stack hello --environment dev
+agentbreeder invoke hello "When is support open?" --stack hello --environment dev
+```
 
-Reference: [agent.yaml](/docs/agent-yaml), [Backing services](/docs/services),
-[Identity gate](/docs/identity-gate), [Local command center](/docs/command-center).
+A failed gate now prints each failed case, check and judge reason, and
+`agentbreeder logs --failed hello --stack hello` shows the candidate's saved log tail. The console
+does the same from a form: see [Console](/docs/command-center).
+
+Reference: [agent.yaml](/docs/agent-yaml), [Evals and release](/docs/evals),
+[Backing services](/docs/services), [Identity gate](/docs/identity-gate).
