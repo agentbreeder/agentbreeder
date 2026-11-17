@@ -22,6 +22,9 @@ machine that had pulled these images before.
 - A Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey).
 - `npx agentbreeder@3.0.0-alpha.2 quickstart` has passed (see [Install](/docs/install)).
 
+The pins below (`3.0.0-alpha.2`) are the ones that run used. The published `3.0.0-alpha.3` has
+passed `quickstart` through `npx`, but these steps have not been re-run on it.
+
 `npx` installs no `agentbreeder` command, so define a short one for this shell:
 
 ```sh
@@ -212,7 +215,7 @@ ab services down --purge --yes             # removes the services, their data an
 
 `~/gemini.env` is yours to delete.
 
-## The shorter path in 3.0.0a3
+## The shorter path on `main` (shipping in 3.0.0a3)
 
 The steps above are the `3.0.0a2` run, kept as it happened. `3.0.0a3` adds the commands that
 replace most of the typing. From a wheel built from `main`, on macOS with Docker Desktop
