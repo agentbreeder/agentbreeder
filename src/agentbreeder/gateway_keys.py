@@ -68,18 +68,21 @@ MINT_FIELDS = frozenset(
     }
 )
 MINT_METADATA = frozenset({"agentbreeder", "deployment_id", "agent", "environment", "eval_run"})
-# The routes a key in a guardrails-required environment may call: chat completions and
-# embeddings, which the Presidio hook covers (spec §12.4). `/openai/*` passthrough runs the
-# guardrail but forwards the unmasked body, and `/v1/moderations` is not checked at all.
+# The routes every AgentBreeder key may call: chat completions and embeddings, which is all
+# agents and the eval judge use. The Presidio hook covers exactly these (spec §12.4): `/openai/*`
+# passthrough runs a guardrail but forwards the unmasked body, and `/v1/moderations` is not
+# checked. Since #1105 every key gets them, guardrails or not: LiteLLM's file, batch and
+# pass-through routes choose a provider without a model alias, and some never reach a pre-call
+# hook (service/litellm@1.3.0's request filter covers the rest).
 GUARDED_ROUTES = ("/v1/chat/completions", "/chat/completions", "/v1/embeddings", "/embeddings")
 
 
-def key_routes(environment, agent_guardrails=None) -> list[str] | None:
-    """`GUARDED_ROUTES` for a key in an environment with a required guardrails floor, or for
-    a deployment with agent-level guardrails (#1053: they run on these routes only)."""
-    if agent_guardrails or (environment is not None and environment.guardrails_required):
-        return list(GUARDED_ROUTES)
-    return None
+def key_routes(environment=None, agent_guardrails=None) -> list[str]:
+    """`GUARDED_ROUTES`, for every deployment and eval key (#1105). The arguments are kept for
+    the callers: a guardrails floor (#1024) and agent-level guardrails (#1053) needed the same
+    limit before every key had it."""
+    del environment, agent_guardrails
+    return list(GUARDED_ROUTES)
 
 
 # -- agent-level guardrails on LiteLLM's policy engine (#1053, spec §12.8) -----------------------

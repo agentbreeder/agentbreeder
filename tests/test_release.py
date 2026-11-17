@@ -457,9 +457,8 @@ def test_run_mints_and_revokes_judge_key(project, operator, state, tmp_path, gua
         minted = [k for a, k in gateway.keys.items() if "eval-" in a]
         assert minted and minted[0]["duration"] == evals.JUDGE_KEY_DURATION
         assert minted[0]["models"] == ["support-judge", "support-model"]
-        assert minted[0].get("allowed_routes") == (
-            list(gateway_keys.GUARDED_ROUTES) if guarded else None
-        )
+        # chat + embeddings only, floor or not (#1024, #1105)
+        assert minted[0].get("allowed_routes") == list(gateway_keys.GUARDED_ROUTES)
         graded.append(self.key)
         assert self.key.startswith("vk-") and self.alias == "support-judge"
         return 1.0, "ok"

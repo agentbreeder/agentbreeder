@@ -198,8 +198,9 @@ tamper-evidence. The Cedar
   (`GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`): the config
   fails to load, or the gate denies with `SECRET_RESERVED`. This checks exact names only. A provider
   key mounted under another name (`OPENAI_API_KEY_2`, `openai_api_key`) is not detected.
-- With `required: true`, keys are minted with `allowed_routes` limited to chat completions and
-  embeddings.
+- Keys are minted with `allowed_routes` limited to chat completions and embeddings. Before #1105
+  only keys under `required: true` (or with agent guardrails) were; now every deployment and eval
+  key is.
 - These denies come before identity resolution and policy, so the attempt's audit row names the
   floor, not a later identity or policy code.
 

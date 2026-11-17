@@ -172,6 +172,15 @@ the `service.yaml` field `reaches_host` (built-in gateway only), `new agent --mo
 model)` (`local` in `--json`). No manifest, JSON Schema or `agent.lock` change. Website: no
 change until release R. Cloud: a `CLAUDE.md` note only.
 
+**Gateway request filter, #1105, per side.** OSS (on `main`): built-in `service/litellm@1.3.0`
+(1.2.0 plus a request filter loaded by the launcher) refuses a listed set of provider-routing,
+endpoint and credential parameters at a request's top level, in `extra_body` and in fallbacks
+(`GATEWAY_PARAM_REFUSED`), and other call types (`GATEWAY_ROUTE_REFUSED`); every deployment and
+eval key now gets `allowed_routes` (chat and embeddings) on any gateway, not only under a
+guardrails floor. 1.0.0 to 1.2.0 unchanged (they still honour `custom_llm_provider`); starters and
+Northwind not relocked. No manifest, JSON Schema or `agent.lock` format change. Website: no change
+until release R. Cloud: a `CLAUDE.md` note only.
+
 **Agent guardrails, #1053, per side.** OSS (on `main`): `agent.yaml` and the manifest gain an
 optional `guardrails` list (JSON Schema updated; digests, revisions and package bytes are unchanged
 when it is unset), `services up` writes `guardrails.optional`, and deploy attaches a LiteLLM policy

@@ -446,10 +446,8 @@ def test_deploy_key_gets_guarded_routes(minting, gateway, state, runtime, floor)
     running(runtime)
     result = DeploymentService(state, runtime, minting.load()).deploy(manifest(), local=True)
     minted = gateway.keys[gateway_keys.alias(result["id"])]
-    if floor:
-        assert minted["allowed_routes"] == list(gateway_keys.GUARDED_ROUTES)
-    else:
-        assert "allowed_routes" not in minted
+    # Every key gets them since #1105, floor or not.
+    assert minted["allowed_routes"] == list(gateway_keys.GUARDED_ROUTES)
 
 
 # -- services up: the record written into the operator config ----------------------------------
