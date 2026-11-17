@@ -195,6 +195,14 @@ old shadows until W removes the pin). Cloud: C (#1117) re-vendors `tokens.css` f
 commit and adds a CI pin at a commit SHA; C blocks the switch, and the pin moves to the `main`
 commit when T merges (see `docs/cross-repo-sync.md`).
 
+**Design system v2 website, #1115 W (epic #1112), per side.** Merges with T, L and C at the switch.
+Website: light by default, dark by system or a System/Light/Dark toggle (next-themes, now a direct
+dependency at the version fumadocs already used), components on the tokens only
+(`tests/test_website_tokens.py`), fumadocs `--color-fd-*` mapped to brand tokens, Bricolage
+dropped, a dark OG image and a theme-aware `app/icon.svg`. W does not edit `brand.css`, so the
+Cloud pin does not move. Cloud: no change from W; its theme and toggle are C. OSS outside
+`website/`: none.
+
 ## 🎯 When Adding a New Feature
 
 1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?

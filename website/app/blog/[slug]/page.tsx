@@ -5,7 +5,8 @@ import Image from 'next/image';
 import { Nav } from '@/components/nav';
 import { Footer } from '@/components/footer';
 import { getBlogPosts, getBlogPost, getSlug } from '@/lib/blog';
-import defaultMdxComponents from 'fumadocs-ui/mdx';
+import { mdxComponents } from '@/components/mdx';
+import { ArrowLeftIcon, ArrowRightIcon, GitHubIcon, LinkedInIcon, TriangleAlertIcon } from '@/components/icons';
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -32,7 +33,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       url,
       publishedTime: post.date,
       authors: [post.author],
-      ...(post.image ? { images: [{ url: post.image }] } : {}),
+      images: [{ url: post.image ?? '/og.png' }],
     },
     twitter: {
       card: 'summary_large_image',
@@ -49,18 +50,6 @@ function formatDate(iso: string) {
     month: 'long',
     day: 'numeric',
   });
-}
-
-const TAG_PALETTE: Record<string, { bg: string; text: string }> = {
-  enterprise: { bg: 'rgba(34,197,94,0.12)', text: '#22c55e' },
-  'ai-agents': { bg: 'rgba(167,139,250,0.12)', text: '#a78bfa' },
-  'open-source': { bg: 'rgba(34,197,94,0.12)', text: '#22c55e' },
-  'platform-engineering': { bg: 'rgba(96,165,250,0.12)', text: '#60a5fa' },
-  governance: { bg: 'rgba(251,146,60,0.12)', text: '#fb923c' },
-};
-
-function tagStyle(tag: string) {
-  return TAG_PALETTE[tag] ?? { bg: 'rgba(255,255,255,0.06)', text: 'var(--text-muted)' };
 }
 
 // Posts dated before the focused rebuild describe 2.x and get a historical notice.
@@ -101,77 +90,54 @@ export default async function BlogPostPage({ params }: Props) {
       {/* BlogPosting structured data — static, server-controlled frontmatter. */}
       <script type="application/ld+json">{JSON.stringify(blogPostingJsonLd)}</script>
       <Nav />
-      <main className="mx-auto max-w-[760px] px-6 py-16">
-        {/* Back */}
+      <main className="ab-container max-w-[760px] py-12 sm:py-16">
         <Link
           href="/blog"
-          className="mb-10 inline-flex items-center gap-1.5 text-[13px] no-underline transition-colors hover:text-white"
-          style={{ color: 'var(--text-muted)' }}
+          className="mb-10 inline-flex min-h-[44px] items-center gap-1.5 text-[13px] text-muted-foreground no-underline transition-colors hover:text-foreground"
         >
-          ← All posts
+          <ArrowLeftIcon size={14} />
+          All posts
         </Link>
 
-        {/* Tags */}
         {post.tags && post.tags.length > 0 && (
           <div className="mb-5 flex flex-wrap gap-2">
-            {post.tags.map((tag) => {
-              const c = tagStyle(tag);
-              return (
-                <span
-                  key={tag}
-                  className="rounded-full px-2.5 py-0.5 text-[11px] font-medium"
-                  style={{ background: c.bg, color: c.text }}
-                >
-                  {tag}
-                </span>
-              );
-            })}
+            {post.tags.map((tag) => (
+              <span key={tag} className="ab-badge">
+                {tag}
+              </span>
+            ))}
           </div>
         )}
 
-        {/* Title */}
-        <h1 className="mb-5 text-[36px] font-bold leading-[1.2] tracking-tight text-white">
-          {post.title}
-        </h1>
+        <h1 className="ab-h1 mb-5">{post.title}</h1>
 
-        {/* Description */}
-        <p className="mb-8 text-[18px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-          {post.description}
-        </p>
+        <p className="mb-8 text-lg leading-relaxed text-muted-foreground">{post.description}</p>
 
-        {/* Author + date */}
-        <div
-          className="mb-10 flex items-center gap-3 border-b pb-8 text-[13px]"
-          style={{ borderColor: 'var(--border)', color: 'var(--text-dim)' }}
-        >
+        <div className="mb-10 flex items-center gap-3 border-b border-border pb-8 text-[13px] text-muted-foreground">
           <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full">
-            <Image src="/rajit-saha.jpg" alt={post.author} fill className="object-cover" sizes="32px" />
+            <Image src="/rajit-saha.jpg" alt="" fill className="object-cover" sizes="32px" />
           </div>
           <Link
             href="https://www.linkedin.com/in/rajsaha/"
             target="_blank"
             rel="noopener noreferrer"
-            className="font-medium no-underline hover:text-white"
-            style={{ color: 'var(--accent)' }}
+            className="ab-link font-medium"
           >
             {post.author}
           </Link>
-          <span>·</span>
-          <span>{formatDate(post.date)}</span>
+          <span aria-hidden="true">·</span>
+          <time dateTime={post.date}>{formatDate(post.date)}</time>
         </div>
 
         {/* Hero image (add /public/blog/why-i-built-agentbreeder/hero.png to enable) */}
         {post.image && (
-          <div
-            className="mb-12 overflow-hidden rounded-2xl border"
-            style={{ borderColor: 'var(--border)' }}
-          >
+          <div className="mb-12 overflow-hidden rounded-xl border border-border">
             <Image
               src={post.image}
               alt={post.title}
               width={1280}
               height={640}
-              className="block w-full h-auto"
+              className="block h-auto w-full dark:brightness-[0.88]"
               sizes="(max-width: 768px) 100vw, 768px"
             />
           </div>
@@ -180,92 +146,75 @@ export default async function BlogPostPage({ params }: Props) {
         {post.date < REBUILD_DATE && (
           <div
             role="note"
-            className="mb-10 rounded-xl border px-5 py-4 text-[14px] leading-[1.65]"
-            style={{ borderColor: 'rgba(251,191,36,0.35)', background: 'rgba(251,191,36,0.06)', color: 'var(--text-muted)' }}
+            className="mb-10 flex gap-3 rounded-xl border border-border bg-warning-subtle px-5 py-4 text-sm leading-[1.65] text-foreground"
           >
-            <strong className="text-white">Historical post.</strong> This was written about
-            AgentBreeder 2.x. Many product claims in it did not hold up in a 2026-11 end-to-end
-            test, and 2.x is now unmaintained. For what AgentBreeder does today, see{' '}
-            <Link href="/docs" className="underline" style={{ color: 'var(--accent)' }}>
-              the docs
-            </Link>{' '}
-            and{' '}
-            <Link href="/docs/legacy-2x" className="underline" style={{ color: 'var(--accent)' }}>
-              Legacy 2.x
-            </Link>
-            .
+            <span className="mt-0.5 flex-shrink-0 text-warning">
+              <TriangleAlertIcon size={16} />
+            </span>
+            <p className="m-0">
+              <strong className="font-semibold">Historical post.</strong> This was written about
+              AgentBreeder 2.x. Many product claims in it did not hold up in a 2026-11 end-to-end
+              test, and 2.x is now unmaintained. For what AgentBreeder does today, see{' '}
+              <Link href="/docs" className="ab-link">
+                the docs
+              </Link>{' '}
+              and{' '}
+              <Link href="/docs/legacy-2x" className="ab-link">
+                Legacy 2.x
+              </Link>
+              .
+            </p>
           </div>
         )}
 
-        {/* Body */}
         <article className="prose-blog">
-          <MDX components={{ ...defaultMdxComponents }} />
+          <MDX components={mdxComponents} />
         </article>
 
-        {/* Author card */}
-        <div
-          className="mt-16 flex gap-5 rounded-2xl border p-6"
-          style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
-        >
-          <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl">
+        <aside aria-label="About the author" className="ab-card mt-16 flex gap-5 p-6">
+          <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-border">
             <Image src="/rajit-saha.jpg" alt="Rajit Saha" fill className="object-cover" sizes="64px" />
           </div>
           <div>
-            <div className="mb-0.5 flex items-center gap-2">
-              <span className="font-bold text-white">Rajit Saha</span>
-              <span
-                className="rounded-full border px-2 py-0.5 text-[10px] font-semibold"
-                style={{ background: 'var(--accent-dim)', borderColor: 'var(--accent-border)', color: 'var(--accent)' }}
-              >
-                Inventor &amp; Author
-              </span>
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-foreground">Rajit Saha</span>
+              <span className="ab-badge">inventor &amp; author</span>
             </div>
-            <p className="mb-2 text-[12px]" style={{ color: 'var(--accent)' }}>
-              Director of Data Intelligence Platform · Udemy
-            </p>
-            <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+            <p className="ab-label mb-2">Director of Data Intelligence Platform · Udemy</p>
+            <p className="text-sm leading-relaxed text-muted-foreground">
               20+ years turning passive data warehouses into active, agent-driven systems. Built AgentBreeder to solve the deployment problem he kept hitting in production.
             </p>
             <Link
               href="https://www.linkedin.com/in/rajsaha/"
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-3 inline-flex items-center gap-1.5 text-[12px] font-medium no-underline transition-colors hover:text-white"
-              style={{ color: 'var(--text-muted)' }}
+              className="mt-2 inline-flex min-h-[44px] items-center gap-1.5 text-[13px] font-medium text-muted-foreground no-underline transition-colors hover:text-foreground"
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
-              </svg>
-              Connect on LinkedIn ↗
+              <LinkedInIcon size={12} />
+              Connect on LinkedIn
             </Link>
           </div>
-        </div>
+        </aside>
 
-        {/* CTA */}
-        <div
-          className="mt-8 rounded-2xl border p-8"
-          style={{ background: 'var(--bg-surface)', borderColor: 'var(--accent-border)' }}
-        >
-          <h3 className="mb-2 text-[18px] font-bold text-white">Try AgentBreeder</h3>
-          <p className="mb-5 text-[14px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-            Open-source, Apache 2.0. Define once, deploy anywhere, govern automatically.
+        <div className="ab-card mt-8 p-6 sm:p-8">
+          <h2 className="ab-h3 mb-2">Try AgentBreeder</h2>
+          <p className="mb-5 text-sm leading-relaxed text-muted-foreground">
+            Open source, Apache 2.0. An alpha preview that deploys an agent container you already
+            built, after its identity checks out.
           </p>
           <div className="flex flex-wrap gap-3">
-            <Link
-              href="/docs"
-              className="rounded-lg px-4 py-2 text-sm font-bold no-underline transition-opacity hover:opacity-90"
-              style={{ background: 'var(--accent)', color: '#000' }}
-            >
-              Get Started →
+            <Link href="/docs" className="ab-btn ab-btn-primary">
+              Get started
+              <ArrowRightIcon size={14} />
             </Link>
             <a
               href="https://github.com/agentbreeder/agentbreeder"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 rounded-lg border px-4 py-2 text-sm no-underline transition-colors hover:text-white"
-              style={{ borderColor: 'var(--border-hover)', color: 'var(--text-muted)' }}
+              className="ab-btn ab-btn-secondary"
             >
-              ★ GitHub
+              <GitHubIcon />
+              GitHub
             </a>
           </div>
         </div>
@@ -273,10 +222,10 @@ export default async function BlogPostPage({ params }: Props) {
         <div className="mt-10">
           <Link
             href="/blog"
-            className="text-[13px] no-underline transition-colors hover:text-white"
-            style={{ color: 'var(--text-muted)' }}
+            className="inline-flex min-h-[44px] items-center gap-1.5 text-[13px] text-muted-foreground no-underline transition-colors hover:text-foreground"
           >
-            ← Back to all posts
+            <ArrowLeftIcon size={14} />
+            Back to all posts
           </Link>
         </div>
       </main>

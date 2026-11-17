@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { CheckIcon, CircleIcon } from './icons';
 
 // Every "works" row was exercised end to end against main (macOS, Docker Desktop) on
 // 2026-11-07, unless the row says otherwise. Keep this list in step with
@@ -78,57 +79,50 @@ const NOT_YET: string[] = [
 
 export function WhatShips() {
   return (
-    <section className="w-full border-t py-20 lg:py-28" style={{ borderColor: 'var(--border)' }}>
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-8 md:px-12 lg:px-16 xl:px-24">
-        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[2px]" style={{ color: 'var(--accent)' }}>
-          What works today
-        </p>
-        <h2 className="mb-3 text-[28px] sm:text-[36px] font-extrabold text-white" style={{ letterSpacing: '-1px' }}>
+    <section className="ab-section" aria-labelledby="what-works">
+      <div className="ab-container">
+        <p className="ab-label mb-3">what works today</p>
+        <h2 id="what-works" className="ab-h2 mb-3">
           Only what we have run end to end
         </h2>
-        <p className="mb-12 max-w-[620px] text-base leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
+        <p className="ab-lede mb-12 max-w-[620px]">
           AgentBreeder is a focused rebuild, available as the{' '}
-          <Link href="/docs/install" style={{ color: 'var(--text)' }}>
+          <Link href="/docs/install" className="ab-link">
             3.0.0a3 alpha preview
           </Link>
           . This is the complete list of what it does, and what it doesn&apos;t do yet.
         </p>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <ul className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 lg:col-span-2">
             {WORKS.map(({ title, detail }) => (
-              <div
-                key={title}
-                className="rounded-xl border p-5"
-                style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
-              >
-                <div className="mb-2 flex items-center gap-2">
-                  <span aria-hidden style={{ color: 'var(--accent)' }}>✓</span>
-                  <h3 className="text-[14px] font-bold text-white">{title}</h3>
+              <li key={title} className="ab-card p-5">
+                <div className="mb-2 flex items-start gap-2">
+                  <span className="mt-0.5 text-foreground">
+                    <CheckIcon size={16} />
+                  </span>
+                  <h3 className="text-[15px] font-semibold leading-snug text-foreground">{title}</h3>
                 </div>
-                <p className="text-[13px] leading-[1.65]" style={{ color: 'var(--text-muted)' }}>
-                  {detail}
-                </p>
-              </div>
+                <p className="pl-6 text-sm leading-[1.65] text-muted-foreground">{detail}</p>
+              </li>
             ))}
-          </div>
+          </ul>
 
-          <div
-            className="rounded-xl border p-6 h-fit"
-            style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
-          >
-            <h3 className="mb-4 text-[14px] font-bold text-white">Not shipped yet</h3>
-            <ul className="space-y-3">
+          <div className="ab-card h-fit bg-secondary p-6 shadow-none">
+            <h3 className="mb-4 text-[15px] font-semibold text-foreground">Not shipped yet</h3>
+            <ul className="m-0 list-none space-y-3 p-0">
               {NOT_YET.map((item) => (
-                <li key={item} className="flex gap-2 text-[13px] leading-[1.6]" style={{ color: 'var(--text-muted)' }}>
-                  <span aria-hidden style={{ color: 'var(--text-dim)' }}>○</span>
+                <li key={item} className="flex gap-2 text-sm leading-[1.6] text-muted-foreground">
+                  <span className="mt-0.5 flex-shrink-0">
+                    <CircleIcon size={14} />
+                  </span>
                   {item}
                 </li>
               ))}
             </ul>
-            <p className="mt-6 border-t pt-4 text-[12px] leading-[1.6]" style={{ borderColor: 'var(--border)', color: 'var(--text-dim)' }}>
+            <p className="mt-6 border-t border-border pt-4 text-[13px] leading-[1.6] text-muted-foreground">
               Looking for the older 2.x platform on PyPI? It is unmaintained and has known issues; see{' '}
-              <Link href="/docs/legacy-2x" style={{ color: 'var(--text-muted)' }}>
+              <Link href="/docs/legacy-2x" className="ab-link">
                 Legacy 2.x
               </Link>
               .

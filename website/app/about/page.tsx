@@ -29,23 +29,12 @@ export default function AboutPage() {
   return (
     <>
       <Nav />
-      <main className="mx-auto max-w-[860px] px-4 sm:px-8 py-16 sm:py-24">
-        <p
-          className="mb-3 text-[11px] font-semibold uppercase tracking-[2px]"
-          style={{ color: 'var(--accent)' }}
-        >
-          About AgentBreeder
-        </p>
-        <h1
-          className="mb-6 font-display text-[36px] sm:text-[48px] font-extrabold text-white"
-          style={{ letterSpacing: '-1.5px', lineHeight: 1.1 }}
-        >
+      <main className="ab-container max-w-[860px] py-16 sm:py-24">
+        <p className="ab-label mb-3">about agentbreeder</p>
+        <h1 className="mb-6 font-display text-display font-semibold text-foreground">
           Know which agent you are running.
         </h1>
-        <p
-          className="mb-12 text-[18px] sm:text-[20px] leading-[1.6]"
-          style={{ color: 'var(--text-muted)' }}
-        >
+        <p className="mb-12 text-lg leading-[1.6] text-muted-foreground sm:text-xl">
           AgentBreeder is an open-source preview that deploys an agent container you already
           built, and only after your identity provider confirms the agent is real, sponsored and
           still within its review date. Today it deploys to local Docker; production targets are
@@ -54,19 +43,16 @@ export default function AboutPage() {
 
         {/* Mission */}
         <section className="mb-14">
-          <h2
-            className="mb-4 text-[24px] sm:text-[28px] font-extrabold text-white"
-            style={{ letterSpacing: '-0.5px' }}
-          >
+          <h2 className="ab-h2 mb-4">
             Why this exists
           </h2>
-          <p className="mb-4 text-[16px] leading-[1.75]" style={{ color: 'var(--text-muted)' }}>
+          <p className="mb-4 text-[16px] leading-[1.75] text-muted-foreground">
             Agents are starting to act on real systems, but most teams can&apos;t answer a basic
             question before one goes live: which identity is this, who sponsors it, and is it
             still meant to be running? Identity providers already hold that answer. Deploy
             pipelines rarely ask.
           </p>
-          <p className="text-[16px] leading-[1.75]" style={{ color: 'var(--text-muted)' }}>
+          <p className="text-[16px] leading-[1.75] text-muted-foreground">
             AgentBreeder makes the deploy ask. You keep your framework and your container; it
             checks the agent&apos;s identity, optional policy and second-person approval, records
             every attempt in a hash-chained log, and can block a principal everywhere at once.
@@ -78,19 +64,15 @@ export default function AboutPage() {
 
         {/* The inventor */}
         <section className="mb-14">
-          <h2
-            className="mb-6 text-[24px] sm:text-[28px] font-extrabold text-white"
-            style={{ letterSpacing: '-0.5px' }}
-          >
+          <h2 className="ab-h2 mb-6">
             The inventor
           </h2>
           <div
-            className="rounded-[18px] border p-6 sm:p-8"
-            style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
+            className="ab-card p-6 sm:p-8"
           >
             <div className="flex flex-col sm:flex-row gap-6 sm:gap-8 items-start">
               <div className="flex-shrink-0">
-                <div className="relative overflow-hidden rounded-2xl" style={{ width: 96, height: 96 }}>
+                <div className="relative h-24 w-24 overflow-hidden rounded-2xl border border-border">
                   <Image
                     src="/rajit-saha.jpg"
                     alt="Rajit Saha"
@@ -101,18 +83,18 @@ export default function AboutPage() {
                 </div>
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="mb-1 text-[20px] font-bold text-white">Rajit Saha</h3>
-                <p className="mb-4 text-[13px]" style={{ color: 'var(--accent)' }}>
+                <h3 className="ab-h3 mb-1">Rajit Saha</h3>
+                <p className="ab-label mb-4">
                   Founder, AgentBreeder · Director of Data Platform, Udemy + Coursera
                 </p>
-                <p className="mb-3 text-[14px] leading-[1.75]" style={{ color: 'var(--text-muted)' }}>
+                <p className="mb-3 text-[14px] leading-[1.75] text-muted-foreground">
                   Rajit has spent 23+ years building distributed systems and data
                   infrastructure across Oracle, IBM, Yahoo, Teradata, VMware, LendingClub,
                   Experian, and Udemy. At the merged Udemy + Coursera company he leads the
                   Data Platform team, where shipping AI agents into production surfaced the
                   exact gap AgentBreeder fills.
                 </p>
-                <p className="mb-4 text-[14px] leading-[1.75]" style={{ color: 'var(--text-muted)' }}>
+                <p className="mb-4 text-[14px] leading-[1.75] text-muted-foreground">
                   AgentBreeder is currently built alongside that role. The open-source
                   project is released under Apache 2.0. A managed cloud offering is planned
                   but not available.
@@ -121,8 +103,7 @@ export default function AboutPage() {
                   href={LINKEDIN_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12px] font-medium no-underline transition-all hover:border-[var(--accent)] hover:text-[var(--accent)]"
-                  style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+                  className="ab-btn ab-btn-secondary min-h-[36px] px-3 text-xs"
                 >
                   LinkedIn
                 </Link>
@@ -133,26 +114,23 @@ export default function AboutPage() {
 
         {/* Status & roadmap */}
         <section className="mb-14">
-          <h2
-            className="mb-4 text-[24px] sm:text-[28px] font-extrabold text-white"
-            style={{ letterSpacing: '-0.5px' }}
-          >
+          <h2 className="ab-h2 mb-4">
             Where we are today
           </h2>
-          <ul className="space-y-3 text-[15px] leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
+          <ul className="space-y-3 text-[15px] leading-[1.7] text-muted-foreground">
             <li>
-              <strong className="text-white">Open-source preview</strong> — Apache 2.0, 3.0.0a3 on
+              <strong className="text-foreground">Open-source preview</strong> — Apache 2.0, 3.0.0a3 on
               PyPI and npm. Local Docker deploys behind an identity gate; see{' '}
-              <Link href="/docs" className="underline" style={{ color: 'var(--accent)' }}>what works today</Link>.
+              <Link href="/docs" className="ab-link">what works today</Link>.
               The older 2.x on PyPI is unmaintained.
             </li>
             <li>
-              <strong className="text-white">Managed cloud (planned)</strong> — a hosted
+              <strong className="text-foreground">Managed cloud (planned)</strong> — a hosted
               version is planned. It is not available, and there is no date yet.
             </li>
             <li>
-              <strong className="text-white">Status</strong> — bootstrapped, no external funding,
-              built in public on <Link href={GITHUB_URL} className="underline" style={{ color: 'var(--accent)' }}>GitHub</Link>.
+              <strong className="text-foreground">Status</strong> — bootstrapped, no external funding,
+              built in public on <Link href={GITHUB_URL} className="ab-link">GitHub</Link>.
               Contributions and design feedback welcome.
             </li>
           </ul>
@@ -160,25 +138,22 @@ export default function AboutPage() {
 
         {/* Accessibility */}
         <section className="mb-14">
-          <h2
-            className="mb-4 text-[24px] sm:text-[28px] font-extrabold text-white"
-            style={{ letterSpacing: '-0.5px' }}
-          >
+          <h2 className="ab-h2 mb-4">
             Accessibility
           </h2>
-          <p className="mb-3 text-[15px] leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
-            The site is dark-only by design — the whole color system is tuned for dark
-            surfaces and a separate light mode would mean re-tuning every component. If
-            that&rsquo;s a blocker for you, let us know at{' '}
-            <a href={`mailto:${CONTACT_EMAIL}`} className="underline" style={{ color: 'var(--accent)' }}>
+          <p className="mb-3 text-[15px] leading-[1.7] text-muted-foreground">
+            The site has a light and a dark theme. It follows your system setting until you
+            pick one with the theme switch in the header, and it remembers that choice in your
+            browser only. If something is hard to read in either theme, let us know at{' '}
+            <a href={`mailto:${CONTACT_EMAIL}`} className="ab-link">
               {CONTACT_EMAIL}
             </a>.
           </p>
-          <p className="text-[15px] leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
-            The site respects <code className="rounded px-1.5 py-0.5 text-[13px]" style={{ background: 'var(--bg-elevated)', color: 'var(--accent)' }}>prefers-reduced-motion</code> and
-            targets WCAG 2.1 AA contrast for all body and meta text. Found an
+          <p className="text-[15px] leading-[1.7] text-muted-foreground">
+            The site respects <code className="ab-code">prefers-reduced-motion</code> and
+            targets WCAG 2.2 AA contrast for text and controls in both themes. Found an
             accessibility issue? Open one on{' '}
-            <Link href={`${GITHUB_URL}/issues`} className="underline" style={{ color: 'var(--accent)' }}>
+            <Link href={`${GITHUB_URL}/issues`} className="ab-link">
               GitHub
             </Link>.
           </p>
@@ -186,20 +161,17 @@ export default function AboutPage() {
 
         {/* Contact */}
         <section className="mb-4">
-          <h2
-            className="mb-4 text-[24px] sm:text-[28px] font-extrabold text-white"
-            style={{ letterSpacing: '-0.5px' }}
-          >
+          <h2 className="ab-h2 mb-4">
             Contact
           </h2>
-          <p className="text-[15px] leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
+          <p className="text-[15px] leading-[1.7] text-muted-foreground">
             Email{' '}
-            <a href={`mailto:${CONTACT_EMAIL}`} className="underline" style={{ color: 'var(--accent)' }}>
+            <a href={`mailto:${CONTACT_EMAIL}`} className="ab-link">
               {CONTACT_EMAIL}
             </a>{' '}
             for partnerships, pilots, press, or just to say hi. For bug reports and feature
             requests, please open an issue on{' '}
-            <Link href={`${GITHUB_URL}/issues`} className="underline" style={{ color: 'var(--accent)' }}>
+            <Link href={`${GITHUB_URL}/issues`} className="ab-link">
               GitHub
             </Link>.
           </p>

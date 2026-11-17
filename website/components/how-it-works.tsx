@@ -8,9 +8,7 @@ interface Step {
 
 function Code({ children }: { children: ReactNode }) {
   return (
-    <code className="rounded px-1 py-0.5 font-mono text-xs" style={{ background: 'var(--bg-surface)' }}>
-      {children}
-    </code>
+    <code className="ab-code">{children}</code>
   );
 }
 
@@ -60,51 +58,25 @@ const STEPS: Step[] = [
 
 export function HowItWorks() {
   return (
-    <section
-      className="w-full border-t py-20 lg:py-28"
-      style={{ borderColor: 'var(--border)' }}
-    >
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-8 md:px-12 lg:px-16 xl:px-24">
-        <p
-          className="mb-3 text-[11px] font-semibold uppercase tracking-[2px]"
-          style={{ color: 'var(--accent)' }}
-        >
-          How it works
-        </p>
-        <h2
-          className="mb-3 text-[28px] sm:text-[36px] font-extrabold text-white"
-          style={{ letterSpacing: '-1px' }}
-        >
+    <section className="ab-section" aria-labelledby="how-it-works">
+      <div className="ab-container">
+        <p className="ab-label mb-3">how it works</p>
+        <h2 id="how-it-works" className="ab-h2 mb-3">
           From a container to a gated local deploy
         </h2>
-        <p className="mb-12 max-w-[500px] text-base leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
+        <p className="ab-lede mb-12 max-w-[520px]">
           You bring the agent image and the identity. AgentBreeder decides whether it may run,
           and records why.
         </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {STEPS.map(({ num, title, desc }, i) => (
-            <div key={num} className="relative p-7">
-              <p
-                className="mb-3.5 font-mono text-[11px] font-semibold tracking-[1px]"
-                style={{ color: 'var(--accent)' }}
-              >
-                {num} ──
-              </p>
-              <h3 className="mb-2 text-[16px] font-bold text-white">{title}</h3>
-              <p className="text-[13px] leading-[1.65]" style={{ color: 'var(--text-muted)' }}>
-                {desc}
-              </p>
-              {i < STEPS.length - 1 && (
-                <span
-                  className="hidden lg:block absolute right-0 top-1/2 -translate-y-1/2 text-lg"
-                  style={{ color: 'var(--text-dim)' }}
-                >
-                  →
-                </span>
-              )}
-            </div>
+        <ol className="m-0 grid list-none grid-cols-1 gap-px overflow-hidden rounded-xl border border-border bg-border p-0 md:grid-cols-2 lg:grid-cols-4">
+          {STEPS.map(({ num, title, desc }) => (
+            <li key={num} className="bg-background p-6 lg:p-7">
+              <p className="ab-label mb-4">{num}</p>
+              <h3 className="mb-2 text-base font-semibold text-foreground">{title}</h3>
+              <p className="text-sm leading-[1.65] text-muted-foreground">{desc}</p>
+            </li>
           ))}
-        </div>
+        </ol>
       </div>
     </section>
   );

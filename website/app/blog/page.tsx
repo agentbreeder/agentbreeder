@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Nav } from '@/components/nav';
 import { Footer } from '@/components/footer';
 import { getBlogPosts, getSlug } from '@/lib/blog';
+import { ArrowRightIcon } from '@/components/icons';
 
 export const metadata: Metadata = {
   title: 'Blog',
@@ -15,18 +16,6 @@ export const metadata: Metadata = {
     url: 'https://www.agentbreeder.io/blog',
   },
 };
-
-const TAG_PALETTE: Record<string, { bg: string; text: string }> = {
-  enterprise: { bg: 'rgba(34,197,94,0.12)', text: '#22c55e' },
-  'ai-agents': { bg: 'rgba(167,139,250,0.12)', text: '#a78bfa' },
-  'open-source': { bg: 'rgba(34,197,94,0.12)', text: '#22c55e' },
-  'platform-engineering': { bg: 'rgba(96,165,250,0.12)', text: '#60a5fa' },
-  governance: { bg: 'rgba(251,146,60,0.12)', text: '#fb923c' },
-};
-
-function tagStyle(tag: string) {
-  return TAG_PALETTE[tag] ?? { bg: 'rgba(255,255,255,0.06)', text: 'var(--text-muted)' };
-}
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -42,90 +31,51 @@ export default function BlogIndexPage() {
   return (
     <>
       <Nav />
-      <main className="mx-auto max-w-[860px] px-6 py-20">
-        <div className="mb-16">
-          <p
-            className="mb-3 text-[11px] font-semibold uppercase tracking-[1.2px]"
-            style={{ color: 'var(--accent)' }}
-          >
-            Blog
-          </p>
-          <h1 className="mb-4 text-[40px] font-bold leading-[1.15] tracking-tight text-white">
-            Engineering & Ideas
-          </h1>
-          <p
-            className="max-w-[520px] text-[16px] leading-relaxed"
-            style={{ color: 'var(--text-muted)' }}
-          >
+      <main className="ab-container max-w-[860px] py-16 sm:py-20">
+        <div className="mb-14">
+          <p className="ab-label mb-3">blog</p>
+          <h1 className="ab-h1 mb-4">Engineering &amp; ideas</h1>
+          <p className="ab-lede max-w-[520px]">
             Thoughts on enterprise AI agents, platform engineering, open-source
             infrastructure, and the problems AgentBreeder was built to solve.
           </p>
         </div>
 
-        {posts.length === 0 && (
-          <p style={{ color: 'var(--text-muted)' }}>No posts yet. Check back soon.</p>
-        )}
+        {posts.length === 0 && <p className="text-muted-foreground">No posts yet. Check back soon.</p>}
 
-        <div className="flex flex-col gap-8">
+        <ul className="m-0 flex list-none flex-col gap-6 p-0">
           {posts.map((post) => {
             const slug = getSlug(post);
             return (
-              <Link
-                key={slug}
-                href={`/blog/${slug}`}
-                className="group block rounded-2xl border p-8 no-underline transition-colors"
-                style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
-              >
-                {/* Tags */}
-                {post.tags && post.tags.length > 0 && (
-                  <div className="mb-4 flex flex-wrap gap-2">
-                    {post.tags.map((tag) => {
-                      const c = tagStyle(tag);
-                      return (
-                        <span
-                          key={tag}
-                          className="rounded-full px-2.5 py-0.5 text-[11px] font-medium"
-                          style={{ background: c.bg, color: c.text }}
-                        >
+              <li key={slug}>
+                <Link href={`/blog/${slug}`} className="ab-card ab-card-link group block p-6 no-underline sm:p-8">
+                  {post.tags && post.tags.length > 0 && (
+                    <div className="mb-4 flex flex-wrap gap-2">
+                      {post.tags.map((tag) => (
+                        <span key={tag} className="ab-badge">
                           {tag}
                         </span>
-                      );
-                    })}
+                      ))}
+                    </div>
+                  )}
+                  <h2 className="ab-h3 mb-3 group-hover:underline group-hover:decoration-control-border group-hover:underline-offset-4">
+                    {post.title}
+                  </h2>
+                  <p className="mb-6 text-[15px] leading-relaxed text-muted-foreground">{post.description}</p>
+                  <div className="flex items-center gap-3 text-[13px] text-muted-foreground">
+                    <span>{post.author}</span>
+                    <span aria-hidden="true">·</span>
+                    <time dateTime={post.date}>{formatDate(post.date)}</time>
+                    <span className="ml-auto inline-flex items-center gap-1 font-medium text-foreground">
+                      Read
+                      <ArrowRightIcon size={14} />
+                    </span>
                   </div>
-                )}
-
-                {/* Title */}
-                <h2 className="mb-3 text-[22px] font-bold leading-[1.3] tracking-tight text-white transition-colors group-hover:text-[#22c55e]">
-                  {post.title}
-                </h2>
-
-                {/* Description */}
-                <p
-                  className="mb-6 text-[15px] leading-relaxed"
-                  style={{ color: 'var(--text-muted)' }}
-                >
-                  {post.description}
-                </p>
-
-                {/* Meta */}
-                <div
-                  className="flex items-center gap-4 text-[13px]"
-                  style={{ color: 'var(--text-dim)' }}
-                >
-                  <span>{post.author}</span>
-                  <span>·</span>
-                  <span>{formatDate(post.date)}</span>
-                  <span
-                    className="ml-auto text-[13px] font-medium"
-                    style={{ color: 'var(--accent)' }}
-                  >
-                    Read →
-                  </span>
-                </div>
-              </Link>
+                </Link>
+              </li>
             );
           })}
-        </div>
+        </ul>
       </main>
       <Footer />
     </>

@@ -1,22 +1,24 @@
 @import 'fumadocs-ui/style.css';
 @import "tailwindcss";
-/* Shared OSS design system (#583). Its .dark palette and @theme mapping are
-   the source of truth the Cloud console drift-checks against. */
+/* Shared OSS design system (#583, tokens v2 #1113). Its :root (light) and .dark palettes and
+   @theme mapping are the source of truth the local console and the Cloud console check against. */
 @import "../brand.css";
 
+/* `dark:` follows the class next-themes sets on <html>, not the OS preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* Site overrides for brand.css's @theme. They must come after the import.
-   - Fonts: brand.css names fontsource families ('Geist Variable', 'Bricolage
-     Grotesque Variable'). This site loads its fonts via next/font, which
-     exposes them as --font-geist-sans/--font-geist-mono/--font-bricolage
-     (set on <html> in app/layout.tsx).
-   - Radii: brand.css derives them from a shadcn --radius this site does not
-     define. Pin them to Tailwind's defaults, which the site was designed with.
-   Note: tailwind.config.ts is not loaded (Tailwind v4 without @config), so
-   theme values must live here, not there. */
+   - Fonts: brand.css names fontsource families ('Geist Variable'). This site loads Geist via
+     the `geist` package (next/font/local), which exposes --font-geist-sans/--font-geist-mono
+     on <html> (app/layout.tsx). Display text is Geist too (design v2 DS2).
+   - Radii: brand.css derives them from a shadcn --radius this site does not define. Pin them to
+     Tailwind's defaults; components pick them by role (§7: controls 6 px, cards 12 px, glass
+     panels and dialogs 16 px).
+   tailwind.config.ts was never loaded (Tailwind v4 without @config) and is deleted. */
 @theme inline {
-  --font-sans: var(--font-geist-sans), 'Inter', sans-serif;
-  --font-mono: var(--font-geist-mono), 'JetBrains Mono', monospace;
-  --font-display: var(--font-bricolage), var(--font-geist-sans), 'Inter', sans-serif;
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-display: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
@@ -24,159 +26,529 @@
   --radius-2xl: 1rem;
   --radius-3xl: 1.5rem;
   --radius-4xl: 2rem;
-  /* Design v2 step T (#1119) maps brand.css's --shadow-xs…lg to its --elev-* tokens.
-     Fumadocs uses shadow-sm/md/lg, so pin Tailwind's defaults here until the
-     website switch (#1115), which deletes these four lines. */
-  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
 }
 
-:root {
-  --bg: #09090b;
-  --bg-base: #09090b;
-  --bg-surface: #111113;
-  --bg-elevated: #1a1a1e;
-  --border: rgba(255, 255, 255, 0.07);
-  --border-hover: rgba(255, 255, 255, 0.14);
-  --text: #e4e4e7;
-  --text-muted: #a1a1aa;   /* zinc-400 — ~7.8:1 on --bg, AAA */
-  --text-dim:   #8b8b95;   /* ~5.9:1 on --bg, AA — was #3f3f46 which was ~1.9:1 and failed WCAG */
-  --accent: #22c55e;
-  --accent-dim: rgba(34, 197, 94, 0.10);
-  --accent-border: rgba(34, 197, 94, 0.22);
-  --purple: #a78bfa;
+/* Fumadocs chrome on the brand tokens (design v2 §10.2). fumadocs-ui declares every
+   --color-fd-* on :root and .dark earlier in the cascade; this later :root mapping wins in both
+   themes, and var() follows the class on <html>. tests/test_website_tokens.py fails when the
+   installed fumadocs declares a name that is not mapped here. */
+:root,
+.dark,
+.dark #nd-sidebar {
+  --color-fd-background: var(--background);
+  --color-fd-foreground: var(--foreground);
+  --color-fd-muted: var(--muted);
+  --color-fd-muted-foreground: var(--muted-foreground);
+  --color-fd-popover: var(--popover);
+  --color-fd-popover-foreground: var(--popover-foreground);
+  --color-fd-card: var(--card);
+  --color-fd-card-foreground: var(--card-foreground);
+  --color-fd-border: var(--border);
+  --color-fd-primary: var(--primary);
+  --color-fd-primary-foreground: var(--primary-foreground);
+  --color-fd-secondary: var(--secondary);
+  --color-fd-secondary-foreground: var(--secondary-foreground);
+  --color-fd-accent: var(--accent);
+  --color-fd-accent-foreground: var(--accent-foreground);
+  --color-fd-ring: var(--ring);
+  --color-fd-overlay: var(--scrim);
+  --color-fd-info: var(--info);
+  --color-fd-warning: var(--warning);
+  --color-fd-error: var(--destructive);
+  --color-fd-success: var(--success);
+  --color-fd-idea: var(--warning);
+  --color-fd-diff-add: var(--success-subtle);
+  --color-fd-diff-add-symbol: var(--success);
+  --color-fd-diff-remove: var(--destructive-subtle);
+  --color-fd-diff-remove-symbol: var(--destructive);
 }
 
-/* Override Fumadocs dark-mode tokens so sidebar, content, and TOC share the same background */
-.dark {
-  --color-fd-background: #09090b;
-  --color-fd-muted: #111113;
-  --color-fd-card: #09090b;
-  --color-fd-border: rgba(255, 255, 255, 0.07);
+/* The docs sidebar is opaque (§6.1); fumadocs gives it its own muted/secondary steps. */
+#nd-sidebar {
+  --color-fd-muted: var(--sidebar-accent);
+  --color-fd-secondary: var(--sidebar-accent);
+  --color-fd-muted-foreground: var(--muted-foreground);
 }
 
-/* Also apply at root for pages that don't add .dark explicitly */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-fd-background: #09090b;
-    --color-fd-muted: #111113;
-    --color-fd-card: #09090b;
-    --color-fd-border: rgba(255, 255, 255, 0.07);
+/* Tailwind's preflight (imported after fumadocs) resets borders to currentColor; borders without
+   an explicit colour are decorative hairlines (§8.1), so give them --border. */
+@layer base {
+  *, ::after, ::before, ::backdrop, ::file-selector-button {
+    border-color: var(--border);
   }
-}
-
-* {
-  box-sizing: border-box;
 }
 
 html {
   scroll-behavior: smooth;
-  /* offset anchors and page-tops below the fixed Fumadocs nav (h-14 = 3.5rem) */
-  scroll-padding-top: 3.5rem;
+  /* Focus not obscured (WCAG 2.4.11): the 56 px sticky nav plus 16 px. */
+  scroll-padding-top: 72px;
 }
 
 body {
-  background: var(--bg);
-  color: var(--text);
+  background: var(--background);
+  color: var(--foreground);
   -webkit-font-smoothing: antialiased;
 }
 
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--bg-elevated); border-radius: 3px; }
-
-@keyframes ab-pulse {
-  0%, 100% { opacity: 0.7; }
-  50%       { opacity: 0.15; }
+:target {
+  scroll-margin-top: 72px;
 }
 
-/* Hero load-in: staggered fade + translate. See #494. */
-@keyframes hero-reveal {
+/* Docs on small screens stack three sticky bars: the preview banner (48 px), the docs header
+   (56 px) and the "on this page" bar (40 px). Keep focused elements and anchors below them. */
+@media (max-width: 767px) {
+  html:has(#nd-docs-layout) { scroll-padding-top: 160px; }
+  html:has(#nd-docs-layout) :target { scroll-margin-top: 160px; }
+}
+
+/* Focus: always an outline (forced colors keeps it), blue in both themes (DS10). */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Docs top bar: sticky glass chrome (§6.1). The recipe is brand.css's .glass-strong; fumadocs
+   renders this element, so the declarations are repeated on its id, with the same fallbacks. */
+#nd-nav {
+  background: var(--glass-strong);
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--elev-2);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  #nd-nav { background: var(--glass-fallback); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  #nd-nav { background: var(--glass-fallback); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (forced-colors: active) {
+  #nd-nav { background: Canvas; border-color: CanvasText; -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+/* fumadocs draws focus on its scroll containers (code blocks) with a box-shadow ring, which
+   forced-colors mode drops; v2 focus is always an outline (§8.1). */
+.fd-scroll-container:focus-visible {
+  outline: 2px solid var(--ring) !important;
+  outline-offset: -2px;
+}
+
+/* fumadocs keeps its collapsed-sidebar controls in the tab order while they are invisible
+   (opacity 0) whenever the sidebar is open; the site never collapses it (collapsible: false).
+   visibility removes them from the tab order (WCAG 2.4.7: no invisible focus stops). */
+#nd-docs-layout > .fixed.pointer-events-none.opacity-0 {
+  visibility: hidden;
+}
+
+/* The previous/next page cards clip their description to one line; let it wrap so zoom and
+   text spacing lose nothing (WCAG 1.4.10, 1.4.12). */
+#nd-page a > p.truncate {
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+/* Docs code blocks follow the page theme (§8.3, §8.4): an opaque --code-background panel, and
+   Shiki colours from the CSS-variables theme in source.config.ts, which resolve to --syntax-*. */
+figure.shiki:not(.not-fumadocs-codeblock *) {
+  background: var(--code-background);
+  border-color: var(--border);
+  border-radius: 12px;
+}
+
+/* Content images in dark mode lose some glare (§7). On the image itself, never an ancestor. */
+.dark .prose-blog img,
+.dark #nd-page img {
+  filter: brightness(0.88);
+}
+
+@layer components {
+  /* Layout (§7): 1200 px container, 24 px gutters (16 px under 640 px); section rhythm 96/64. */
+  .ab-container {
+    width: 100%;
+    max-width: 1200px;
+    margin-inline: auto;
+    padding-inline: 16px;
+  }
+  @media (min-width: 640px) {
+    .ab-container { padding-inline: 24px; }
+  }
+  .ab-section {
+    padding-block: 64px;
+    border-top: 1px solid var(--border);
+  }
+  @media (min-width: 1024px) {
+    .ab-section { padding-block: 96px; }
+  }
+
+  /* The mono data voice (§3): section labels, IDs, versions. Lower case, no tracking. */
+  .ab-label {
+    font-family: var(--font-mono);
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    color: var(--text-muted);
+  }
+
+  .ab-h1 {
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    letter-spacing: var(--text-h1--letter-spacing);
+    font-weight: 600;
+    color: var(--foreground);
+  }
+  .ab-h2 {
+    font-size: var(--text-h2);
+    line-height: var(--text-h2--line-height);
+    letter-spacing: var(--text-h2--letter-spacing);
+    font-weight: 600;
+    color: var(--foreground);
+  }
+  .ab-h3 {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    letter-spacing: var(--text-h3--letter-spacing);
+    font-weight: 600;
+    color: var(--foreground);
+  }
+  .ab-lede {
+    font-size: 1rem;
+    line-height: 1.65;
+    max-width: 70ch;
+    color: var(--text-muted);
+  }
+
+  /* Links in text: foreground, underlined (§5.1: colour never carries meaning alone). */
+  .ab-link {
+    color: var(--foreground);
+    text-decoration: underline;
+    text-decoration-color: var(--control-border);
+    text-underline-offset: 3px;
+  }
+  @media (hover: hover) {
+    .ab-link:hover { text-decoration-color: var(--foreground); }
+  }
+
+  /* Cards (§8.3): opaque, hairline, elevation 1, radius 12 px. */
+  .ab-card {
+    background: var(--card);
+    color: var(--card-foreground);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--elev-1);
+  }
+  .ab-card-link {
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+  }
+  @media (hover: hover) {
+    .ab-card-link:hover {
+      border-color: var(--border-strong);
+      box-shadow: var(--elev-2);
+    }
+  }
+
+  /* Badges (§8.3): neutral pill. */
+  .ab-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 9999px;
+    padding: 2px 10px;
+    background: var(--secondary);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.5;
+  }
+
+  /* Buttons (§8.2). Controls radius 6 px; 44 px hit area. */
+  .ab-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    padding-inline: 18px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+  }
+  .ab-btn:active { transform: translateY(1px); }
+  .ab-btn:disabled,
+  .ab-btn[aria-disabled='true'] {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .ab-btn-primary {
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+  .ab-btn-secondary {
+    background: var(--background);
+    color: var(--foreground);
+    border-color: var(--control-border);
+  }
+  .ab-btn-ghost {
+    background: transparent;
+    color: var(--text-muted);
+  }
+  @media (hover: hover) {
+    .ab-btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 88%, transparent); }
+    .ab-btn-secondary:hover:not(:disabled) { background: var(--secondary); }
+    .ab-btn-ghost:hover:not(:disabled) { background: var(--secondary); color: var(--foreground); }
+  }
+  .ab-btn-secondary:active,
+  .ab-btn-ghost:active { background: var(--accent); }
+
+  /* Inputs (§8.1, §8.2): the boundary is --control-border, never --border/--input. */
+  .ab-input {
+    min-height: 44px;
+    border-radius: 6px;
+    border: 1px solid var(--control-border);
+    background: var(--background);
+    color: var(--foreground);
+    padding-inline: 14px;
+    font-size: 0.875rem;
+  }
+  .ab-input::placeholder { color: var(--text-muted); }
+  @media (hover: hover) {
+    .ab-input:hover:not(:disabled) { border-color: var(--foreground); }
+  }
+  .ab-input:disabled { background: var(--secondary); opacity: 0.55; cursor: not-allowed; }
+  .ab-input[aria-invalid='true'] { border: 2px solid var(--destructive); }
+
+  /* Inline code in marketing pages. */
+  .ab-code {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    border-radius: 4px;
+    padding: 0.1em 0.35em;
+    background: var(--secondary);
+    color: var(--foreground);
+  }
+
+  /* Inverse island (§8.4, DS12): the hero terminal and the install command stay dark in both
+     themes. The element also carries class="dark", which re-scopes every token inside it. */
+  .ab-island {
+    background: var(--code-background);
+    color: var(--foreground);
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+  }
+  @media (forced-colors: active) {
+    .ab-island { background: Canvas; color: CanvasText; border-color: CanvasText; }
+  }
+  .ab-island-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+    padding: 8px 14px;
+  }
+
+  /* Status badge (§8.3): -subtle fill + status text + icon + word. */
+  .ab-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 9999px;
+    padding: 2px 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .ab-status-warning { background: var(--warning-subtle); color: var(--warning); }
+
+  /* Selected labels reserve their bold width so the text does not jump (§8.2). */
+  .ab-reserve-bold {
+    display: inline-flex;
+    flex-direction: column;
+  }
+  .ab-reserve-bold::after {
+    content: attr(data-label);
+    font-weight: 600;
+    visibility: hidden;
+    height: 0;
+    overflow: hidden;
+    user-select: none;
+    pointer-events: none;
+  }
+
+  /* Diagrams (§8.3): hairline strokes, forced colours keep them visible. */
+  @media (forced-colors: active) {
+    .ab-diagram line,
+    .ab-diagram path,
+    .ab-diagram circle,
+    .ab-diagram rect { stroke: CanvasText; }
+    .ab-diagram text { fill: CanvasText; }
+  }
+}
+
+/* Compound selectors: glass sets a 1 px border on every side; chrome keeps only the bottom.
+   Two classes outrank the single-class .glass-strong rule in the same layer. */
+@layer utilities {
+  .ab-nav.glass-strong { border-width: 0 0 1px; }
+  .ab-drawer.glass-strong { border-width: 0 0 1px; box-shadow: inset 0 1px 0 var(--glass-highlight), var(--elev-3); }
+  .ab-sheet.glass { border-radius: 16px; }
+}
+
+/* ── Home hero (design v2 §6.3, §9) ─────────────────────────────────────────── */
+
+/* The backdrop the hero sheet blurs: two tint washes and a masked 48 px grid. */
+.hero-backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.hero-backdrop::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(60% 50% at 78% 22%, var(--tint-green), transparent 70%),
+    radial-gradient(40% 40% at 50% 85%, var(--tint-violet), transparent 70%);
+}
+/* §6.3: the washes may be strengthened to 14% alpha (never --glass) so the sheet reads as glass.
+   Same hue as the tokens, through relative colour syntax; older browsers keep the token alpha. */
+@supports (color: rgb(from red r g b / 50%)) {
+  .hero-backdrop::before {
+    background:
+      radial-gradient(60% 50% at 78% 22%, rgb(from var(--tint-green) r g b / 14%), transparent 70%),
+      radial-gradient(40% 40% at 50% 85%, rgb(from var(--tint-violet) r g b / 14%), transparent 70%);
+  }
+}
+.hero-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 48px 48px;
+  -webkit-mask-image: radial-gradient(closest-side at 72% 50%, black, transparent 140%);
+  mask-image: radial-gradient(closest-side at 72% 50%, black, transparent 140%);
+}
+
+/* The gate line (§3): the one animated element. A dot travels the line past the gate: .gate-run
+   spans the line and moves by its own width. transform only (§9.2); paused off-screen or in a
+   hidden tab (data-paused, set by hero.tsx). */
+@keyframes ab-gate-travel {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(100%); }
+}
+[data-paused='true'] .gate-run {
+  animation-play-state: paused;
+}
+
+/* Reveals (§9): reserve space, transform + opacity only, ≤ 5 steps, ≤ 80 ms apart.
+   The <h1> is the LCP element: it is never hidden, it only rises 4 px (§9.4).
+   Under reduced motion none of this runs, so everything shows its final state at once. */
+@keyframes ab-rise {
+  from { transform: translateY(4px); }
+  to   { transform: none; }
+}
+@keyframes ab-reveal {
   from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  to   { opacity: 1; transform: none; }
 }
-
-.hero-stagger > * {
-  opacity: 0;
-  animation: hero-reveal 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+@keyframes ab-underline {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
 }
-.hero-stagger > *:nth-child(1) { animation-delay: 0ms; }
-.hero-stagger > *:nth-child(2) { animation-delay: 80ms; }
-.hero-stagger > *:nth-child(3) { animation-delay: 160ms; }
-.hero-stagger > *:nth-child(4) { animation-delay: 240ms; }
-.hero-stagger > *:nth-child(5) { animation-delay: 320ms; }
-
-.hero-reveal-late {
-  opacity: 0;
-  animation: hero-reveal 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  animation-delay: 320ms;
-}
-
-/* Respect user motion preference — WCAG 2.3.3, Apple HIG, Material Motion.
-   Also resets the staggered reveal so content is immediately visible. */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+@media (prefers-reduced-motion: no-preference) {
+  .hero-title {
+    animation: ab-rise 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
-  .hero-stagger > *,
-  .hero-reveal-late {
-    opacity: 1 !important;
-    transform: none !important;
+  .hero-stagger > * {
+    animation: ab-reveal 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .hero-stagger > *:nth-child(1) { animation-delay: 80ms; }
+  .hero-stagger > *:nth-child(2) { animation-delay: 160ms; }
+  .hero-stagger > *:nth-child(3) { animation-delay: 240ms; }
+  .hero-stagger > *:nth-child(4) { animation-delay: 320ms; }
+  /* The sheet holds glass, so it may not fade (§6.4): it enters with transform only. */
+  .hero-sheet-enter {
+    animation: ab-rise 600ms cubic-bezier(0.16, 1, 0.3, 1) 200ms both;
+  }
+  .gate-underline::after {
+    animation: ab-underline 600ms cubic-bezier(0.16, 1, 0.3, 1) 300ms both;
+  }
+  [data-paused='false'] .gate-run {
+    animation: ab-gate-travel 3.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
   }
 }
 
-/* Blog article prose */
+/* "Gate the deploy." carries the gate line under it: a 1.5 px --brand stroke. */
+.gate-underline {
+  position: relative;
+  display: inline-block;
+}
+.gate-underline::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0.02em;
+  height: 1.5px;
+  background: var(--brand);
+  transform-origin: left center;
+}
+@media (forced-colors: active) {
+  .gate-underline::after { background: CanvasText; }
+}
+
+/* ── Blog article prose (§8.3) ─────────────────────────────────────────────── */
 .prose-blog {
-  color: var(--text);
-  font-size: 16px;
-  line-height: 1.8;
+  color: var(--foreground);
+  font-size: 1rem;
+  line-height: 1.75;
 }
 .prose-blog h2 {
   margin-top: 2.5rem;
   margin-bottom: 1rem;
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: -0.02em;
+  font-size: var(--text-h2);
+  line-height: var(--text-h2--line-height);
+  letter-spacing: var(--text-h2--letter-spacing);
+  font-weight: 600;
+  color: var(--foreground);
 }
 .prose-blog h3 {
   margin-top: 2rem;
   margin-bottom: 0.75rem;
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: #fff;
+  font-size: var(--text-h3);
+  line-height: var(--text-h3--line-height);
+  font-weight: 600;
+  color: var(--foreground);
 }
 .prose-blog p { margin-bottom: 1.25rem; }
 .prose-blog ul, .prose-blog ol {
   margin-bottom: 1.25rem;
   padding-left: 1.5rem;
 }
+.prose-blog ul { list-style: disc; }
+.prose-blog ol { list-style: decimal; }
 .prose-blog li { margin-bottom: 0.4rem; }
-.prose-blog strong { color: #fff; font-weight: 600; }
+.prose-blog strong { color: var(--foreground); font-weight: 600; }
 .prose-blog em { color: var(--text-muted); font-style: italic; }
 .prose-blog code {
-  font-family: var(--font-geist-mono);
+  font-family: var(--font-mono);
   font-size: 0.85em;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-hover);
+  background: var(--secondary);
   border-radius: 4px;
   padding: 0.15em 0.4em;
-  color: var(--accent);
+  color: var(--foreground);
 }
 .prose-blog pre {
   margin-bottom: 1.5rem;
-  border-radius: 12px;
-  border: 1px solid var(--border);
   overflow-x: auto;
 }
 .prose-blog pre code {
   background: none;
-  border: none;
   padding: 0;
   color: inherit;
 }
@@ -186,39 +558,43 @@ body {
   border-top: 1px solid var(--border);
 }
 .prose-blog a {
-  color: var(--accent);
+  color: var(--foreground);
   text-decoration: underline;
+  text-decoration-color: var(--control-border);
   text-underline-offset: 3px;
 }
-.prose-blog a:hover { opacity: 0.85; }
+@media (hover: hover) {
+  .prose-blog a:hover { text-decoration-color: var(--foreground); }
+}
 .prose-blog blockquote {
   margin: 1.5rem 0;
   padding: 0.75rem 1.25rem;
-  border-left: 3px solid var(--accent);
-  background: var(--bg-surface);
-  border-radius: 0 8px 8px 0;
+  border-left: 2px solid var(--border-strong);
   color: var(--text-muted);
-  font-style: italic;
+}
+.prose-blog img {
+  border: 1px solid var(--border);
+  border-radius: 12px;
 }
 .prose-blog table {
   width: 100%;
   border-collapse: collapse;
   margin-bottom: 1.5rem;
-  font-size: 14px;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
 }
 .prose-blog th {
   text-align: left;
   padding: 0.6rem 1rem;
-  border-bottom: 1px solid var(--border-hover);
+  border-bottom: 1px solid var(--border-strong);
   color: var(--text-muted);
-  font-weight: 600;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  font-weight: 500;
 }
 .prose-blog td {
   padding: 0.6rem 1rem;
   border-bottom: 1px solid var(--border);
-  color: var(--text);
+  color: var(--foreground);
 }
 .prose-blog tr:last-child td { border-bottom: none; }

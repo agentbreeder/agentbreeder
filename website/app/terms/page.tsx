@@ -17,20 +17,12 @@ export default function TermsPage() {
   return (
     <>
       <Nav />
-      <main className="mx-auto max-w-[820px] px-4 sm:px-8 py-16 sm:py-24">
-        <p
-          className="mb-3 text-[11px] font-semibold uppercase tracking-[2px]"
-          style={{ color: 'var(--accent)' }}
-        >
-          Legal
-        </p>
-        <h1
-          className="mb-4 text-[36px] sm:text-[44px] font-extrabold text-white"
-          style={{ letterSpacing: '-1px' }}
-        >
+      <main className="ab-container max-w-[820px] py-16 sm:py-24">
+        <p className="ab-label mb-3">legal</p>
+        <h1 className="ab-h1 mb-4">
           Terms of Use
         </h1>
-        <p className="mb-10 text-[13px]" style={{ color: 'var(--text-dim)' }}>
+        <p className="ab-label mb-10">
           Last updated: {LAST_UPDATED}
         </p>
 
@@ -142,13 +134,11 @@ export default function TermsPage() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="mb-10 [&_p]:mb-3 [&_p]:text-[15px] [&_p]:leading-[1.75] [&_ul]:my-3 [&_ul]:ml-5 [&_ul]:list-disc [&_ul]:space-y-2 [&_li]:text-[15px] [&_li]:leading-[1.75] [&_a]:underline [&_code]:rounded [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[13px]"
-      style={{ color: 'var(--text-muted)' }}
-    >
-      <h2 className="mb-3 text-[20px] sm:text-[22px] font-bold text-white" style={{ letterSpacing: '-0.3px' }}>
+    <section className="mb-10 text-muted-foreground [&_p]:mb-3 [&_p]:text-[15px] [&_p]:leading-[1.75] [&_ul]:my-3 [&_ul]:ml-5 [&_ul]:list-disc [&_ul]:space-y-2 [&_li]:text-[15px] [&_li]:leading-[1.75] [&_a]:underline [&_code]:rounded [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[13px]">
+      <h2 className="ab-h3 mb-3">
         {title}
       </h2>
-      <div className="[&_strong]:text-white [&_a]:text-[color:var(--accent)] [&_code]:bg-[color:var(--bg-elevated)] [&_code]:text-[color:var(--accent)]">
+      <div className="[&_strong]:text-foreground [&_a]:text-foreground [&_a]:decoration-control-border [&_a]:underline-offset-[3px] [&_code]:bg-secondary [&_code]:font-mono [&_code]:text-foreground">
         {children}
       </div>
     </section>
