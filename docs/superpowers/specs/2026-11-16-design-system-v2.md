@@ -270,7 +270,7 @@ The recipe and its fallbacks live inside the existing `@layer utilities` block o
 because that is the block Cloud's check compares verbatim (a top-level `@supports` would never be
 checked). `@layer utilities` (not Tailwind's `@utility`) means no `hover:glass` variants, which no
 component needs. The console copies the same rules into `style.css`, also wrapped in a native `@layer utilities { … }`
-(no build step needed), so layering and specificity match the website; `test_console_glass_matches_source`
+(no build step needed); `test_console_glass_matches_source`
 compares the two layer bodies.
 
 ```css
@@ -314,6 +314,16 @@ specified here and drawn in #1115:
   delta of ≥ 1.5% inside the sheet (not a pixel count, which the grid alone could satisfy), and the
   owner signs off in the W PR that the sheet reads as glass. If it does not, the washes get
   stronger (≤ 14% alpha); `--glass` does not get lighter, because §5.4's text ratios depend on it.
+- Amendment (owner decision 2026-11-16, "make glass more visible"): the 14% washes gave 0.43%
+  (light) and 0.20% (dark). W adds one more backdrop element, `.hero-glow`, directly behind the
+  sheet: a green and a violet radial of the tint hues at ≤ 85% alpha, not a token and used nowhere
+  else, hidden whenever the glass is off. The §5.1 tint limit and the §5.4 "any tint over
+  background" row do not cover it; text never sits on it outside the sheet, and on the sheet the
+  `--glass` minimums (computed over `--foreground`) still bound contrast. W reports the delta
+  over the glass-exposed part of the sheet (the sheet minus the manifest and the session island),
+  where it passes, and over the whole sheet, where it stays below 1.5%; whether the narrower
+  measure satisfies this criterion is pending the owner's sign-off in the W PR (see
+  `docs/superpowers/verification/design-v2-W.md`).
 
 Other pages use flat `--background`; their only glass is chrome (nav, menus, dialogs) over scrolling
 content.
@@ -504,8 +514,17 @@ the browser: no analytics event or request on change.
   off the page renders light (`:root`). The script exists today (with `forcedTheme`); v2 unforces
   it.
 - W checks what the installed next-themes 0.4.6 script does with a stored value outside `themes`
-  (`localStorage.theme = "x y"`). If it adds those classes, W passes a `value` map and asserts the
-  result in a test; either way a tampered value can at most add class names to `<html>`, never markup.
+  (`localStorage.theme = "x y"`). Checked at W: its blocking script adds an unknown value as a class
+  on `<html>`, and its React effect calls `classList.add` on it outside a try, so a value with a
+  space threw after hydration and blanked the page. W therefore (a) passes
+  `value: { light: 'light', dark: 'dark' }`, so the effect adds only mapped classes; (b) renders a
+  guard script (`THEME_GUARD_SCRIPT`, `lib/theme-guard.mjs`) before `RootProvider`. The guard
+  removes a stored value outside `system`/`light`/`dark`, so next-themes falls back to `system`
+  and its blocking script never sees the value. It also stops another tab's `storage` event that
+  carries such a value (a capture listener registered before next-themes' own), because the value
+  map alone throws on a prototype key such as `"constructor"`. A Playwright run checks nine
+  tampered values through hydration and one theme switch, plus seven values from another tab;
+  `tests/test_website_theme_guard.py` runs the guard in Node.
 - `app/docs/layout.tsx`: `themeSwitch: { enabled: true, mode: 'light-dark-system' }`.
 - `globals.css`: delete the legacy `:root` block and both fumadocs overrides; map **every**
   `--color-fd-*` token declared by the installed `fumadocs-ui/style.css` (background, foreground,
@@ -554,11 +573,14 @@ the browser: no analytics event or request on change.
   Lucide paths are inlined as static markup (no package, no CDN, no `dangerouslySetInnerHTML`).
 - Scripts: next-themes' blocking inline script already ships today (with `forcedTheme`); v2 only
   unforces it. The console adds one same-origin file, `theme.js`. The stored preference is compared
-  by `theme.js` against its three literals, so it cannot inject anything. For next-themes, W verifies
-  the behaviour (§10.2); at worst a same-origin value adds class names to `<html>`, never markup. Neither protects against same-origin XSS, which is out of
-  scope.
+  by `theme.js` against its three literals, so it cannot inject anything. The website adds one
+  inline script of its own, the theme guard (§10.2, 334 bytes, built from constants, no
+  user input): it only compares the stored value, or one arriving from another tab, with the
+  three themes and removes it otherwise.
+  With it a tampered value adds no class and cannot break the page. Neither protects against
+  same-origin XSS, which is out of scope.
 - The website has no CSP today, so v2 regresses nothing. A future CSP (DS7) needs a nonce for the
-  next-themes script and `style-src-attr` (or no inline `style` props, §8.5); the hero's inline
+  next-themes script and the theme guard (or a hash for the guard, whose text is constant) and `style-src-attr` (or no inline `style` props, §8.5); the hero's inline
   `<style>` already goes (§9.7).
 - Console CSP (`center/server.py`) is unchanged; `backdrop-filter`, `@supports` and setting
   `style.colorScheme` through the CSSOM need nothing.
@@ -591,10 +613,23 @@ C on, Cloud `tokens:check` too.
 | **C** Cloud | #1117 | agentbreeder-cloud | Re-vendor `tokens.css` (with the OSS commit in its header), next-themes + toggle, Bricolage fontsource removed; an audit of `primary`, `ring`, `font-display` and `text-display` usage (all change: green → monochrome, Bricolage → Geist, a `clamp` display size); the `TODO(M1)` pin: Cloud CI fetches `website/brand.css` at the pinned OSS commit so the check runs in CI; Cloud `CLAUDE.md` note | `tokens:check` green, locally and in CI |
 | **R** cleanup | #1112 | OSS, then Cloud in one paired change | Remove `ab-card-glow`, `gradient-text`, `ab-radial-glow`, `--color-ab-*` once unused. Keep `@keyframes ab-pulse` and `ab-glow-breathe` (Cloud's `BRAND_RULES` throws if they vanish), or remove them only with the `BRAND_RULES` change in the same Cloud PR | Both checks green |
 
-Release: W merges after the 3.0.0a3 public-registry run (#836), so the new look and the new content
-go live together (DS9). W and L are not expected to edit `brand.css`; if either does, or R does, the
-Cloud CI pin moves in a paired Cloud PR (a rule T adds to `docs/cross-repo-sync.md`). C must merge before 3.0.0a3 ships, so the drift window closes before the
-release; #1112 tracks it as a blocker. T and L ship with the next console release.
+Release (DS9 as amended by the owner, 2026-11-16, a split): the 3.0.0a3 packages ship now, without
+v2. The website switch (W: the new look plus the #1114 content) goes live after the 3.0.0a3
+public-registry run (#836), and C blocks only that switch, not the packages. T changes the
+console's palette (its copy must match `brand.css`), so T merges only with the switch, not before
+it: until then the T PR is marked "DO NOT MERGE until the website switch (W #1115)", and neither
+the live website nor a shipped console changes. C's CI pin needs a public commit that holds T's
+`brand.css` before T is on `main`: C vendors from, and pins, the T PR's head commit (a public commit of
+this repo, fetchable by SHA); when T merges, a paired Cloud PR moves the pin to the `main` commit
+(the file and its sha256 are unchanged, which the pin's own check confirms). **Layers (for L and
+W):** a layered rule loses to any unlayered rule, whatever its specificity, so `.glass` in
+`@layer utilities` does not override an element's own unlayered `background`, `border` or
+`box-shadow`. L removes those declarations from the console rules it puts glass on (`header.top`,
+`.menu-body`, `dialog.confirm`), and W does the same for any unlayered site CSS. T pins Tailwind's default `--shadow-*` in the
+website's `globals.css`, because fumadocs uses `shadow-sm/md/lg`; W deletes the pin. W and L are
+not expected to edit `brand.css`; if either does, or R does, the Cloud CI pin moves in a paired
+Cloud PR (a rule T adds to `docs/cross-repo-sync.md`). T and L ship with the next console release
+after 3.0.0a3.
 
 ## 14. Acceptance criteria
 
@@ -642,8 +677,8 @@ release; #1112 tracks it as a blocker. T and L ship with the next console releas
 - **Safari blur cost.** Mitigated by §6.4.
 - **Fumadocs token names change** between minors. Mitigated by mapping every declared name with a
   test (§10.2).
-- **Cloud drift window** between T and C. Closed by making C a release blocker and running the
-  check in Cloud CI (§13).
+- **Cloud drift window** between T and C. Closed by making C block the website switch (DS9 as
+  amended) and running the check in Cloud CI (§13).
 
 ## 16. Owner decisions
 
@@ -656,7 +691,7 @@ release; #1112 tracks it as a blocker. T and L ship with the next console releas
 | DS6 | Cloud ships the light theme and toggle in #1117 | Dark-only simplicity | Ship in #1117 |
 | DS7 | A website CSP is a separate issue, not part of W | — | Separate issue |
 | DS8 | Neutral greys instead of zinc | Zinc's faint blue cast | Neutral |
-| DS9 | The new website look goes live with 3.0.0a3, with the content; C is a 3.0.0a3 blocker | Shipping the look earlier | Together |
+| DS9 | **Amended 2026-11-16 (owner): a split.** The 3.0.0a3 packages ship now without v2; the website switch (new look plus #1114 content) goes live together after the a3 verification; C (#1117) blocks only that switch; T merges with the switch | Shipping the look earlier; v2 in the 3.0.0a3 console | Split (owner) |
 | DS10 | Focus ring blue on all surfaces | — | Blue |
 | DS11 | The signature device is the gate line (§3) | — | Gate line |
 | DS12 | The hero terminal and install command stay dark in both themes (inverse island) | A fully light hero | Dark island |
@@ -679,3 +714,6 @@ release; #1112 tracks it as a blocker. T and L ship with the next console releas
 | r2 | `/architect` | APPROVED. Minors folded in: pin maintenance rule and W/L not editing `brand.css` (§13); intended Cloud drift listed in the T row (§13); T's own sub-issue (§13). |
 | r2 | `ui-ux-pro-max` | APPROVED (re-ran the §5.4 glass minima, within 0.04). Minors folded in: `theme-color` follows the toggle (§7); reserved bold width (§8.2); explicit `aria-label`s, tooltip visual only, fumadocs switch in the state checks (§10.1); `--brand` text only on opaque surfaces (§5.4); `color-scheme` and the parsers (§5.1); console at 320 px (§14.4); stray reference removed (§8.2). |
 | r3 | Narrow check, all lenses + docs-exception gate (Claude Sonnet, read-only) | APPROVED. Every r2 row verified in its section, no contradictions; no secrets, private or marketing content; claims honest; changelog lint OK. Minor folded in: §5.5 wording on `--foreground` as a backdrop; this row. |
+| T (#1119) | Implementation review (Claude Sonnet, read-only; `frontend-design`, `ui-ux-pro-max`, frontend engineering) | r1 CHANGES REQUESTED, 3 major. Folded in: T merges with the website switch, not before, and C blocks only the switch (DS9 amended; §13, §15, `CLAUDE.md`, `docs/cross-repo-sync.md`); C pins the T PR head commit until T merges (§13); a layered `.glass` loses to unlayered rules, so L and W strip the elements' own background, border and shadow (§6.2, §13). Minors: `--sidebar` contrast pairs, a single console layer. r2 APPROVED. |
+| W (#1115) | Theme guard delta review (Claude Sonnet, read-only; frontend engineering, `/security`) | r1 CHANGES REQUESTED (1 major, fixed), r2 APPROVED at `e4c6f97d`. See `docs/superpowers/verification/design-v2-W.md`, "Stored-theme fix". |
+| L (#1116) | Implementation review (Claude Sonnet, read-only; `frontend-design` + `ui-ux-pro-max`, and frontend engineering + `/security`) | r1 CHANGES REQUESTED. Design: 3 major. Folded in: 320 px reflow (absolute `.visually-hidden` cell text widened the page; table scrollers are positioned, with a test); table action cells; the forced-colours selected state on the toggle. Engineering: 1 major. Folded in: the builder's sticky preview slid under the sticky header (`--sticky-top`). Minors: the header is sticky only from 1100 px, where it fits one row (WCAG 2.4.11); first-paint test with `app.js` blocked; grouped-selector glass check; `theme.js` sets `theme-color`; Home/End; 44 px touch test; nested menu glass documented (header is a backdrop root). r2 APPROVED (both). |

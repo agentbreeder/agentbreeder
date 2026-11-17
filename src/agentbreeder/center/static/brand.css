@@ -1,47 +1,50 @@
 /* AgentBreeder brand tokens: a COPY of the `:root` (light) and `.dark` blocks of
- * website/brand.css, the design-system source of truth (#583, #817).
+ * website/brand.css, the design-system source of truth (#583, #817; tokens v2, #1113).
  *
  * The console has no build step and cannot import the website's Tailwind file, so it
  * ships this copy. Do not edit values here: change website/brand.css, then copy the two
  * blocks across. tests/test_brand_tokens.py fails when they drift and checks contrast.
- * Light is the default; class="dark" on <html> selects the dark palette.
+ * Light is the default; class="dark" on <html> selects the dark palette. The glass
+ * utilities live in style.css (in `@layer utilities`), not here: this file holds only
+ * the two token blocks.
  */
 
 :root {
-    --background: #fafafa;                       /* zinc-50 */
+    color-scheme: light;
+    --background: #ffffff;
     --card: #ffffff;
-    --card-foreground: #18181b;                  /* zinc-900 */
+    --card-foreground: #0a0a0a;                  /* neutral-950 */
     --popover: #ffffff;
-    --popover-foreground: #18181b;
-    --foreground: #18181b;
-    --primary: #15803d;                          /* green-700, 5.0:1 with white */
+    --popover-foreground: #0a0a0a;
+    --foreground: #0a0a0a;
+    --primary: #0a0a0a;                          /* monochrome (DS1), 19.8:1 with white */
     --primary-foreground: #ffffff;
-    --secondary: #f4f4f5;                        /* zinc-100 */
-    --secondary-foreground: #18181b;
-    --muted: #f4f4f5;
-    --muted-foreground: #52525b;                 /* zinc-600 */
-    --accent: #f4f4f5;
-    --accent-foreground: #18181b;
+    --secondary: #f5f5f5;                        /* neutral-100 */
+    --secondary-foreground: #0a0a0a;
+    --muted: #f5f5f5;
+    --muted-foreground: #525252;                 /* neutral-600 */
+    --accent: #f5f5f5;
+    --accent-foreground: #0a0a0a;
     --destructive: #b91c1c;                      /* red-700 */
-    --border: #e4e4e7;                           /* zinc-200, decorative dividers */
-    --input: #e4e4e7;
-    --ring: #15803d;
+    --border: #e5e5e5;                           /* neutral-200, decorative dividers */
+    --input: #e5e5e5;                            /* decorative only; controls use --control-border */
+    --ring: #2563eb;                             /* blue-600 (DS10) */
     --chart-1: #16a34a;                          /* green-600 */
     --chart-2: #7c3aed;                          /* violet-600 */
     --chart-3: #2563eb;                          /* blue-600 */
     --chart-4: #1d4ed8;                          /* blue-700 */
     --chart-5: #1e3a8a;                          /* blue-900 */
-    --sidebar: #f4f4f5;
-    --sidebar-foreground: #18181b;
-    --sidebar-primary: #15803d;
+    --sidebar: #fafafa;                          /* neutral-50 */
+    --sidebar-foreground: #0a0a0a;
+    --sidebar-primary: #0a0a0a;
     --sidebar-primary-foreground: #ffffff;
-    --sidebar-accent: #e4e4e7;
-    --sidebar-accent-foreground: #18181b;
-    --sidebar-border: #e4e4e7;
-    --sidebar-ring: #15803d;
+    --sidebar-accent: #ebebeb;
+    --sidebar-accent-foreground: #0a0a0a;
+    --sidebar-border: #e5e5e5;
+    --sidebar-ring: #2563eb;
     /* Added in #817 (both palettes) */
-    --text-muted: #52525b;                       /* secondary text, AA on every surface */
-    --control-border: #71717a;                   /* zinc-500, 3:1 boundary for inputs and controls */
+    --text-muted: #525252;                       /* secondary text, AA on every surface */
+    --control-border: #737373;                   /* neutral-500, 3:1 boundary for inputs and controls */
     /* Status text: on --background, --card, --secondary and its -subtle; not on --sidebar-accent */
     --success: #15803d;                          /* green-700 */
     --success-subtle: #f0fdf4;                   /* green-50 */
@@ -49,54 +52,101 @@
     --warning-subtle: #fffbeb;                   /* amber-50 */
     --info: #1d4ed8;                             /* blue-700 */
     --info-subtle: #eff6ff;                      /* blue-50 */
+    /* Added in design v2 (#1113, both palettes) */
+    --brand: #15803d;                            /* the gate line: strokes and text only, never a fill */
+    --border-strong: #d4d4d4;                    /* neutral-300, hover/selected edges (decorative) */
+    --destructive-subtle: #fef2f2;               /* red-50 */
+    --tint-green: rgb(34 197 94 / 8%);           /* backdrop washes only, never on components */
+    --tint-blue: rgb(59 130 246 / 8%);
+    --tint-violet: rgb(139 92 246 / 8%);
+    --tint-amber: rgb(245 158 11 / 8%);
+    --glass: rgb(255 255 255 / 84%);             /* in-flow glass panels */
+    --glass-strong: rgb(255 255 255 / 92%);      /* sticky/fixed glass: nav, menus, dialogs */
+    --glass-fallback: #ffffff;                   /* opaque fill when glass is off */
+    --glass-border: rgb(0 0 0 / 8%);
+    --glass-highlight: rgb(255 255 255 / 70%);
+    --glass-blur: 16px;
+    --elev-1: 0 1px 2px rgb(0 0 0 / 5%);
+    --elev-2: 0 4px 16px rgb(0 0 0 / 6%), 0 1px 2px rgb(0 0 0 / 4%);
+    --elev-3: 0 8px 24px rgb(0 0 0 / 8%), 0 2px 4px rgb(0 0 0 / 4%);
+    --elev-4: 0 16px 48px rgb(0 0 0 / 10%), 0 2px 6px rgb(0 0 0 / 5%);
+    --scrim: rgb(0 0 0 / 40%);
+    --code-background: #fafafa;
+    --syntax-key: #1d4ed8;                       /* blue-700 */
+    --syntax-string: #15803d;                    /* green-700 */
+    --syntax-number: #b45309;                    /* amber-700 */
+    --syntax-comment: #525252;                   /* neutral-600 */
 }
 
+/* ── Dark mode ───────────────────────────────────────────────────────────────
+ * Neutral greys on #0a0a0a, a near-white primary. In dark, elevation is carried
+ * by the surface step (--background → --card → --secondary), --glass-highlight
+ * and --border-strong, not by shadow alone. */
 .dark {
-    /* #09090b — zinc-950, the website's true background */
-    --background: oklch(0.085 0 0);
-    /* #111113 — slightly elevated surface */
-    --card: oklch(0.11 0 0);
-    --card-foreground: oklch(0.914 0 0);         /* #e4e4e7 zinc-200 */
-    --popover: oklch(0.11 0 0);
-    --popover-foreground: oklch(0.914 0 0);
-    --foreground: oklch(0.914 0 0);              /* #e4e4e7 zinc-200 */
-    /* Green-500 as primary — matches website's --accent */
-    --primary: oklch(0.723 0.219 142.5);         /* #22c55e */
-    --primary-foreground: oklch(0.085 0 0);      /* dark text on green */
-    /* #1a1a1e — elevated bg for secondary/hover states */
-    --secondary: oklch(0.155 0 0);
-    --secondary-foreground: oklch(0.914 0 0);
-    --muted: oklch(0.155 0 0);
-    --muted-foreground: oklch(0.493 0 0);        /* #71717a zinc-500 */
-    --accent: oklch(0.155 0 0);                  /* #1a1a1e for hover surfaces */
-    --accent-foreground: oklch(0.914 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 7%);                 /* rgba(255,255,255,0.07) */
-    --input: oklch(1 0 0 / 10%);
-    --ring: oklch(0.723 0.219 142.5);            /* green focus ring */
-    /* Charts — green/violet brand palette */
+    color-scheme: dark;
+    --background: #0a0a0a;                       /* neutral-950 */
+    --card: #141414;
+    --card-foreground: #ededed;
+    --popover: #141414;
+    --popover-foreground: #ededed;
+    --foreground: #ededed;
+    --primary: #ededed;                          /* monochrome (DS1), 16.9:1 with #0a0a0a */
+    --primary-foreground: #0a0a0a;
+    --secondary: #1f1f1f;
+    --secondary-foreground: #ededed;
+    --muted: #1f1f1f;
+    --muted-foreground: #a3a3a3;                 /* neutral-400, AA (the legacy 3.36:1 value is gone) */
+    --accent: #1f1f1f;
+    --accent-foreground: #ededed;
+    --destructive: #f87171;                      /* red-400 */
+    --border: rgb(255 255 255 / 8%);             /* decorative dividers */
+    --input: rgb(255 255 255 / 12%);             /* decorative only; controls use --control-border */
+    --ring: #60a5fa;                             /* blue-400 (DS10) */
+    /* Charts — unchanged */
     --chart-1: oklch(0.723 0.219 142.5);         /* green-500  #22c55e */
     --chart-2: oklch(0.702 0.183 296.6);         /* violet-400 #a78bfa */
     --chart-3: oklch(0.623 0.214 259.815);
     --chart-4: oklch(0.488 0.243 264.376);
     --chart-5: oklch(0.424 0.199 265.638);
-    /* Sidebar — matches --bg-surface on the website */
-    --sidebar: oklch(0.11 0 0);                  /* #111113 */
-    --sidebar-foreground: oklch(0.914 0 0);
-    --sidebar-primary: oklch(0.723 0.219 142.5); /* green active state */
-    --sidebar-primary-foreground: oklch(0.085 0 0);
-    --sidebar-accent: oklch(0.155 0 0);          /* hover bg */
-    --sidebar-accent-foreground: oklch(0.914 0 0);
-    --sidebar-border: oklch(1 0 0 / 7%);
-    --sidebar-ring: oklch(0.723 0.219 142.5);
-    /* Added in #817. --muted-foreground above is 3.36:1 on --background and is kept
-       so existing pages look unchanged; new UI uses --text-muted for secondary text. */
-    --text-muted: #a1a1aa;                       /* zinc-400, AA on every dark surface */
-    --control-border: #71717a;                   /* zinc-500, 3:1 boundary for inputs and controls */
+    --sidebar: #0f0f0f;
+    --sidebar-foreground: #ededed;
+    --sidebar-primary: #ededed;
+    --sidebar-primary-foreground: #0a0a0a;
+    --sidebar-accent: #262626;                   /* neutral-800, hover/active bg */
+    --sidebar-accent-foreground: #ededed;
+    --sidebar-border: rgb(255 255 255 / 8%);
+    --sidebar-ring: #60a5fa;
+    /* Added in #817 */
+    --text-muted: #a3a3a3;                       /* neutral-400, AA on every dark surface */
+    --control-border: #808080;                   /* 3:1 boundary for inputs and controls */
     --success: #4ade80;                          /* green-400 */
-    --success-subtle: #0c1c13;                   /* green-500 at 10% over #09090b (the website's --bg) */
+    --success-subtle: #0c1d12;                   /* green-500 at 10% over #0a0a0a */
     --warning: #fbbf24;                          /* amber-400 */
-    --warning-subtle: #21180b;                   /* amber-500 at 10% over #09090b (the website's --bg) */
+    --warning-subtle: #22190a;                   /* amber-500 at 10% over #0a0a0a */
     --info: #60a5fa;                             /* blue-400 */
-    --info-subtle: #0e1523;                      /* blue-500 at 10% over #09090b (the website's --bg) */
+    --info-subtle: #0f1622;                      /* blue-500 at 10% over #0a0a0a */
+    /* Added in design v2 (#1113) */
+    --brand: #22c55e;                            /* green-500, the gate line */
+    --border-strong: rgb(255 255 255 / 16%);
+    --destructive-subtle: #211010;
+    --tint-green: rgb(34 197 94 / 10%);
+    --tint-blue: rgb(59 130 246 / 10%);
+    --tint-violet: rgb(139 92 246 / 10%);
+    --tint-amber: rgb(245 158 11 / 10%);
+    --glass: rgb(20 20 20 / 84%);
+    --glass-strong: rgb(10 10 10 / 92%);
+    --glass-fallback: #141414;
+    --glass-border: rgb(255 255 255 / 10%);
+    --glass-highlight: rgb(255 255 255 / 10%);
+    --glass-blur: 16px;
+    --elev-1: 0 1px 2px rgb(0 0 0 / 40%);
+    --elev-2: 0 4px 16px rgb(0 0 0 / 40%), 0 1px 2px rgb(0 0 0 / 30%);
+    --elev-3: 0 8px 24px rgb(0 0 0 / 50%), 0 2px 4px rgb(0 0 0 / 30%);
+    --elev-4: 0 16px 48px rgb(0 0 0 / 55%), 0 2px 6px rgb(0 0 0 / 35%);
+    --scrim: rgb(0 0 0 / 60%);
+    --code-background: #111111;
+    --syntax-key: #93c5fd;                       /* blue-300 */
+    --syntax-string: #86efac;                    /* green-300 */
+    --syntax-number: #fdba74;                    /* orange-300 */
+    --syntax-comment: #a3a3a3;                   /* neutral-400 */
 }

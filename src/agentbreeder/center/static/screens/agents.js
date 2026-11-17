@@ -18,6 +18,7 @@ import { href } from "../lib/router.js";
 import { visible } from "../lib/text.js";
 import { productionRow } from "../lib/tryit.js";
 import { Card, Table, Text, ViewState, useConsole } from "../ui/components.js";
+import { GateCheck } from "../ui/icons.js";
 import { useView } from "../ui/data.js";
 import { AgentCost } from "./cost.js";
 import { GateFailed } from "./gate.js";
@@ -132,7 +133,7 @@ export function Agents() {
               <td><${Text} value=${row.target} /></td>
               <td><${Text} value=${row.state} />${row.error ? html`: <${Text} value=${row.error} />` : null}</td>
               <td>${row.image ? html`<code title=${visible(row.image)}><${Text} value=${shortImage(row.image)} /></code>` : html`<span class="muted">none</span>`}</td>
-              <td><span class=${`identity ${identityTone(row.compliance)}`}><${Text} value=${identityText(row.compliance)} /></span>${row.updated ? html`<br /><span class="muted small">as of <${Text} value=${auditTime(row.updated)} /></span>` : null}</td>
+              <td><span class=${`identity ${identityTone(row.compliance)}`}>${identityTone(row.compliance) === "passed" ? html`<${GateCheck} /> ` : null}<${Text} value=${identityText(row.compliance)} /></span>${row.updated ? html`<br /><span class="muted small">as of <${Text} value=${auditTime(row.updated)} /></span>` : null}</td>
               <td>${row.endpoint ? html`<code><${Text} value=${row.endpoint} /></code>` : html`<span class="muted">none</span>`}</td>
               <td><${LastRelease} row=${row} views=${views} /></td>
             </tr>`)}
@@ -155,7 +156,7 @@ export function Agents() {
 function GateStrip({ steps }) {
   return html`<ol class="gate-strip" aria-label="Gate">
     ${steps.map((step) => html`<li class=${`gate-step ${step.state}`} key=${step.key}>
-      <span class="gate-icon" aria-hidden="true">${step.state === "passed" ? "✓" : step.state === "failed" ? "✕" : step.state === "running" ? "…" : step.state === "differs" ? "≠" : step.state === "loading" ? "◌" : "○"}</span>
+      <span class="gate-icon" aria-hidden="true">${step.state === "passed" ? html`<${GateCheck} />` : step.state === "failed" ? "✕" : step.state === "running" ? "…" : step.state === "differs" ? "≠" : step.state === "loading" ? "◌" : "○"}</span>
       <span class="gate-label">${step.label}</span><span class="visually-hidden">: ${STEP_WORDS[step.state]}.</span>
       <span class="gate-detail muted small"><${Text} value=${step.detail} /></span>
     </li>`)}
@@ -170,7 +171,7 @@ function IdentityStrip({ name, identity, production, loading = false }) {
     <div><dt>Principal</dt><dd>${declared ? html`<code><${Text} value=${name} /></code> <span class="muted small">declared in stack.yaml: the static demo principal <code>services up</code> writes</span>` : missing}</dd></div>
     <div><dt>Sponsor</dt><dd>${declared ? html`<${Text} value=${declared.sponsor} />` : missing}</dd></div>
     <div><dt>Review by</dt><dd>${declared ? html`<${Text} value=${declared.review_by} />${declared.review_by < localDate() ? html` <span class="identity failed">review date has passed: the gate refuses deploys</span>` : null}` : missing}</dd></div>
-    <div><dt>Identity check</dt><dd>${production ? html`<span class=${`identity ${identityTone(production.compliance)}`}><${Text} value=${identityText(production.compliance)} /></span> <span class="muted small">recorded at deploy or by the last reconcile; deployment changed <${Text} value=${auditTime(production.updated)} /></span>` : html`<span class="muted">${loading ? "Loading deployments…" : "no production deployment"}</span>`}</dd></div>
+    <div><dt>Identity check</dt><dd>${production ? html`<span class=${`identity ${identityTone(production.compliance)}`}>${identityTone(production.compliance) === "passed" ? html`<${GateCheck} /> ` : null}<${Text} value=${identityText(production.compliance)} /></span> <span class="muted small">recorded at deploy or by the last reconcile; deployment changed <${Text} value=${auditTime(production.updated)} /></span>` : html`<span class="muted">${loading ? "Loading deployments…" : "no production deployment"}</span>`}</dd></div>
     ${identity.error ? html`<div><dt>stack.yaml</dt><dd class="muted"><${Text} value=${identity.error.message} /></dd></div>` : null}
   </dl>`;
 }

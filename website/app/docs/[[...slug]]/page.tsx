@@ -6,7 +6,7 @@ import {
   DocsDescription,
 } from 'fumadocs-ui/page';
 import { notFound } from 'next/navigation';
-import defaultMdxComponents from 'fumadocs-ui/mdx';
+import { mdxComponents } from '@/components/mdx';
 
 export default async function Page({
   params,
@@ -20,13 +20,16 @@ export default async function Page({
   const MDX = page.data.body;
 
   return (
-    <DocsPage toc={page.data.toc}>
-      <DocsTitle>{page.data.title}</DocsTitle>
-      <DocsDescription>{page.data.description}</DocsDescription>
-      <DocsBody>
-        <MDX components={{ ...defaultMdxComponents }} />
-      </DocsBody>
-    </DocsPage>
+    // fumadocs renders no <main>; display: contents keeps its grid placement (axe: landmark-one-main).
+    <main className="contents">
+      <DocsPage toc={page.data.toc}>
+        <DocsTitle>{page.data.title}</DocsTitle>
+        <DocsDescription>{page.data.description}</DocsDescription>
+        <DocsBody>
+          <MDX components={mdxComponents} />
+        </DocsBody>
+      </DocsPage>
+    </main>
   );
 }
 

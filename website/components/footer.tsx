@@ -33,59 +33,42 @@ const LINKS = {
 
 export function Footer() {
   return (
-    <footer className="border-t px-4 sm:px-8 md:px-12 lg:px-16 xl:px-24 pb-10 pt-12" style={{ borderColor: 'var(--border)' }}>
-      <div className="max-w-[1400px] mx-auto">
+    <footer className="border-t border-border pb-[calc(40px+env(safe-area-inset-bottom))] pt-12">
+      <div className="ab-container">
         <div className="mb-10 flex flex-col gap-10 sm:flex-row sm:flex-wrap sm:gap-12">
-          <div className="sm:flex-1 sm:min-w-[180px]">
+          <div className="sm:min-w-[180px] sm:flex-1">
             <Logo />
-            <p
-              className="mt-3 max-w-[280px] text-[13px] leading-[1.7]"
-              style={{ color: 'var(--text-muted)' }}
-            >
+            <p className="mt-3 max-w-[280px] text-[13px] leading-[1.7] text-muted-foreground">
               Open-source preview: deploy existing agent containers behind a deploy-time identity gate.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-8 sm:contents">
             {Object.entries(LINKS).map(([group, items]) => (
               <div key={group}>
-                <h4
-                  className="mb-3.5 text-[12px] font-semibold uppercase tracking-[0.8px] text-white"
-                >
-                  {group}
-                </h4>
-                {items.map(({ label, href }) => (
-                  <Link
-                    key={label}
-                    href={href}
-                    className="-mx-2 flex min-h-[44px] items-center rounded-md px-2 text-[13px] no-underline transition-colors hover:text-white"
-                    style={{ color: 'var(--text-muted)' }}
-                    target={href.startsWith('http') ? '_blank' : undefined}
-                    rel={href.startsWith('http') ? 'noopener noreferrer' : undefined}
-                  >
-                    {label}
-                  </Link>
-                ))}
+                <h2 className="ab-label mb-2">{group.toLowerCase()}</h2>
+                <ul className="m-0 list-none p-0">
+                  {items.map(({ label, href }) => (
+                    <li key={label}>
+                      <Link
+                        href={href}
+                        className="-mx-2 flex min-h-[44px] items-center rounded-md px-2 text-[13px] text-muted-foreground no-underline transition-colors hover:text-foreground"
+                        target={href.startsWith('http') ? '_blank' : undefined}
+                        rel={href.startsWith('http') ? 'noopener noreferrer' : undefined}
+                      >
+                        {label}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
               </div>
             ))}
           </div>
         </div>
-        <div
-          className="flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between"
-          style={{ borderColor: 'var(--border)' }}
-        >
-          <p className="text-xs" style={{ color: 'var(--text-dim)' }}>
+        <div className="flex flex-col gap-3 border-t border-border pt-6 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-muted-foreground">
             © 2026 Rajit Saha. AgentBreeder™ is a trademark pending registration. Apache License 2.0
           </p>
-          <span
-            className="rounded border px-2.5 py-0.5 font-mono text-[11px] font-semibold self-start sm:self-auto"
-            style={{
-              background: 'var(--accent-dim)',
-              borderColor: 'var(--accent-border)',
-              color: 'var(--accent)',
-            }}
-          >
-            preview · 3.0.0a3
-          </span>
+          <span className="ab-badge self-start sm:self-auto">preview · 3.0.0a3</span>
         </div>
       </div>
     </footer>

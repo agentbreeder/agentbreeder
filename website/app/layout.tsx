@@ -1,23 +1,10 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { GeistSans } from 'geist/font/sans';
 import { GeistMono } from 'geist/font/mono';
-import { Bricolage_Grotesque } from 'next/font/google';
 import { RootProvider } from 'fumadocs-ui/provider/next';
+import { ThemeColorSync } from '@/components/theme-color-sync';
+import { THEME_COLOR, THEME_GUARD_SCRIPT } from '@/lib/theme';
 import './globals.css';
-
-// Distinctive display font for marketing headlines — #493.
-// Applied selectively via the `font-display` Tailwind utility, only on hero
-// h1 and a few high-impact h2s on the marketing pages. Docs and blog continue
-// using Geist Sans for readability and consistency with the technical content.
-// The variable is `--font-bricolage`, not `--font-display`: the `font-display`
-// theme token in app/globals.css points at it, and sharing one name would make
-// that token reference itself.
-const bricolage = Bricolage_Grotesque({
-  subsets: ['latin'],
-  variable: '--font-bricolage',
-  weight: ['600', '700', '800'],
-  display: 'swap',
-});
 
 export const metadata: Metadata = {
   title: {
@@ -39,24 +26,45 @@ export const metadata: Metadata = {
   },
 };
 
+// theme-color is the no-JS fallback and follows the OS; ThemeColorSync makes it follow the toggle.
+export const viewport: Viewport = {
+  viewportFit: 'cover',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: THEME_COLOR.light },
+    { media: '(prefers-color-scheme: dark)', color: THEME_COLOR.dark },
+  ],
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html
-      lang="en"
-      className={`${GeistSans.variable} ${GeistMono.variable} ${bricolage.variable} dark`}
-      suppressHydrationWarning
-    >
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`} suppressHydrationWarning>
       <body>
         {/*
-          Dark mode is intentional, not an oversight. The whole design system
-          (background, glows, syntax-highlighted YAML, accent palette) is built
-          around dark surfaces. Switching to light would require re-tuning every
-          token and component. Tracked in #489 if we revisit.
-
-          The site respects `prefers-reduced-motion` (see app/globals.css)
-          and uses WCAG-AA contrast for all body and meta text.
+          Must stay before RootProvider, whose next-themes script reads the stored theme next:
+          this drops a stored value outside system/light/dark and stops one arriving from another
+          tab (lib/theme.ts, design v2 §10.2).
         */}
-        <RootProvider theme={{ forcedTheme: 'dark', disableTransitionOnChange: true }}>{children}</RootProvider>
+        <script dangerouslySetInnerHTML={{ __html: THEME_GUARD_SCRIPT }} />
+        {/*
+          Light by default, dark by system preference or the toggle (design v2 §10). next-themes
+          emits a small blocking script at the top of <body> that sets class="dark" on <html>
+          before first paint, so there is no flash. With JavaScript off the page renders light.
+          Motion respects prefers-reduced-motion (website/brand.css, app/globals.css).
+        */}
+        <RootProvider
+          theme={{
+            defaultTheme: 'system',
+            enableSystem: true,
+            themes: ['light', 'dark'],
+            // With a value map next-themes' React effect adds only mapped classes; an unknown
+            // theme adds none instead of throwing in classList.add (design v2 §10.2).
+            value: { light: 'light', dark: 'dark' },
+            disableTransitionOnChange: true,
+          }}
+        >
+          <ThemeColorSync />
+          {children}
+        </RootProvider>
       </body>
     </html>
   );

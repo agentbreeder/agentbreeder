@@ -1,5 +1,6 @@
 import { defineConfig, defineDocs, defineCollections, frontmatterSchema } from 'fumadocs-mdx/config';
 import { z } from 'zod';
+import { brandShikiTheme } from './lib/shiki-theme';
 
 export const docs = defineDocs({
   dir: 'content/docs',
@@ -16,4 +17,10 @@ export const blog = defineCollections({
   }),
 });
 
-export default defineConfig();
+export default defineConfig({
+  mdxOptions: {
+    rehypeCodeOptions: {
+      themes: { light: brandShikiTheme, dark: brandShikiTheme },
+    },
+  },
+});

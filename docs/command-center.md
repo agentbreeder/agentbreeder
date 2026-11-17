@@ -78,7 +78,7 @@ On `main` the walkthrough column is replaced by a console shell (Preact + htm, n
   title and `h1`. Changing screen moves focus to that `h1`, and a skip link goes straight to it.
 - **Top bar**: a scope switcher ("All projects" or one project; a project screen under "All
   projects" asks which), an activity pill with the number of running jobs that opens the **Jobs**
-  dock, and a user menu (theme, sign out of this tab).
+  dock, a System / Light / Dark theme toggle, and a user menu (sign out of this tab).
 - **Jobs dock**: every job this tab follows, several at once (one per project), including jobs
   started elsewhere. Starting a job opens it. The log only appends lines. A finished job collapses
   to one line ("The eval gate failed. Production is unchanged.") with its log one click away.
@@ -135,6 +135,36 @@ wheel built from `main` in a clean sandbox on macOS (2026-11-13), Northwind pass
 Docker and on `kind` through the console's API, every screen was opened in Chrome, and the teardown
 ran from the UI (three leftover Docker objects of the stack were then removed by hand). Onboarding,
 the grant review, a full release and the cluster connect and deploy were not clicked in the browser.
+
+### Design system v2 (#1116): on `main`, not in a published preview
+
+The console follows design system v2 (spec `docs/superpowers/specs/2026-11-16-design-system-v2.md`).
+It lands together with the website's v2 switch (#1115), not before:
+
+- **Theme.** A System / Light / Dark toggle in the top bar (a radiogroup named "Theme"; the arrow
+  keys move between options). The first visit follows the system, and light is used when the
+  system states no preference. The choice is kept in this browser's `localStorage` as
+  `console-theme` and is never sent anywhere. A small script, `theme.js`, runs in `<head>` before
+  the stylesheets and sets the theme before the first paint, so the page does not flash. It
+  accepts only `system`, `light` and `dark`; any other stored value, or blocked storage, means
+  `system`. The Content-Security-Policy is unchanged (`script-src 'self'`, Trusted Types).
+- **Monochrome actions.** The primary button is near-black in light and near-white in dark. Green
+  appears only in status text and on the **gate line**: a thin green ring around a check, beside
+  the word, for a passed gate step, a passed identity check, a verified registry version and a
+  healthy service. Every state still has a word, so colour never carries meaning alone.
+- **Glass.** The sticky top bar, the user menu and confirm dialogs are translucent with a blur.
+  With reduced transparency, without `backdrop-filter` or in forced colours they are opaque.
+  Cards, tables, logs and forms stay opaque. Below 1100 px, where the top bar wraps to more than
+  one row, it scrolls away with the page instead of covering what has focus.
+- **Links** are text-coloured and underlined. Every control border uses the 3:1 control token.
+
+Tested with Playwright in Chrome against a fake CLI: the theme before first paint (a dark system,
+a stored theme against the system, blocked storage, a tampered value), the toggle and its
+keyboard, glass on the header, menu and dialog only, the gate line, and axe in light and dark.
+`tests/test_center_style.py` checks that control borders use the control token, that no rule uses
+`--primary` for a passed or healthy state, and that glass surfaces leave their paint to the
+layered utility. Not tested: Safari and Firefox, and the reduced-transparency fallback in a
+browser.
 
 ### The registry browser (#824): on `main`, not in a published preview
 

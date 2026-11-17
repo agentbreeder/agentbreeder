@@ -3,6 +3,7 @@
 
 import { SPARK_HEIGHT, SPARK_WIDTH, USAGE_EVERY, sparkLabel, sparkLines, statusChip } from "../lib/usage.js";
 import { Text, useConsole } from "./components.js";
+import { GateCheck } from "./icons.js";
 import { html, useEffect, useState } from "./preact.js";
 
 const NONE = Object.freeze({ data: null, error: null });
@@ -84,5 +85,5 @@ export function Spark({ what, points, format, window, floor = 0 }) {
 /** A service's status: icon, word and colour (the word alone carries the meaning). */
 export function StatusChip({ info }) {
   const chip = statusChip(info);
-  return html`<span class=${`chip ${chip.tone}`}><span class="chip-icon" aria-hidden="true">${chip.icon}</span> <${Text} value=${chip.word} /></span>`;
+  return html`<span class=${`chip ${chip.tone}`}>${chip.word === "Healthy" ? html`<${GateCheck} />` : html`<span class="chip-icon" aria-hidden="true">${chip.icon}</span>`} <${Text} value=${chip.word} /></span>`;
 }

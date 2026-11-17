@@ -141,7 +141,7 @@ function ConfirmDialog({ title, text, confirm = "Confirm", tone = "danger", onDo
       if (dialog.open) dialog.close();
     };
   }, []);
-  return html`<dialog ref=${ref} aria-labelledby=${titleId} class="confirm">
+  return html`<dialog ref=${ref} aria-labelledby=${titleId} class="confirm glass-strong">
     <h2 id=${titleId}>${title}</h2>
     <p>${text}</p>
     <div class="row end">

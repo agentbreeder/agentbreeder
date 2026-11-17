@@ -85,9 +85,20 @@ client.post = async (path, body = {}) => (await client.request(path, { body })).
 
 const jobs = createJobs({ client });
 
+// The stored preference's only values; theme.js (run before first paint) accepts exactly these.
+const THEMES = ["system", "light", "dark"];
+const themeOf = (value) => (THEMES.includes(value) ? value : "system");
+
+/** Sets html.dark and color-scheme for a preference, with no transitions for one frame (§8.1). */
 function applyTheme(theme) {
+  const root = document.documentElement;
   const dark = theme === "dark" || (theme !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  document.documentElement.classList.toggle("dark", dark);
+  root.classList.add("no-transition");
+  root.classList.toggle("dark", dark);
+  root.style.colorScheme = dark ? "dark" : "light";
+  // The browser chrome follows the toggle, not only the OS (design v2 §7).
+  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.setAttribute("content", dark ? "#0a0a0a" : "#ffffff");
+  requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove("no-transition")));
 }
 
 function announce(text) {
@@ -141,7 +152,7 @@ function App({ initial }) {
   const [projects, setProjects] = useState([]);
   const [scope, setScopeState] = useState(tab.get("console-scope"));
   const [dockOpen, setDockOpen] = useState(false);
-  const [theme, setThemeState] = useState(prefs.get("console-theme") || "system");
+  const [theme, setThemeState] = useState(themeOf(prefs.get("console-theme")));
   const [, bump] = useReducer((n) => n + 1, 0);
   const seen = useRef(new Map());
   const finished = useRef(0);
@@ -275,7 +286,8 @@ function App({ initial }) {
     dockOpen,
     setDockOpen,
     theme,
-    setTheme(next) {
+    setTheme(choice) {
+      const next = themeOf(choice);
       prefs.set("console-theme", next);
       setThemeState(next);
     },
@@ -329,7 +341,7 @@ async function boot() {
       initial = error.kind === "unreachable" ? { name: "unreachable" } : { name: "signed-out", reason: "used" };
     }
   }
-  applyTheme(prefs.get("console-theme") || "system");
+  applyTheme(themeOf(prefs.get("console-theme")));
   render(html`<${App} initial=${initial} />`, root);
   root.setAttribute("aria-busy", "false");
 }

@@ -53,7 +53,8 @@ def test_home_lists_services_with_usage_that_updates(page, console):
     expect(litellm).to_contain_text("demo")
     expect(litellm).to_contain_text("Healthy")
     expect(litellm).to_contain_text("4000 → 127.0.0.1:4000")
-    expect(litellm.locator(".chip.ok .chip-icon")).to_have_attribute("aria-hidden", "true")
+    # Healthy shows the gate line (design v2 §3), decorative beside the word.
+    expect(litellm.locator(".chip.ok svg.gate-check")).to_have_attribute("aria-hidden", "true")
     postgres = row_of(table, "postgres")
     expect(postgres).to_contain_text("internal only")
     expect(postgres).to_contain_text("reached by agents on the stack network")
