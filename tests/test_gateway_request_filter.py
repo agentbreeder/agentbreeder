@@ -239,12 +239,67 @@ CREDENTIAL_PARAMS = (  # LiteLLM 1.106.2 CredentialLiteLLMParams (litellm/types/
     "aws_sts_endpoint aws_external_id aws_session_tags aws_bedrock_runtime_endpoint "
     "aws_bedrock_project_id s3_bucket_name s3_endpoint_url s3_region_name s3_access_key_id "
     "s3_secret_access_key s3_encryption_key_id s3_bucket_owner aws_batch_role_arn "
-    "s3_output_bucket_name"
+    "s3_output_bucket_name bedrock_tags watsonx_region_name anthropic_federation_rule_id "
+    "anthropic_organization_id anthropic_service_account_id anthropic_federation_workspace_id "
+    "anthropic_identity_token_file anthropic_identity_token anthropic_identity_source "
+    "anthropic_issuer_url anthropic_issuer_subject anthropic_issuer_audience "
+    "anthropic_issuer_ttl_seconds anthropic_issuer_signing_key_ref anthropic_keycloak_token_url "
+    "anthropic_keycloak_client_id anthropic_keycloak_auth_method "
+    "anthropic_keycloak_client_secret_ref anthropic_keycloak_scope "
+    "anthropic_disable_workload_identity_federation openai_identity_provider_id "
+    "openai_service_account_id openai_identity_token_file"
 ).split()
 
 
+# The gateway image CREDENTIAL_PARAMS was read from. A new digest means a new LiteLLM: re-read
+# the class from that image with tests/test_gateway_request_filter_docker.py
+# (test_the_filter_lists_every_credential_param_of_the_pinned_image) and update both.
+CREDENTIAL_PARAMS_IMAGE = (
+    "ghcr.io/berriai/litellm-database@"
+    "sha256:35f2cec3a14bb297e08bfab56c1fc377432bc4071aaf71978fdff043a5d91e79"
+)
+
+
 def test_the_filter_covers_litellms_credential_params(rules):
+    assert len(CREDENTIAL_PARAMS) == len(set(CREDENTIAL_PARAMS)) == 61
     assert set(CREDENTIAL_PARAMS) <= rules.ROUTING_FIELDS
+
+
+def test_the_credential_list_was_read_from_the_pinned_image():
+    image = yaml.safe_load((V13 / "service.yaml").read_text())["image"]
+    assert image == CREDENTIAL_PARAMS_IMAGE, (
+        "the gateway image changed: re-read CredentialLiteLLMParams from it "
+        "(test_gateway_request_filter_docker.py) and update CREDENTIAL_PARAMS and the filter"
+    )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "anthropic_workspace_id",
+        "aws_workspace_id",
+        "azure_endpoint",
+        "azure_authority_host",
+        "azure_client_id",
+        "azure_tenant_id",
+        "gcs_path_service_account",
+        "watsonx_credentials",
+        "watsonx_token",
+    ],
+)
+def test_provider_credential_and_endpoint_names_are_refused(rules, field):
+    assert rules.refusal(_chat(**{field: "x"}), "acompletion")[1] == field
+    assert rules.refusal(_chat(extra_body={field: "x"}), "acompletion")[1] == field
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["anthropic_beta", "anthropic_version", "vertex_ai_safety_settings", "bedrock_converse"],
+)
+def test_non_credential_provider_fields_pass(rules, field):
+    """No prefix rule: provider options that are not credentials or endpoints are not refused
+    (a later `/v1/messages` route may send `anthropic_beta` / `anthropic_version`)."""
+    assert rules.refusal(_chat(**{field: "x"}), "acompletion") is None
 
 
 def test_provider_specific_credentials_are_refused(rules):

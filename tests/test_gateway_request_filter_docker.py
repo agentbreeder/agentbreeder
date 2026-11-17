@@ -558,3 +558,27 @@ def test_a_key_reaches_only_its_aliases_provider(stack, tmp_path):
     print(f"[{version}] filter log lines: {len(filter_lines)}; first: {filter_lines[0]}")
     client.revoke(deploy_alias)
     client.revoke(open_alias)
+
+
+def test_the_filter_lists_every_credential_param_of_the_pinned_image(monkeypatch):
+    """CredentialLiteLLMParams as the pinned gateway image defines it, against the filter and
+    the recorded list (a LiteLLM bump cannot open a gap silently)."""
+    from test_gateway_request_filter import CREDENTIAL_PARAMS, V13, _load
+
+    image = yaml.safe_load((V13 / "service.yaml").read_text())["image"]
+    script = (
+        "import json\n"
+        "from litellm.types.router import CredentialLiteLLMParams as C\n"
+        "print(json.dumps(sorted(C.model_fields)))"
+    )
+    out = docker(
+        "run", "--rm", "--network", "none", "--entrypoint", "/app/.venv/bin/python",
+        image, "-c", script,
+    ).stdout  # fmt: skip
+    fields = set(json.loads(out.strip().splitlines()[-1]))
+    rules = _load(
+        "agentbreeder_request_filter", V13 / "files/agentbreeder_request_filter.py", monkeypatch
+    )
+    print("\nCredentialLiteLLMParams fields in the pinned image:", len(fields))
+    assert fields == set(CREDENTIAL_PARAMS), sorted(fields ^ set(CREDENTIAL_PARAMS))
+    assert fields <= rules.ROUTING_FIELDS, sorted(fields - rules.ROUTING_FIELDS)

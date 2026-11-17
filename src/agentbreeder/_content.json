@@ -506,7 +506,7 @@
   },
   "builtin_registry/service/litellm/1.3.0/files/agentbreeder_request_filter.py": {
    "exec": false,
-   "sha256": "5d4f46d52ed8abc84e1362f35adc4aeffe6087a2636419d2781d8b3e27060c81"
+   "sha256": "2d10f8b63f44f9c1900e0938b58e4254cd786b7dc63a949cf1f7868fbe7861ff"
   },
   "builtin_registry/service/litellm/1.3.0/files/start.py": {
    "exec": true,

@@ -330,8 +330,9 @@ from the reviewed gateway config only. Two controls keep a key on its own aliase
   `litellm_credential_name`, `api_key`, `api_version` (also as the `api-version` query
   parameter), `organization`, `extra_headers`, the `aws_*`, `vertex_*` and `azure_*` parameters,
   or `litellm_params`, at the top level, in `extra_body` or in a request-level fallback, with a
-  400 whose message starts with `GATEWAY_PARAM_REFUSED`. The list is fixed; a fallback nested
-  deeper than the filter reads is refused too. It refuses every other call type that reaches it
+  400 whose message starts with `GATEWAY_PARAM_REFUSED`. The list is explicit, with
+  no prefix rule, so provider options such as `anthropic_beta` pass. A fallback nested deeper
+  than the filter reads is refused too. It refuses every other call type that reaches it
   (pass-through, file upload, responses, messages and the rest) with `GATEWAY_ROUTE_REFUSED`. It
   does not read request `metadata` or headers: on the pinned LiteLLM, `custom_llm_provider` in
   metadata and the `x-litellm-api-base`, `x-litellm-base-url`, `api_base`, `x-api-key` and
