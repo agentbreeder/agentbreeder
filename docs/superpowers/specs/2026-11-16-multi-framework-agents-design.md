@@ -1,7 +1,10 @@
 # Multi-framework agents: one `agent.yaml`, framework runtimes, shared registries (#1084): design
 
-- Status: **r4, reviews converged** (round 4 APPROVED). The r1–r3 `/architect` and `/security` reviews (Fable, read-only) are folded
-  in (§20). Owner decisions D1–D18 are open (§17). No code in this PR.
+- Status: **r5, F0 folded in, reviews converged** (r5 review r3 APPROVED). The r1–r4 `/architect` and `/security` reviews (Fable, read-only)
+  are folded in (§20). r5 folds in the F0 probe record
+  (`docs/superpowers/verification/F0-framework-probes.md`, #1110) and issue #1111. D6 is resolved and
+  D17 has its evidence (§17). D8, D15 and D16 are restated for the owner with the F0 facts (§17.1).
+  The other decisions are open. No code in this PR.
 - Issue #1084, part of epic #1083 (Northwind on the OpenAI Agents SDK, LangGraph, Deep Agents, the
   Claude Agent SDK and CrewAI). Sibling spec: `2026-11-16-multi-framework-console-design.md`
   (#1085). Reuses #758 (agent protocol v1) and #759 (conformance kit) from epic #756. Its first
@@ -13,10 +16,11 @@
   (what a case reads from a reply), `phoenix_traces.py` (what the console reads from spans),
   `agentspec.py` (`VERIFIED`), the guardrails spec (`2026-11-15-guardrails-design.md`, G1a on
   `main`), the authenticated-invoke spec (#780) and the sub-agents and skills specs (#1058, #1059).
-- **Nothing in this document has been run.** Framework behaviour quoted here comes from general
-  knowledge of each library as of mid-2026, not from a pinned wheel. Slice F0 (§16) checks every
-  such claim against the exact versions before any runtime code is written; each one is marked
-  *(F0)*.
+- **No product code in this design has been run.** Slice F0 (§16) probed the frameworks on
+  2026-11-16, in throwaway venvs and containers, against LiteLLM 1.106.2 with real Gemini, OpenRouter
+  and OpenAI keys (macOS 13 x86_64, Docker Desktop). Facts F0 checked are marked *(F0: checked)* and
+  name the version. Facts F0 did not run are listed in §16.1 and stay unproven. Everything else
+  about framework behaviour is still general knowledge, not a pinned-wheel result.
 
 ## 1. Problem
 
@@ -276,14 +280,18 @@ byte-identically on `adk@1.2.0` and `1.3.0`, **and** that every refusal they gav
 
 ### 6.1 Names and versions
 
-| Framework (Python) | Runtime ref | Pinned packages (exact versions chosen in F0) |
+| Framework (Python) | Runtime ref | Packages; the versions F0 probed (each slice makes its own lock) |
 |---|---|---|
 | Google ADK | `runtime/adk@1.3.0` (exists) | `google-adk`, `litellm` |
-| OpenAI Agents SDK | `runtime/openai-agents@1.0.0` | `openai-agents`, `openai` |
-| LangGraph | `runtime/langgraph@1.0.0` | `langgraph`, `langchain-core`, `langchain-openai` |
-| Deep Agents | `runtime/deepagents@1.0.0` | `deepagents` plus the LangGraph set |
-| Claude Agent SDK | `runtime/claude-agent-sdk@1.0.0` | `claude-agent-sdk` and the Claude Code CLI it runs (§8.4, D8) |
-| CrewAI | `runtime/crewai@1.0.0` | `crewai` without `crewai-tools` |
+| OpenAI Agents SDK | `runtime/openai-agents@1.0.0` | `openai-agents` 0.24.0, `openai` 3.42.1 (48 packages) |
+| LangGraph | `runtime/langgraph@1.0.0` | `langgraph` 1.2.19, `langchain` 1.4.8, `langchain-core` 1.7.4, `langchain-openai` 1.7.3 (52 packages) |
+| Deep Agents | `runtime/deepagents@1.0.0` | `deepagents` 0.7.32 plus the LangGraph set (67 packages) |
+| Claude Agent SDK | `runtime/claude-agent-sdk@1.0.0` | `claude-agent-sdk` 0.2.177, which bundles the Claude Code CLI 2.1.317 as a native binary (41 packages; §8.4, D8) |
+| CrewAI | `runtime/crewai@1.0.0` | `crewai` 1.15.34 without `crewai-tools` (142 packages: the core pulls `chromadb`, `lancedb` and `onnxruntime`) |
+
+F0's locks (py3.12, wheels only, hashes, `--exclude-newer` two weeks back) resolve on both
+`linux/amd64` and `linux/arm64`. Only amd64 was installed and run (§16.1). The OpenInference
+instrumentor each runtime uses is in §8.
 
 - **The rules are the existing registry rules:** append-only, content-hashed, locked in
   `agent.lock`, and code kinds (`runs_code("runtime")`).
@@ -293,7 +301,9 @@ byte-identically on `adk@1.2.0` and `1.3.0`, **and** that every refusal they gav
 - **Versions are independent:** each framework starts at `1.0.0` and moves on its own. A kit change
   ships as a new version of each runtime that takes it.
 - **The Claude CLI is an exception until D8:** it is not placed under `builtin_registry` until D8
-  is decided (§13.5).
+  is decided (§13.5). If D8's §17.1 recommendation is taken, `runtime/claude-agent-sdk` lives in
+  no AgentBreeder registry: F7 documents it as a runtime version the user adds to their own
+  project registry (the same directory layout), and their own `build` installs the SDK wheel.
 
 ### 6.2 The runtime manifest is the builder's only source of framework facts
 
@@ -307,7 +317,7 @@ profile: kit                         # the v1 kit profile (§10.2)
 kit: 1.0.0                           # the runtime kit version vendored in runtime/kit/ (§7)
 capabilities: [mcp, knowledge, notes]          # build refuses fields the runtime lacks
 limits: {knowledge: 1, tools: 50, mcp_servers: 10}
-reserved_tool_names: [search_knowledge_base]   # plus the framework's own (F0)
+reserved_tool_names: [search_knowledge_base]   # plus the framework's own built-ins (§8)
 model_api: openai-chat               # or anthropic-messages (claude-agent-sdk only)
 notes: ""                            # optional console note (≤ 300 characters)
 docs: docs/runtimes/langgraph.md     # optional, relative
@@ -365,7 +375,8 @@ ADK's LiteLLM client.
   conflicting `Content-Length`, absolute-form targets and any path not in §7.2.3.
 - **Caps:**
   - at most 64 concurrent connections, sized for the session concurrency the server allows times
-    the parallel tool and sub-agent calls in a turn; F0 measures a Northwind turn's peak;
+    the parallel tool and sub-agent calls in a turn. F0 did not count connections; a Northwind turn
+    made 2 sequential model calls (4 with Deep Agents' `task`), so 64 is generous;
   - a 4 MiB request body and an 8 MiB upstream response;
   - a 120 s idle timeout.
 
@@ -385,10 +396,15 @@ ADK's LiteLLM client.
     URL, `http://127.0.0.1:<port>/v1`, and an `httpx` client whose auth hook reads the token from a
     **contextvar** that the kit sets for the turn. So an agent object built once at start-up (and
     code mode's prebuilt graph, §9.2) works across turns.
-  - F0 must show the contextvar reaches every model call under two concurrent sessions for each
-    framework. CrewAI runs work in threads, and LangGraph can run sync nodes in an executor.
-  - Where it does not, that adapter builds its agent per turn, and code mode is not offered on that
-    runtime (`code_mode` capability absent).
+  - *(F0: checked)* The contextvar reached every model call and every tool call under two
+    concurrent sessions on all four in-process frameworks. For LangGraph and Deep Agents that held
+    with async tools, sync tools in executor threads, a sync `invoke` in a worker thread, and an
+    agent built once and reused. For CrewAI it held in `kickoff()` in worker threads and in
+    `kickoff_async()`, with tools in `ThreadPoolExecutor` threads. So no adapter needs to build its
+    agent per turn for this reason, and the contextvar does not rule out code mode on any of them.
+  - **CrewAI's `LLM` takes no `http_client`.** Its token goes through an `interceptor=`
+    (a `BaseInterceptor[httpx.Request, httpx.Response]` whose `on_outbound` sets `Authorization`
+    from the contextvar) *(F0: checked, 1.15.34)*.
   - **The Claude CLI** gets the token as `ANTHROPIC_AUTH_TOKEN` in its per-turn environment (§8.4).
 
 #### 7.2.3 Upstream requests are built from scratch
@@ -400,11 +416,26 @@ The proxy never forwards the inbound request. It builds a new one:
   any dot segment are 404 (for example `/v1/../key/generate`).
 - **Body:** an allow-list of fields per API: `model`, `messages`, `tools`, `tool_choice`,
   `temperature`, `top_p`, `max_tokens` / `max_completion_tokens`, `stop`, `response_format`,
-  `stream` for chat; and the Anthropic equivalents plus `system`, `thinking` (F0). Everything else is
+  `stream` for chat; and the Anthropic equivalents plus `system`. Everything else is
   dropped. That includes `api_base`, `api_key`, `metadata`, `user`, `mock_response`, `guardrails`,
   `fallbacks`, `caching`, `extra_body` and every LiteLLM control field, so the agent cannot switch
   off the gateway's guardrails (guardrails spec, the fields at lines 438-449) or redirect a call.
   The proxy then sets `model` (§7.2.5) and `reasoning_effort`.
+- **What the Claude CLI sends** *(F0: checked, CLI 2.1.317)*: `context_management`, `max_tokens`
+  (32000), `messages`, `metadata`, `model`, `output_config`, `stream`, `system`, `thinking` and
+  `tools`. The allow-list decides each of the four that are not in the chat set:
+  - `metadata` carries a user id. **Dropped.**
+  - `thinking` is kept, with `budget_tokens` clamped below the capped `max_tokens`. Through
+    `support-model` it was accepted (200) and returned no thinking block.
+  - `context_management` and `output_config` are **dropped** in v1. The CLI's turns worked end to
+    end through the gateway, but F0 did not test them with these fields removed; F7's conformance
+    run with the real CLI does. If the CLI fails without one, that field is added with a fixed
+    value, never passed through.
+  - `max_tokens` is capped at the proxy's response cap.
+- **Tool-use ids:** through LiteLLM and Gemini, a `tool_use` block's id is `call_…`, not
+  `toolu_…`, and carries `provider_specific_fields.signature`. The CLI's turns worked with these
+  ids; how it treats the `signature` field was not examined. The proxy passes ids and that field
+  through unchanged and never parses an id's prefix.
 - **Headers:** no inbound header is forwarded. The proxy sends only `Authorization: Bearer <gateway
   key>`, `Content-Type` and, on the Anthropic path, `anthropic-version` (a pinned value).
 - **Timeout:** 90 s per upstream call, as 1.3.0 (`agent.py:382`). Frameworks' own client timeouts
@@ -413,6 +444,12 @@ The proxy never forwards the inbound request. It builds a new one:
   (chat or Anthropic), the proxy waits for the whole response and sends it back as the API's SSE
   events. This keeps the cost header (D7) and one code path. The synthesis is bounded by the
   response cap.
+  - *(F0: checked)* A streamed call through LiteLLM 1.106.2 carries **no cost header**, on chat and
+    on `/v1/messages`, so D7 is needed, not only convenient.
+  - **Every Claude CLI call is `stream: true`,** so the Anthropic SSE synthesis (the six event types
+    LiteLLM itself returned) is on the Claude runtime's main path, not a corner case. LangGraph
+    with `streaming=True` also asks for `stream_options.include_usage`; the synthesised stream ends
+    with a usage chunk.
 - **Embeddings:** the kit's retriever calls the gateway's `/v1/embeddings` directly with the key,
   as 1.3.0's `Embedder` does (`rag.py:62-80`). The proxy does not serve `/embeddings`, so a
   framework cannot reach it.
@@ -421,26 +458,57 @@ The proxy never forwards the inbound request. It builds a new one:
 
 - **What counts:** every chat call the proxy serves for the turn. That includes framework-internal
   calls the author never sees: the Claude CLI's background calls, Deep Agents summarisation and its
-  `task` sub-agent, and CrewAI's final-answer and formatting calls. F0 lists, per framework, which
-  hidden calls a Northwind turn makes, so `max_model_calls` can be checked against reality before
-  the acceptance run.
+  `task` sub-agent, and CrewAI's final-answer and formatting calls.
+  - *(F0: checked)* A Northwind turn made 2 calls on every framework (tool calls, then the answer).
+    With its traffic switches set (§8.4) the Claude CLI made no hidden call; without them it made
+    one per turn. CrewAI made no final-answer or formatting call in these turns. A Deep Agents turn
+    that delegated through `task` made 4 calls (2 main, 2 sub-agent).
 - **The Nth call** is sent with function calling off: `tool_choice: "none"` on chat, and `tool_choice:
   {type: "none"}` on Anthropic. The tools stay in the body, because removing them while the
-  history holds tool calls is refused by Anthropic-shaped backends. F0 probes both shapes through
-  LiteLLM to the `support-model` backend.
+  history holds tool calls is refused by Anthropic-shaped backends.
+- **The proxy enforces the cap itself; it never relies on the provider honouring
+  `tool_choice: none`.** *(F0: checked)* Through LiteLLM 1.106.2, Gemini (`support-model`, direct
+  and through OpenRouter) ignored `tool_choice: none` on chat and on `/v1/messages`: 12 of 12 calls
+  with tools kept and a follow-up that invited a call still returned tool calls. OpenAI honoured it
+  6 of 6. So the Nth response can hold tool calls, and the proxy must not let them through:
+  - If the Nth response holds any tool call (chat `tool_calls` or a legacy `function_call`; an
+    Anthropic `tool_use` or `server_tool_use` block),
+    the proxy **relays none of it**. It answers the framework with the same fixed 429-shaped
+    `MODEL_STEP_LIMIT` body it uses for an (N+1)th call, marks the turn step-limited in its tally,
+    and the turn fails with `MODEL_STEP_LIMIT` whatever the framework does next (below). Text in
+    that response is not used: a reply such as "let me look up that order" is not an answer, and
+    returning it would make a capped turn look like a successful one to evals and the console.
+  - The upstream call was made and billed, so it still counts in `model_calls`, cost and its
+    `model_called` row, which records `step_limited: true`.
+  - This rule applies on every model, OpenAI included, so the cap does not depend on which
+    provider the alias falls back to.
+  - The conformance kit's fake gateway **ignores `tool_choice: none`** in the step-cap check
+    (§10.3), so a runtime that relied on the provider fails conformance.
 - **A further call** is answered by the proxy with a fixed 429-shaped body (`MODEL_STEP_LIMIT`) and
   never sent upstream.
+- **`runtime/adk` has the same exposure** (#1111). ADK 1.3.0's last call uses
+  `FunctionCallingConfig(mode="NONE")`, which LiteLLM turns into `tool_choice: none`, so its cap may
+  not hold on Gemini either. ADK itself was not run in F0. #1111 runs it on a real stack and, if the
+  model keeps calling tools, enforces the cap in the runtime with a coded error. That is a later
+  `runtime/adk` version (append-only), and the ADK baseline in F2a lists it as a gap until then
+  (D14).
 - **Main-loop and hidden calls.** The proxy tells a **main-loop call** (the agent's own reasoning
   step) from a hidden one by the request itself: a main-loop call carries the agent's system prompt
   (its hash is compared) and exactly the agent's tool set. Anything else is a hidden call: a
-  summary, a sub-agent, a title. Both kinds count toward N.
+  summary, a sub-agent, a title. Both kinds count toward N. *(F0: checked, Deep Agents 0.7.32)*
+  The `task` sub-agent's calls had a different system-prompt hash and the tool set without `task`,
+  so this test tells them apart. It was not run on the other runtimes; the Claude CLI and CrewAI
+  wrap their own prompts, so F4, F6 and F7 check it. A misclassified Nth call fails safe, as
+  `MODEL_STEP_LIMIT`.
 - **Logical calls.** The proxy's own retries (§7.2.7) do not count; N counts calls the framework
   made, as 1.3.0 counts model calls, not HTTP attempts.
 - **The turn's result:**
   - The framework's own final answer is the reply whenever the framework finishes normally.
-  - Only when the proxy **refused an (N+1)th call** does the step limit decide the result. If the
-    Nth call was a main-loop call, the turn replies with that call's text, whatever the framework
-    does next. Otherwise (the Nth call was hidden, so its text is not an answer to the customer),
+  - If the proxy withheld a tool-calling Nth response (above), the turn fails with
+    `MODEL_STEP_LIMIT`. This is checked first and overrides everything below.
+  - Otherwise, only when the proxy **refused an (N+1)th call** does the step limit decide the
+    result. If the Nth call was a main-loop call, the turn replies with that call's text, whatever
+    the framework does next. Otherwise (the Nth call was hidden, so its text is not an answer to the customer),
     the turn fails with `MODEL_STEP_LIMIT` (502, "the agent used its model calls for this turn;
     ask again or raise `model.max_model_calls`").
   - The step limit is **not** a terminal failure in the sense of §7.2.7. It is decided here, and it
@@ -475,6 +543,12 @@ reads them.
 `cost_usd` keeps 1.3.0's meaning: chat calls only, never embeddings, and `null` if any chat call
 had no cost header.
 
+**The proxy's tally is the only cost source.** *(F0: checked)* The Claude SDK's
+`ResultMessage.total_cost_usd` is computed with Anthropic prices (0.014 USD per Northwind turn on
+Gemini), so it is wrong for any other model and is never read. Token counts are taken from the
+gateway's `usage` as returned (Gemini's reasoning tokens are reported there), never recomputed by a
+framework.
+
 #### 7.2.7 Retries and coded errors
 
 - **The rules are 1.3.0's,** reimplemented over raw responses with parity tests (§7.1):
@@ -483,9 +557,18 @@ had no cost header.
   - wait on a rate limit only while the turn's total wait stays at most 10 s;
   - never retry 402, 408 or 504;
   - no retry starts in the last 40 s of the 170 s turn.
-- **Framework client retries are set to 0** where the library allows it *(F0)*.
+- **Framework client retries are set to 0** where the library allows it. *(F0: checked, against
+  an always-503 upstream)*:
+  - LangGraph, Deep Agents and OpenAI Agents with `max_retries=0`: 1 attempt per turn.
+  - **CrewAI with `max_retries=0`: 3 attempts per turn.** The retry is
+    `run_with_rate_limit_retry` in `agent_utils.py`, above the client, and has no switch.
+  - **Claude CLI: 11 attempts over 243 s by default,** longer than the 170 s turn.
+    `CLAUDE_CODE_MAX_RETRIES=0` gives 1 attempt, but the CLI still took 63 s to end. So the kit's
+    turn deadline and the group kill (§8.4) are needed whatever the retry setting.
 - **Once the turn has a terminal failure,** the proxy answers every later call of that turn at once
-  with the same status, so a framework's own retry loop ends quickly.
+  with the same status, so a framework's own retry loop ends quickly. By design this bounds
+  CrewAI's two extra attempts (they get the stored status without an upstream call); F0 measured
+  the 3 attempts against a recording proxy only, so F6 checks it.
 - **What the framework sees:** the proxy's answer to a failed call is a fixed body, the code and
   nothing else. Gateway or provider text never reaches the framework, its logs or its exceptions.
   The redacted detail goes to the agent's log line and the turn record, as in 1.3.0.
@@ -499,11 +582,25 @@ had no cost header.
 
 - **On the chat path, G1b's guardrails act at the gateway**, so they apply unchanged. §7.2.3 is what
   stops the agent from switching them off.
-- **On the Anthropic path (`/v1/messages`) nothing is known yet.** The guardrails spec's G0 runs sent
-  no `/v1/messages` call (guardrails spec, line ~508). Whether LiteLLM runs the configured guardrails
-  there, and whether the bypass fields (guardrails spec, lines 434-451) are the same, is an F0 probe.
-  Until it passes, the Claude runtime does not declare `guardrails` and is refused in a
-  guardrails-required environment.
+- **On the Anthropic path (`/v1/messages`).** The r4 text said nothing was known; that was wrong.
+  The guardrails spec's §12.4 table has a `/v1/messages` row from G0 (BLOCK 400; the provider saw
+  tags; the response was masked), but that request went on as `/v1/responses`, and G0 used no
+  route-limited key there. F0 added, on a Gemini-backed alias through LiteLLM 1.106.2 with **a regex
+  Presidio stub** speaking the Presidio REST API (so these rows test LiteLLM's hook and its bypass
+  fields, not Presidio's recognisers) *(F0: checked)*:
+  - BLOCK (`US_SSN`) in the user message, in `system`, in a `tool_result` and in a streamed
+    request: 400 `Blocked entity detected`, cost header 0 (an Anthropic error event when streamed);
+  - MASK (email, phone) on input: 200, and the provider saw the tags;
+  - **12 bypass attempts all blocked**: body `guardrails: []` and `["pii-mask"]`,
+    `metadata.guardrails`, `litellm_metadata.guardrails`, `disable_global_guardrails` (body and
+    metadata), `opted_out_global_guardrails`, a forged `metadata.user_api_key_metadata`,
+    `mock_response`, `litellm_disabled_callbacks`, and the headers `x-litellm-disable-guardrails`
+    and `x-litellm-guardrails`;
+  - a key with `GUARDED_ROUTES` gets **403** on `/v1/messages`; with `/v1/messages` added, 200.
+
+  **Not run** (§16.1): the real Presidio images on `/v1/messages`, and masking of the model's
+  output on `/v1/messages`. Until F7's conformance covers both, the Claude runtime does not
+  declare `guardrails` and is refused in a guardrails-required environment.
 - **G2's block codes** (`MODEL_INPUT_BLOCKED`, `MODEL_OUTPUT_BLOCKED`, `GUARDRAIL_UNAVAILABLE`) are
   added to the kit's classifier once, and every kit runtime gets them.
 - **A runtime declares `guardrails`** only after its conformance run covers them; otherwise
@@ -513,7 +610,8 @@ had no cost header.
   runtime's `/v1/messages` call would be refused there.
   So either the key minting adds `/v1/messages` for a deployment whose runtime has `model_api:
   anthropic-messages` (the deploy manifest would need to carry that), or the proxy translates
-  Anthropic requests to chat completions itself. That is D17, and F7 is blocked on it.
+  Anthropic requests to chat completions itself. That is D17, and F7 is blocked on it. F0's
+  evidence supports the first option for blocking and input masking (§17).
 
 ### 7.3 Tools
 
@@ -533,8 +631,11 @@ had no cost header.
 - **A framework cannot call a tool the agent did not declare.**
 - **One TOOL span per call** is new work per framework. 1.3.0 relabels ADK's own spans
   (`telemetry.py`). For kit runtimes, the kit emits the TOOL span, and the instrumentor's tool spans
-  are dropped by a span processor or relabelled `CHAIN` *(F0 per instrumentor)*. The conformance
-  kit checks the count. The ADK baseline may differ, and its report says so.
+  are dropped by the kit's own span processor. The conformance kit checks the count. The ADK
+  baseline may differ, and its report says so.
+  - *(F0: checked)* Every instrumentor emitted TOOL spans (4 per two-session run). None offers a
+    switch to relabel them `CHAIN`: OpenAI Agents' `tool_span_kinds` maps a tool span only to
+    `RETRIEVER`. So the kit's span processor does it for every runtime.
 
 ### 7.4 MCP
 
@@ -558,9 +659,15 @@ had no cost header.
   does. 7 of the 61 golden cases (`northwind-golden@1.0.1`) have more than one turn, so this is a bounded risk to 61/61. F3 measures
   it on LangGraph first. If cases fail because of it, the kit adds the previous turn's tool results
   as tool messages (D5).
-- **Not used:** LangGraph's `PostgresSaver`, the OpenAI Agents SDK's sessions, CrewAI memory and
-  the Claude CLI's transcripts (§8.4). They add packages, DDL and per-framework state formats, and a
-  turn here is synchronous.
+- **Not used:** LangGraph's `PostgresSaver`, the OpenAI Agents SDK's sessions and CrewAI memory.
+  They add packages, DDL and per-framework state formats, and a turn here is synchronous. The
+  Claude CLI is the exception: it takes history only by resuming its own transcript, which the
+  kit writes per turn from `turns` (§8.4).
+- **Framework stores of customer text outside `turns`** *(F0: checked)*. CrewAI 1.15.34 writes
+  every task's input and output, so the customer's message and the reply, to a SQLite file under
+  `HOME`, even with `memory=False` (§8.5). The Claude CLI writes the turn's transcript to its config
+  directory (§8.4). Both are treated as `turns` data: confined to the turn and deleted at its end,
+  or the runtime does not ship (§13.7).
 - **Session binding is not authentication.** `customer_id` comes from the request body
   (`server.py:164-166`), as the authenticated-invoke spec (#780) records, so keying by customer
   protects against mistakes and the model, not against a caller.
@@ -590,7 +697,8 @@ Everything else in the reply comes from the kit.
 
 ## 8. Per-framework binding
 
-Library facts marked *(F0)* are checked against the pinned wheel before code. In every row the
+Library facts marked *(F0: checked)* were checked against the versions F0 probed (§6.1). Each
+slice's lock may pin a later version, and its conformance run re-checks them. In every row the
 framework's client gets `kit.base_url` and the turn-aware `kit.http_client()`, whose auth hook
 supplies the turn token as the API key (§7.2.2).
 
@@ -598,36 +706,67 @@ supplies the turn token as the API key (§7.2.2).
 
 - **Model.** `OpenAIChatCompletionsModel(model=alias, openai_client=AsyncOpenAI(base_url=kit.base_url,
   http_client=kit.http_client(), max_retries=0))`. It uses Chat Completions, not Responses, which
-  the proxy does not serve.
-- **Turn off the SDK's own trace upload to OpenAI** (`set_tracing_disabled(True)`) *(F0)*.
+  the proxy does not serve. *(F0: checked, 0.24.0; 1 attempt against a 503.)*
+- **The SDK's own trace upload to OpenAI is stopped by the instrumentor, not by switching tracing
+  off.** *(F0: checked, a correction to r4)*
+  - **Never call `set_tracing_disabled(True)`.** The OpenInference instrumentor plugs into the
+    SDK's own trace processors, so that call also stopped every OpenInference span.
+  - Instrument with `exclusive_processor=True`, passed explicitly (it is the default in
+    `openinference-instrumentation-openai-agents` 2.7.0). It replaces the SDK's default OpenAI
+    exporter: with it, nothing left the host and all spans were exported. With
+    `exclusive_processor=False` the SDK connected to OpenAI's trace endpoint.
+  - The probe had a dummy `OPENAI_API_KEY` set. Whether the exporter behaves the same with no key
+    at all was not run; F4's conformance egress check settles it, and the kit never sets a real
+    one.
 - **Tools.** `FunctionTool(name, description, params_json_schema=…, on_invoke_tool=…,
-  strict_json_schema=False)`. Strict mode would make every parameter required.
+  strict_json_schema=False)`. Strict mode would make every parameter required. *(F0: checked)*
+- **Built-in tools** (`ShellTool`, `LocalShellTool`, `CodeInterpreterTool`, `ComputerTool`,
+  `ApplyPatchTool`, `FileSearchTool`, `HostedMCPTool` and others) exist only when added to
+  `Agent.tools`; none is on by default *(F0: checked)*. The adapter adds only kit functions.
+  `RunConfig.sandbox` is never set.
+- **Usage.** `ModelSettings(include_usage=True)`.
 - **Run.** `Runner.run(agent, input=<history + message>, max_turns=max_model_calls + 2)`.
-- **Traces.** `openinference-instrumentation-openai-agents` *(F0)*.
+- **Traces.** `openinference-instrumentation-openai-agents` 2.7.0: LLM, TOOL, CHAIN and AGENT
+  spans *(F0: checked)*.
 
 ### 8.2 LangGraph (`runtime/langgraph`)
 
 - **Model.** `ChatOpenAI(model=alias, base_url=kit.base_url, http_async_client=kit.http_client(),
   max_retries=0)`.
-- **Graph.** The prebuilt ReAct agent (`create_react_agent`, or `langchain.agents.create_agent` in
-  LangChain 1.x, *(F0)*) with the system prompt, no checkpointer, and `recursion_limit` = 2 ×
-  max_model_calls + 4.
-- **Tools.** `StructuredTool.from_function(coroutine=…, args_schema=<JSON Schema dict>)` *(F0)*.
+- **Graph.** `langchain.agents.create_agent(model, tools=…, system_prompt=…)` (LangChain 1.4.8;
+  `create_react_agent` is not needed) *(F0: checked)*, with no checkpointer and `recursion_limit`
+  = 2 × max_model_calls + 4.
+- **Tools.** `StructuredTool.from_function(coroutine=…, args_schema=<JSON Schema dict>)`, and
+  `func=` for sync tools *(F0: checked)*.
 - **LangSmith** environment variables are removed before import.
-- **Traces.** `openinference-instrumentation-langchain`.
+- **Traces.** `openinference-instrumentation-langchain` 0.1.81: LLM, TOOL and CHAIN spans
+  *(F0: checked)*.
+- **Measured** *(F0: checked)*: 176 prompt tokens per Northwind call; no network besides the
+  proxy.
 
 ### 8.3 Deep Agents (`runtime/deepagents`)
 
-- **Agent.** `create_deep_agent(model=<the ChatOpenAI above>, tools=…, system_prompt=…)` with the
-  **state backend only**. No filesystem, store or sandbox backend, so no `execute` tool *(F0)*.
-- **Built-in tools.** The file tools (`ls`, `read_file`, `write_file`, `edit_file`, `glob`,
-  `grep`) and `write_todos` act on in-memory graph state for the turn only. Their names are in
-  `reserved_tool_names`.
+- **Agent.** `create_deep_agent(model=<the ChatOpenAI above>, tools=…, system_prompt=…,
+  backend=StateBackend())` with the **state backend only**, passed explicitly (it is also the
+  default when `backend` is `None`). No filesystem, store or sandbox backend, so no `execute` tool
+  *(F0: checked, 0.7.32: `execute` is not offered with `StateBackend`)*.
+- **Built-in tools** *(F0: checked, a correction to r4)*. 0.7.32 offers the model `ls`,
+  `read_file`, `write_file`, `edit_file`, **`delete`**, `glob`, `grep` and `task`. There is **no
+  `write_todos`**. The file tools act on in-memory graph state for the turn only. All eight names
+  are in `reserved_tool_names`; the list is taken from the pinned version, so a later `deepagents`
+  that adds a tool needs a new runtime version.
 - **A conformance check** asks for `execute` and a host path through `read_file`. Both must be
-  refused or act on state only.
+  refused or act on state only. *(F0: checked with a scripted model:)* `execute` was refused
+  ("Execution not available"); `read_file /etc/passwd` was not found; `ls /`, `glob /etc/*` and
+  `grep root /etc` returned nothing; `write_file /tmp/…` wrote to graph state only, with no file on
+  the host.
+- **Prompt size.** About 2.6k prompt tokens per call (Deep Agents' own system prompt and tool
+  descriptions), against 176 for LangGraph *(F0: checked)*. This is a cost difference in the
+  acceptance run, not a defect.
 - **The built-in `task` sub-agent** shares the turn's call cap (§7.2.4), and its tool calls are
-  audited as the agent's (D10).
-- **Traces.** As LangGraph.
+  audited as the agent's (D10). Its calls are told from main-loop calls by prompt hash and tool set
+  *(F0: checked)*.
+- **Traces.** As LangGraph, plus AGENT spans for its middleware.
 
 ### 8.4 Claude Agent SDK (`runtime/claude-agent-sdk`)
 
@@ -639,73 +778,204 @@ URL, MCP tokens) are readable by that uid (`2026-11-16-skills-design.md:276`; mo
 
 The difference here is that the CLI is a fixed binary with its tools switched off. But a CLI bug or
 a missed tool would put the model one step from those files. **D15 decides whether this runtime
-ships with that residual risk or waits for a two-uid deploy contract.** F7 is blocked on F0, F1b,
-D6, D8, D15, D16 and D17 (§16).
+ships with that residual risk or waits for a two-uid deploy contract.** F7 is blocked on the F0 items
+not yet run (§16.1), F1b, D8, D15, D16 and D17 (§16). D6 is resolved (§17).
+
+**F0 ran these controls against `claude-agent-sdk` 0.2.177 with its bundled CLI 2.1.317**, on
+`support-model` through LiteLLM `/v1/messages` and against a scripted upstream (§16.1 lists what it
+did not run). Two concurrent Northwind sessions each answered correctly in 2 calls. **F0 also found
+the D15 residual happening once** (the `@path` row below), so the controls are a list that each CLI
+version must pass again, not a closed set.
 
 If it ships, these controls apply:
-- **Scrubbed environment.** The CLI is started through a wrapper that clears the environment
-  (`env -i`) and passes an allow-list:
+- **Scrubbed environment.** The CLI is started through a wrapper, set as `cli_path`, that clears
+  the environment (`env -i`) and passes an allow-list:
   - `PATH`;
-  - `HOME` and `CLAUDE_CONFIG_DIR`, set to a per-turn directory under `/tmp/turns/<turn>/` that is
+  - `TMPDIR`, set to the per-turn directory (not the shared `/tmp`), so the CLI's temporary files
+    and `.cache` logs stay in the turn;
+  - `HOME` and `CLAUDE_CONFIG_DIR`, set to a per-turn directory `/tmp/turns/<random id>/` that is
     deleted at the end of the turn;
   - `ANTHROPIC_BASE_URL`, the proxy;
   - `ANTHROPIC_AUTH_TOKEN`, the turn token;
-  - the model variables, set to the alias;
-  - the telemetry-off variables.
+  - the six model variables, set to the alias;
+  - `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_AGENT_SDK_VERSION` and
+    `CLAUDE_CODE_SDK_READS_SESSION_STATE=1`, which the SDK sets and needs;
+  - the traffic switches: `DISABLE_TELEMETRY`, `DISABLE_ERROR_REPORTING`, `DISABLE_AUTOUPDATER`,
+    `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`;
+  - `CLAUDE_CODE_MAX_RETRIES=0` (§7.2.7). F0 ran it separately, not in the combined run below.
 
-  No `*_FILE` path, `AGENTBREEDER_*` URL or `DATABASE_URL` reaches it. `ClaudeAgentOptions(env=…)`
-  merges over the parent environment *(F0)*, so it is not enough on its own.
+  No `*_FILE` path, `AGENTBREEDER_*` URL or `DATABASE_URL` reaches it. The wrapper is a file in the
+  image (read-only root, owned by root), never under the `noexec` `/tmp`.
+  - *(F0: checked)* **`ClaudeAgentOptions(env=…)` merges over the parent environment**
+    (`subprocess_cli.py:819-823`). Without the wrapper the CLI process held
+    `LLM_GATEWAY_KEY_FILE`, `DATABASE_URL` and `AGENTBREEDER_TRACE_URL`. With the wrapper, its
+    `/proc/<pid>/environ` in the container held only the names above, except
+    `CLAUDE_CODE_MAX_RETRIES`, which was not in that run. **The wrapper is mandatory.**
+  - *(F0: checked)* Without the traffic switches the CLI made one hidden model call per turn (no
+    tools, a 3.3k-character system prompt) and a `HEAD /api/hello` to the base URL. With them, no
+    connection besides the base URL.
 - **Built-in tools off:**
-  - an empty base tool set *(F0)*;
+  - **`tools=[]`**, an empty base tool set. *(F0: checked)* The init message then lists only the
+    kit's `mcp__agentbreeder__…` tools. A scripted model asked, one call each, for 25 names (Bash,
+    Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, Task, Agent, NotebookEdit, TodoWrite, Skill,
+    ToolSearch, DeferredToolPlaceholder, LSP, Monitor, KillShell, BashOutput, EnterPlanMode,
+    ExitPlanMode, SendMessage, CronCreate, an unknown `mcp__agentbreeder__…` and another server's
+    `mcp__…`), against a decoy key file and against `/run/secrets/gateway-key` in the container.
+    Every one came back `is_error: true`, "No such tool available", and the file was unchanged.
+    Five of them (Bash, Read, WebFetch, Task, DeferredToolPlaceholder) were asked for again with
+    `disallowed_tools` empty and were refused the same way, so `tools=[]` is the control.
   - `allowed_tools` holds only the kit's `mcp__agentbreeder__<name>`;
-  - `disallowed_tools` holds every built-in of the pinned version (taken from it in F0);
-  - `permission_mode="default"` with a deny-by-default `can_use_tool`, never `bypassPermissions`;
-  - `setting_sources=[]`, `--strict-mcp-config`;
+  - `disallowed_tools` holds every built-in the pinned CLI lists, as a second layer (for 2.1.317,
+    the 23 built-in names above; the other two were MCP names). The list is taken from each CLI
+    version, not copied forward;
+  - `permission_mode="default"`, never `bypassPermissions`;
+  - **`can_use_tool` is not a control.** *(F0: checked)* It is never consulted for tools in
+    `allowed_tools` (the SDK warns `CanUseToolShadowedWarning … use a PreToolUse hook`). A
+    deny-by-default `can_use_tool` is still set, for any tool outside `allowed_tools`; F0 did not
+    see it called, because `tools=[]` refused first. If a per-call gate on allowed tools is wanted
+    later, it is a `PreToolUse` hook; v1 has none, so no hooks are set;
+  - `setting_sources=[]`, `strict_mcp_config`;
   - no `add_dirs`, `agents`, hooks or plugins;
   - `cwd` is the per-turn empty directory.
 - **Tools:** the kit's functions through one in-process SDK MCP server (`create_sdk_mcp_server`).
-- **Slash commands and file mentions:** a customer message beginning with `/`, or containing
-  `@/path`, must reach the model as text and must not be acted on by the CLI *(F0)*. If the pinned
-  version cannot be told so, the kit escapes such input.
-- **History:** prior turns as structured messages, if the SDK can take them *(F0)*. If it cannot,
-  this runtime is not built: pasting history as text is the 2.x finding 3 it must not repeat.
-- **Process lifetime:** the CLI runs in its own process group (`start_new_session=True`). The kit
-  kills the group at turn end, at timeout and in the SIGTERM drain. A conformance check looks for an
-  orphaned CLI.
-- **Resources:** the engine fixes memory at 512 MB, 128 pids (Docker) and a 64 MB `noexec` `/tmp`
-  (`runtime.py:514-521`; Kubernetes sets memory and an emptyDir, with no pids limit,
-  `kubernetes.py:578,681`). A Node-based CLI may not fit, and a `noexec` `/tmp` blocks a binary
-  placed there. F0 measures against those exact limits. D16 decides whether limits become
-  runtime-declared, which would change the deploy template and digest, as the guardrails spec's
-  `runtime_capabilities` does.
-- **Model and traces:** `ANTHROPIC_BASE_URL` points at the proxy (§7.2.3, §7.2.5). The kit writes
-  the LLM spans from the proxy when no instrumentor exists *(F0)*.
+  *(F0: checked: both kit tools ran in-process with the session's turn token.)*
+- **Slash commands and file mentions: `verbatim_prompts=True` is mandatory.** *(F0: checked)*
+  - **Without it, the CLI read a file with every tool off.** `@<path to a decoy of the gateway key
+    file> what is in this file?` made the CLI run its own Read, despite `tools=[]` and Read in
+    `disallowed_tools`, and send the decoy's content to the model. `@/etc/hosts` was read the same
+    way. In the container, a decoy at the real `/run/secrets` mount path reached the upstream (that
+    container log was not retained; the macOS run was).
+  - Without it, `/config`, `/mcp`, `/model opus`, `/compact` and `/clear` ran in the CLI with no
+    model call (`/model` switched the session's model), and `/deep-research …` was expanded as a
+    skill.
+  - **With `ClaudeAgentOptions(verbatim_prompts=True)`** all ten inputs reached the model as
+    literal text and no file was read. The SDK documents it as "no `@path` file-mention expansion
+    and no slash-command dispatch".
+  - The init message still lists 44 built-in commands and skills with `setting_sources=[]`; they
+    ship in the CLI. F0 sent ten inputs. The conformance kit's list is wider and derived from each
+    CLI version: **`@<key file path>`, `@/etc/hosts`, every command in `init.slash_commands`, and
+    every other input syntax the CLI's docs list** (for example a `!` shell prefix, `#` memory,
+    `@agent-…` and `@`-MCP mentions, image paths and URLs, none of which F0 probed). A version that
+    acts on any of them is not built. No escaping fallback: the r4 text's "the kit escapes such input" is dropped, because an
+    escape the CLI does not document can be undone by the next version.
+- **History: resume of the CLI's own transcript.** *(F0: checked)* Streamed input accepted a prior
+  `assistant` message but **reordered it** (the upstream got `[assistant, user+user]`), which is
+  not faithful history. `resume=<session_id>` with the config directory kept gave a correct `user,
+  assistant, user` history. The transcript is the CLI's own JSONL, an undocumented format. The
+  r4 rule stands (history as text in the prompt is 2.x finding 3), so the runtime uses resume, in
+  one of two ways:
+  - **(a) Write the transcript per turn from `turns`** (recommended): the kit writes the last 20
+    turns' user and assistant text (§7.5) into the per-turn config directory as the pinned CLI's
+    JSONL, resumes it, and deletes the directory at turn end. Nothing outlives the turn and
+    `turns` stays the only history. The cost is an undocumented format: the conformance kit checks
+    that a written transcript gives the upstream a faithful history on every CLI version, and a
+    version where it does not is not built. Turn text is JSON-encoded into the JSONL by a
+    serialiser, never templated. F0 did not test whether an earlier customer message such as
+    `@/path` or `/model`, replayed through `resume`, is expanded or acted on; the conformance check
+    replays exactly those (§16.1).
+  - **(b) A per-session config directory** kept across turns. It uses the CLI as designed, but it
+    is a second store of customer text, held in `/tmp` (counted in the memory limit on
+    Kubernetes), lost on restart and so able to diverge from `turns`, and readable by any later
+    turn's process on that session.
+
+  F7 implements (a); (b) is the fallback only if F7's conformance shows (a) cannot be made
+  faithful, and then it needs its own `/security` review. If neither works, the runtime is not
+  built. `session_store` (the SDK's mirror adapter) received no entries in F0, for a reason not
+  found; it is not used.
+- **What the CLI adds to every request** *(F0: checked)*: a user-role "Environment" block with the
+  working directory, platform, shell, OS version and model name, then the date. These go to the
+  model provider. The kit sets the working directory to the per-turn directory, whose random id is
+  never logged, audited or put in a span, so the path sent joins to nothing on the AgentBreeder
+  side.
+- **Process lifetime:** the CLI must run in its own process group, and the kit kills the group at
+  turn end, at timeout and in the SIGTERM drain. *(F0: checked)* The SDK starts the CLI with
+  `anyio.open_process` without a new session, so **the CLI is in the parent's process group**; the
+  wrapper runs it under `setsid`. No CLI process was left after any normal turn. **`setsid` and the
+  group kill at timeout and on SIGTERM were not run** (§16.1). A conformance check looks for an
+  orphaned CLI after each.
+- **Resources** *(F0: checked against the engine's Docker flags)*: the binary sits in
+  `site-packages`, not `/tmp`, so the `noexec` `/tmp` does not matter, and `/tmp` use was 36 KB per
+  turn. The SDK imports in 1.1 s and the CLI answers its first call in about 1 s. Peak memory in
+  one container was 194 MB for 1 turn, 305 MB for 2 real turns, 462 MB for 4 scripted turns and
+  **the 512 MB limit at 6 scripted turns** (all 6 answered; whether the kernel killed a process was
+  not checked). The scripted rows are a floor, 3 turns were not run, and the 4- and 6-turn rows are
+  reported from F0's first pass, not re-run. Each CLI's `VmHWM` was
+  34–98 MB. D16 (§17.1) decides between a per-runtime concurrency cap and runtime-declared limits.
+- **Model and traces:** `ANTHROPIC_BASE_URL` points at the proxy (§7.2.3, §7.2.5). *(F0: checked)*
+  `openinference-instrumentation-claude-agent-sdk` 0.1.24 gives TOOL and AGENT spans and **no LLM
+  spans**, so the kit writes the LLM spans from the proxy.
 - **Conformance checks specific to this runtime:**
-  - a scripted model asks, in turn, for Bash, Read, Write, Edit, Glob, Grep, WebFetch and Task,
-    targeting the key file path. Every call is refused and audited;
-  - the CLI's `/proc/<pid>/environ` holds no `*_FILE` name;
-  - concurrent turns use separate config directories.
+  - a scripted model asks, in turn, for every built-in the pinned CLI lists, targeting the key
+    file path. Every call is refused and audited;
+  - the version-derived input list above reaches the model as literal text, and the key file's
+    content never reaches the fake gateway, also when replayed from history;
+  - the CLI's `/proc/<pid>/environ` holds only the allow-list;
+  - a written transcript gives a faithful history (above);
+  - no orphaned CLI after a normal turn, a timeout and SIGTERM;
+  - concurrent turns use separate config directories;
+  - after a killed turn and a restarted process, no file holding a turn's message is left: the kit
+    sweeps `/tmp/turns/` at start-up (a Kubernetes emptyDir survives a container restart in the
+    pod; a Docker tmpfs does not).
 
 ### 8.5 CrewAI (`runtime/crewai`)
 
-- **Model.** `LLM(model=f"openai/{alias}", base_url=kit.base_url, …)` with retries 0. Whether
-  CrewAI calls a native OpenAI client (which takes the turn-aware `http_client`) or LiteLLM
-  underneath (which needs the token through a LiteLLM callback, and
-  `LITELLM_LOCAL_MODEL_COST_MAP=True` so it never fetches a cost map) is *(F0)*.
+- **Model.** `LLM(model=f"openai/{alias}", base_url=kit.base_url, api_key=<placeholder>,
+  max_retries=0, interceptor=<the kit's turn-token interceptor>)`. *(F0: checked, 1.15.34, a
+  correction to r4)* This builds CrewAI's native `OpenAICompletion` on the **OpenAI SDK**.
+  **`litellm` is not among CrewAI's dependencies,** so r4's LiteLLM branch and
+  `LITELLM_LOCAL_MODEL_COST_MAP` do not apply. `LLM` takes no `http_client`; the turn token goes
+  through the interceptor (§7.2.2).
+- **Retries.** `max_retries=0` still leaves **3 attempts per turn** against a failing upstream
+  (`run_with_rate_limit_retry`, above the client) *(F0: checked)*. The proxy's terminal-failure
+  rule (§7.2.7) answers the extra attempts at once without an upstream call.
 - **Crew.**
   - One `Agent`: role and goal from the description, backstory = the prompt;
     `allow_code_execution=False`, `allow_delegation=False`, `memory=False`; `max_iter` =
     max_model_calls + 2.
   - One `Task` per turn: the message, with history as context.
   - A sequential `Crew`.
+  - *(F0: checked)* `tool_choice: auto` is sent on every call, and a Northwind turn made 2 calls.
 - **Tools.** `BaseTool` subclasses with a pydantic `args_schema` generated from the JSON Schema. The
-  generator is in the kit, unit-tested, and refuses features it cannot express.
-- **Packages.** No `crewai-tools`.
-- **Telemetry off.** `CREWAI_DISABLE_TELEMETRY=true` and `CREWAI_DISABLE_TRACKING=true` *(F0)*.
-  Never `OTEL_SDK_DISABLED`.
-- **Writable directories.** CrewAI's own storage directories must sit under `/tmp` or be disabled,
-  because the root filesystem is read-only *(F0)*.
-- **Traces.** `openinference-instrumentation-crewai` *(F0)*.
+  generator is in the kit, unit-tested, and refuses features it cannot express. Tools run in
+  `ThreadPoolExecutor` threads and see their session's token *(F0: checked)*.
+- **Packages.** No `crewai-tools`. The core package alone pulls `chromadb`, `lancedb` and
+  `onnxruntime` (142 packages; a 365 MB image, reported from F0's first pass) *(F0: checked)*. They are imported only by CrewAI's
+  memory and RAG storage, which are off, but they are in the lock, so `pip-audit` covers them
+  (§13.5). `lancedb` and `onnxruntime` have no macOS 13 x86_64 wheel; the Linux targets have
+  wheels.
+- **Telemetry off.** `CREWAI_DISABLE_TELEMETRY=true`, `CREWAI_DISABLE_TRACKING=true` and **trace
+  upload, a separate switch, `CREWAI_TRACING_ENABLED=false`** *(F0: checked: no non-loopback
+  connection with all three set)*. Never `OTEL_SDK_DISABLED`, which CrewAI also honours and which
+  would stop the kit's own spans.
+- **`HOME` and CrewAI's storage** *(F0: checked)*:
+  - **Without a writable `HOME` it does not start.** On a read-only root, import fails with
+    `OSError: [Errno 30] Read-only file system: '/.local'` (`crewai_core/paths.py:db_storage_path`,
+    called at import). The image sets `HOME=/tmp`, as `runtime/adk` does.
+  - With `HOME=/tmp` it wrote two files on every run, even with `memory=False`:
+    `<HOME>/…/<CREWAI_STORAGE_DIR or the cwd's name>/latest_kickoff_task_outputs.db` and
+    `crewai/credentials/secret.key`.
+  - **The SQLite file holds every task's input and output: the customer's message and the
+    reply.** It is a store of customer text outside `turns`, shared by every session in the
+    container.
+  - **Rule:** F6 must show either a supported way to switch the task-output store off, or a way to
+    confine it per turn (a per-turn storage directory) and delete it at turn end, with a
+    conformance check that no file holding the turn's message is left after the turn. The path is
+    computed at import and shared by every session in the process, so a per-turn directory in one
+    process would race other sessions. The options that fit: run CrewAI turns one at a time behind
+    one lock and delete the file after each, or run each turn in a child process with its own
+    `HOME`. Until a turn's file is deleted it sits in the container's `/tmp`, and a crash leaves it
+    there until the start-up sweep (as for Claude, §8.4). **If none of these holds,
+    `runtime/crewai` is not built** (§13.7).
+  - `crewai/credentials/secret.key`: F0 did not examine what it holds or protects, and nothing in
+    the probe put an AgentBreeder secret there. The same rule (off, or per turn and deleted)
+    covers it until F6 finds out (§16.1).
+- **Loggers** *(F0: checked)*: `crewai*`, `crewai_core*`, `chromadb*` (imported even with memory
+  off), `openai*`, `openinference*`. CrewAI logs a WARNING on every call about approximate token
+  counts for an unknown model; `quiet_library_logs` silences it.
+- **Traces.** `openinference-instrumentation-crewai` 1.1.22 gives TOOL, AGENT and CHAIN spans and
+  **no LLM spans** *(F0: checked)*. The kit writes the LLM spans from the proxy, as for Claude.
+- **Measured** *(F0: checked)*: imports in 4.6 s, peak 178 MB and 18 pids for two sessions, `/tmp`
+  20 KB.
 
 ## 9. Onboarding existing agents
 
@@ -811,8 +1081,9 @@ The runtime builds the agent from `agent.yaml` alone (§8), and the author write
 The kit serves v1 and adds, as **profile `kit`** (declared in the manifest, §6.2):
 - **`/health` readiness:** 503 until the agent is built, 503 with a fixed body after a failed
   start, and 200 only when ready. This is stricter than v1, not different: a kit runtime's 200 still
-  means "serving". Deploy's 30 s `probe_http` budget is the hard limit: F0 measures each framework's
-  start-up against it, and a framework that needs longer needs a deploy change first.
+  means "serving". Deploy's 30 s `probe_http` budget is the hard limit. *(F0: checked)* Imports in
+  the container took 1.1–4.6 s (Claude 1.1 s plus about 1 s per CLI start, LangGraph 2.0 s, Deep
+  Agents 2.2 s, OpenAI Agents 4.1 s, CrewAI 4.6 s), far inside it.
 - **A SIGTERM drain:** the turn in flight finishes or times out within Docker's 10 s stop grace,
   then MCP sessions close and any CLI process group is killed.
 - **`MODEL_STEP_LIMIT`** (§7.2.4).
@@ -839,14 +1110,14 @@ Docker.
 | Reply | every v1 field and type; `framework` and `runtime` match the image labels where present |
 | Knowledge | pre-model retrieval: `sources` in the first 3 for a scripted question; `search_knowledge_base` respects `extra_searches` |
 | Tools | the tool gets the server-side customer; one audit row and one TOOL span per call; a failing tool gives one `ok: false` row |
-| Step cap | the Nth call has function calling off; the (N+1)th is never sent; the turn's reply follows §7.2.4 (kit) |
+| Step cap | the Nth call has function calling off; **the fake gateway ignores `tool_choice: none` and returns tool calls on the Nth call**, and no tool runs, the framework receives the fixed `MODEL_STEP_LIMIT` body, the Nth response's text is not used, the turn fails with `MODEL_STEP_LIMIT` and its `model_called` row has `step_limited: true`; the (N+1)th is never sent; otherwise the turn's reply follows §7.2.4 (kit) |
 | Model errors | each gateway failure gives 1.3.0's code, status and `Retry-After`; the gateway's text is absent from the reply, logs and spans; retries are bounded; a framework that swallows the error still gives the coded error (kit) |
 | Proxy (kit) | no guardrail, `api_base`, `metadata` or `mock_response` field reaches the fake gateway; no inbound header is forwarded; `/v1/../x`, query strings and unknown paths are 404; a token from a finished turn is refused; another model alias is refused |
 | Cost | `cost_usd` is the sum of the scripted headers, or `null`; `fallbacks`, `served_by`, token counts and the `model_called` rows |
 | Sessions | history carried across turns; concurrent turns on one session give 409; a second customer with the same session id gets an empty history; customers never see each other's notes |
 | Hygiene | no gateway key, relay token, turn token or masked key fragment in logs, replies or spans; no connection outside the fakes |
 | Traces | one root `agent_turn` span with the §12 attributes; child LLM and TOOL spans |
-| Framework surfaces | per runtime: Deep Agents `execute` and host-path reads (§8.3); Claude built-in tools, environment, orphaned process (§8.4) |
+| Framework surfaces | per runtime: Deep Agents `execute` and host-path reads (§8.3); Claude built-in tools, `@<secret path>` and slash commands, environment, transcript history, orphaned process at turn end, timeout and SIGTERM (§8.4); CrewAI's task-output store gone after the turn (§8.5) |
 
 - **Report:** JSON, one row per check, with the image digest, runtime ref and profile. It is always
   written to the **default** state directory, whatever `--stack` or `--state-dir` says, so Build and
@@ -928,12 +1199,19 @@ Every kit runtime writes the span shape `phoenix_traces.py` and the console read
   These are 1.3.0's (`agent.py:519-531`).
 - **A `retrieve_knowledge` span** (`RETRIEVER`), as 1.3.0 writes.
 - **LLM spans** with `llm.model_name` and token counts, from the instrumentor or the proxy. Each
-  model call is counted once (#1009's rule: an outer span relabelled `CHAIN`).
+  model call is counted once (#1009's rule: an outer span relabelled `CHAIN`). *(F0: checked)*
+  LangGraph, Deep Agents and OpenAI Agents' instrumentors write LLM spans. **CrewAI's and the Claude
+  SDK's write none,** so for those two runtimes the proxy writes one LLM span per call, from its
+  tally (alias, `served_by`, token counts), with no request or response body.
 - **TOOL spans:** one per call, from the kit (§7.3).
 - **Framework-internal spans** (graph nodes, crew tasks) are kept. The console shows them as nested
   rows (console spec §6.2).
 - **Export goes only to `AGENTBREEDER_SERVICE_TRACES_URL`.** Every framework's own exporter is off,
-  and the conformance egress check catches one that is not.
+  and the conformance egress check catches one that is not. **"Off" never means switching the
+  framework's tracing off when the instrumentor rides on it:** for OpenAI Agents,
+  `set_tracing_disabled(True)` also stopped every OpenInference span *(F0: checked)*, so the
+  OpenAI exporter is replaced by the instrumentor's `exclusive_processor=True` instead (§8.1).
+  Likewise CrewAI's `OTEL_SDK_DISABLED` is never set (§8.5).
 - **Content in spans.** As with ADK today, spans carry `input.value` and `output.value` (customer
   messages, tool arguments and results) to the stack's Phoenix. Instrumentors may add more, such as
   full prompts. That is the same data class, going to the same operator-run collector.
@@ -977,8 +1255,9 @@ Each requirement names the 2.x finding (§3.2) it answers.
 | Surface | Library default | In the runtime | Checked by |
 |---|---|---|---|
 | Claude Agent SDK built-ins (Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, Task, …) | on | off (§8.4) | conformance: each one asked for, refused, audited |
-| Claude CLI settings, hooks, plugins, `CLAUDE.md`, slash commands, `@` mentions | on | off (§8.4) | conformance |
-| Deep Agents filesystem, store and sandbox backends; `execute` | backend-dependent | state backend only | conformance (§8.3) |
+| Claude CLI settings, hooks, plugins, `CLAUDE.md`, slash commands, `@` mentions | on; **`@path` reads a file even with every tool off** (F0) | off: `setting_sources=[]`, `strict_mcp_config`, **`verbatim_prompts=True`** (§8.4) | conformance, per CLI version, with `@<secret path>` and every listed slash command |
+| Deep Agents filesystem, store and sandbox backends; `execute`; the built-in file tools (`ls`, `read_file`, `write_file`, `edit_file`, `delete`, `glob`, `grep`) | backend-dependent | state backend only; the file tools act on graph state (F0: checked) | conformance (§8.3) |
+| OpenAI Agents hosted and local tools (`ShellTool`, `CodeInterpreterTool`, `ComputerTool`, `ApplyPatchTool`, …), `RunConfig.sandbox` | off unless added | never added | adapter test |
 | CrewAI code execution, `crewai-tools` | off but installable | off; not installed | lock check |
 | LangChain `allow_dangerous_*` tools | off | not installed | lock check |
 
@@ -1021,10 +1300,16 @@ conformance.
 - **`pip-audit` per lock** in CI; a High finding blocks a version.
 - **The Claude Code CLI** is proprietary, and `pip-audit` does not cover a bundled binary or an npm
   tree.
-  - F0 records its licence terms and how it is shipped (bundled in the wheel, or npm).
-  - If npm: a lockfile with integrity hashes, installed with `--ignore-scripts`.
-  - The binary's hash is pinned.
+  - *(F0: checked)* It ships **inside every platform wheel of `claude-agent-sdk`**
+    (`claude_agent_sdk/_bundled/claude`, CLI 2.1.317 in SDK 0.2.177, 327 MB on macOS x86_64), as a
+    native executable; no Node is needed. The wheel's hash in the lock pins the binary, so the npm
+    route (`@anthropic-ai/claude-code`, which has a `postinstall` script) does not apply.
+  - `pip-audit` sees only the wheel. A CLI advisory is tracked by the SDK version that bundles it.
+  - The SDK wheel is MIT. The CLI's own terms are "All rights reserved", under Anthropic's legal
+    agreements (D8, §17.1).
   - It is not placed under `builtin_registry` before D8.
+- **CrewAI's core pulls `chromadb`, `lancedb` and `onnxruntime`** *(F0: checked)*. They stay in
+  the lock and in `pip-audit` even though memory and RAG are off.
 - **Code mode never merges user requirements by line.** It resolves them into the hash-locked lock
   after the confirm (§9.2).
 
@@ -1037,9 +1322,13 @@ conformance.
   (`kubernetes.py:655-682`), but **no pids limit**.
 
 **For kit runtimes:**
-- They must run within these limits. The conformance kit runs them with the same flags, and F0
-  measures each framework against them.
-- Raising them for one runtime is D16.
+- They must run within these limits. The conformance kit runs them with the same flags.
+- *(F0: checked, Docker flags, two concurrent sessions)* Peak memory: LangGraph 93 MB, Deep Agents
+  99 MB, OpenAI Agents 100 MB, CrewAI 178 MB, Claude 305 MB (512 MB at 6 scripted turns, §8.4).
+  Peak pids 6–18 of 128. `/tmp` at most 20 KB for the Python runtimes and 36 KB per Claude turn. The
+  four Python runtimes fit with room to spare. Kubernetes' memory-backed `/tmp` (a 64 Mi emptyDir
+  counted in the 512 Mi limit) was not run; these figures suggest it does not matter (§16.1).
+- Raising them for one runtime is D16 (§17.1).
 - A Kubernetes pids limit is a separate engine change, for every image.
 
 ### 13.7 Sessions and stored text (2.x finding 3)
@@ -1047,11 +1336,22 @@ conformance.
 - Sessions are keyed by (customer, session) (§7.5).
 - History is replayed as structured messages. Note text keeps 1.3.0's neutralisation.
 - Each deployment has its own database credentials.
+- **No framework keeps customer text past the turn** *(F0 found two that do by default)*:
+  - CrewAI's task-output SQLite under `HOME` holds every message and reply, shared by every session
+    in the container (§8.5). Off, or per turn and deleted, or `runtime/crewai` is not built.
+  - The Claude CLI's transcript and `.claude.json` sit in the per-turn config directory (36 KB
+    after a real turn), which is deleted at turn end (§8.4). F0 saw it deleted.
+  - The conformance kit checks, per runtime, that no file holding a turn's message is left under
+    `/tmp` or `HOME` after the turn, including after a killed turn. Kit runtimes sweep their
+    per-turn directories at start-up, because a Kubernetes emptyDir survives a container restart.
 
 ### 13.8 Logs
 
 The kit's redaction covers every framework logger, with no tracebacks, as 1.3.0's
-`quiet_library_logs` does. F0 names each framework's loggers. Turn tokens are remembered values
+`quiet_library_logs` does. *(F0: checked)* The loggers are: LangGraph `langchain*`, `langgraph*`,
+`langchain_core*`, `langchain_openai*`; Deep Agents `deepagents*` plus LangGraph's; OpenAI Agents
+`agents*`, `openai.agents`; CrewAI `crewai*`, `crewai_core*`, `chromadb*`; all of them `openai*`,
+`httpx` and `openinference*`. Turn tokens are remembered values
 (§7.2.2). The proxy never logs bodies.
 
 ### 13.9 Threats specific to this design
@@ -1060,14 +1360,16 @@ The kit's redaction covers every framework logger, with no tracebacks, as 1.3.0'
 |---|---|---|---|
 | T1 | A framework calls a model the agent did not declare | proxy allow-set (§7.2.5); the key's aliases | none beyond the gateway mapping |
 | T2 | A framework retries a billed call many times | proxy owns retries; fails the rest of the turn fast (§7.2.7) | bounded by the step cap |
-| T3 | The model asks the Claude CLI for a built-in tool | §8.4 controls, tested | a CLI bug past every control reaches same-uid secret files (D15) |
+| T3 | The model asks the Claude CLI for a built-in tool | §8.4 controls; F0: 25 names refused with `tools=[]` on CLI 2.1.317 | a CLI bug past every control reaches same-uid secret files (D15) |
 | T4 | Prompt injection through tool or MCP output | as `runtime/adk` | as today |
 | T5 | A turn token reused in another turn or after it | random, per turn, deleted at turn end; sent as an API key and redacted | in-process code can read it while the turn runs, and it already runs as the agent |
-| T6 | The CLI outlives the turn | process group killed at turn end, timeout and drain | none |
+| T6 | The CLI outlives the turn | `setsid` in the wrapper (the SDK leaves the CLI in the parent's group, F0); group killed at turn end, timeout and drain | **unproven until F7**: the kill at timeout and SIGTERM was not run in F0; 63 s to exit after a failed call even with retries off |
 | T7 | The agent switches off gateway guardrails or redirects a call through body fields or headers | requests built from scratch (§7.2.3) | none known; conformance checks each field |
 | T8 | Path tricks against the proxy (`/v1/../key/generate`, absolute-form targets, request smuggling) | h11 parser, fixed routes, loopback only (§7.2.1, §7.2.3) | none known |
 | T9 | Code-mode code bypasses the kit | key limits, egress (§13.4), identity gate | stated in §9.2 and in the console confirm |
-| T10 | Customer messages abuse CLI syntax (`/command`, `@/path`) | §8.4 | F0 per CLI version |
+| T10 | Customer messages abuse CLI syntax (`/command`, `@/path`) | `verbatim_prompts=True`, mandatory (§8.4) | **F0 saw it happen without the option:** `@<a decoy of the key file>` sent its content to the model with every tool off, and `/model` switched the model. With it, 10 of 10 inputs went as text. A future CLI version could add another path, so the conformance kit re-runs it on every version (D15) |
+| T11 | A framework keeps customer text outside `turns` | §13.7 | CrewAI's task-output store until F6 shows it can be switched off or confined |
+| T12 | The model's own step limit is ignored and tool calls continue | the proxy withholds a tool-calling Nth response and fails the turn `MODEL_STEP_LIMIT` (§7.2.4) | `runtime/adk` until #1111 |
 
 ## 14. Northwind on each framework
 
@@ -1075,8 +1377,8 @@ The kit's redaction covers every framework logger, with no tracebacks, as 1.3.0'
   file with `name: northwind-support-<framework>` and `runtime:` changed. Each port shares
   Northwind's registry (through `AGENTBREEDER_REGISTRY_PATH`), its stack (`--stack ../northwind`,
   whose `stack.yaml` gains each agent's identity) and its eval set.
-- **Model:** each uses `support-model`, so a difference in results is the framework's. The Claude
-  runtime is the exception if D6 picks another alias.
+- **Model:** each uses `support-model`, so a difference in results is the framework's. That
+  includes the Claude runtime, through LiteLLM `/v1/messages` (D6, resolved by F0).
 - **Running:** `agentbreeder release northwind-langgraph/agent.yaml --stack ../northwind`, from `examples/`, runs one port. Six agents can
   run side by side in one stack.
 
@@ -1111,24 +1413,56 @@ Website and README say a framework is supported only after 1–7 for it.
 
 | Slice | Contents | Lane | Blocked on |
 |---|---|---|---|
-| F0 | Probes, no product code: per framework, exact versions and hash locks on py3.12 amd64 and arm64; every *(F0)* fact; contextvar propagation under two concurrent sessions; hidden model calls per Northwind turn; start-up time, memory, pids and `/tmp` use against the engine's limits; LiteLLM 1.108.3 `/v1/messages` with `support-model` (tool use, `tool_choice` none, cost header, guardrail enforcement and the bypass fields, D17); start-up time against deploy's 30 s health wait; Kubernetes' memory-backed `/tmp` against the 512 Mi limit; instrumentor availability and tool spans; the Claude CLI's environment, tool list, slash commands, licence and network use. One record per framework | V | — |
+| F0 | **Ran 2026-11-16, partial** (`docs/superpowers/verification/F0-framework-probes.md`, #1110). Probes, no product code: exact versions and hash locks (py3.12, amd64 and arm64 resolved); every fact then marked *(F0)*; contextvar propagation under two concurrent sessions; hidden model calls per Northwind turn; start-up time, memory, pids and `/tmp` use against the engine's Docker limits; LiteLLM 1.106.2 (the version in `service/litellm`; r4 said 1.108.3 in error) `/v1/messages` with `support-model` (tool use, `tool_choice` none, cost header, guardrails and the bypass fields with a Presidio stub, D17); instrumentors and tool spans; the Claude CLI's environment, tool list, slash commands, licence and network use. What it did not run is §16.1 | V | — |
 | F1 | Engine data-driven (§5.3): manifest keys, `LEGACY_ADK`, `modules.json`, `tool_check`, `new agent --runtime`, `registry runtimes --json` (console spec §8); the manifest `runtime` field; ADK golden tests incl. refusals | A | — |
 | F1b | Egress for `runtime.profile: kit` deployments (D11): internal network and a gateway-forwarding sidecar on local Docker; default-deny NetworkPolicy on `kind`; tested on the real deploy network | A | F1 |
 | F2a | `docs/agent-protocol.md` (#758), `agentbreeder conformance` (#759), the ADK baseline record, `list --json` `runtime` (§11) | A | F1 |
 | F2b | `runtime_kit` with parity tests, the model proxy | A | F2a |
-| F3 | `runtime/langgraph@1.0.0` + Northwind + acceptance; the #760 acceptance | A, then V | F0, F2b |
-| F4 | `runtime/openai-agents@1.0.0` + Northwind + acceptance | A, then V | F3 |
-| F5 | `runtime/deepagents@1.0.0` + Northwind + acceptance | A, then V | F3 |
-| F6 | `runtime/crewai@1.0.0` + Northwind + acceptance | A, then V | F3 |
-| F7 | `runtime/claude-agent-sdk@1.0.0` + Northwind + acceptance, with its own `/security` review of the built image | A, then V | F0, F1b, D6, D8, D15, D16, D17 |
+| F3 | `runtime/langgraph@1.0.0` + Northwind + acceptance; the #760 acceptance | A, then V | F2b; the §16.1 items marked F3 |
+| F4 | `runtime/openai-agents@1.0.0` + Northwind + acceptance | A, then V | F3; the §16.1 items marked F4 |
+| F5 | `runtime/deepagents@1.0.0` + Northwind + acceptance | A, then V | F3; arm64 (§16.1) |
+| F6 | `runtime/crewai@1.0.0` + Northwind + acceptance; first, a switch-off or confinement of CrewAI's task-output store (§8.5) | A, then V | F3; the §16.1 items marked F6 |
+| F7 | `runtime/claude-agent-sdk@1.0.0` + Northwind + acceptance, with its own `/security` review of the built image | A, then V | the §16.1 items marked F7, F1b, D8, D15, D16, D17 |
 | F8 | Code mode (§9.2) | A | F3, F1b |
-| F9 | Docs, `what-ships` and website per framework, after its acceptance | A, website | each framework's acceptance |
+| F9 | Docs, `what-ships` and website per framework, after its acceptance | A, website | each framework's acceptance; for the Claude runtime also D15 (if the §17.1 recommendation is taken, not before the two-uid contract) |
 | S* | Console (#1085) | B | F1, F2a, F3, F8 (console spec §11) |
 
 - **F2b ships with its first consumer.** It merges with F3, so the kit is never on `main` unused.
 - **Shared files.** F3–F7 each add their own runtime directory and agent file, but all of them edit
   `stack.yaml`, `agentspec.VERIFIED` and the docs. Whichever merges second rebases on the first.
   They run one at a time on `main`, though they can be developed in parallel worktrees.
+
+### 16.1 What F0 did not run (open before F3 or F7)
+
+F0 is partial. Each item below is unproven until the named slice runs it, and the slice's
+verification record says it ran.
+
+| Item | Why it matters | Before |
+|---|---|---|
+| **arm64**: no install or run on `linux/arm64` (the locks resolve; the host was amd64) | every lock must install and run on both platforms (§13.5) | F3 (and each slice for its runtime) |
+| **Kubernetes `/tmp`**: the memory-backed 64 Mi emptyDir counted in the 512 Mi limit | §15 step 6 promotes to `kind`; F0's `/tmp` figures (≤ 36 KB) suggest no problem | F3 (and F7 with several concurrent Claude turns) |
+| **The `service/litellm` image**: F0 ran the LiteLLM 1.106.2 Python package in a venv, not the image | the gateway's behaviour on these routes should not differ, but it was not the deployed artifact | F3 (its acceptance runs on the real stack) |
+| **The proxy's step-cap rule** (§7.2.4) on a real Gemini alias | Gemini ignores `tool_choice: none`; the rule is new and unrun | F3 |
+| **`runtime/adk`'s own step cap on Gemini** | same mechanism as above (#1111) | #1111, independent of this epic |
+| **OpenAI Agents with no `OPENAI_API_KEY` at all** | the egress result was with a dummy key set (§8.1) | F4 |
+| **arm64 for each later runtime** | as the first row | F4, F5, F6, F7 for their own locks |
+| **A switch-off or per-turn confinement of CrewAI's task-output store** | customer text outside `turns` (§8.5, §13.7) | F6 |
+| **Real Presidio on `/v1/messages`**: F0 used a regex stub | the stub tests LiteLLM's hook and bypass fields, not Presidio's recognisers | F7 (D17) |
+| **Output masking on `/v1/messages`** | G0's §12.4 row says masked on 1.106.2, but through `/v1/responses` and not on a Gemini alias | F7 (D17) |
+| **The Claude CLI's group kill**: `setsid` in the wrapper, and killing the CLI at a timeout and on SIGTERM | the SDK leaves the CLI in the parent's group; the CLI took 63 s to end after a failed call (T6) | F7 |
+| **Claude memory with real turns at 3+ concurrent turns** | the 4- and 6-turn rows were scripted (a floor), and 3 was not run (D16) | F7 |
+| **The container `@path` repeat, retained**: reported, but its log was not kept | the macOS result is retained; the container one should be too | F7 (conformance re-runs it) |
+| **The CLI without `context_management` and `output_config`** (§7.2.3) | the proxy drops them | F7 |
+| **A transcript written from `turns`** gives a faithful history (§8.4 (a)) | the chosen history design is unrun | F7 |
+| **The main-loop test** (prompt hash plus tool set, §7.2.4) on OpenAI Agents, CrewAI and the Claude CLI | checked only for Deep Agents' `task`; CrewAI and the CLI wrap their own prompts | F4, F6, F7 |
+| **CrewAI's two extra attempts answered by the proxy's stored status** (§7.2.7) | F0 measured 3 attempts against a recording proxy, not the kit's proxy | F6 |
+| **What CrewAI's `credentials/secret.key` holds** | not examined; treated as customer-adjacent until known (§8.5) | F6 |
+| **Whether the kernel OOM-killed a process at 6 Claude turns** | the 6-turn run hit 512 MB; an OOM kill takes down every session (D16) | F7 |
+| **`@path` and slash input replayed through `resume`** of a transcript written from `turns` (§8.4) | an earlier customer message could be expanded on replay | F7 |
+| **Input syntaxes beyond F0's ten** (`!`, `#`, `@agent-…`, `@`-MCP, image paths, URLs) | `verbatim_prompts` was shown only for the ten (§8.4) | F7 |
+| **Why `session_store` received no entries** | not used, but unexplained | F7 (informational) |
+| **First-pass-only figures**: image sizes, build times, the 4- and 6-turn memory rows | not re-run with retained evidence | each slice re-measures its own |
+| **A real Anthropic model** | the Claude runtime ran only on `support-model`; D6 makes that the target, so this is for comparison only | not required |
 
 ## 17. Owner decisions (open)
 
@@ -1139,19 +1473,89 @@ Website and README say a framework is supported only after 1–7 for it.
 | D3 | Framework-specific `agent.yaml` fields in v1 | **None** |
 | D4 | Code mode in this epic | **Yes, as F8**, after declared mode passes and after egress is closed |
 | D5 | History replay | **User and assistant text from `turns`**, adding the previous turn's tool results only if F3's evals need them (§7.5) |
-| D6 | The Claude runtime's model | **`support-model` if F0 shows LiteLLM's `/v1/messages` works with it**; otherwise an Anthropic-backed alias, recorded as not like for like |
+| D6 | The Claude runtime's model | **Resolved by F0: `support-model`.** LiteLLM 1.106.2 `/v1/messages` with it ran the CLI's main loop, tool use and resumed history (two concurrent Northwind sessions, 2 calls each). Not like for like in two ways, both handled: `tool_choice: none` is ignored (the proxy enforces the cap, §7.2.4) and no thinking block comes back |
 | D7 | Streaming requests from frameworks | **Upstream non-streaming, with SSE synthesised by the proxy** (§7.2.3), keeping cost |
-| D8 | Shipping the Claude Code CLI inside an image AgentBreeder builds | **Decide after F0 records its licence**; otherwise the user installs it into their own build |
+| D8 | Shipping the Claude Code CLI inside an image AgentBreeder builds | **Owner question, restated with F0's facts in §17.1** |
 | D9 | Per-environment runtime allow-list at the gate | **Later** (needs a provenance attribute in the manifest and digest) |
 | D10 | Deep Agents' `task` sub-agent | **Keep**, bounded by the turn's cap and audited |
 | D11 | Default-deny egress for `runtime.profile: kit` deployments, keyed by the new manifest field (local internal network with a gateway-forwarding sidecar, `kind` NetworkPolicy) | **Yes, as F1b**: required before F7 and F8, recommended before F3 |
 | D12 | Framework order; ADK onto the kit | **LangGraph, then OpenAI Agents, Deep Agents, CrewAI, Claude**; ADK onto the kit later |
 | D13 | Where the Northwind ports live | **(a) One directory per port** sharing Northwind's registry and stack, no engine change; (b) several agent files per project is an engine change listed in §11 |
 | D14 | ADK baseline gaps against protocol v1 and the kit profile | **List every one in the F2a record**: `/health` always 200, no SIGTERM drain, no step-limit code, and anything conformance finds. Fix in a later adk version, never by relaxing the check |
-| D15 | Claude CLI as a same-uid subprocess that could reach the secret files | **Ship only if F0 shows every §8.4 control holds against the pinned CLI, with the residual stated in the docs**; otherwise wait for a two-uid deploy contract (a separate design) |
-| D16 | Runtime-declared resource limits (memory, pids, `/tmp` size and exec) | **Only if F0 shows a framework cannot fit the engine's limits**; then a deploy-template change with its own review |
-| D17 | `/v1/messages` and G1's `allowed_routes` | **Conditional on the F0 probe** that LiteLLM enforces guardrails on `/v1/messages` with the same bypass fields. If it passes, add `/v1/messages` to keys of deployments with `model_api: anthropic-messages` (`model_access.api`). If not, the proxy translates Anthropic requests to chat completions, so guardrails act on the chat path |
+| D15 | Claude CLI as a same-uid subprocess that could reach the secret files | **Owner question, restated with F0's facts in §17.1** |
+| D16 | Runtime-declared resource limits (memory, pids, `/tmp` size and exec) | **Owner question, restated with F0's facts in §17.1** |
+| D17 | `/v1/messages` and G1's `allowed_routes` | **F0 supports the first option for blocking and input masking** (§7.2.8): with a Presidio stub, blocking acted in user, system, `tool_result` and streamed requests, input masking acted, and 12 bypass fields and headers failed; a `GUARDED_ROUTES` key gets 403 and one with `/v1/messages` added works. So: add `/v1/messages` to keys of deployments with `model_api: anthropic-messages` (`model_access.api`). **Still to run in F7's conformance before the Claude runtime declares `guardrails`:** the real Presidio images and output masking on this route. If either fails, the fallback stands: the proxy translates Anthropic requests to chat completions |
 | D18 | Dropping message content from spans per environment | **Later**, as one operator option for every runtime, ADK included |
+
+### 17.1 Addendum after F0: D8, D15 and D16 for the owner
+
+These three gate F7 only. F3–F6 do not wait for them.
+
+**D8. Shipping the Claude Code CLI.**
+- *F0 facts:* the CLI ships inside every platform wheel of `claude-agent-sdk` (0.2.177 bundles CLI
+  2.1.317 as a native binary), so any image with the SDK has the CLI. The SDK wheel is MIT. The
+  CLI's own licence reads "© Anthropic PBC. All rights reserved", under Anthropic's legal
+  agreements. Those pages (read 2026-11-16) say: Claude Code is governed by the Commercial Terms
+  for API, Team and Enterprise users and the Consumer Terms otherwise, and the Agent SDK by the
+  Commercial Terms; "Preinstalling or running Claude Code in your products or services (e.g. in
+  hosted sandboxes or other agent infrastructure) requires agreeing to our Commercial Terms of
+  Service"; the binary "must not be modified" and must be "installed and run as published"; each
+  end user authenticates with their own credentials, and customers "may not pay for, resell, or
+  intermediate Claude usage on their end users' behalf". They are silent on third parties building
+  images for others and on `ANTHROPIC_BASE_URL` pointing at a non-Anthropic gateway or model.
+  F0 does not interpret these terms.
+- *Recommendation:* until the owner has an answer (with legal advice if needed), take the
+  spec's fallback. AgentBreeder publishes no image and no `builtin_registry` entry containing the
+  CLI. `runtime/claude-agent-sdk` is offered as a runtime the user adds to their own project
+  registry, and their own `build` installs the SDK wheel from PyPI on their machine. Its docs tell
+  the user that running it means accepting Anthropic's terms, and they make no claim about
+  non-Anthropic models behind the gateway.
+
+**D15. The same-uid residual.**
+- *F0 facts:* every §8.4 control that was run held against CLI 2.1.317: the `env -i` wrapper,
+  `tools=[]` (25 names refused; 5 of them again with `disallowed_tools` empty), `verbatim_prompts=True`,
+  `setting_sources=[]`, `strict_mcp_config` and the traffic switches. **But the residual D15
+  describes happened once:** without `verbatim_prompts`, an `@path` mention in a customer message
+  made the CLI read a decoy of the gateway key file (a same-uid file) and send it to the model,
+  with every tool off. One
+  option closes that path today; a later CLI version could add another. `setsid` and the group
+  kill were not run.
+- *Recommendation:* do not ship `runtime/claude-agent-sdk` as supported on the same-uid contract.
+  Start the two-uid deploy contract (a separate design, also wanted by the skills spec's sandbox,
+  #1059 K6) now. F7 may build the runtime and run conformance meanwhile, with `verbatim_prompts`
+  and the wrapper mandatory and the `@<secret path>` check re-run on every CLI version, but it is
+  not called supported, nor put on the website, until the two-uid contract is in place. If the
+  owner prefers to ship sooner, the same controls are mandatory and the docs state the residual.
+
+**D16. Runtime-declared resource limits.**
+- *F0 facts:* the four Python runtimes peak at 93–178 MB and 6–18 pids for two sessions in the
+  engine's 512 MB / 128 pids. The Claude runtime peaks at 305 MB for 2 real turns, 462 MB for 4
+  scripted turns, and reaches the 512 MB limit at 6 scripted turns (all answered; an OOM kill was
+  not checked). The scripted figures are a floor and 3 turns were not run.
+- *Recommendation:* no deploy-template change. The Python runtimes need none. For the Claude
+  runtime, a cap on concurrent turns in the kit's server (a runtime setting; a turn over the cap
+  waits for a slot within its own deadline) is preferred over runtime-declared limits,
+  which would change the deploy template and digests. Its value is not chosen here: any number
+  from F0 is interpolated. F7 measures real turns at 2, 3 and 4 before choosing it, and returns to
+  D16 only if no useful cap fits in 512 MB. Its acceptance records the failure mode: an OOM kill
+  takes the whole container down, with every session in it and `/health`, so the cap is chosen with
+  margin, and the 6-turn OOM question F0 left open is answered first.
+
+**The three questions for the owner:**
+1. **D8:** "Can AgentBreeder ship a built-in `runtime/claude-agent-sdk` whose lock installs the
+   `claude-agent-sdk` wheel, which bundles the Claude Code CLI (All rights reserved; 'Preinstalling
+   or running Claude Code in your products or services … requires agreeing to our Commercial
+   Terms'), into images that users build for themselves and may point at non-Anthropic models
+   through the gateway? Or do we keep it out of `builtin_registry` and let users add it to their
+   own project (recommended until you have legal advice)?"
+2. **D15:** "F0 showed a Claude CLI feature outside the tool layer (`@path`) reading a same-uid
+   file (a decoy of the gateway key) with every tool off, closed today only by `verbatim_prompts=True`. Do we wait for
+   a two-uid deploy contract before calling the Claude runtime supported (recommended), or ship
+   it on the same uid with the F0 controls mandatory and the residual stated in the docs?"
+3. **D16:** "The Claude runtime reached the 512 MB limit at 6 concurrent scripted turns; the
+   Python runtimes peak at 178 MB. Do we keep the engine's fixed limits and add a per-runtime
+   concurrent-turn cap, its value measured in F7 with real turns (recommended), or make resource
+   limits runtime-declared, which changes the deploy template and digests?"
 
 ## 18. Cross-repo
 
@@ -1191,3 +1595,7 @@ Website and README say a framework is supported only after 1–7 for it.
 | r3 | All four lenses over both specs (Fable, read-only) | CHANGES REQUESTED, 2 major (text fixes), every r2 item confirmed in the bodies. Folded in: the conformance report location and code-mode keying copied from the console spec (§10.3); the manifest `runtime` field written only for `protocol` runtimes, carried in `DeployTemplate` and the package so `promote` keeps it, and the first `list --json` source (§5.4, §11, §18). Minors: `LEGACY_ADK`'s display fields (§5.3); `top_level_names` in Find (§9.2); `--stack` path (§14); D13 (a) directory contents (§11); console slice dependencies (§16) |
 | r4 | Narrow check of the r3 fixes (Fable, read-only) | **APPROVED** (no blocker or major). Minor folded in: the manifest field's writer rule names kit runtimes and scopes the ADK statement to existing versions (§5.4) |
 | r4 delta | Fable, read-only, over the text folded in after r4 (head `097b292a`) | CHANGES REQUESTED (minor), folded in: kit runtimes are defined by `profile: kit`, not by declaring `protocol` (§5.4); re-wrapped |
+| r5 F0 | Lane D folded in the F0 record (#1110) and #1111 | §7.2.2–§7.2.8, §7.3, §7.5, §8.1–§8.5, §10.2, §10.3, §12, §13.3, §13.5–§13.9, §14, §16, §16.1, §17, §17.1. Corrections to r4: `set_tracing_disabled` (§8.1), Deep Agents' tool list (§8.3), CrewAI has no LiteLLM (§8.5), `/v1/messages` guardrail facts (§7.2.8), LiteLLM 1.106.2 not 1.108.3 (§16); the step cap no longer relies on `tool_choice: none` (§7.2.4) |
+| r5 review r1 | `/architect` and `/security` (Sonnet, read-only, against the F0 record) | Both CHANGES REQUESTED, no blocker. Folded in: a §7.2.3 edit had split the drop list from the allow-list; the step cap now withholds a tool-calling Nth response entirely and fails the turn `MODEL_STEP_LIMIT` instead of returning its text (§7.2.4, §10.3, T12); overclaims cut back (the CLI and `toolu_` ids, 25 vs 5 names, `CLAUDE_CODE_MAX_RETRIES` not in the combined run, first-pass-only figures, `secret.key`, a decoy not a secret, CrewAI's bounded attempts); `disallowed_tools` and the conformance input list derived per CLI version, with `@` and slash replay through `resume`; `TMPDIR` per turn, the wrapper on the read-only root, `thinking` clamped, a start-up sweep of per-turn directories; CrewAI's storage options (one lock or a child process per turn); §16.1 gained eight rows; F4–F6 and F9 dependencies; where the Claude runtime lives under D8; D16's OOM failure mode |
+| r5 review r2 | Same reviewers | `/security` **APPROVED** (one stale §10.3 phrase, fixed). `/architect` CHANGES REQUESTED, two stale phrases (§10.3 step-cap row, T12), fixed |
+| r5 review r3 | `/architect` (Sonnet, read-only), narrow check of the two fixes | **APPROVED**. Both lenses approve r5 |
