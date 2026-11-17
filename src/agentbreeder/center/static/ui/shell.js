@@ -7,6 +7,7 @@ import { visible } from "../lib/text.js";
 import { ROUTES } from "../screens/index.js";
 import { Action, Text, useConfirm, useConsole } from "./components.js";
 import { JobResult, NextPill } from "./guide.js";
+import { Icon } from "./icons.js";
 import { html, useEffect, useLayoutEffect, useRef, useState } from "./preact.js";
 
 export function Shell({ match }) {
@@ -62,7 +63,7 @@ function TopBar() {
   const { overview, projects, project, setScope, jobs, dockOpen, setDockOpen } = useConsole();
   const running = jobs.running().length;
   const followed = jobs.list().length;
-  return html`<header class="top">
+  return html`<header class="top glass-strong">
     <div class="brand">
       <strong>AgentBreeder console</strong>
       <span class="muted small">preview <${Text} value=${overview ? overview.version : ""} />, this machine only</span>
@@ -79,14 +80,47 @@ function TopBar() {
       <button type="button" id="activity-pill" class=${`pill${running ? " running" : ""}`} aria-expanded=${dockOpen ? "true" : "false"} aria-controls=${dockOpen ? "dock" : undefined} onClick=${() => setDockOpen(!dockOpen)}>
         ${running ? `${running} running` : followed ? "Jobs" : "No jobs running"}
       </button>
+      <${ThemeToggle} />
       <${UserMenu} />
     </div>
   </header>`;
 }
 
+const THEME_OPTIONS = [
+  { value: "system", label: "System", icon: "monitor" },
+  { value: "light", label: "Light", icon: "sun" },
+  { value: "dark", label: "Dark", icon: "moon" },
+];
+
+/**
+ * The theme toggle (design v2 §10.1): a radiogroup of System, Light and Dark. Only the checked
+ * option is in the tab order; the arrow keys move to, and choose, the next or previous one (Home and
+ * End the first and last).
+ */
+export function ThemeToggle() {
+  const { theme, setTheme } = useConsole();
+  const group = useRef(null);
+  const onKey = (event) => {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+    const at = THEME_OPTIONS.findIndex((option) => option.value === theme);
+    const to = event.key === "Home" ? 0 : event.key === "End" ? THEME_OPTIONS.length - 1 : step ? (at + step + THEME_OPTIONS.length) % THEME_OPTIONS.length : -1;
+    if (to < 0) return;
+    event.preventDefault();
+    const next = THEME_OPTIONS[to];
+    setTheme(next.value);
+    requestAnimationFrame(() => group.current?.querySelector(`[data-theme="${next.value}"]`)?.focus());
+  };
+  return html`<div class="theme-toggle" role="radiogroup" aria-label="Theme" ref=${group} onKeyDown=${onKey}>
+    ${THEME_OPTIONS.map((option) => {
+      const checked = theme === option.value;
+      return html`<button type="button" role="radio" aria-checked=${checked ? "true" : "false"} aria-label=${option.label} title=${option.label} tabindex=${checked ? "0" : "-1"} data-theme=${option.value} onClick=${() => setTheme(option.value)}><${Icon} name=${option.icon} /></button>`;
+    })}
+  </div>`;
+}
+
 /** The user menu: a disclosure that also closes on Escape (focus back to it) and outside clicks. */
 function UserMenu() {
-  const { theme, setTheme, signOut } = useConsole();
+  const { signOut } = useConsole();
   const menu = useRef(null);
   useEffect(() => {
     const onPointer = (event) => {
@@ -103,12 +137,8 @@ function UserMenu() {
   };
   return html`<details class="menu" ref=${menu} onKeyDown=${onKey}>
     <summary>Owner<span class="visually-hidden"> menu</span></summary>
-    <div class="menu-body" role="group" aria-label="User menu">
+    <div class="menu-body glass-strong" role="group" aria-label="User menu">
       <p class="muted small">Signed in on this tab with a one-time link from the terminal.</p>
-      <label for="theme">Theme</label>
-      <select id="theme" onChange=${(event) => setTheme(event.currentTarget.value)}>
-        ${["system", "light", "dark"].map((value) => html`<option value=${value} selected=${theme === value}>${value[0].toUpperCase() + value.slice(1)}</option>`)}
-      </select>
       <button type="button" class="action secondary small" onClick=${signOut}>Sign out of this tab</button>
     </div>
   </details>`;

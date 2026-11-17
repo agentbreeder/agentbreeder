@@ -146,7 +146,18 @@ def test_the_gate_strip_and_identity_strip(page, console):
     expect(steps.nth(2)).to_contain_text("Evals 5/5: passed.")
     expect(steps.nth(3)).to_contain_text("Identity: passed.")
     expect(steps.nth(4)).to_contain_text("Production: passed.")
+    # The gate line (design v2 §3, #1116): a --brand ring for passed steps only, beside the word.
+    expect(steps.nth(0).locator("svg.gate-check")).to_have_count(1)
+    expect(steps.nth(1).locator("svg.gate-check")).to_have_count(0)
+    ring = steps.nth(0).locator("svg.gate-check circle.gate-ring")
+    stroke = ring.evaluate("(el) => getComputedStyle(el).stroke")
+    brand = page.evaluate(
+        "(() => { const s = document.createElement('span'); s.style.color = 'var(--brand)';"
+        " document.body.append(s); const c = getComputedStyle(s).color; s.remove(); return c; })()"
+    )
+    assert stroke == brand
     identity = page.locator("dl.identity-strip")
+    expect(identity.locator("svg.gate-check")).to_have_count(1)
     expect(identity).to_contain_text("declared in stack.yaml")
     expect(identity).to_contain_text("owner@example.com")
     expect(identity).to_contain_text("2099-01-01")

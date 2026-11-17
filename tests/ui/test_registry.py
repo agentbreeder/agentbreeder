@@ -198,7 +198,10 @@ def test_a_failed_verification_shows_on_the_list_and_the_version(page, console):
     open_northwind(page, console)
     page.goto(f"{console.origin}/#/registry/tools")
     expect(row(page, "Tools", "orders")).to_contain_text("✕ Failed")
-    expect(row(page, "Tools", "customer-notes")).to_contain_text("✓ Passed")
+    passed = row(page, "Tools", "customer-notes")
+    expect(passed).to_contain_text("Passed")
+    # A verified version shows the gate line (design v2 §3), decorative beside the word.
+    expect(passed.locator("svg.gate-check")).to_have_attribute("aria-hidden", "true")
     page.get_by_role("link", name="orders", exact=True).click()
     expect(page.get_by_role("table", name="Versions, newest first")).to_contain_text(
         "[HASH_MISMATCH] changed"
