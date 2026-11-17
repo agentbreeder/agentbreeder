@@ -267,6 +267,11 @@ class Plan:
     # (alias, LiteLLM model) of a knowledge version's embedding alias (`--from-spec`), served
     # beside `chat` and `judge`.
     embedding: tuple[str, str] | None = None
+    # The runtime `agent.yaml` pins: a spec v2 may name one (#1058 SP); the starter's otherwise.
+    runtime: str = RUNTIME
+    # (alias, LiteLLM model) of sub-agents' own gateway aliases (`--from-spec` v2, CC2), served
+    # after `chat` and `judge` and before the embedding alias.
+    served: tuple[tuple[str, str], ...] = ()
 
     def summary(self, dry_run: bool) -> dict:
         """The `--json` shape: what is (or would be) written, without file content."""
@@ -286,8 +291,10 @@ class Plan:
             "model": self.model,
             "model_id": self.model_id,
             "verified": PROVIDERS[self.model].verified,
-            "runtime": RUNTIME,
-            "aliases": ["chat", "judge"] + ([self.embedding[0]] if self.embedding else []),
+            "runtime": self.runtime,
+            "aliases": ["chat", "judge"]
+            + [alias for alias, _ in self.served]
+            + ([self.embedding[0]] if self.embedding else []),
             "key": PROVIDERS[self.model].key,
             "keys": list(PROVIDERS[self.model].keys),
             "review_by": self.review_by,
@@ -501,11 +508,13 @@ def check_gateway(
     model_id: str,
     embedding: tuple[str, str] | None = None,
     gateway: str | None = None,
+    subagents: tuple[tuple[str, str], ...] = (),
 ) -> None:
     """A generated gateway config must pass the review `services up` applies, for the
     `gateway` version the stack names (by default the one `model_id`'s provider writes), and
     serve exactly `aliases`, every one with `model_id`
-    (also used by `--stack-for`), plus the `embedding` (alias, model) when given."""
+    (also used by `--stack-for`), plus the `embedding` (alias, model) when given and each
+    `subagents` (alias, model) of a sub-agent (`--from-spec` v2)."""
     from agentbreeder import gateway_keys, gateway_providers
     from agentbreeder.strict_yaml import StrictYamlError, load_file
 
@@ -522,6 +531,7 @@ def check_gateway(
             "TEMPLATE_INVALID", f"the generated gateway config does not validate: {error}"
         ) from error
     expected = {alias: model_id for alias in aliases}
+    expected.update(dict(subagents))
     if embedding is not None:
         expected[embedding[0]] = embedding[1]
     if review.aliases != set(expected) or len(served) != len(expected) or dict(served) != expected:
@@ -535,6 +545,7 @@ def _validate(
     model_id: str,
     embedding: tuple[str, str] | None = None,
     gateway: str = GATEWAY,
+    served: tuple[tuple[str, str], ...] = (),
 ) -> list[str]:
     """The written files must load as an agent and a stack, and the gateway config must serve
     `chat` and `judge` with `model_id`; returns the agent's refs."""
@@ -549,7 +560,12 @@ def _validate(
             "TEMPLATE_INVALID", f"the starter does not validate: {error}"
         ) from error
     check_gateway(
-        project / "stack/litellm/config.yaml", {"chat", "judge"}, model_id, embedding, gateway
+        project / "stack/litellm/config.yaml",
+        {"chat", "judge"},
+        model_id,
+        embedding,
+        gateway,
+        subagents=served,
     )
     return agent.refs()
 
@@ -595,7 +611,9 @@ def create(plan: Plan) -> Plan:
             if str(ref) != expected:  # a template bug
                 raise NewAgentError("TEMPLATE_INVALID", f"published {ref}, expected {expected}")
             published[str(ref)] = digest
-        refs = _validate(staging, plan.model_id, plan.embedding, PROVIDERS[plan.model].gateway)
+        refs = _validate(
+            staging, plan.model_id, plan.embedding, PROVIDERS[plan.model].gateway, plan.served
+        )
         if not plan.lock_after_move:
             _lock(staging, refs)
             _check_pinned(staging, plan.pinned)

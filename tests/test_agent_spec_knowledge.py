@@ -391,15 +391,15 @@ def test_a_knowledge_version_replaced_before_the_lock_is_refused(tmp_path, kb_ro
 def test_a_template_dropping_knowledge_is_refused(tmp_path, kb_root, monkeypatch):
     real = agentspec._agent_yaml
 
-    def dropped(data, today):
-        return real(data, today).replace("knowledge:\n", "unused_knowledge:\n", 1)
+    def dropped(data, today, *rest):
+        return real(data, today, *rest).replace("knowledge:\n", "unused_knowledge:\n", 1)
 
     monkeypatch.setattr(agentspec, "_agent_yaml", dropped)
     assert refused(tmp_path, with_knowledge()).code == "SPEC_INVALID"
     monkeypatch.setattr(
         agentspec,
         "_agent_yaml",
-        lambda data, today: real(data, today).replace("top_k: 5", "top_k: 6"),
+        lambda data, today, *rest: real(data, today, *rest).replace("top_k: 5", "top_k: 6"),
     )
     assert refused(tmp_path, with_knowledge()).code == "TEMPLATE_INVALID"
 

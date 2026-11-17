@@ -19,6 +19,7 @@ from test_center import api, center, cookie  # noqa: F401 (fixtures)
 
 from agentbreeder import registry
 from agentbreeder.center import builder, server
+from agentbreeder.center.files import BadRequest
 
 PREVIEW = "/api/projects/builder"
 PARTS = "/api/builder/parts"
@@ -193,7 +194,8 @@ def test_the_clis_own_refusal_is_shown(center, cookie, home, calls):
         ({}, "SPEC_INVALID"),
         ({"spec": ["helper"]}, "SPEC_INVALID"),
         ({"spec": spec(extra=1)}, "SPEC_INVALID"),
-        ({"spec": spec(schema_version=2)}, "SPEC_INVALID"),
+        ({"spec": spec(schema_version=3)}, "SPEC_INVALID"),
+        ({"spec": spec(schema_version=True)}, "SPEC_INVALID"),
         ({"spec": spec(name="Helper")}, "NAME_INVALID"),
         ({"spec": spec(name="../x")}, "NAME_INVALID"),
         ({"spec": spec(name=7)}, "NAME_INVALID"),
@@ -238,6 +240,150 @@ def test_a_spec_over_64_kib_reaches_the_cli(center, cookie, home, calls):
     status, data, _ = preview(center, cookie, prompt={"text": "word " * 6000})
     assert status == 200, data
     assert len(calls[0]["spec"]["prompt"]["text"]) == 30000
+
+
+# -- spec v2 (#1058 SP, console spec §4.5) ------------------------------------------------------
+
+
+def v2(**changes) -> dict:
+    return spec(schema_version=2, **changes)
+
+
+def sub(name="billing", **changes) -> dict:
+    return {
+        "name": name,
+        "description": "Refund questions.",
+        "model": "gemini",
+        "prompt": {"text": "You are billing.\n"},
+    } | changes
+
+
+TAGGED = {
+    "cases": [
+        {"id": "a", "turns": ["Hi"], "reference": "Hello.", "tags": ["smoke"]},
+    ]
+}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        spec(runtime="runtime/adk@1.4.0"),
+        spec(subagents=[sub()]),
+        spec(skills=[]),
+        spec(limits={"turn_model_calls": 4}),
+        spec(evals=TAGGED),
+        spec(
+            evals={
+                "cases": [
+                    {"id": "a", "turns": ["Hi"], "reference": "x", "expect": {"skills_loaded": []}}
+                ]
+            }
+        ),
+    ],
+)
+def test_a_v1_body_with_a_v2_field_runs_nothing(center, cookie, home, calls, body):
+    status, data, _ = api(center, "POST", PREVIEW, {"spec": body}, cookie)
+    assert status == 400 and data["error"]["code"] == "SPEC_INVALID", data
+    assert "schema_version 2" in data["error"]["message"]
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        v2(runtime="tool/x@1.0.0"),
+        v2(runtime=7),
+        v2(skills="skill/a@1.0.0"),
+        v2(skills=["skill/a@1.0.0", "skill/a@1.0.1"]),
+        v2(skills=[f"skill/s{n}@1.0.0" for n in range(11)]),
+        v2(skills=["tool/a@1.0.0"]),
+        v2(subagents=sub()),
+        v2(subagents=[sub(f"s{n}") for n in range(6)]),
+        v2(subagents=[sub() | {"x": 1}]),
+        v2(subagents=["billing"]),
+        v2(subagents=[sub("Billing")]),
+        v2(subagents=[sub("b" * 33)]),
+        v2(subagents=[sub(), sub()]),
+        v2(subagents=[sub(tools=["tool/a@1.0.0", "tool/a@1.0.1"])]),
+        v2(subagents=[sub(tools=[f"tool/t{n}@1.0.0" for n in range(21)])]),
+        v2(subagents=[sub(mcp=[{"ref": "mcp/github@1.0.0"}])]),
+        v2(subagents=[sub()], limits={"turn_model_calls": 41}),
+        v2(subagents=[sub()], limits={"turn_model_calls": True}),
+        v2(subagents=[sub()], limits={"turn_model_calls": 4, "x": 1}),
+        v2(subagents=[sub()], limits=4),
+        v2(limits={"turn_model_calls": 4}),
+        v2(extra=1),
+    ],
+)
+def test_a_bad_v2_body_runs_nothing(center, cookie, home, calls, body):
+    status, data, _ = api(center, "POST", PREVIEW, {"spec": body}, cookie)
+    assert status == 400 and data["error"]["code"] == "SPEC_INVALID", data
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "body, code",
+    [
+        (v2(subagents=[sub(model="mistral")]), "MODEL_INVALID"),
+        (v2(subagents=[sub(model_id="a b")]), "MODEL_ID_INVALID"),
+    ],
+)
+def test_a_subagent_model_is_checked_like_the_agents(center, cookie, home, calls, body, code):
+    status, data, _ = api(center, "POST", PREVIEW, {"spec": body}, cookie)
+    assert status == 400 and data["error"]["code"] == code, data
+    assert calls == []
+
+
+def test_a_lone_surrogate_is_a_bad_request():
+    with pytest.raises(BadRequest) as caught:
+        builder.request({"spec": v2(prompt={"text": "\ud800"})})
+    assert caught.value.code == "SPEC_INVALID"
+
+
+def test_the_v2_cap_is_512_kib_and_v1_keeps_256(center, cookie, home, calls):
+    case = {"id": "a", "turns": ["Hi"], "reference": "r" * 4000}
+    many = {"cases": [dict(case, id=f"c{n}") for n in range(70)]}  # about 280 KiB
+    assert builder.MAX_SPEC_BYTES_V1 < len(builder.encode(v2(evals=many)))
+    status, data, _ = api(center, "POST", PREVIEW, {"spec": spec(evals=many)}, cookie)
+    assert status == 400 and data["error"]["code"] == "SPEC_TOO_LARGE" and calls == []
+    status, data, _ = api(center, "POST", PREVIEW, {"spec": v2(evals=many)}, cookie)
+    assert len(calls) == 1 and calls[0]["spec"]["schema_version"] == 2
+    huge = {"cases": [dict(case, id=f"c{n}") for n in range(140)]}
+    status, data, _ = api(center, "POST", PREVIEW, {"spec": v2(evals=huge)}, cookie)
+    assert status == 400 and data["error"]["code"] == "SPEC_TOO_LARGE" and len(calls) == 1
+
+
+def test_a_v2_preview_echoes_its_version(center, cookie, home, calls):
+    """The server passes the version it sent to `summary`: a v2 answer to a v2 spec."""
+    status, data, _ = api(center, "POST", PREVIEW, {"spec": v2(evals=TAGGED)}, cookie)
+    assert status == 200, data
+    assert calls[0]["spec"]["schema_version"] == 2
+    golden = data["data"]["files"]
+    assert any('"tags": ["smoke"]' in f["content"] for f in golden)
+
+
+def test_an_answer_of_another_version_is_refused(center, cookie, home, calls, monkeypatch):
+    real = builder.summary
+
+    def answered_one(data, *args):
+        return real(dict(data, spec_version=1), *args)
+
+    monkeypatch.setattr(builder, "summary", answered_one)
+    status, data, _ = api(center, "POST", PREVIEW, {"spec": v2(evals=TAGGED)}, cookie)
+    assert status == 400 and data["error"]["code"] == "BAD_OUTPUT", data
+
+
+def test_a_v2_preview_shows_the_clis_capability_refusal(center, cookie, home, calls):
+    status, data, _ = api(center, "POST", PREVIEW, {"spec": v2(subagents=[sub()])}, cookie)
+    assert status == 400 and data["error"]["code"] == "RUNTIME_NO_SUBAGENTS", data
+    assert len(calls) == 1
+
+
+def test_the_v1_form_sends_and_gets_version_1(center, cookie, home, calls):
+    status, data, _ = preview(center, cookie)
+    assert status == 200, data
+    assert calls[0]["spec"]["schema_version"] == 1
 
 
 # -- create ------------------------------------------------------------------------------------
@@ -413,6 +559,15 @@ CODE_REF = {
 }
 
 
+def test_summary_takes_the_largest_v2_answer():
+    """A runtime, a knowledge version, 50 tools, 10 servers, five sub-agents' 20 tools each
+    and 10 skills is 172 refs; seven files plus two per sub-agent is 17 (#1058 SP)."""
+    files = [{"path": f"f{n}", "sha256": DIGEST, "content": "x"} for n in range(17)]
+    data = answer(refs=[CODE_REF] * 172, runs_code=True, files=files, spec_version=2)
+    shown = builder.summary(data, *ASKED, 2)
+    assert len(shown["refs"]) == 172 and len(shown["files"]) == 17
+
+
 def test_summary_keeps_what_the_preview_shows():
     shown = builder.summary(answer(refs=[CODE_REF], runs_code=True), *ASKED)
     assert shown["refs"] == [CODE_REF] and shown["runs_code"] is True
@@ -427,6 +582,7 @@ def test_summary_keeps_what_the_preview_shows():
         {"name": "other"},
         {"model": "openai"},
         {"spec_version": 2},
+        {"refs": [CODE_REF] * (builder.MAX_REFS + 1), "runs_code": True},
         {"plan_sha256": "sha256:x"},
         {"files": []},
         {"files": [{"path": "a", "sha256": DIGEST}]},
@@ -643,8 +799,9 @@ def test_the_mirrored_limits_match_the_clis():
     assert builder.MAX_SERVER_TOOLS == agentspec.Mcp.model_fields["tools"].metadata[-1].max_length
     assert builder.STACK_SERVICES == agentspec.STACK_SERVICES
     assert builder.MCP_FILE_LIMIT == mcp.MAX_BYTES
-    assert builder.SPEC_VERSION == agentspec.SPEC_VERSION
-    assert builder.MAX_SPEC_BYTES == agentspec.MAX_SPEC_BYTES
+    assert builder.SPEC_VERSIONS == agentspec.SPEC_VERSIONS
+    assert builder.MAX_SPEC_BYTES_V1 == agentspec.MAX_SPEC_BYTES_V1
+    assert builder.MAX_SPEC_BYTES_V2 == agentspec.MAX_SPEC_BYTES_V2
     script = (Path(builder.__file__).parent / "static" / "lib" / "builder.js").read_text()
     for name in ("MAX_TOOLS", "MAX_SERVERS", "MAX_SERVER_TOOLS"):
         assert f"export const {name} = {getattr(builder, name)};" in script, name

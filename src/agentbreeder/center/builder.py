@@ -50,12 +50,34 @@ from agentbreeder.center.onboard import (
 from agentbreeder.services.schema import MCP_TOOL, RESERVED, SERVICE_NAME
 from agentbreeder.strict_yaml import StrictYamlError, load_file
 
-SPEC_VERSION = 1  # `agentspec.SPEC_VERSION`
-MAX_SPEC_BYTES = 256 * 1024  # `agentspec.MAX_SPEC_BYTES`
+SPEC_VERSIONS = (1, 2)  # `agentspec.SPEC_VERSIONS`
+# `agentspec.MAX_SPEC_BYTES_V1` and `_V2`: version 2 holds up to six prompts (#1058 SP).
+MAX_SPEC_BYTES_V1 = 256 * 1024
+MAX_SPEC_BYTES_V2 = 512 * 1024
 FIELDS = frozenset(
     {"schema_version", "name", "model", "model_id", "max_model_calls", "prompt", "evals"}
     | {"tools", "knowledge", "mcp"}
 )
+V2_FIELDS = frozenset({"runtime", "subagents", "skills", "limits"})  # `agentspec.V2_FIELDS`
+# `agentspec.V2_CHECKS`: the eval checks a version 1 spec may not use.
+V2_CHECKS = frozenset(
+    {
+        "subagents_include",
+        "subagents_exclude",
+        "subagent_tools_include",
+        "skills_loaded",
+        "skills_not_loaded",
+    }
+)
+SUBAGENT_FIELDS = frozenset(
+    {"name", "description", "model", "model_id", "max_model_calls", "max_calls_per_turn"}
+    | {"prompt", "tools", "mcp"}
+)
+SUBAGENT = re.compile(r"[a-z][a-z0-9_]{0,31}")  # `agentfile.SUBAGENT_NAME`
+MAX_SUBAGENTS = 5  # `agentfile.MAX_SUBAGENTS`
+MAX_SUBAGENT_TOOLS = 20  # `agentspec.SubAgent.tools`
+MAX_SKILLS = 10  # `agentspec.Spec.skills`
+MAX_TURN_MODEL_CALLS = 40  # `agentfile.MAX_TURN_MODEL_CALLS`
 MAX_TOOLS = 50  # `agentspec.Spec.tools`
 MAX_SERVERS = 10  # `agentspec.Spec.mcp`
 MAX_SERVER_TOOLS = 100  # `agentspec.Mcp.tools`
@@ -65,7 +87,12 @@ MAX_PARTS = 500  # versions offered per kind
 MAX_DESCRIPTION = 300
 MCP_FILE_LIMIT = 64 * 1024  # `mcp.MAX_BYTES`
 EFFECTS = ("read", "write")
+# Files in an answer: 7 for a version 1 spec, plus 2 per sub-agent's prompt version (17 with
+# five sub-agents, tested with the largest form).
 MAX_FILES = 40
+# Refs in an answer: a runtime, a knowledge version, 50 tools, 10 servers, 5 sub-agents' 20
+# tools each and 10 skills is 172.
+MAX_REFS = 200
 MAX_CONTENT = 2 * 1024 * 1024  # all files' text together: the prompt is at most 32 KiB
 
 
@@ -74,11 +101,14 @@ def request(body: object) -> tuple[str, dict]:
     spec = body.get("spec") if isinstance(body, dict) else None
     if not isinstance(spec, dict):
         raise BadRequest("Send the agent's spec", "SPEC_INVALID")
-    unknown = sorted(set(spec) - FIELDS)
+    version = spec.get("schema_version")
+    if version not in SPEC_VERSIONS or isinstance(version, bool):
+        raise BadRequest("The spec's schema_version is 1 or 2", "SPEC_INVALID")
+    if version == 1:
+        _v1_only(spec)
+    unknown = sorted(set(spec) - FIELDS - (V2_FIELDS if version == 2 else set()))
     if unknown:
         raise BadRequest(f"Unknown field in the spec: {unknown[0][:40]}", "SPEC_INVALID")
-    if spec.get("schema_version") != SPEC_VERSION:
-        raise BadRequest(f"The spec's schema_version is {SPEC_VERSION}", "SPEC_INVALID")
     name = spec.get("name")
     if not isinstance(name, str) or not NAME.fullmatch(name):
         raise BadRequest(
@@ -101,34 +131,121 @@ def request(body: object) -> tuple[str, dict]:
             "SPEC_UNSUPPORTED",
         )
     _picks(spec.get("tools", []), spec.get("mcp", []))
-    if len(encode(spec)) > MAX_SPEC_BYTES:
+    if version == 2:
+        _composition(spec)
+    cap = MAX_SPEC_BYTES_V2 if version == 2 else MAX_SPEC_BYTES_V1
+    try:
+        size = len(encode(spec))
+    except UnicodeEncodeError:  # a lone surrogate (`"\ud800"`) parses but is not UTF-8
+        raise BadRequest("The spec has text that is not valid Unicode", "SPEC_INVALID") from None
+    if size > cap:
         raise BadRequest(
-            f"The spec is larger than {MAX_SPEC_BYTES // 1024} KiB; shorten the prompt or cases",
+            f"The spec is larger than {cap // 1024} KiB; shorten the prompts or cases",
             "SPEC_TOO_LARGE",
         )
     return name, spec
 
 
-def _picks(tools: object, servers: object) -> None:
+def _v1_only(spec: dict) -> None:
+    """A version 1 spec carries no version 2 field, case tag or check (`agentspec._v1_only`)."""
+    for key in sorted(V2_FIELDS & set(spec)):
+        raise BadRequest(f"{key} needs a schema_version 2 spec", "SPEC_INVALID")
+    evals = spec.get("evals")
+    cases = evals.get("cases") if isinstance(evals, dict) else None
+    for case in cases if isinstance(cases, list) else []:
+        if not isinstance(case, dict):
+            continue
+        expect = case.get("expect")
+        if "tags" in case or (isinstance(expect, dict) and V2_CHECKS & set(expect)):
+            raise BadRequest(
+                "Case tags and the sub-agent and skill checks need a schema_version 2 spec",
+                "SPEC_INVALID",
+            )
+
+
+def _composition(spec: dict) -> None:
+    """The version 2 fields' shape (the CLI resolves and checks them): a `runtime/` ref, `skill/`
+    refs (one version per skill), sub-agents and the turn cap."""
+    runtime = spec.get("runtime")
+    if runtime is not None:
+        _ref(runtime, "runtime")
+    skills = spec.get("skills", [])
+    if not isinstance(skills, list) or len(skills) > MAX_SKILLS:
+        raise BadRequest(f"Pick at most {MAX_SKILLS} skills", "SPEC_INVALID")
+    names = set()
+    for text in skills:
+        ref = _ref(text, "skill")
+        if ref.name in names:
+            raise BadRequest(f"Pick one version of skill {ref.name}", "SPEC_INVALID")
+        names.add(ref.name)
+    subagents = spec.get("subagents", [])
+    if not isinstance(subagents, list) or len(subagents) > MAX_SUBAGENTS:
+        raise BadRequest(f"An agent has at most {MAX_SUBAGENTS} sub-agents", "SPEC_INVALID")
+    names = set()
+    for number, sub in enumerate(subagents, 1):
+        if not isinstance(sub, dict) or not set(sub) <= SUBAGENT_FIELDS:
+            raise BadRequest(f"Sub-agent {number} has an unknown field", "SPEC_INVALID")
+        name = sub.get("name")
+        if not isinstance(name, str) or not SUBAGENT.fullmatch(name):
+            raise BadRequest(
+                f"Sub-agent {number}'s name starts with a lowercase letter, then lowercase "
+                "letters, digits and _, at most 32 characters",
+                "SPEC_INVALID",
+            )
+        if name in names:
+            raise BadRequest(f"Two sub-agents are named {name}", "SPEC_INVALID")
+        names.add(name)
+        if sub.get("model") not in PROVIDERS:
+            raise BadRequest(
+                f"Sub-agent {name}: pick a model provider: {', '.join(PROVIDERS)}",
+                "MODEL_INVALID",
+            )
+        model_id = sub.get("model_id")
+        if model_id is not None and not (
+            isinstance(model_id, str) and MODEL_ID.fullmatch(model_id)
+        ):
+            raise BadRequest(
+                f"Sub-agent {name}: a model id is letters, digits and . _ : / -, at most 128 "
+                "characters",
+                "MODEL_ID_INVALID",
+            )
+        _picks(sub.get("tools", []), sub.get("mcp", []), MAX_SUBAGENT_TOOLS, f"Sub-agent {name}: ")
+    limits = spec.get("limits")
+    if limits is not None:
+        calls = limits.get("turn_model_calls") if isinstance(limits, dict) else None
+        if (
+            set(limits if isinstance(limits, dict) else ()) != {"turn_model_calls"}
+            or not isinstance(calls, int)
+            or isinstance(calls, bool)
+            or not 1 <= calls <= MAX_TURN_MODEL_CALLS
+        ):
+            raise BadRequest(
+                f"Model calls per turn is 1 to {MAX_TURN_MODEL_CALLS}", "SPEC_INVALID"
+            )
+        if not subagents:
+            raise BadRequest("Model calls per turn needs a sub-agent", "SPEC_INVALID")
+
+
+def _picks(tools: object, servers: object, most: int = MAX_TOOLS, owner: str = "") -> None:
     """The picked refs' shape (the CLI resolves them): `tool/` refs, one version per tool; `mcp/`
-    servers with at least one tool each."""
-    if not isinstance(tools, list) or len(tools) > MAX_TOOLS:
-        raise BadRequest(f"Pick at most {MAX_TOOLS} tools", "SPEC_INVALID")
+    servers with at least one tool each. `owner` prefixes a sub-agent's messages."""
+    if not isinstance(tools, list) or len(tools) > most:
+        raise BadRequest(f"{owner}Pick at most {most} tools", "SPEC_INVALID")
     names = set()
     for text in tools:
         ref = _ref(text, "tool")
         if ref.name in names:
-            raise BadRequest(f"Pick one version of tool {ref.name}", "SPEC_INVALID")
+            raise BadRequest(f"{owner}Pick one version of tool {ref.name}", "SPEC_INVALID")
         names.add(ref.name)
     if not isinstance(servers, list) or len(servers) > MAX_SERVERS:
-        raise BadRequest(f"Pick at most {MAX_SERVERS} MCP servers", "SPEC_INVALID")
+        raise BadRequest(f"{owner}Pick at most {MAX_SERVERS} MCP servers", "SPEC_INVALID")
     names = set()
     for entry in servers:
         if not isinstance(entry, dict) or set(entry) != {"ref", "tools"}:
-            raise BadRequest("An MCP server is {ref, tools}", "SPEC_INVALID")
+            raise BadRequest(f"{owner}An MCP server is {{ref, tools}}", "SPEC_INVALID")
         ref = _ref(entry["ref"], "mcp")
         if ref.name in names:
-            raise BadRequest(f"Pick one version of MCP server {ref.name}", "SPEC_INVALID")
+            raise BadRequest(f"{owner}Pick one version of MCP server {ref.name}", "SPEC_INVALID")
         names.add(ref.name)
         granted = entry["tools"]
         if not isinstance(granted, list) or not 0 < len(granted) <= MAX_SERVER_TOOLS:
@@ -308,7 +425,7 @@ def _files(value: object) -> list[dict]:
 
 
 def _refs(value: object) -> list[dict]:
-    if not isinstance(value, list) or len(value) > 100:
+    if not isinstance(value, list) or len(value) > MAX_REFS:
         raise BadOutput
     shown = []
     for entry in value:
@@ -339,16 +456,18 @@ def _grants(value: object) -> list[dict]:
     return shown
 
 
-def summary(data: object, name: str, dry_run: bool, model: str, directory: str) -> dict:
+def summary(
+    data: object, name: str, dry_run: bool, model: str, directory: str, spec_version: int = 1
+) -> dict:
     """`new agent --from-spec --json`'s answer, checked against its schema 1 shape and reduced
-    to what the preview shows; `model` and `directory` are what was asked for. Raises BadOutput
-    for anything else."""
+    to what the preview shows; `model`, `directory` and `spec_version` are what was asked for
+    (a version 1 spec gets a version 1 answer). Raises BadOutput for anything else."""
     try:
         if not isinstance(data, dict) or data.get("schema_version") != 1:
             raise BadOutput
         if data.get("dry_run") is not dry_run or data.get("name") != name:
             raise BadOutput
-        if data.get("spec_version") != SPEC_VERSION or data.get("model") != model:
+        if data.get("spec_version") != spec_version or data.get("model") != model:
             raise BadOutput
         if data.get("directory") != directory:  # what is shown is where it is registered
             raise BadOutput

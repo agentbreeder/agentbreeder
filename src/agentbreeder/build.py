@@ -29,6 +29,7 @@ from agentbreeder.lock import Lock, materialise
 from agentbreeder.manifest import IdentityReference, Manifest
 from agentbreeder.operator_config import OperatorConfig
 from agentbreeder.package import DeployTemplate
+from agentbreeder.runtime_caps import CapabilitiesError, runtime_capabilities
 from agentbreeder.strict_yaml import StrictYamlError, load_file
 
 IMAGE_KINDS = ("prompt", "knowledge", "tool")
@@ -236,7 +237,7 @@ def _mcp_names(entries: list) -> dict[str, str]:
     }
 
 
-def _check_subagent_names(agent: AgentFile, placed: dict[str, Path]) -> None:
+def check_subagent_names(agent: AgentFile, placed: dict[str, Path]) -> None:
     """A sub-agent is the parent's tool `ask_<name>` and an ADK agent of that name (spec §5.3):
     refuse a clash with the parent's own name, functions, MCP tools or built-in tools, and a
     clash between tools inside one sub-agent. Messages name the location only."""
@@ -344,22 +345,12 @@ def _runtime_serving(runtime_dir: Path, ref: str) -> dict:
 
 
 def _runtime_capabilities(runtime_dir: Path, ref: str) -> frozenset[str]:
-    """What the runtime supports beyond serving an agent, from its manifest.yaml: `mcp` means it
-    has an MCP client for the stack relay (runtime/adk@1.1.0 and later)."""
+    """What the runtime supports beyond serving an agent (`runtime_caps`, the parser
+    `agentspec` shares)."""
     try:
-        meta = load_file(runtime_dir / "manifest.yaml")
-    except StrictYamlError as error:
+        return runtime_capabilities(runtime_dir)
+    except CapabilitiesError as error:
         raise BuildError("ARTIFACT_INVALID", f"{ref} manifest.yaml: {error}") from error
-    values = meta.get("capabilities", [])
-    if (
-        not isinstance(values, list)
-        or not all(
-            isinstance(v, str) and re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", v) for v in values
-        )
-        or len(set(values)) != len(values)
-    ):
-        raise BuildError("ARTIFACT_INVALID", f"{ref} manifest.yaml: invalid capabilities")
-    return frozenset(values)
 
 
 def _where(error: ValidationError) -> str:
@@ -542,7 +533,7 @@ def build(
             _prompt_as_prompt_md(placed[f"path:{Path(path).as_posix()}"])
         _check_tool_modules(agent, placed)
         _check_mcp_names(agent, placed)
-        _check_subagent_names(agent, placed)
+        check_subagent_names(agent, placed)
         config = _config(agent, placed, context)
         (context / "agent.config.json").write_text(json.dumps(config, indent=2, sort_keys=True))
         _world_readable(context)  # the image runs as uid 65532; COPY keeps these modes
