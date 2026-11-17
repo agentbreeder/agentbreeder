@@ -1,0 +1,425 @@
+{
+ "gemini-mcp": {
+  "spec": {
+   "evals": {
+    "cases": [
+     {
+      "expect": {
+       "must_match": [
+        "9"
+       ],
+       "tools_include": [
+        "github_get_me"
+       ]
+      },
+      "id": "hours",
+      "reference": "9am to 5pm Pacific.",
+      "turns": [
+       "When is support open?"
+      ]
+     },
+     {
+      "id": "unknown",
+      "reference": "It doesn't know.",
+      "turns": [
+       "Stock price?"
+      ]
+     }
+    ],
+    "retries": 2,
+    "threshold": 0.5
+   },
+   "max_model_calls": 3,
+   "mcp": [
+    {
+     "ref": "mcp/github@1.0.0",
+     "tools": [
+      "get_me",
+      "list_issues"
+     ]
+    }
+   ],
+   "model": "gemini",
+   "name": "helper",
+   "prompt": {
+    "text": "You are helper.\nBe brief."
+   },
+   "schema_version": 1
+  },
+  "summary": {
+   "aliases": [
+    "chat",
+    "judge"
+   ],
+   "cases": [
+    "hours",
+    "unknown"
+   ],
+   "combination": {
+    "parts": [
+     "model",
+     "prompt",
+     "evals",
+     "mcp"
+    ],
+    "verified": false
+   },
+   "directory": "/nonexistent-golden/helper",
+   "dry_run": true,
+   "files": [
+    {
+     "content": "# The helper agent, written by `agentbreeder new agent --from-spec` on 2026-11-13.\n#\n# Published versions are immutable. To change the prompt (or, the same way, the evals in\n# src/evals/), edit src/prompt/, bump `version:` in its manifest.yaml, run\n# `agentbreeder registry publish src/prompt` and change the ref below; then build and release.\n# `agentbreeder next` shows where the project is and what to run.\nkind: agent\nschema_version: 1\nname: helper\nruntime: runtime/adk@1.4.0\nmodel: {alias: chat, reasoning: low, max_model_calls: 3}\nprompt: {ref: prompt/helper-prompt@0.1.0}\nevals: {ref: eval/helper-evals@0.1.0, threshold: 0.5, retries: 2}\nmcp:\n  - ref: \"mcp/github@1.0.0\"\n    tools: [\"get_me\", \"list_issues\"]\ntraces: none        # this stack has no trace collector\nagent_events: none  # and no event log for the agent\n",
+     "mode": "0644",
+     "path": "agent.yaml",
+     "sha256": "sha256:2a6728f2aa6a3fc5f9249f84b8630f306843a6ca3f17a1905e1324d9a542c7fe"
+    },
+    {
+     "content": "# Local backing services for the helper agent: Postgres and the LiteLLM model gateway.\n# Written by `agentbreeder new agent helper --from-spec` on 2026-11-13.\n# `agentbreeder services up --environment dev --env-file FILE` starts them; FILE holds\n# GEMINI_API_KEY=... and GITHUB_MCP_TOKEN=... (mode 0600). See docs/services.md.\nkind: stack\nschema_version: 1\nname: helper\nservices:\n  postgres:\n    ref: service/postgres-pgvector@1.1.0\n    with: {databases: [app, litellm]}\n  litellm:\n    ref: service/litellm@1.0.0\n    with: {config: stack/litellm/config.yaml}\n    wire: {database-url: postgres.databases.litellm}\nmcp:\n  github: {ref: \"mcp/github@1.0.0\"}\nenvironment:\n  gateway: litellm\n  models: [\"chat\", \"judge\"]\n  ceilings: {budget_usd: 5, rpm: 60}\n  bindings:\n    DATABASE_URL: {ref: postgres.databases.app}\n  eval_database: {ref: postgres.databases.app}\n  agents:\n    helper:\n      sponsor: you@example.com   # who answers for this agent\n      review_by: \"2027-05-12\"     # the gate refuses deploys after this date\n      candidate: true            # release tests a candidate before production\n      mcp: {github: [get_me, list_issues]}\n",
+     "mode": "0644",
+     "path": "stack.yaml",
+     "sha256": "sha256:6f01fcd6c9d0977582c52466fd5a8c0a1e12a5f4036d0bb96ddbd80f17b5521b"
+    },
+    {
+     "content": "model_list:\n  - model_name: \"chat\"\n    litellm_params: {model: gemini/gemini-3.8-flash, api_key: os.environ/GEMINI_API_KEY}\n  - model_name: \"judge\"\n    litellm_params: {model: gemini/gemini-3.8-flash, api_key: os.environ/GEMINI_API_KEY}\nlitellm_settings:\n  turn_off_message_logging: true   # spend logs keep tokens/cost, not prompts or replies\ngeneral_settings:\n  master_key: os.environ/LITELLM_MASTER_KEY\n  database_url: os.environ/DATABASE_URL\n  store_prompts_in_spend_logs: false\n",
+     "mode": "0644",
+     "path": "stack/litellm/config.yaml",
+     "sha256": "sha256:72289de318490d8b66d48ba18944dd53e64889263e873daf671b4a9fcb79f8c1"
+    },
+    {
+     "content": "kind: prompt\nname: helper-prompt\nversion: 0.1.0\ndescription: The helper agent's system prompt.\n",
+     "mode": "0644",
+     "path": "src/prompt/manifest.yaml",
+     "sha256": "sha256:e9ab9c5076d4914ae1d420dc3f7e6910d300ff2f660ef4a02da02ea2771ece90"
+    },
+    {
+     "content": "You are helper.\nBe brief.\n",
+     "mode": "0644",
+     "path": "src/prompt/prompt.md",
+     "sha256": "sha256:696a1e01264b961227a62eaaa83ef895fba82f24ec32c0216064206095f85775"
+    },
+    {
+     "content": "kind: eval\nname: helper-evals\nversion: 0.1.0\ndescription: Cases for the helper agent, from the agent builder.\njudge: {alias: judge}\ncases: golden.jsonl\n",
+     "mode": "0644",
+     "path": "src/evals/manifest.yaml",
+     "sha256": "sha256:5b0ec43f1ffff75b8db3385f4d1d7a28e72cffbefefea6df93b225e4a34ebaa7"
+    },
+    {
+     "content": "{\"id\": \"hours\", \"turns\": [\"When is support open?\"], \"expect\": {\"must_match\": [\"9\"], \"tools_include\": [\"github_get_me\"]}, \"reference\": \"9am to 5pm Pacific.\"}\n{\"id\": \"unknown\", \"turns\": [\"Stock price?\"], \"reference\": \"It doesn't know.\"}\n",
+     "mode": "0644",
+     "path": "src/evals/golden.jsonl",
+     "sha256": "sha256:70d5b0639ef059f4e9f8e106eb59f169b76025af1b400835d013d28f92dfc837"
+    }
+   ],
+   "grants": [
+    {
+     "server": "github",
+     "tools": [
+      "get_me",
+      "list_issues"
+     ]
+    }
+   ],
+   "key": "GEMINI_API_KEY",
+   "keys": [
+    "GEMINI_API_KEY",
+    "GITHUB_MCP_TOKEN"
+   ],
+   "knowledge": [],
+   "lock": "agent.lock",
+   "model": "gemini",
+   "model_id": "gemini/gemini-3.8-flash",
+   "name": "helper",
+   "plan_sha256": "sha256:262e8ea51a80b6e328e2d5c52bcf660dac3b41c126be5b06066bd2f61d616591",
+   "published": [
+    {
+     "ref": "prompt/helper-prompt@0.1.0",
+     "sha256": null,
+     "source": "src/prompt"
+    },
+    {
+     "ref": "eval/helper-evals@0.1.0",
+     "sha256": null,
+     "source": "src/evals"
+    }
+   ],
+   "refs": [
+    {
+     "kind": "mcp",
+     "ref": "mcp/github@1.0.0",
+     "root_kind": "builtin",
+     "runs_code": true,
+     "sha256": "sha256:fce1fd92f814b228dea8f31c8e661086e64ae3d8a6097c05fb8b6e919cb7b405"
+    }
+   ],
+   "review_by": "2027-05-12",
+   "runs_code": false,
+   "runtime": "runtime/adk@1.4.0",
+   "schema_version": 1,
+   "spec_version": 1,
+   "verified": true
+  }
+ },
+ "ollama-plain": {
+  "spec": {
+   "evals": {
+    "cases": [
+     {
+      "expect": {
+       "must_match": [
+        "9"
+       ],
+       "tools_include": [
+        "github_get_me"
+       ]
+      },
+      "id": "hours",
+      "reference": "9am to 5pm Pacific.",
+      "turns": [
+       "When is support open?"
+      ]
+     },
+     {
+      "id": "unknown",
+      "reference": "It doesn't know.",
+      "turns": [
+       "Stock price?"
+      ]
+     }
+    ],
+    "retries": 2,
+    "threshold": 0.5
+   },
+   "model": "ollama",
+   "name": "helper",
+   "prompt": {
+    "text": "You are helper."
+   },
+   "schema_version": 1
+  },
+  "summary": {
+   "aliases": [
+    "chat",
+    "judge"
+   ],
+   "cases": [
+    "hours",
+    "unknown"
+   ],
+   "combination": {
+    "parts": [
+     "model",
+     "prompt",
+     "evals"
+    ],
+    "verified": true
+   },
+   "directory": "/nonexistent-golden/helper",
+   "dry_run": true,
+   "files": [
+    {
+     "content": "# The helper agent, written by `agentbreeder new agent --from-spec` on 2026-11-13.\n#\n# Published versions are immutable. To change the prompt (or, the same way, the evals in\n# src/evals/), edit src/prompt/, bump `version:` in its manifest.yaml, run\n# `agentbreeder registry publish src/prompt` and change the ref below; then build and release.\n# `agentbreeder next` shows where the project is and what to run.\nkind: agent\nschema_version: 1\nname: helper\nruntime: runtime/adk@1.4.0\nmodel: {alias: chat, reasoning: none, max_model_calls: 2}\nprompt: {ref: prompt/helper-prompt@0.1.0}\nevals: {ref: eval/helper-evals@0.1.0, threshold: 0.5, retries: 2}\ntraces: none        # this stack has no trace collector\nagent_events: none  # and no event log for the agent\n",
+     "mode": "0644",
+     "path": "agent.yaml",
+     "sha256": "sha256:91cf6b1d6c0dcd498d9a89c986d1552d1daf0e514e56681cee67344ba590f6b6"
+    },
+    {
+     "content": "# Local backing services for the helper agent: Postgres and the LiteLLM model gateway.\n# Written by `agentbreeder new agent helper --from-spec` on 2026-11-13.\n# `agentbreeder services up --environment dev` starts them. No model key: the\n# gateway calls Ollama on this machine (`ollama pull` the model first). See\n# docs/services.md.\nkind: stack\nschema_version: 1\nname: helper\nservices:\n  postgres:\n    ref: service/postgres-pgvector@1.1.0\n    with: {databases: [app, litellm]}\n  litellm:\n    ref: service/litellm@1.2.0\n    with: {config: stack/litellm/config.yaml}\n    wire: {database-url: postgres.databases.litellm}\nenvironment:\n  gateway: litellm\n  models: [\"chat\", \"judge\"]\n  ceilings: {budget_usd: 5, rpm: 60}\n  bindings:\n    DATABASE_URL: {ref: postgres.databases.app}\n  eval_database: {ref: postgres.databases.app}\n  agents:\n    helper:\n      sponsor: you@example.com   # who answers for this agent\n      review_by: \"2027-05-12\"     # the gate refuses deploys after this date\n      candidate: true            # release tests a candidate before production\n",
+     "mode": "0644",
+     "path": "stack.yaml",
+     "sha256": "sha256:34d33b66f580825e0282ccc7270a46622b5f84606ef24dc498e443ebbdf63da0"
+    },
+    {
+     "content": "model_list:\n  - model_name: \"chat\"\n    litellm_params: {model: \"ollama_chat/llama3.2:3b\", api_base: http://host.docker.internal:11434}\n  - model_name: \"judge\"\n    litellm_params: {model: \"ollama_chat/llama3.2:3b\", api_base: http://host.docker.internal:11434}\nlitellm_settings:\n  turn_off_message_logging: true   # spend logs keep tokens/cost, not prompts or replies\ngeneral_settings:\n  master_key: os.environ/LITELLM_MASTER_KEY\n  database_url: os.environ/DATABASE_URL\n  store_prompts_in_spend_logs: false\n",
+     "mode": "0644",
+     "path": "stack/litellm/config.yaml",
+     "sha256": "sha256:d85238a52a093fd3b622e2efdb2153e43e0d80ad223805b457630177e9ab7f29"
+    },
+    {
+     "content": "kind: prompt\nname: helper-prompt\nversion: 0.1.0\ndescription: The helper agent's system prompt.\n",
+     "mode": "0644",
+     "path": "src/prompt/manifest.yaml",
+     "sha256": "sha256:e9ab9c5076d4914ae1d420dc3f7e6910d300ff2f660ef4a02da02ea2771ece90"
+    },
+    {
+     "content": "You are helper.\n",
+     "mode": "0644",
+     "path": "src/prompt/prompt.md",
+     "sha256": "sha256:a4997f971813c9a80552ab05ed01ba3e541a125b2723355bf571cab877a34d3a"
+    },
+    {
+     "content": "kind: eval\nname: helper-evals\nversion: 0.1.0\ndescription: Cases for the helper agent, from the agent builder.\njudge: {alias: judge}\ncases: golden.jsonl\n",
+     "mode": "0644",
+     "path": "src/evals/manifest.yaml",
+     "sha256": "sha256:5b0ec43f1ffff75b8db3385f4d1d7a28e72cffbefefea6df93b225e4a34ebaa7"
+    },
+    {
+     "content": "{\"id\": \"hours\", \"turns\": [\"When is support open?\"], \"expect\": {\"must_match\": [\"9\"], \"tools_include\": [\"github_get_me\"]}, \"reference\": \"9am to 5pm Pacific.\"}\n{\"id\": \"unknown\", \"turns\": [\"Stock price?\"], \"reference\": \"It doesn't know.\"}\n",
+     "mode": "0644",
+     "path": "src/evals/golden.jsonl",
+     "sha256": "sha256:70d5b0639ef059f4e9f8e106eb59f169b76025af1b400835d013d28f92dfc837"
+    }
+   ],
+   "grants": [],
+   "key": null,
+   "keys": [],
+   "knowledge": [],
+   "lock": "agent.lock",
+   "model": "ollama",
+   "model_id": "ollama_chat/llama3.2:3b",
+   "name": "helper",
+   "plan_sha256": "sha256:2127f21b2a12d40a2d63aa1c6d57f063488d89313a82713a5a66aaf657ce03e6",
+   "published": [
+    {
+     "ref": "prompt/helper-prompt@0.1.0",
+     "sha256": null,
+     "source": "src/prompt"
+    },
+    {
+     "ref": "eval/helper-evals@0.1.0",
+     "sha256": null,
+     "source": "src/evals"
+    }
+   ],
+   "refs": [],
+   "review_by": "2027-05-12",
+   "runs_code": false,
+   "runtime": "runtime/adk@1.4.0",
+   "schema_version": 1,
+   "spec_version": 1,
+   "verified": true
+  }
+ },
+ "openai-plain": {
+  "spec": {
+   "evals": {
+    "cases": [
+     {
+      "expect": {
+       "must_match": [
+        "9"
+       ],
+       "tools_include": [
+        "github_get_me"
+       ]
+      },
+      "id": "hours",
+      "reference": "9am to 5pm Pacific.",
+      "turns": [
+       "When is support open?"
+      ]
+     },
+     {
+      "id": "unknown",
+      "reference": "It doesn't know.",
+      "turns": [
+       "Stock price?"
+      ]
+     }
+    ],
+    "retries": 2,
+    "threshold": 0.5
+   },
+   "model": "openai",
+   "model_id": "openai/gpt-5.6",
+   "name": "helper",
+   "prompt": {
+    "text": "You are helper."
+   },
+   "schema_version": 1
+  },
+  "summary": {
+   "aliases": [
+    "chat",
+    "judge"
+   ],
+   "cases": [
+    "hours",
+    "unknown"
+   ],
+   "combination": {
+    "parts": [
+     "model",
+     "prompt",
+     "evals"
+    ],
+    "verified": true
+   },
+   "directory": "/nonexistent-golden/helper",
+   "dry_run": true,
+   "files": [
+    {
+     "content": "# The helper agent, written by `agentbreeder new agent --from-spec` on 2026-11-13.\n#\n# Published versions are immutable. To change the prompt (or, the same way, the evals in\n# src/evals/), edit src/prompt/, bump `version:` in its manifest.yaml, run\n# `agentbreeder registry publish src/prompt` and change the ref below; then build and release.\n# `agentbreeder next` shows where the project is and what to run.\nkind: agent\nschema_version: 1\nname: helper\nruntime: runtime/adk@1.4.0\nmodel: {alias: chat, reasoning: low, max_model_calls: 2}\nprompt: {ref: prompt/helper-prompt@0.1.0}\nevals: {ref: eval/helper-evals@0.1.0, threshold: 0.5, retries: 2}\ntraces: none        # this stack has no trace collector\nagent_events: none  # and no event log for the agent\n",
+     "mode": "0644",
+     "path": "agent.yaml",
+     "sha256": "sha256:9cfa65e5504599e98f6159fbc30bda76a2d2e909136b91d13ed83a2cc9ab62a1"
+    },
+    {
+     "content": "# Local backing services for the helper agent: Postgres and the LiteLLM model gateway.\n# Written by `agentbreeder new agent helper --from-spec` on 2026-11-13.\n# `agentbreeder services up --environment dev --env-file FILE` starts them; FILE holds\n# OPENAI_API_KEY=... (mode 0600). See docs/services.md.\nkind: stack\nschema_version: 1\nname: helper\nservices:\n  postgres:\n    ref: service/postgres-pgvector@1.1.0\n    with: {databases: [app, litellm]}\n  litellm:\n    ref: service/litellm@1.0.0\n    with: {config: stack/litellm/config.yaml}\n    wire: {database-url: postgres.databases.litellm}\nenvironment:\n  gateway: litellm\n  models: [\"chat\", \"judge\"]\n  ceilings: {budget_usd: 5, rpm: 60}\n  bindings:\n    DATABASE_URL: {ref: postgres.databases.app}\n  eval_database: {ref: postgres.databases.app}\n  agents:\n    helper:\n      sponsor: you@example.com   # who answers for this agent\n      review_by: \"2027-05-12\"     # the gate refuses deploys after this date\n      candidate: true            # release tests a candidate before production\n",
+     "mode": "0644",
+     "path": "stack.yaml",
+     "sha256": "sha256:94330a0ea269176df461cec49046aa22604d406ee1a4b83feb335bec0a562260"
+    },
+    {
+     "content": "model_list:\n  - model_name: \"chat\"\n    litellm_params: {model: openai/gpt-5.6, api_key: os.environ/OPENAI_API_KEY}\n  - model_name: \"judge\"\n    litellm_params: {model: openai/gpt-5.6, api_key: os.environ/OPENAI_API_KEY}\nlitellm_settings:\n  turn_off_message_logging: true   # spend logs keep tokens/cost, not prompts or replies\ngeneral_settings:\n  master_key: os.environ/LITELLM_MASTER_KEY\n  database_url: os.environ/DATABASE_URL\n  store_prompts_in_spend_logs: false\n",
+     "mode": "0644",
+     "path": "stack/litellm/config.yaml",
+     "sha256": "sha256:75a30d759d83b1e2e5b33689898e4a820c64c0495d4a4ff2396c5f09bcb780b9"
+    },
+    {
+     "content": "kind: prompt\nname: helper-prompt\nversion: 0.1.0\ndescription: The helper agent's system prompt.\n",
+     "mode": "0644",
+     "path": "src/prompt/manifest.yaml",
+     "sha256": "sha256:e9ab9c5076d4914ae1d420dc3f7e6910d300ff2f660ef4a02da02ea2771ece90"
+    },
+    {
+     "content": "You are helper.\n",
+     "mode": "0644",
+     "path": "src/prompt/prompt.md",
+     "sha256": "sha256:a4997f971813c9a80552ab05ed01ba3e541a125b2723355bf571cab877a34d3a"
+    },
+    {
+     "content": "kind: eval\nname: helper-evals\nversion: 0.1.0\ndescription: Cases for the helper agent, from the agent builder.\njudge: {alias: judge}\ncases: golden.jsonl\n",
+     "mode": "0644",
+     "path": "src/evals/manifest.yaml",
+     "sha256": "sha256:5b0ec43f1ffff75b8db3385f4d1d7a28e72cffbefefea6df93b225e4a34ebaa7"
+    },
+    {
+     "content": "{\"id\": \"hours\", \"turns\": [\"When is support open?\"], \"expect\": {\"must_match\": [\"9\"], \"tools_include\": [\"github_get_me\"]}, \"reference\": \"9am to 5pm Pacific.\"}\n{\"id\": \"unknown\", \"turns\": [\"Stock price?\"], \"reference\": \"It doesn't know.\"}\n",
+     "mode": "0644",
+     "path": "src/evals/golden.jsonl",
+     "sha256": "sha256:70d5b0639ef059f4e9f8e106eb59f169b76025af1b400835d013d28f92dfc837"
+    }
+   ],
+   "grants": [],
+   "key": "OPENAI_API_KEY",
+   "keys": [
+    "OPENAI_API_KEY"
+   ],
+   "knowledge": [],
+   "lock": "agent.lock",
+   "model": "openai",
+   "model_id": "openai/gpt-5.6",
+   "name": "helper",
+   "plan_sha256": "sha256:48b6676cd9ac166bb99853c8c6e241fe5167fb5c4894149259ea5f7f38775522",
+   "published": [
+    {
+     "ref": "prompt/helper-prompt@0.1.0",
+     "sha256": null,
+     "source": "src/prompt"
+    },
+    {
+     "ref": "eval/helper-evals@0.1.0",
+     "sha256": null,
+     "source": "src/evals"
+    }
+   ],
+   "refs": [],
+   "review_by": "2027-05-12",
+   "runs_code": false,
+   "runtime": "runtime/adk@1.4.0",
+   "schema_version": 1,
+   "spec_version": 1,
+   "verified": true
+  }
+ }
+}

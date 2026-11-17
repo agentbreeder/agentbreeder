@@ -366,17 +366,22 @@ def render(
     keys: tuple[str, ...] = (),
     embedding: tuple[str, str, int] | None = None,
     postgres: str = POSTGRES,
+    served: tuple[tuple[str, str, str], ...] = (),
 ) -> dict[str, str]:
     """`stack.yaml` and the gateway config for a checked NAME, provider, model id and aliases
     (also used by `--from-spec`, `agentspec`). `mcp`: server name -> checked `mcp/` ref, added
     as the stack's `mcp:` block (no grants; those are added with `mcpgrant`); `keys`: the keys
     its servers import, named in the header; `embedding`: a checked (alias, LiteLLM model,
     dimensions) for a knowledge version, served with the provider's key; `postgres`: the
-    Postgres service ref. `written_by` and `postgres` are fixed strings from the caller, never
-    user text."""
+    Postgres service ref; `served`: a checked (alias, provider, LiteLLM model) per sub-agent
+    with its own model (`--from-spec` v2, CC2), served with that provider's key after
+    `aliases`. `written_by` and `postgres` are fixed strings from the caller, never user
+    text."""
     provider = PROVIDERS[model]
     quoted = [json.dumps(alias) for alias in aliases]
-    models = quoted + ([json.dumps(embedding[0])] if embedding else [])
+    extra = [(json.dumps(alias), PROVIDERS[key], model) for alias, key, model in served]
+    models = quoted + [alias for alias, _, _ in extra]
+    models += [json.dumps(embedding[0])] if embedding else []
     mcp_block = ""
     if mcp:
         mcp_block = "mcp:\n" + "".join(
@@ -402,6 +407,10 @@ def render(
                 alias=alias, model=newagent.model_yaml(model_id), route=provider.route()
             )
             for alias in quoted
+        )
+        + "".join(
+            LITELLM_MODEL.format(alias=alias, model=newagent.model_yaml(model), route=sub.route())
+            for alias, sub, model in extra
         )
         + (
             LITELLM_EMBEDDING.format(

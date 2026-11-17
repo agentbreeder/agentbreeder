@@ -425,7 +425,9 @@ class Center:
                 + ["--dry-run", "--json"]
             )
         try:
-            shown = builder.summary(data, name, True, spec["model"], str(destination))
+            shown = builder.summary(
+                data, name, True, spec["model"], str(destination), spec["schema_version"]
+            )
         except builder.BadOutput as problem:
             raise BadRequest(str(problem), "BAD_OUTPUT") from problem
         return name, destination, shown
@@ -467,7 +469,9 @@ class Center:
                 + [f"--expect-digest={digest}", "--json"]
             )
         try:
-            builder.summary(data, name, False, spec["model"], str(destination))
+            builder.summary(
+                data, name, False, spec["model"], str(destination), spec["schema_version"]
+            )
             return self.register(destination)
         except (builder.BadOutput, BadRequest) as problem:
             # The files are on disk now, so a retry would only meet the destination check.

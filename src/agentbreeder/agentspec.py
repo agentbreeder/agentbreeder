@@ -46,7 +46,7 @@ import json
 import os
 import re
 import stat
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal
@@ -60,7 +60,12 @@ from pydantic import (
     model_validator,
 )
 
-from agentbreeder import newagent, registry, stackfor
+from agentbreeder import evals, newagent, registry, stackfor
+from agentbreeder.agentfile import (
+    MAX_SUBAGENTS,
+    MAX_TURN_MODEL_CALLS,
+    SUBAGENT_NAME,
+)
 from agentbreeder.newagent import (
     EVALS_SOURCE,
     PROMPT_SOURCE,
@@ -70,9 +75,26 @@ from agentbreeder.newagent import (
     VERSION,
     NewAgentError,
 )
+from agentbreeder.runtime_caps import CapabilitiesError, runtime_capabilities
 
-SPEC_VERSION = 1
-MAX_SPEC_BYTES = 256 * 1024
+# Spec versions this CLI reads. 2 (#1058 SP, shared with #1085's `runtime`) adds `runtime`,
+# `subagents`, `skills`, `limits`, case `tags` and the sub-agent and skill checks; a version 1
+# spec with any of them is SPEC_INVALID, and a version 1 spec writes what it always wrote.
+SPEC_VERSIONS = (1, 2)
+SPEC_VERSION = 2  # the newest
+MAX_SPEC_BYTES_V1 = 256 * 1024
+MAX_SPEC_BYTES_V2 = 512 * 1024  # six prompts of 32 KiB is 192 KiB before the cases
+V2_FIELDS = ("runtime", "subagents", "skills", "limits")
+V2_CHECKS = (
+    "subagents_include",
+    "subagents_exclude",
+    "subagent_tools_include",
+    "skills_loaded",
+    "skills_not_loaded",
+)
+MAX_SUBAGENT_TOOLS = 20  # agentfile.SubAgent.tools
+MAX_SKILLS = 10  # agentfile.AgentFile.skills
+MAX_DESCRIPTION = 500  # agentfile.SubAgent.description, in characters
 MAX_PROMPT = 32 * 1024
 MAX_TEXT = 4000  # a turn or a reference
 MAX_CASES = 100  # the builder's limit; the eval loader allows more
@@ -232,11 +254,29 @@ def _pattern(pattern: str, where: str) -> None:
         )
 
 
+TOOL_NAME = r"[A-Za-z_][A-Za-z0-9_.-]{0,127}"
+
+
+def _distinct(values: list[str], pattern, where: str) -> None:
+    if any(not pattern.fullmatch(value) for value in values):
+        raise ValueError(f"{where}: not a name")
+    if len(set(values)) != len(values):
+        raise ValueError(f"{where}: duplicate name")
+
+
 class Expect(_Strict):
     must_match: list[str] = Field(default_factory=list, max_length=20)
     must_not_match: list[str] = Field(default_factory=list, max_length=20)
     tools_include: list[str] = Field(default_factory=list, max_length=20)
     tools_exclude: list[str] = Field(default_factory=list, max_length=20)
+    # Spec v2 (evals.py's rules for sub-agents and skills, #1058 EV).
+    subagents_include: list[str] = Field(default_factory=list, max_length=MAX_SUBAGENTS)
+    subagents_exclude: list[str] = Field(default_factory=list, max_length=MAX_SUBAGENTS)
+    subagent_tools_include: dict[str, list[str]] = Field(
+        default_factory=dict, max_length=MAX_SUBAGENTS
+    )
+    skills_loaded: list[str] = Field(default_factory=list, max_length=MAX_SKILLS)
+    skills_not_loaded: list[str] = Field(default_factory=list, max_length=MAX_SKILLS)
 
     @model_validator(mode="after")
     def _checked(self):
@@ -246,9 +286,29 @@ class Expect(_Strict):
                 _pattern(pattern, f"expect.{field_name}")
         for field_name in ("tools_include", "tools_exclude"):
             for tool in getattr(self, field_name):
-                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]{0,127}", tool):
+                if not re.fullmatch(TOOL_NAME, tool):
                     raise ValueError(f"expect.{field_name}: not a tool name")
+        for field_name in ("subagents_include", "subagents_exclude"):
+            _distinct(getattr(self, field_name), evals.SUBAGENT, f"expect.{field_name}")
+        for field_name in ("skills_loaded", "skills_not_loaded"):
+            _distinct(getattr(self, field_name), evals.SKILL, f"expect.{field_name}")
+        for name, tools in self.subagent_tools_include.items():
+            if not evals.SUBAGENT.fullmatch(name):
+                raise ValueError("expect.subagent_tools_include: not a sub-agent name")
+            if not 0 < len(tools) <= 20 or not all(re.fullmatch(TOOL_NAME, t) for t in tools):
+                raise ValueError("expect.subagent_tools_include: 1 to 20 tool names each")
         return self
+
+    def subagents(self) -> set[str]:
+        """The sub-agent names the checks name."""
+        return {
+            *self.subagents_include,
+            *self.subagents_exclude,
+            *self.subagent_tools_include,
+        }
+
+    def skills(self) -> set[str]:
+        return {*self.skills_loaded, *self.skills_not_loaded}
 
 
 class Case(_Strict):
@@ -256,6 +316,13 @@ class Case(_Strict):
     turns: list[str] = Field(min_length=1, max_length=10)
     expect: Expect = Field(default_factory=Expect)
     reference: str
+    tags: list[str] = Field(default_factory=list, max_length=evals.MAX_TAGS)  # spec v2
+
+    @field_validator("tags")
+    @classmethod
+    def _tags(cls, tags: list[str]) -> list[str]:
+        _distinct(tags, evals.TAG, "tags")
+        return tags
 
     @field_validator("turns")
     @classmethod
@@ -318,8 +385,34 @@ class Knowledge(_Strict):
     extra_searches: int = Field(default=1, ge=0, le=5)
 
 
+class SubAgent(_Strict):
+    """A sub-agent (spec v2; `agentfile.SubAgent`): its own prompt, model and tools, called by
+    the agent as `ask_<name>`. The prompt becomes `prompt/NAME-SUB-prompt@0.1.0`."""
+
+    name: str = Field(pattern=SUBAGENT_NAME)
+    description: str
+    model: str
+    model_id: str | None = None
+    max_model_calls: int | None = Field(default=None, ge=1, le=20)  # None: the agent's
+    max_calls_per_turn: int = Field(default=2, ge=1, le=3)
+    prompt: Prompt
+    tools: list[str] = Field(default_factory=list, max_length=MAX_SUBAGENT_TOOLS)
+    mcp: list[Mcp] = Field(default_factory=list, max_length=10)
+
+    @field_validator("description")
+    @classmethod
+    def _description(cls, text: str) -> str:
+        if len(text) > MAX_DESCRIPTION:
+            raise ValueError(f"description is over {MAX_DESCRIPTION} characters")
+        return _text(text, 4 * MAX_DESCRIPTION, "description")
+
+
+class Limits(_Strict):
+    turn_model_calls: int = Field(ge=1, le=MAX_TURN_MODEL_CALLS)
+
+
 class Spec(_Strict):
-    schema_version: Literal[1]
+    schema_version: Literal[1, 2]
     name: str
     model: str
     model_id: str | None = None
@@ -330,6 +423,25 @@ class Spec(_Strict):
     # runtime/adk 1.x retrieves from one knowledge set (agentfile.AgentFile.knowledge)
     knowledge: list[Knowledge] = Field(default_factory=list, max_length=1)
     mcp: list[Mcp] = Field(default_factory=list, max_length=10)
+    # Spec v2 only (`_v1_only` refuses them under 1).
+    runtime: str | None = Field(default=None, max_length=200)
+    subagents: list[SubAgent] = Field(default_factory=list, max_length=MAX_SUBAGENTS)
+    skills: list[str] = Field(default_factory=list, max_length=MAX_SKILLS)
+    limits: Limits | None = None
+
+    @model_validator(mode="after")
+    def _composition(self):
+        names = [sub.name for sub in self.subagents]
+        if len(set(names)) != len(names):
+            raise ValueError("subagents: duplicate name")
+        if self.limits is not None and not self.subagents:
+            raise ValueError("limits: valid only with subagents")
+        for index, case in enumerate(self.evals.cases):
+            if case.expect.subagents() - set(names):
+                raise ValueError(
+                    f"evals.cases[{index}].expect: names a sub-agent the spec does not have"
+                )
+        return self
 
 
 # -- reading the spec ----------------------------------------------------------------------------
@@ -350,7 +462,8 @@ def _constant(name: str):
 
 def read(path: Path) -> dict:
     """The spec file's JSON object. Refuses a link, a non-regular file, another user's file, a
-    file others can read or write, and anything over `MAX_SPEC_BYTES`."""
+    file others can read or write, and anything over `MAX_SPEC_BYTES_V2`, or over
+    `MAX_SPEC_BYTES_V1` unless it says `schema_version` 2."""
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
@@ -368,17 +481,23 @@ def read(path: Path) -> dict:
                 "SPEC_UNSAFE",
                 "the spec file must be yours and private (chmod 600): it can hold a prompt",
             )
-        raw = reader.read(MAX_SPEC_BYTES + 1)
-    if len(raw) > MAX_SPEC_BYTES:
-        raise NewAgentError("SPEC_TOO_LARGE", f"the spec is over {MAX_SPEC_BYTES // 1024} KiB")
+        raw = reader.read(MAX_SPEC_BYTES_V2 + 1)
+    if len(raw) > MAX_SPEC_BYTES_V2:
+        raise NewAgentError("SPEC_TOO_LARGE", f"the spec is over {MAX_SPEC_BYTES_V2 // 1024} KiB")
     try:
         data = json.loads(raw.decode("utf-8"), object_pairs_hook=_pairs, parse_constant=_constant)
-    except (UnicodeDecodeError, ValueError) as error:
+    except (UnicodeDecodeError, ValueError, RecursionError) as error:
         if isinstance(error, NewAgentError):
             raise
         raise NewAgentError("SPEC_INVALID", "the spec is not UTF-8 JSON") from None
     if not isinstance(data, dict):
         raise NewAgentError("SPEC_INVALID", "the spec must be a JSON object")
+    if data.get("schema_version") != 2 and len(raw) > MAX_SPEC_BYTES_V1:
+        raise NewAgentError(
+            "SPEC_TOO_LARGE",
+            f"the spec is over {MAX_SPEC_BYTES_V1 // 1024} KiB (a schema_version 2 spec may be "
+            f"{MAX_SPEC_BYTES_V2 // 1024} KiB)",
+        )
     return data
 
 
@@ -394,16 +513,42 @@ def _problems(error: ValidationError) -> str:
     return "; ".join(registry.clean(item, name=True)[0] for item in items)
 
 
+def _v1_only(data: dict) -> None:
+    """A version 1 spec carries no version 2 field: refused by location, never by value."""
+    for key in V2_FIELDS:
+        if key in data:
+            raise NewAgentError("SPEC_INVALID", f"{key}: needs schema_version 2")
+    cases = data.get("evals", {}).get("cases") if isinstance(data.get("evals"), dict) else None
+    for index, case in enumerate(cases if isinstance(cases, list) else []):
+        if not isinstance(case, dict):
+            continue
+        if "tags" in case:
+            raise NewAgentError(
+                "SPEC_INVALID", f"evals.cases[{index}].tags: needs schema_version 2"
+            )
+        expect = case.get("expect")
+        for key in V2_CHECKS:
+            if isinstance(expect, dict) and key in expect:
+                raise NewAgentError(
+                    "SPEC_INVALID",
+                    f"evals.cases[{index}].expect.{key}: needs schema_version 2",
+                )
+
+
 def parse(data: dict) -> Spec:
+    version = data.get("schema_version")
+    if version not in SPEC_VERSIONS or isinstance(version, bool):
+        if version is not None:
+            raise NewAgentError(
+                "SPEC_VERSION_UNSUPPORTED",
+                "this AgentBreeder reads spec schema_version "
+                + " and ".join(map(str, SPEC_VERSIONS)),
+            )
+    elif version == 1:
+        _v1_only(data)
     try:
         return Spec.model_validate(data)
     except ValidationError as error:
-        version = data.get("schema_version")
-        if version != SPEC_VERSION and version is not None:
-            raise NewAgentError(
-                "SPEC_VERSION_UNSUPPORTED",
-                f"this AgentBreeder reads spec schema_version {SPEC_VERSION}",
-            ) from None
         raise NewAgentError("SPEC_INVALID", _problems(error)) from None
 
 
@@ -532,14 +677,213 @@ def _knowledge(spec: Spec, directory: Path) -> tuple[list[dict], list[dict], tup
     return [ref_entry], [row], (want.alias, model, want.dimensions)
 
 
+# -- spec v2: runtime, sub-agents and skills -----------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Sub:
+    """A sub-agent as written: its gateway alias, LiteLLM model and prompt version."""
+
+    spec: SubAgent
+    alias: str
+    model_id: str
+    prompt_ref: str
+    source: str  # the prompt's source directory in the project
+
+
+@dataclass(frozen=True)
+class Composition:
+    runtime: str  # the ref agent.yaml pins
+    entries: list[dict]  # the pinned runtime's ref entry (none for the default)
+    subs: list[Sub]
+    served: tuple[tuple[str, str, str], ...]  # (alias, provider, model) of sub-agents' aliases
+    keys: list[str]  # provider keys the sub-agents add
+    tools: dict[str, registry.Resolved]  # every picked tool ref (agent's, then sub-agents')
+    skills: list[dict]  # the skills' ref entries
+
+
+def _runtime(spec: Spec, directory: Path) -> tuple[str, list[dict], frozenset[str] | None]:
+    """The runtime ref, its ref entry when the spec pins one, and its capabilities (None when
+    nothing needs them: the default runtime for a spec without sub-agents or skills, so a
+    version 1 spec reads nothing more than it did)."""
+    if spec.runtime is None and not (spec.subagents or spec.skills):
+        return RUNTIME, [], None
+    if spec.runtime is None:
+        try:
+            hit = registry.resolve(registry.Ref.parse(RUNTIME), [registry.BUILTIN_ROOT])
+        except registry.RegistryError as error:  # a packaging bug
+            raise NewAgentError(error.code, newagent._bare(error)) from None
+        entries = []
+    else:
+        hit = _resolve(spec.runtime, "runtime", "runtime", directory)
+        entries = [_ref_entry(hit, directory)]  # hashed before its manifest is read
+    try:
+        capabilities = runtime_capabilities(hit.path)
+    except CapabilitiesError as error:
+        raise NewAgentError("ARTIFACT_INVALID", f"{hit.ref} manifest.yaml: {error}") from None
+    if entries and _version_digest(hit) != entries[0]["sha256"]:
+        raise NewAgentError("DIGEST_MISMATCH", f"{hit.ref} changed while it was read; try again")
+    # build's refusals (`build.build`), so a spec never writes a project that cannot build
+    for code, used, needed, what in (
+        ("RUNTIME_NO_SUBAGENTS", spec.subagents, "subagents", "does not run sub-agents"),
+        ("RUNTIME_NO_SKILLS", spec.skills, "skills", "does not load skills"),
+        ("MCP_RUNTIME_UNSUPPORTED", spec.mcp, "mcp", "has no MCP client"),
+    ):
+        if used and needed not in capabilities:
+            raise NewAgentError(code, f"{hit.ref} {what}; pick a runtime version that does")
+    return str(hit.ref), entries, capabilities
+
+
+def _subagents(spec: Spec, model_id: str) -> tuple[list[Sub], tuple, list[str]]:
+    """Each sub-agent's alias (CC2: the agent's `chat` for the same provider and model, else
+    `chat-NAME`), model and prompt version; the aliases to serve and the keys they add."""
+    subs, served, keys = [], [], []
+    agent_keys = set(PROVIDERS[spec.model].keys)
+    for index, sub in enumerate(spec.subagents):
+        where = f"subagents[{index}]"
+        if sub.model not in PROVIDERS:
+            raise NewAgentError(
+                "MODEL_UNSUPPORTED",
+                f"{where}.model must be one of: {', '.join(sorted(PROVIDERS))}",
+            )
+        if (sub.model == "ollama") != (spec.model == "ollama"):
+            # Ollama's gateway version reaches the host; the others' does not (#1025 O1).
+            raise NewAgentError(
+                "SPEC_UNSUPPORTED",
+                f"{where}.model: ollama and the hosted providers need different gateway "
+                "versions; use ollama for the agent and every sub-agent, or for none",
+            )
+        try:
+            resolved = newagent.model_id_for(sub.model, sub.model_id)
+        except NewAgentError as error:
+            raise NewAgentError(error.code, f"{where}: {newagent._bare(error)}") from None
+        same = (sub.model, resolved) == (spec.model, model_id)
+        alias = "chat" if same else f"chat-{sub.name}"
+        prompt_name = f"{spec.name}-{sub.name.replace('_', '-')}-prompt"
+        if not registry.NAME.fullmatch(prompt_name):
+            raise NewAgentError(
+                "SPEC_INVALID",
+                f"{where}.name: with the agent's name, the prompt version name would be over "
+                "63 characters; use a shorter name",
+            )
+        if not same:
+            served.append((alias, sub.model, resolved))
+            for key in PROVIDERS[sub.model].keys:
+                if key not in agent_keys and key not in keys:
+                    keys.append(key)
+        subs.append(
+            Sub(
+                sub,
+                alias,
+                resolved,
+                f"prompt/{prompt_name}@{VERSION}",
+                f"src/subagents/{sub.name}",
+            )
+        )
+    return subs, tuple(served), keys
+
+
+def _tools(spec: Spec, directory: Path) -> dict[str, registry.Resolved]:
+    """Every picked tool, the agent's first: one version per tool across the agent and its
+    sub-agents (the same ref in two of them is placed once)."""
+    tools: dict[str, registry.Resolved] = {}
+    versions: dict[str, str] = {}
+    picks = [(f"tools[{i}]", ref) for i, ref in enumerate(spec.tools)]
+    for index, sub in enumerate(spec.subagents):
+        if len(set(sub.tools)) != len(sub.tools):
+            raise NewAgentError(
+                "SPEC_INVALID", f"subagents[{index}].tools: a tool is picked twice"
+            )
+        picks += [(f"subagents[{index}].tools[{j}]", ref) for j, ref in enumerate(sub.tools)]
+    for where, text in picks:
+        if text in tools and where.startswith("subagents"):
+            continue
+        hit = _resolve(text, "tool", where, directory)
+        if versions.setdefault(hit.ref.name, str(hit.ref)) != str(hit.ref) or text in tools:
+            raise NewAgentError("SPEC_INVALID", "tools: one version per tool")
+        tools[text] = hit
+    return tools
+
+
+def _skills(spec: Spec, directory: Path, capabilities: frozenset[str] | None) -> list[dict]:
+    entries, names = [], set()
+    for index, text in enumerate(spec.skills):
+        hit = _resolve(text, "skill", f"skills[{index}]", directory)
+        if hit.ref.name in names:
+            raise NewAgentError("SPEC_INVALID", f"skills[{index}]: one version per skill")
+        names.add(hit.ref.name)
+        entry = _ref_entry(hit, directory)
+        if entry["runs_code"] and "skill_scripts" not in (capabilities or ()):
+            raise NewAgentError(
+                "RUNTIME_NO_SKILL_SCRIPTS",
+                f"skills[{index}]: {hit.ref} has scripts, and the runtime cannot run them",
+            )
+        entries.append(entry)
+    for index, case in enumerate(spec.evals.cases):
+        if case.expect.skills() - names:
+            raise NewAgentError(
+                "SPEC_INVALID",
+                f"evals.cases[{index}].expect: names a skill the spec does not pick",
+            )
+    return entries
+
+
+def _composition(spec: Spec, model_id: str, directory: Path) -> Composition:
+    runtime, entries, capabilities = _runtime(spec, directory)
+    subs, served, keys = _subagents(spec, model_id)
+    granted = {entry.ref: set(entry.tools) for entry in spec.mcp}
+    for index, sub in enumerate(spec.subagents):
+        for j, entry in enumerate(sub.mcp):
+            if entry.ref not in granted or not set(entry.tools) <= granted[entry.ref]:
+                raise NewAgentError(
+                    "SUBAGENT_MCP_UNGRANTED",
+                    f"subagents[{index}].mcp[{j}]: every server and tool must also be in the "
+                    "agent's own mcp: entry for that server",
+                )
+    tools = _tools(spec, directory)
+    skills = _skills(spec, directory, capabilities)
+    return Composition(runtime, entries, subs, served, keys, tools, skills)
+
+
 # -- the plan ------------------------------------------------------------------------------------
 
 
-def _agent_yaml(spec: Spec, today: date) -> str:
+def _subagents_yaml(spec: Spec, subs: list[Sub]) -> str:
+    text = ""
+    if spec.skills:
+        text += "skills:\n" + "".join(f"  - {{ref: {json.dumps(ref)}}}\n" for ref in spec.skills)
+    if subs:
+        text += "subagents:\n"
+    for sub in subs:
+        calls = sub.spec.max_model_calls or spec.max_model_calls
+        text += (
+            f"  - name: {sub.spec.name}\n"
+            f"    description: {json.dumps(sub.spec.description, ensure_ascii=False)}\n"
+            f"    model: {{alias: {json.dumps(sub.alias)}, "
+            f"reasoning: {PROVIDERS[sub.spec.model].reasoning}, max_model_calls: {calls}}}\n"
+            f"    prompt: {{ref: {sub.prompt_ref}}}\n"
+            f"    max_calls_per_turn: {sub.spec.max_calls_per_turn}\n"
+        )
+        if sub.spec.tools:
+            text += "    tools:\n" + "".join(
+                f"      - {{ref: {json.dumps(ref)}}}\n" for ref in sub.spec.tools
+            )
+        if sub.spec.mcp:
+            text += "    mcp:\n" + "".join(
+                f"      - ref: {json.dumps(entry.ref)}\n"
+                f"        tools: [{', '.join(json.dumps(tool) for tool in entry.tools)}]\n"
+                for entry in sub.spec.mcp
+            )
+    if spec.limits is not None:
+        text += f"limits: {{turn_model_calls: {spec.limits.turn_model_calls}}}\n"
+    return text
+
+
+def _agent_yaml(spec: Spec, today: date, runtime: str = RUNTIME, subs: list[Sub] = ()) -> str:
     text = AGENT_HEAD.format(
         name=spec.name,
         today=today.isoformat(),
-        runtime=RUNTIME,
+        runtime=runtime,
         version=VERSION,
         calls=spec.max_model_calls,
         reasoning=PROVIDERS[spec.model].reasoning,
@@ -560,56 +904,137 @@ def _agent_yaml(spec: Spec, today: date) -> str:
             f"    tools: [{', '.join(json.dumps(tool) for tool in entry.tools)}]\n"
             for entry in spec.mcp
         )
-    return text + AGENT_TAIL
+    return text + _subagents_yaml(spec, list(subs)) + AGENT_TAIL
 
 
-def _check_agent(text: str, spec: Spec) -> None:
-    """The rendered agent.yaml must load as an agent and say exactly what the spec asked."""
+def _coded(error: ValidationError) -> str:
+    """The agent file's own code for a refusal that has one (`agentfile.CodedError`, e.g.
+    SUBAGENT_NOTES), else SPEC_INVALID."""
+    from agentbreeder.agentfile import CodedError
+
+    for problem in error.errors():
+        cause = (problem.get("ctx") or {}).get("error")
+        if isinstance(cause, CodedError):
+            return cause.code
+    return "SPEC_INVALID"
+
+
+def _check_agent(text: str, spec: Spec, runtime: str = RUNTIME, subs: list[Sub] = ()):
+    """The rendered agent.yaml must load as an agent and say exactly what the spec asked.
+    Returns the loaded agent."""
     from agentbreeder.agentfile import AgentFile
     from agentbreeder.strict_yaml import StrictYamlError, load_text
 
     try:
         agent = AgentFile.model_validate(load_text(text))
     except ValidationError as error:
-        raise NewAgentError("SPEC_INVALID", f"the agent: {_problems(error)}") from None
+        raise NewAgentError(_coded(error), f"the agent: {_problems(error)}") from None
     except StrictYamlError:  # a template bug: every value is quoted or checked
         raise NewAgentError(
             "TEMPLATE_INVALID", "the generated agent.yaml does not parse"
         ) from None
     expected = (
         spec.name,
+        runtime,
         [(entry.ref, entry.top_k, entry.extra_searches) for entry in spec.knowledge],
         list(spec.tools),
         [(entry.ref, list(entry.tools)) for entry in spec.mcp],
         spec.evals.threshold,
         spec.evals.retries,
         spec.max_model_calls,
+        list(spec.skills),
+        [
+            (
+                sub.spec.name,
+                sub.spec.description,
+                sub.alias,
+                sub.spec.max_model_calls or spec.max_model_calls,
+                sub.prompt_ref,
+                list(sub.spec.tools),
+                [(entry.ref, list(entry.tools)) for entry in sub.spec.mcp],
+                sub.spec.max_calls_per_turn,
+            )
+            for sub in subs
+        ],
+        spec.limits.turn_model_calls if spec.limits else None,
     )
     got = (
         agent.name,
+        agent.runtime,
         [(entry.ref, entry.top_k, entry.extra_searches) for entry in agent.knowledge],
         [entry.ref for entry in agent.tools],
         [(entry.ref, list(entry.tools)) for entry in agent.mcp],
         agent.evals.threshold if agent.evals else None,
         agent.evals.retries if agent.evals else None,
         agent.model.max_model_calls,
+        [entry.ref for entry in agent.skills],
+        [
+            (
+                sub.name,
+                sub.description,
+                sub.model.alias,
+                sub.model.max_model_calls,
+                sub.prompt.ref,
+                [entry.ref for entry in sub.tools],
+                [(entry.ref, list(entry.tools)) for entry in sub.mcp],
+                sub.max_calls_per_turn,
+            )
+            for sub in agent.subagents
+        ],
+        agent.limits.turn_model_calls if agent.limits else None,
     )
     if got != expected:
         raise NewAgentError("TEMPLATE_INVALID", "the generated agent.yaml differs from the spec")
+    return agent
+
+
+def _check_names(agent, tools: dict[str, registry.Resolved]) -> None:
+    """build's sub-agent name checks (SUBAGENT_NAME_CLASH: `ask_<name>` against the agent's
+    own functions, MCP and built-in tools, and clashes inside one sub-agent), over the picked
+    versions as they resolve, so the preview shows the refusal build would make."""
+    if not agent.subagents:
+        return
+    from agentbreeder.build import BuildError, check_subagent_names
+    from agentbreeder.strict_yaml import StrictYamlError
+
+    try:
+        check_subagent_names(agent, {ref: hit.path for ref, hit in tools.items()})
+    except BuildError as error:
+        raise NewAgentError(error.code, newagent._bare(error)) from None
+    except (StrictYamlError, OSError):
+        raise NewAgentError("TOOL_INVALID", "a picked tool's tool.yaml cannot be read") from None
 
 
 def combination(spec: Spec) -> tuple[str, ...]:
-    parts = (("knowledge", spec.knowledge), ("tools", spec.tools), ("mcp", spec.mcp))
+    tools = spec.tools or any(sub.tools for sub in spec.subagents)
+    parts = (
+        ("knowledge", spec.knowledge),
+        ("tools", tools),
+        ("mcp", spec.mcp),
+        ("subagents", spec.subagents),
+        ("skills", spec.skills),
+    )
     return tuple(sorted(part for part, used in parts if used))
 
 
 def verified(spec: Spec) -> bool:
     """Whether the spec's combination was run end to end: its parts (`VERIFIED`), a verified
     provider, and for a spec with tools at most `VERIFIED_TOOLS` of them on a `TOOL_PROVIDERS`
-    provider."""
+    provider. Every verified run used the default runtime (`newagent.RUNTIME`), so a spec that
+    pins another is not verified."""
+    if spec.runtime not in (None, RUNTIME):
+        return False
     if combination(spec) not in VERIFIED or not PROVIDERS[spec.model].verified:
         return False
     return not spec.tools or (len(spec.tools) <= VERIFIED_TOOLS and spec.model in TOOL_PROVIDERS)
+
+
+SUBAGENT_PROMPT_MANIFEST = """\
+kind: prompt
+name: {name}
+version: {version}
+description: The {agent} agent's {sub} sub-agent's prompt.
+"""
 
 
 def plan(
@@ -633,15 +1058,20 @@ def plan(
     base = newagent.plan(name, spec.model, directory, today=today, model_id=resolved)
     target = base.directory
     knowledge_refs, knowledge_rows, embedding = _knowledge(spec, target)
-    refs = []
-    for index, text in enumerate(spec.tools):
-        refs.append(_ref_entry(_resolve(text, "tool", f"tools[{index}]", target), target))
-    if len({entry["ref"].split("@")[0] for entry in refs}) != len(refs):
-        raise NewAgentError("SPEC_INVALID", "tools: one version per tool")
+    parts = _composition(spec, resolved, target)
+    if embedding and embedding[0] in {alias for alias, _, _ in parts.served}:
+        raise NewAgentError(
+            "ALIAS_UNSUPPORTED", "knowledge[0]: its embedding alias is a sub-agent's alias"
+        )
+    refs = [_ref_entry(hit, target) for hit in parts.tools.values()]
     servers, mcp_refs, keys = _servers(spec, target)
-    refs = knowledge_refs + refs + mcp_refs
-    agent_text = _agent_yaml(spec, today)
-    _check_agent(agent_text, spec)
+    refs = parts.entries + knowledge_refs + refs + mcp_refs + parts.skills
+    # the sub-agents' model keys, then the servers' keys not already among them (a version 1
+    # spec has no sub-agent keys, so its list is what it was)
+    keys = [*parts.keys, *(key for key in keys if key not in parts.keys)]
+    agent_text = _agent_yaml(spec, today, parts.runtime, parts.subs)
+    agent = _check_agent(agent_text, spec, parts.runtime, parts.subs)
+    _check_names(agent, parts.tools)
     review_by = (today + timedelta(days=REVIEW_DAYS)).isoformat()
     stack = stackfor.render(
         name,
@@ -657,25 +1087,34 @@ def plan(
         keys=tuple(keys),
         embedding=embedding,
         postgres=KNOWLEDGE_POSTGRES if embedding else stackfor.POSTGRES,
+        served=parts.served,
     )
     cases = "".join(
         json.dumps(case.model_dump(exclude_defaults=True), ensure_ascii=False) + "\n"
         for case in spec.evals.cases
     )
-    prompt = spec.prompt.text if spec.prompt.text.endswith("\n") else spec.prompt.text + "\n"
     if servers:
         stack["stack.yaml"] = _granted(stack["stack.yaml"], name, servers, spec)
     served = embedding[:2] if embedding else None
-    _preflight(stack, name, resolved, served)
+    sub_models = tuple((alias, model) for alias, _, model in parts.served)
+    _preflight(stack, name, resolved, served, sub_models)
     values = {"name": name, "version": VERSION}
     files = {
         "agent.yaml": agent_text,
         **stack,
         f"{PROMPT_SOURCE}/manifest.yaml": newagent.PROMPT_MANIFEST.format(**values),
-        f"{PROMPT_SOURCE}/prompt.md": prompt,
+        f"{PROMPT_SOURCE}/prompt.md": _prompt_text(spec.prompt.text),
         f"{EVALS_SOURCE}/manifest.yaml": EVALS_MANIFEST.format(**values),
         f"{EVALS_SOURCE}/golden.jsonl": cases,
     }
+    publishes = list(base.publishes)
+    for sub in parts.subs:
+        prompt_name = registry.Ref.parse(sub.prompt_ref).name
+        files[f"{sub.source}/manifest.yaml"] = SUBAGENT_PROMPT_MANIFEST.format(
+            name=prompt_name, version=VERSION, agent=name, sub=sub.spec.name
+        )
+        files[f"{sub.source}/prompt.md"] = _prompt_text(sub.spec.prompt.text)
+        publishes.append((sub.source, sub.prompt_ref))
     grants = [
         {"server": server, "tools": list(entry.tools)}
         for server, entry in zip(servers, spec.mcp, strict=True)
@@ -683,16 +1122,18 @@ def plan(
     built = replace(
         base,
         files=files,
+        publishes=tuple(publishes),
         cases=tuple(case.id for case in spec.evals.cases),
         lock_after_move=any(entry["root_kind"] == "path" for entry in refs),
         pinned={entry["ref"]: entry["sha256"] for entry in refs},
         embedding=served,
+        runtime=parts.runtime,
+        served=sub_models,
     )
-    parts = combination(spec)
     extra = {
-        "spec_version": SPEC_VERSION,
+        "spec_version": spec.schema_version,
         "combination": {
-            "parts": ["model", "prompt", "evals", *parts],
+            "parts": ["model", "prompt", "evals", *combination(spec)],
             "verified": verified(spec),
         },
         "refs": refs,
@@ -709,6 +1150,10 @@ def plan(
             "changed); preview it again",
         )
     return built, extra
+
+
+def _prompt_text(text: str) -> str:
+    return text if text.endswith("\n") else text + "\n"
 
 
 def _granted(text: str, name: str, servers: dict[str, str], spec: Spec) -> str:
@@ -744,7 +1189,11 @@ def plan_digest(plan: newagent.Plan, refs: list[dict]) -> str:
 
 
 def _preflight(
-    files: dict[str, str], name: str, model_id: str, embedding: tuple[str, str] | None = None
+    files: dict[str, str],
+    name: str,
+    model_id: str,
+    embedding: tuple[str, str] | None = None,
+    served: tuple[tuple[str, str], ...] = (),
 ) -> None:
     """The rendered stack must load and its gateway config pass the review `services up`
     applies, so a preview that succeeds is one the write accepts."""
@@ -766,7 +1215,11 @@ def _preflight(
         if name not in stack.environment.agents:  # a template bug
             raise NewAgentError("TEMPLATE_INVALID", "the generated stack names another agent")
         newagent.check_gateway(
-            root / stackfor.LITELLM_CONFIG, {"chat", "judge"}, model_id, embedding
+            root / stackfor.LITELLM_CONFIG,
+            {"chat", "judge"},
+            model_id,
+            embedding,
+            subagents=served,
         )
 
 

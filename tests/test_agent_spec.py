@@ -281,7 +281,7 @@ def test_names_get_the_starter_checks(tmp_path, name):
     [
         ({"model": "llama"}, "MODEL_UNSUPPORTED"),
         ({"model_id": "openai/gpt"}, "MODEL_ID_INVALID"),
-        ({"schema_version": 2}, "SPEC_VERSION_UNSUPPORTED"),
+        ({"schema_version": 3}, "SPEC_VERSION_UNSUPPORTED"),
         ({"extra": 1}, "SPEC_INVALID"),
         ({"prompt": {"text": "   "}}, "SPEC_INVALID"),
         ({"prompt": {"text": "a\x1b[31mb"}}, "SPEC_INVALID"),
@@ -370,7 +370,7 @@ def test_bad_json_is_refused(tmp_path, text):
 
 
 def test_a_large_spec_is_refused(tmp_path):
-    text = json.dumps(spec()) + " " * agentspec.MAX_SPEC_BYTES
+    text = json.dumps(spec()) + " " * agentspec.MAX_SPEC_BYTES_V1
     assert refused(tmp_path, text).code == "SPEC_TOO_LARGE"
 
 
@@ -565,7 +565,7 @@ def test_a_refused_grant_is_passed_on(tmp_path, monkeypatch):
     ],
 )
 def test_a_template_that_does_not_load_is_refused(tmp_path, monkeypatch, text, code):
-    monkeypatch.setattr(agentspec, "_agent_yaml", lambda spec, today: text)
+    monkeypatch.setattr(agentspec, "_agent_yaml", lambda spec, today, *rest: text)
     assert refused(tmp_path, spec()).code == code
 
 
@@ -574,7 +574,7 @@ def test_a_template_that_differs_from_the_spec_is_refused(tmp_path, monkeypatch)
     monkeypatch.setattr(
         agentspec,
         "_agent_yaml",
-        lambda spec, today: real(spec, today).replace("retries: 1", "retries: 2"),
+        lambda spec, today, *rest: real(spec, today, *rest).replace("retries: 1", "retries: 2"),
     )
     assert refused(tmp_path, spec()).code == "TEMPLATE_INVALID"
 

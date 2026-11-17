@@ -1135,10 +1135,17 @@ It is a three-tier confirm:
 
 Refusals show `new agent`'s own coded message (for example `SPEC_INVALID` for a case id it
 refuses, or a destination that is not empty). The server checks the spec's shape first (known
-fields, `schema_version` 1, the name, provider and model id, no knowledge: `SPEC_UNSUPPORTED`;
+fields, `schema_version` 1 or 2, the name, provider and model id, no knowledge: `SPEC_UNSUPPORTED`;
 pinned `tool/` refs, one version per tool, at most 50; `mcp/` servers as `{ref, tools}`, one
-version per server, 1 to 100 distinct tool names each, at most 10; at most 256 KiB) and runs
-nothing when they fail. The preview and create
+version per server, 1 to 100 distinct tool names each, at most 10; at most 256 KiB for version 1
+and 512 KiB for version 2) and runs nothing when they fail. On `main`, not in a published preview
+(#1058 SP): a version 1 body with a version 2 field (`runtime`, `subagents`, `skills`, `limits`,
+a case's `tags` or a sub-agent or skill check) is `SPEC_INVALID`; for version 2 the server also
+checks the `runtime/` and `skill/` refs' shape (at most 10 skills, one version each), each
+sub-agent's fields, name, provider, model id, tools (at most 20) and servers (at most 5
+sub-agents), and `limits.turn_model_calls` (1 to 40, only with a sub-agent). The answer's
+`spec_version` must be the version sent. The form itself still sends only version 1 specs: its
+Sub-agents and Skills sections are not built yet. The preview and create
 routes (`POST /api/projects/builder`, `/api/projects/builder/create`) take bodies up to 1 MiB;
 the CLI checks the spec in full.
 
