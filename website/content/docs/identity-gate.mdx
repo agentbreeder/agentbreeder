@@ -1,6 +1,6 @@
 ---
 title: Identity gate
-description: The rebuild's deploy-time identity gate, optional policy and approvals, kill switch, audit log and opt-in MCP egress sidecar.
+description: "agentbreeder deploy refuses an agent that is not onboarded in your identity provider. Policy, approvals, a kill switch, the audit log and the MCP egress sidecar."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -33,6 +33,11 @@ checks that:
 - the manifest, IdP and `--environment` agree on the environment;
 - a manifest with `model_access` gets only what the environment grants: its gateway, allowed
   model aliases, and budget and rate within the ceilings;
+- when the environment requires a [guardrails floor](/docs/guardrails), the running gateway's
+  guardrails hash matches the approved one (`GUARDRAILS_UNVERIFIED`, `GUARDRAILS_CHANGED`), even
+  in audit mode;
+- every agent guardrail the manifest names is one the environment offers (`GUARDRAIL_UNDEFINED`),
+  even in audit mode;
 - when configured, the policy baseline and every selected restriction allow `deploy`.
 
 A deny exits with code 2, prints `[CODE] message (attempt <id>)` and makes no Docker call. Roles
@@ -114,6 +119,10 @@ agentbreeder reconcile --local
 agentbreeder status <id>
 ```
 
+For a project started with `services up`, these commands, `approve` and `reject` take
+`--stack DIR --environment ENV` instead of `--state-dir` and an operator config path (tested,
+not yet run end to end).
+
 `disable` persists a blocker for the principal and environment, audits it, invalidates open
 approvals, and stops and removes every affected container; the record stays, in state `disabled`.
 Retries, restarts, renames, removal and audit mode can't bypass it. `disable` needs no verified
@@ -128,7 +137,10 @@ unverifiable, and 0 otherwise.
 
 `agentbreeder audit list` and `agentbreeder audit verify` read a hash-chained audit table in the
 local state database. Deployment state changes and their audit events commit together. If an
-audit write fails before execution, nothing is deployed.
+audit write fails before execution, nothing is deployed. Each authenticated `tools/call` through an
+[MCP relay](/docs/mcp) is recorded after the reply and imported as a `mcp_tool_call` row (server,
+tool, decision, never arguments) when `audit list` or `audit verify` runs; the MCP page lists the
+calls that get no row. The console's Audit view pages through the same rows.
 
 <Callout title="Integrity limits">
   Verification detects corruption and edits that don't recompute the chain. It does **not**
@@ -151,6 +163,9 @@ Go sidecar.
   and writes an audit row **before** forwarding. If the audit write fails, nothing is forwarded.
 - **Credentials.** The agent's own `Authorization` header is stripped. Tool credentials stay on
   the host and are added by the sidecar, so the agent never holds them.
+- **Decision service.** Requests and replies between the sidecar and the host's decision service
+  carry MACs under keys derived from a per-deployment token that is never sent. A deployment from
+  before this protocol fails `reconcile` (`RUNTIME_BOUNDARY_UNVERIFIED`); redeploy it.
 - **Held calls.** A call that needs approval returns JSON-RPC error `-32002` with a
   `held_call_id`. A second person runs `agentbreeder approve-call <id>` (or `reject-call`), and
   the agent retries the identical call, which is released once.

@@ -1,18 +1,16 @@
 ---
 title: Backing services
-description: Preview. Declare the services an agent needs in stack.yaml; agentbreeder services up starts them on local Docker and writes a demo operator config.
+description: "Declare the backing services an agent needs in stack.yaml. agentbreeder services up starts them on local Docker and writes a demo operator config."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
 <Callout type="warn" title="Local-only preview">
-  [Install the alpha preview](/docs/install). `agentbreeder services` runs on the local Docker
-  engine only and is not production infrastructure. Verified on macOS with Docker Desktop: the
-  Northwind example started from scratch with `services up`, and `agentbreeder release` passed its
-  61-case eval gate (61/61, 2026-11-08 from a checkout, 2026-11-10 from PyPI `3.0.0a1`). MCP servers run behind a built-in relay. An agent built from `agent.yaml` on
-  `runtime/adk@1.1.0` calls tools through it. Through a real `deploy`, a deployed agent called the
-  built-in `mcp/github` and `mcp/playwright` this way (2026-11-09), with a scripted fake LLM
-  gateway rather than a real model.
+  `agentbreeder services` runs on the local Docker engine only and is not production
+  infrastructure. Run on macOS with Docker Desktop: Northwind started from scratch with
+  `services up` and released 61/61 (from PyPI `3.0.0a1` on 2026-11-10, and in every later run from
+  `main`), and `services restart`, `services usage` and the console's service screens ran from
+  `main`. Linux has not been run.
 </Callout>
 
 An agent built from `agent.yaml` needs services before it can run: Postgres, a model gateway, a
@@ -24,6 +22,9 @@ agentbreeder example northwind   # copies it to ./northwind
 cd northwind
 agentbreeder services up --environment dev --env-file ~/.env   # shows the grant; --yes confirms
 agentbreeder release agent.yaml --stack . --environment dev    # build, candidate, evals, promote
+agentbreeder services status --json
+agentbreeder services restart litellm                          # one container; --yes if agents use it
+agentbreeder services usage --follow                           # CPU, memory, network and block IO
 agentbreeder services down --purge --yes                       # remove everything up made
 ```
 
@@ -40,7 +41,7 @@ schema_version: 1
 name: northwind
 services:
   postgres:
-    ref: service/postgres-pgvector@1.1.0
+    ref: service/postgres-pgvector@1.2.0
     with:
       databases: [support, litellm, phoenix]   # one database and one login role each
       init_sql: stack/db/commerce.sql          # schema, seed data and grants
@@ -86,6 +87,10 @@ environment:
    ingest key).
 4. Writes the demo operator config and identities.
 
+Every `services` write holds a per-stack lock; a second one fails at once with `SERVICES_BUSY`. A
+taken host port is `PORT_BUSY`, naming the port. A service still starting after 180 s gets up to
+240 s more while its container runs, and `up` can be run again to continue.
+
 Every service runs with a read-only root filesystem, no capabilities and `no-new-privileges`.
 Every HTTP port reachable outside the stack has a guard (a bearer key, LiteLLM auth, or Host and
 Origin checks). Agents join a separate network that reaches only the ports declared for them.
@@ -94,38 +99,29 @@ Origin checks). Agents join a separate network that reaches only the ports decla
 
 | Service | Runs | Gives |
 |---|---|---|
-| `service/postgres-pgvector@1.1.0` | PostgreSQL 16 with pgvector | a URL per database, each with its own role; least-privilege `roles` with nothing but their own schema until `init_sql` grants more |
-| `service/litellm@1.0.0` | the LiteLLM proxy as the model gateway | its URL; a master key only AgentBreeder uses |
-| `service/phoenix@1.0.0` | Arize Phoenix with auth on, data in Postgres | its URL; an ingest key only services may hold |
+| `service/postgres-pgvector@1.2.0` | PostgreSQL 16 with pgvector | a URL per database, each with its own role; least-privilege `roles`; an optional read-only console role for `tool log` |
+| `service/litellm@1.0.0` | the LiteLLM proxy as the [model gateway](/docs/models) | its URL; a master key only AgentBreeder uses |
+| `service/litellm@1.1.0` | as 1.0.0, plus Presidio [guardrails](/docs/guardrails) | as 1.0.0 |
+| `service/litellm@1.2.0` | as 1.1.0, plus Ollama on the host, and LiteLLM gets only an allow-list of variables | as 1.0.0 |
+| `service/presidio-analyzer@1.0.0`, `service/presidio-anonymizer@1.0.0` | Microsoft Presidio, internal only | a URL for the gateway |
+| `service/phoenix@1.1.0` | Arize Phoenix with auth on, data in Postgres | its URL; an ingest key for services and a read-only key for [`traces`](/docs/traces) |
+
+Older versions stay available; a stack keeps the versions its `stack.lock` records until you
+change the ref.
 
 Projects add their own versions under `registry/service/`, from a digest-pinned image or built
 from source with a strict Dockerfile subset.
 
-### Built-in MCP servers
+### MCP servers
 
-Each `mcp:` entry in `stack.yaml` runs behind its own relay, which holds the credential. Both
-built-ins are verified live through a real `deploy` (2026-11-09):
-
-| Ref | Upstream | Tools |
-|---|---|---|
-| `mcp/github@1.0.0` | GitHub's hosted MCP server, with a fine-grained token from `GITHUB_MCP_TOKEN` | `get_me`, `list_issues`, `issue_read`, `search_repositories`, `get_file_contents` (read-only) |
-| `mcp/playwright@1.0.0` | headless Chromium in `service/playwright-mcp@1.0.0`, reachable only by its relay | `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_close` |
-
-A granted GitHub tool reaches every repository the token can see, so scope the token narrowly.
-The browser has no egress until the filtering forward proxy ships, so it can't browse the web
-yet. Chromium's own sandbox is off (it can't start without container capabilities), so the
-container hardening and the missing egress are the boundary.
+Each `mcp:` entry in `stack.yaml` runs behind its own relay, which holds the credential and
+forwards only granted, pinned tools. See [MCP tools](/docs/mcp).
 
 ## Limits
 
 - Local Docker only; demo identities come from a generated static provider.
 - A deployed agent's endpoint is not authenticated.
-- MCP relay: it holds the upstream credential and forwards only granted, pinned tools, but tool
-  arguments are unconstrained, results reach the agent unfiltered, and it is not policy
-  enforcement. A deployed agent's calls through it are verified against the built-in
-  `mcp/github` and `mcp/playwright` with a scripted fake gateway, not with a real model.
-- `mcp/playwright` has no egress yet: its browser opens pages the agent supplies, not the web.
-  Every customer of a deployment shares one browser.
+- Usage figures are of the Docker VM, and CPU is a share of one core, so it can pass 100%.
 
 The canonical reference is
 [services.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/services.md).

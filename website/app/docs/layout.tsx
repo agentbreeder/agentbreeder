@@ -8,9 +8,9 @@ import { Logo } from '@/components/logo';
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <>
-      <Banner id="preview-3-0-0a2">
+      <Banner id="preview-3-0-0a3">
         <span>
-          Alpha preview: pin <code>3.0.0a2</code> when you{' '}
+          Alpha preview: pin <code>3.0.0a3</code> when you{' '}
           <Link href="/docs/install" className="underline underline-offset-4">
             install
           </Link>

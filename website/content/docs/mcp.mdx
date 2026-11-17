@@ -1,0 +1,86 @@
+---
+title: MCP tools
+description: "MCP servers run behind a relay that holds the credential, forwards only granted, pinned tools and records every tool call in the audit log."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="Preview">
+  Run on macOS with Docker Desktop with a real GitHub token (2026-11-15): grant, `services up`,
+  release, an agent on Gemini listing and calling `list_issues`, revoke, and the console's MCP
+  grants screen. Repin ran against drift simulated in the sandbox's pin files. Relay audit rows ran live against GitHub's MCP server (2026-11-16). This is
+  not runtime policy enforcement; for that, see the
+  [egress sidecar](/docs/identity-gate#runtime-tool-enforcement).
+</Callout>
+
+```yaml
+# agent.yaml: the tools the agent asks for
+mcp: [{ref: mcp/github@1.0.0, tools: [get_me, list_issues]}]
+```
+
+```sh
+agentbreeder mcp grant my-agent github get_me list_issues --dry-run   # preview the grant change
+agentbreeder services up . --environment dev --yes                    # the relay picks it up
+agentbreeder mcp revoke my-agent github list_issues
+```
+
+Each `mcp:` server in `stack.yaml` runs behind its own relay. The relay holds the upstream
+credential, so the agent never does, and forwards only tools the operator granted to that agent
+and pinned at `services up`. `deploy` refuses tools the stack doesn't grant
+(`MCP_TOOL_NOT_GRANTED`); the relay refuses a call to one (`TOOL_NOT_GRANTED`). The model sees
+tools as `<server>_<tool>`, such as `github_list_issues`.
+
+## Built-in servers
+
+| Ref | Upstream | Tools |
+|---|---|---|
+| `mcp/github@1.0.0` | GitHub's hosted MCP server, with a fine-grained `GITHUB_MCP_TOKEN` | `get_me`, `list_issues`, `issue_read`, `search_repositories`, `get_file_contents` (read-only) |
+| `mcp/playwright@1.0.0` | headless Chromium, reachable only by its relay | `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_close` |
+
+A granted GitHub tool reaches every repository the token can see, so scope the token narrowly.
+`mcp/playwright` has run through the relay only with a scripted model, not a real one. Its browser
+has no egress yet, so it can't browse the web, and Chromium's own sandbox is off, so the container
+hardening and the missing egress are the boundary.
+
+## Pins and repin
+
+`services up` pins each tool's definition on first use. When a definition changes upstream, the
+relay hides that tool and refuses calls to it (`TOOL_DEFINITION_CHANGED`) until you accept the
+change:
+
+```sh
+agentbreeder services pins . --json                                       # what a repin would pin, and a digest
+agentbreeder services up . --environment dev --repin --expect-pins SHA256 # pins only if nothing changed since
+```
+
+The digest proves the definitions were fetched and are unchanged, not that a person read them. A pin binds the advertised definition, not what the tool does.
+
+## Audit
+
+From `service/mcp-relay@1.0.2`, each `tools/call` from an authenticated deployment, forwarded or
+refused, is recorded after the reply and imported into the hash-chained
+[audit log](/docs/identity-gate#audit-log) as a `mcp_tool_call` row the next time `audit list` or
+`audit verify` runs: deployment, agent (unverified: the relay checked the deployment's token, not
+an identity provider), server, tool, decision and latency, never arguments or results. The relay
+refuses a call if it can't open its record file. Run `services up` once without `--locked` to move
+a stack to it.
+
+## In the console
+
+**MCP grants** shows each server's relay state, pinned tools, upstream drift and each agent's
+grants. Grant and revoke are reviewed as a diff first; the services review asks consent for
+project MCP servers and offers **Review repin**.
+
+## Limits
+
+- Tool arguments are unconstrained and results reach the agent unfiltered.
+- A call has no audit row if the relay dies mid-call, the write fails, or the request is refused
+  before the relay reads it. Until imported, the relay's records are plain JSON lines that can be
+  edited without a trace.
+- Every customer of a deployment shares one MCP session, and with `mcp/playwright`, one browser.
+- A deployed agent's endpoint is not authenticated, so whoever reaches it can make it call its
+  granted tools.
+
+Canonical reference:
+[services.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/services.md#mcp-servers-through-a-relay)
+and [commands/mcp.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/commands/mcp.md).
