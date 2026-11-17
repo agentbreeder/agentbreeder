@@ -207,7 +207,7 @@ A future CSP (DS7) needs a nonce or a hash for the guard as well as for next-the
 | Round | Reviewer | Verdict |
 |---|---|---|
 | r1 (uncommitted, on `fc755e05`) | Claude Sonnet, read-only; frontend engineering, security | CHANGES REQUESTED: 1 major, 2 minor, 1 nit. Major: a prototype key from another tab still crashed through the value map (reproduced, fixed with the guard's `storage` listener, now in the Playwright run and the Node test). Minor: the repo test was source substrings only (now runs the guard in Node); the docs overclaimed the cross-tab case (reworded). Nit: CSP line wrap. |
-| r2 (uncommitted, the fix as committed) | same reviewer | APPROVED. Verified listener order (capture listener first, on `window`), the cross-tab convergence (no loop), null and `clear()` events, and that the Node test fails if the guard regresses. Nits: real dispatch order is covered by the Playwright run only, not the Node test; the guard size (now measured, 334 bytes); a tab without the provider keeps its state while storage is empty. |
+| r2 (head `e4c6f97d`) | same reviewer | APPROVED; `e4c6f97d` has the reviewed code unchanged, plus the r2 docs nits (measured size, this row). Verified listener order (capture listener first, on `window`), the cross-tab convergence (no loop), null and `clear()` events, and that the Node test fails if the guard regresses. Nits: real dispatch order is covered by the Playwright run only, not the Node test; the guard size (now measured, 334 bytes); a tab without the provider keeps its state while storage is empty. |
 
 ## Screenshots
 
