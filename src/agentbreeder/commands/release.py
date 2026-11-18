@@ -116,6 +116,9 @@ def run(args) -> int:
         production = outcome.details.get("production")
         if production and production.get("endpoint"):
             print(f"Production: {production['endpoint']} ({production['id']})")
+        # Per-tag pass rates, only when the eval set has tagged cases (#1058).
+        for line in evals.tag_lines(outcome.details.get("eval") or {}):
+            print(line)
         for case in outcome.details.get("failed_cases") or []:
             checks = ", ".join(case["failed_checks"]) or "none"
             reason = f"; judge: {case['reason']}" if case["reason"] else ""

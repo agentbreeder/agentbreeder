@@ -419,6 +419,34 @@ _SPEND_FIELDS = (
 
 _SLIM_TEXT = 512  # a caller can choose a model name: long strings are cut as they are read
 
+# The request tag a runtime sends for per-sub-agent cost (#1058, sub-agents spec §10.2):
+# `agentbreeder-subagent:<name>` for a sub-agent's model call and `agentbreeder-subagent:-` for
+# the parent's. LiteLLM keeps a request's `metadata.tags` in the spend row's top-level
+# `request_tags`, next to tags of its own (`User-Agent: ...`); see
+# docs/superpowers/verification/1058-S0-litellm-tags.md. The gateway does not check a tag: it is
+# the caller's claim, so cost groups by key first and by tag only inside a key.
+SUBAGENT_TAG = "agentbreeder-subagent:"
+SUBAGENT_NAME = r"[a-z][a-z0-9_]{0,31}"  # `agentfile.SUBAGENT_NAME` (a test keeps them equal)
+PARENT_TAG = "-"
+_SUBAGENT_TAG = re.compile(f"{re.escape(SUBAGENT_TAG)}(?:{re.escape(PARENT_TAG)}|{SUBAGENT_NAME})")
+_KEPT_TAGS = 2  # one is the agent; a second, different one means the call is not attributed
+_READ_TAGS = 64  # tags read per row: a caller's tags come before the ones LiteLLM adds
+
+
+def subagent_tags(value) -> list[str]:
+    """The distinct, well-formed `agentbreeder-subagent:` tags in a spend row's `request_tags`,
+    at most `_KEPT_TAGS`; every other tag (LiteLLM's own, a malformed one) is dropped. Only the
+    first `_READ_TAGS` entries are read, so a row with a huge tag list costs no more."""
+    kept: list[str] = []
+    if not isinstance(value, list):
+        return kept
+    for tag in value[:_READ_TAGS]:
+        if isinstance(tag, str) and tag not in kept and _SUBAGENT_TAG.fullmatch(tag):
+            kept.append(tag)
+            if len(kept) == _KEPT_TAGS:
+                break
+    return kept
+
 
 def _slim_value(value):
     if isinstance(value, str):
@@ -442,8 +470,10 @@ def _slim(row: dict) -> dict:
     cached = details.get("cached_tokens") if isinstance(details, dict) else None
     if isinstance(cached, int) and not isinstance(cached, bool):
         slim["usage_object"] = {"prompt_tokens_details": {"cached_tokens": cached}}
+    tags = subagent_tags(row.get("request_tags"))
     return {
         **{key: _slim_value(row[key]) for key in _SPEND_FIELDS if key in row},
+        **({"request_tags": tags} if tags else {}),  # absent for an untagged call, as before
         "metadata": slim,
     }
 

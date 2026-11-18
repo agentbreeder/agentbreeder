@@ -20,6 +20,22 @@ viewer").
   two agents needs `--agent NAME`.
 - The directory is `--output DIR`, else `DIR/deploy` for `--project DIR` (default `.`).
 
+## Sub-agent and skill rules, and tags
+
+On `main`, not in a published preview (#1058, #1059). The rules a case may use
+(`subagents_include`, `subagents_exclude`, `subagent_tools_include`, `skills_loaded`,
+`skills_not_loaded`), case `tags` and `evals.tag_threshold` are described under "Eval and
+release" in [`agent-yaml.md`](agent-yaml.md#eval-and-release). They were tested on fixture
+replies: no runtime sends the reply fields `subagents` and `skills` yet, and until one does a case
+using those rules fails, never passes.
+
+For an eval set with tagged cases, the saved report file has a top-level `tags` object,
+`{tag: {cases, passed, pass_rate}}`, and each tagged case has its `tags` list. A report of an
+untagged set has neither, so it is the same file as before. `eval` and `release` print one
+`Tag NAME: passed/cases passed (rate)` line per tag. **`evals list` and `evals show` do not show
+tags yet**: they pass on known fields only, so read the per-tag rates from `release --json`
+(`eval.tags`), `eval --json` (`tags`) or the report file.
+
 ## What is shown
 
 The judge's reason and the agent's reply are model output, and case ids, check names and tool

@@ -357,3 +357,83 @@ def test_tag_threshold_over_an_untagged_set_fails_release(project, operator, sta
 
     outcome, _ = do_release(project, operator, state, FakeRuntime(), IMAGE, Evaluator())
     assert outcome.code == EXIT_EVAL and "no case is tagged" in outcome.message
+
+
+# -- the per-tag report in text output (#1058 EV) ------------------------------------------------
+
+
+def test_tag_lines():
+    made = report((True, ["billing"]), (False, ["billing", "returns"]), (True, None))
+    assert evals.tag_lines(made.summary()) == [
+        "Tag billing: 1/2 passed (50.0%)",
+        "Tag returns: 0/1 passed (0.0%)",
+    ]
+    assert evals.tag_lines(report((True, None)).summary()) == []
+    assert evals.tag_lines({}) == []
+
+
+def _cli_project(project, operator, monkeypatch, made):  # noqa: F811
+    from agentbreeder import release as release_module
+
+    prepare_lock(project, operator)
+    monkeypatch.setattr(release_module, "_eval_set", lambda *a, **k: object())
+    monkeypatch.setattr(evals, "run", lambda *a, **k: made)
+
+
+def test_eval_prints_the_per_tag_rates(project, operator, monkeypatch, tmp_path, capsys):  # noqa: F811
+    from agentbreeder import cli
+
+    made = report((True, ["billing"]), (False, ["returns"]), (True, ["billing"]))
+    _cli_project(project, operator, monkeypatch, made)
+    argv = ["eval", str(project / "agent.yaml"), "--endpoint", "http://127.0.0.1:1",
+            "--state-dir", str(tmp_path / "s")]  # fmt: skip
+    cli.main(argv)
+    out = capsys.readouterr().out.splitlines()
+    assert out[-3:] == [
+        "2/3 passed, mean correctness 1.0, p50 5 ms",
+        "Tag billing: 2/2 passed (100.0%)",
+        "Tag returns: 0/1 passed (0.0%)",
+    ]
+    cli.main([*argv, "--json"])
+    assert json.loads(capsys.readouterr().out)["tags"]["returns"]["pass_rate"] == 0.0
+
+
+def test_eval_output_without_tags_is_unchanged(project, operator, monkeypatch, tmp_path, capsys):  # noqa: F811
+    from agentbreeder import cli
+
+    _cli_project(project, operator, monkeypatch, report((True, None), (True, None)))
+    cli.main(["eval", str(project / "agent.yaml"), "--endpoint", "http://127.0.0.1:1",
+              "--state-dir", str(tmp_path / "s")])  # fmt: skip
+    out = capsys.readouterr().out
+    assert out.splitlines()[-1] == "2/2 passed, mean correctness 1.0, p50 5 ms"
+    assert "Tag " not in out
+
+
+@pytest.mark.parametrize("tagged", [True, False])
+def test_release_prints_the_per_tag_rates(
+    project,  # noqa: F811
+    operator,  # noqa: F811
+    monkeypatch,
+    tmp_path,
+    capsys,
+    tagged,
+):
+    from agentbreeder import cli
+    from agentbreeder import release as release_module
+
+    made = report(
+        (True, ["billing"] if tagged else None), (False, ["returns"] if tagged else None)
+    )
+    outcome = release_module.Outcome(
+        EXIT_EVAL, "Eval gate failed: tag(s) returns below 90%; production unchanged",
+        {"eval": made.summary(), "failed_cases": []},
+    )  # fmt: skip
+    monkeypatch.setattr(release_module, "release", lambda *a, **k: outcome)
+    code = cli.main(["release", str(project / "agent.yaml"), "--state-dir", str(tmp_path / "s")])
+    out = capsys.readouterr().out.splitlines()
+    assert code == EXIT_EVAL
+    assert out[0].startswith("Eval gate failed")
+    tag_rows = [line for line in out if line.startswith("Tag ")]
+    assert tag_rows == (
+        ["Tag billing: 1/1 passed (100.0%)", "Tag returns: 0/1 passed (0.0%)"] if tagged else []
+    )
