@@ -18,7 +18,7 @@ npm run build
 npm start
 ```
 
-`npm run build` automatically runs `scripts/verify-build.mjs` after Next.js finishes. It checks the stylesheets actually linked by the generated homepage, requires the homepage's layout and control rules, and rejects legacy theme overrides. A stale asset fails the build instead of shipping invisible headings and unstyled controls.
+`npm run build` automatically runs `scripts/verify-build.mjs` after Next.js finishes. It checks the stylesheets actually linked by the generated homepage, requires the homepage's layout and control rules, and rejects legacy theme overrides. On Vercel it checks the adapter's emitted HTML and assets under `.next/output`; locally it checks the normal `.next` output. A stale asset fails the build instead of shipping invisible headings and unstyled controls.
 
 Production Turbopack filesystem caching is disabled in `next.config.mjs`: a restored cache previously served the old stylesheet with the new homepage HTML. Development caching remains enabled. When recovering an already affected Vercel deployment, rebuild without the existing build cache.
 

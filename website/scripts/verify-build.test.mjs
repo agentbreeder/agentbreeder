@@ -79,3 +79,45 @@ test('postbuild CLI exits unsuccessfully when the linked stylesheet is stale', a
     return true;
   });
 });
+
+async function adapterFixture(t, css) {
+  // The original tree is valid: checking it must not hide stale emitted assets.
+  const buildDir = await fixture(t, currentCss);
+  const output = path.join(buildDir, 'output');
+  await mkdir(path.join(output, 'functions'), { recursive: true });
+  await mkdir(path.join(output, 'static/_next/static/chunks'), { recursive: true });
+  await writeFile(path.join(output, 'config.json'), '{"version":3}');
+  await writeFile(path.join(output, 'functions/index.prerender-fallback.html'), '<link rel="stylesheet" href="/_next/static/chunks/site.css">');
+  await writeFile(path.join(output, 'static/_next/static/chunks/site.css'), css);
+  return buildDir;
+}
+
+test('accepts the Vercel adapter output after the raw homepage is removed', async (t) => {
+  const buildDir = await adapterFixture(t, currentCss);
+  await rm(path.join(buildDir, 'server'), { recursive: true });
+  await verifyHomepageBuild(buildDir);
+});
+
+test('rejects stale emitted CSS even when the raw Next.js stylesheet is fresh', async (t) => {
+  const buildDir = await adapterFixture(t, 'body{background:var(--bg)}');
+  await assert.rejects(verifyHomepageBuild(buildDir), /missing.*ab-container/i);
+});
+
+test('rejects a missing emitted stylesheet instead of using the raw asset', async (t) => {
+  const buildDir = await adapterFixture(t, currentCss);
+  await rm(path.join(buildDir, 'output/static/_next/static/chunks/site.css'));
+  await assert.rejects(verifyHomepageBuild(buildDir), /ENOENT/);
+});
+
+test('accepts the adapter static homepage variant', async (t) => {
+  const buildDir = await adapterFixture(t, currentCss);
+  await rm(path.join(buildDir, 'output/functions'), { recursive: true });
+  await writeFile(path.join(buildDir, 'output/static/index.html'), '<link rel="stylesheet" href="/_next/static/chunks/site.css">');
+  await verifyHomepageBuild(buildDir);
+});
+
+test('rejects missing emitted HTML even when the raw homepage exists', async (t) => {
+  const buildDir = await adapterFixture(t, currentCss);
+  await rm(path.join(buildDir, 'output/functions'), { recursive: true });
+  await assert.rejects(verifyHomepageBuild(buildDir), /ENOENT/);
+});
