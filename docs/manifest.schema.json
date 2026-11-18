@@ -240,6 +240,28 @@
       "title": "RoleRequirement",
       "type": "object"
     },
+    "RuntimeInfo": {
+      "additionalProperties": false,
+      "description": "The runtime version a built agent's image runs on (#1083 F1). `build` writes it only for\na kit runtime (the runtime manifest's `profile: kit`), so a manifest built on an earlier\nruntime never carries it. It is an operational signal, not a security boundary: a\nhand-written manifest can leave it out, as it can name any image.",
+      "properties": {
+        "ref": {
+          "pattern": "^runtime/[a-z0-9][a-z0-9-]{0,62}@[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "title": "Ref",
+          "type": "string"
+        },
+        "profile": {
+          "const": "kit",
+          "title": "Profile",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "profile"
+      ],
+      "title": "RuntimeInfo",
+      "type": "object"
+    },
     "ToolCapability": {
       "additionalProperties": false,
       "properties": {
@@ -407,6 +429,17 @@
       ],
       "default": null,
       "title": "Guardrails"
+    },
+    "runtime": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RuntimeInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [

@@ -394,7 +394,7 @@ def test_the_digest_and_revision_are_unchanged_without_guardrails(identity_env):
     # The digest of a manifest without the field is computed as before the field existed.
     import hashlib
 
-    legacy = without.model_dump_json(exclude={"mcp_access", "guardrails"})
+    legacy = without.model_dump_json(exclude={"mcp_access", "guardrails", "runtime"})
     assert without.digest() == hashlib.sha256(legacy.encode()).hexdigest()
     operator = identity_env.load()
     context = gate_module.DeploymentContext("dev", "local")

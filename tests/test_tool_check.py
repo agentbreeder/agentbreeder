@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from agentbreeder import cli, registry, tool_check
+from agentbreeder import cli, registry, strict_yaml, tool_check
 from agentbreeder.registry import Ref, RegistryError
 
 BUILTIN = registry.BUILTIN_ROOT
@@ -172,17 +172,26 @@ def test_a_declared_module_that_shadows_is_refused(tmp_path):
     refused(source, tmp_path / "registry", r"src/json shadows a standard-library module")
 
 
+def _legacy_runtimes() -> list[Path]:
+    """The built-in runtime versions published before the `protocol` key (#1083 F1), whose
+    names are `LEGACY_ADK`'s. A later version ships `runtime/modules.json` instead, kept in
+    step by tests/test_runtime_profile.py."""
+    root = Path(registry.__file__).parent / "builtin_registry" / "runtime"
+    versions = [
+        path
+        for path in sorted(root.glob("*/*"))
+        if "protocol" not in strict_yaml.load_file(path / "manifest.yaml")
+    ]
+    assert len(versions) >= 7
+    return versions
+
+
 def test_every_locked_runtime_package_has_its_import_names():
-    """A lock that gains a package must add its import names to tool_check.LOCKED_IMPORTS."""
-    locks = sorted(
-        (Path(registry.__file__).parent / "builtin_registry").glob(
-            "runtime/adk/*/runtime/requirements.lock"
-        )
-    )
-    assert locks
+    """Every package in a legacy runtime's lock has its import names in
+    tool_check.LOCKED_IMPORTS."""
     packages = set()
-    for lock in locks:
-        for line in lock.read_text().splitlines():
+    for version in _legacy_runtimes():
+        for line in (version / "runtime" / "requirements.lock").read_text().splitlines():
             match = re.match(r"([A-Za-z0-9][A-Za-z0-9._-]*)==", line)
             if match:
                 packages.add(re.sub(r"[-_.]+", "-", match[1]).lower())
@@ -192,9 +201,8 @@ def test_every_locked_runtime_package_has_its_import_names():
         assert name in tool_check.RESERVED
 
 
-def test_runtime_modules_match_every_builtin_runtime():
-    runtimes = Path(registry.__file__).parent / "builtin_registry/runtime/adk"
-    stems = {path.stem for path in runtimes.glob("*/runtime/*.py")}
+def test_runtime_modules_match_every_legacy_builtin_runtime():
+    stems = {path.stem for version in _legacy_runtimes() for path in version.glob("runtime/*.py")}
     assert stems == set(tool_check.RUNTIME_MODULES)
 
 

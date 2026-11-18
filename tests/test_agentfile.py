@@ -105,7 +105,8 @@ def test_minimal_defaults(tmp_path):
         ({"evals__threshold": 1.5}, "threshold"),
         ({"knowledge": [{"ref": "knowledge/k@1.0.0", "top_k": 99}]}, "top_k"),
         (
-            {"knowledge": [{"ref": "knowledge/a@1.0.0"}, {"ref": "knowledge/b@1.0.0"}]},
+            # More than any runtime may take; a runtime's own limit is build's (#1083 F1).
+            {"knowledge": [{"ref": f"knowledge/k{i}@1.0.0"} for i in range(6)]},
             "knowledge",
         ),
         ({"memory__sessions": "in_memory"}, "sessions"),

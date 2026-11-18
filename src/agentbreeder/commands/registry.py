@@ -1,5 +1,5 @@
-"""`agentbreeder registry new|publish|import|fork|edit|list|verify|show|diff|used-by`: author
-and inspect registry versions."""
+"""`agentbreeder registry new|publish|import|fork|edit|list|runtimes|verify|show|diff|used-by`:
+author and inspect registry versions."""
 
 from __future__ import annotations
 
@@ -88,6 +88,10 @@ def register(commands) -> None:
         )
     reg_list = reg_commands.add_parser("list", help="List versions in the search roots")
     reg_list.add_argument("prefix", nargs="?", default="")
+    reg_runtimes = reg_commands.add_parser(
+        "runtimes",
+        help="List runtime versions with what each supports (framework, capabilities, limits)",
+    )
     reg_verify = reg_commands.add_parser("verify", help="Re-check every version's integrity")
     reg_show = reg_commands.add_parser("show", help="Show one version's manifest and files")
     reg_show.add_argument("ref", help="kind/name@X.Y.Z")
@@ -120,9 +124,9 @@ def register(commands) -> None:
         "is always read",
     )
     placing = (reg_publish, reg_import, reg_fork, reg_edit)
-    for command in (*placing, reg_list, reg_verify, reg_show, reg_diff, reg_used):
+    for command in (*placing, reg_list, reg_runtimes, reg_verify, reg_show, reg_diff, reg_used):
         command.add_argument("--json", action="store_true")
-    for command in (reg_list, reg_verify, reg_show, reg_diff):
+    for command in (reg_list, reg_runtimes, reg_verify, reg_show, reg_diff):
         command.add_argument("--project", type=Path, default=Path("."))
 
 
@@ -201,6 +205,12 @@ def _run(args) -> int:
                     refused = "  (symlinked directory: refused)" if row["symlinked"] else ""
                     code = "  (code)" if row["runs_code"] else ""
                     print(f"{row['ref']}  {row['root']}{code}{refused}")
+            return 0
+        if args.registry_command == "runtimes":
+            from agentbreeder import runtime_profile
+
+            view = runtime_profile.listing(search, args.project)
+            print(json.dumps(view, indent=2) if args.json else _runtimes_text(view))
             return 0
         problems = registry.verify(search)
         if args.json:
@@ -415,6 +425,38 @@ def _used_by_text(result: dict) -> str:
 
 
 _BUCKETS = ("declared", "locked", "deployed", "recorded_not_running", "deployed_undetermined")
+
+
+def _runtimes_text(view: dict) -> str:
+    """One block per runtime version. Every value from a manifest is cleaned: a project or
+    path registry is not trusted text."""
+
+    def shown(value) -> str:
+        return registry.clean(str(value), name=True)[0]
+
+    lines = []
+    for entry in view["runtimes"]:
+        source = "" if entry["root_kind"] == "builtin" else f"  ({entry['root_kind']} registry)"
+        if not entry["usable"]:
+            lines.append(
+                f"{entry['ref']}  cannot be used: {shown(entry['reason'])} "
+                f"({entry['code']}){source}"
+            )
+            continue
+        kit = f", kit {shown(entry['kit'])}" if "kit" in entry else ""
+        status = "run end to end" if entry["verified"] else "not run end to end"
+        lines.append(
+            f"{entry['ref']}  {shown(entry['display_name'])}  protocol {entry['protocol']} "
+            f"({entry['profile']}{kit})  {status}{source}"
+        )
+        capabilities = ", ".join(entry["capabilities"]) or "none"
+        limits = ", ".join(f"{part} {count}" for part, count in entry["limits"].items())
+        lines.append(f"  capabilities: {capabilities}; limits: {limits}")
+        if entry["reserved_tool_names"]:
+            lines.append(f"  reserved tool names: {', '.join(entry['reserved_tool_names'])}")
+        if "notes" in entry:
+            lines.append(f"  note: {shown(entry['notes'])}")
+    return "\n".join(lines) if lines else "No runtime versions in the search roots."
 
 
 def _scaffold_kind(text: str) -> str:

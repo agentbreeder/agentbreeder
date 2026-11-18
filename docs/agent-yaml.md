@@ -27,7 +27,7 @@ model:
   budget_usd: 25               # optional; can only lower the operator's ceiling
   rpm: 120                     # optional; same rule
 prompt: {ref: prompt/northwind-support@1.0.1}   # or {path: ./prompts/dev.md} while iterating
-knowledge:                     # runtime/adk 1.x: at most one knowledge set
+knowledge:                     # at most what the runtime takes: one set on runtime/adk 1.x
   - {ref: knowledge/northwind-help@1.0.0, top_k: 5, extra_searches: 1}
 tools:
   - {ref: tool/customer-notes@1.0.0}
@@ -53,10 +53,21 @@ uses: `- {ref: mcp/github@1.0.0, tools: [list_issues]}`. `build` refuses tools t
 manifest's `mcp_access`. `agentbreeder services up` runs a relay for each stack `mcp:` entry
 (see [services.md](services.md#mcp-servers-through-a-relay)). `runtime/adk@1.1.0` and later call the
 tools through it: one ADK `McpToolset` per server, with tools named `<server>_<tool>` (for
-example `github_list_issues`). `build` refuses `mcp:` on a runtime without an MCP client, such
+example `github_list_issues`). `build` refuses `mcp:` on a runtime without the `mcp` capability (no MCP client), such
 as `runtime/adk@1.0.6` (`MCP_RUNTIME_UNSUPPORTED`). It also refuses MCP tool names that would
 clash: the same name from two servers, a function tool or knowledge search (`MCP_TOOL_CLASH`),
-or a name ADK reserves (`MCP_TOOL_RESERVED`).
+or a name the runtime reserves (`MCP_TOOL_RESERVED`; for `runtime/adk`, the names ADK skips).
+
+On `main`, not in a published preview (#1083 F1): `build` takes these facts from the pinned
+runtime version, not from the engine. The capabilities (`mcp`, `knowledge`, `notes`, …), the
+limits (how many knowledge sets, tools and MCP servers) and the reserved tool names are keys of
+the runtime's `manifest.yaml`; see
+[Runtime versions](registry.md#runtime-versions-on-main-not-in-a-published-preview). `agent.yaml`
+itself allows up to 5 `knowledge:` entries, 50 tools and 10 MCP servers, and `build` refuses more
+than the runtime takes (`RUNTIME_LIMIT`), `knowledge:` on a runtime without `knowledge`
+(`RUNTIME_NO_KNOWLEDGE`) and `memory.notes: true` on one without `notes` (`RUNTIME_NO_NOTES`).
+Every `runtime/adk` version takes one knowledge set, so a second entry is still refused, now by
+`build` instead of by the file's own check. Builds on `runtime/adk` are otherwise unchanged.
 
 What happens at run time:
 - **Relay unreachable when the tools are listed:** the turn runs without that server's tools,

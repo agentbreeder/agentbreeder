@@ -212,6 +212,18 @@ dropped, a dark OG image and a theme-aware `app/icon.svg`. W does not edit `bran
 Cloud pin does not move. Cloud: no change from W; its theme and toggle are C. OSS outside
 `website/`: none.
 
+**Runtime manifest keys, #1083 F1 (multi-framework), per side.** OSS (on `main`): the engine
+reads framework facts from the runtime version (`runtime_profile.py`: manifest keys `protocol`,
+`profile`, `capabilities`, `limits`, `reserved_tool_names`, and a generated
+`runtime/modules.json`); a manifest without `protocol` gets `LEGACY_ADK`, so `runtime/adk` builds
+are byte-identical (`tests/test_runtime_golden.py`). New: `registry runtimes --json`, `new agent
+--runtime`, and an optional `runtime: {ref, profile}` in the deploy manifest and its JSON Schema
+(written only for `profile: kit`, which no runtime has; `SCHEMA_VERSION` and existing digests
+unchanged). `agent.yaml` allows up to 5 `knowledge:` entries; `build` refuses more than the
+runtime takes (`RUNTIME_LIMIT`). No runtime other than ADK exists. Website: no change until a
+framework passes its acceptance. Cloud: a `CLAUDE.md` note only; it has no code that reads the
+manifest's `runtime` or a runtime manifest.
+
 ## 🎯 When Adding a New Feature
 
 1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?

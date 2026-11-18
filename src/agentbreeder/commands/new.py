@@ -1,7 +1,8 @@
-"""`agentbreeder new agent NAME --model PROVIDER [--model-id ID] [--dir DIR] [--dry-run] [--json]`:
-write a starter project (see `newagent`); `--from-spec FILE` writes one from the agent builder's
-JSON spec instead (see `agentspec`). Exit 2 with `[CODE] message` on stderr when it refuses,
-and with `--json` also `{"schema_version": 1, "error": {"code", "message"}}` on stdout."""
+"""`agentbreeder new agent NAME --model PROVIDER [--model-id ID] [--runtime REF] [--dir DIR]
+[--dry-run] [--json]`: write a starter project (see `newagent`); `--from-spec FILE` writes one
+from the agent builder's JSON spec instead (see `agentspec`). Exit 2 with `[CODE] message` on
+stderr when it refuses, and with `--json` also
+`{"schema_version": 1, "error": {"code", "message"}}` on stdout."""
 
 from __future__ import annotations
 
@@ -48,6 +49,15 @@ def register(commands) -> None:
             "openrouter/google/gemini-3.8-flash; openrouter ids are openrouter/<vendor>/<model>)"
         ),
     )
+    agent.add_argument(
+        "--runtime",
+        metavar="REF",
+        help=(
+            "Runtime version agent.yaml pins, runtime/NAME@X.Y.Z (default: "
+            f"{newagent.RUNTIME}, the only one the starter has been run end to end on); "
+            "`agentbreeder registry runtimes` lists them"
+        ),
+    )
     where = agent.add_mutually_exclusive_group()
     where.add_argument("--dir", type=Path, help="Destination (default ./NAME)")
     where.add_argument(
@@ -90,12 +100,17 @@ def run(args) -> int:
         error = newagent.NewAgentError("USAGE", "--model is required (or use --from-spec)")
         return _refused(error, args)
     if args.stack_for is not None:
+        if args.runtime is not None:  # the existing agent.yaml already pins its runtime
+            error = newagent.NewAgentError("USAGE", "--runtime cannot be used with --stack-for")
+            return _refused(error, args)
         return _stack_for(args)
     if args.expect_digest is not None:
         error = newagent.NewAgentError("USAGE", "--expect-digest needs --stack-for or --from-spec")
         return _refused(error, args)
     try:
-        plan = newagent.plan(args.name, args.model, args.dir, model_id=args.model_id)
+        plan = newagent.plan(
+            args.name, args.model, args.dir, model_id=args.model_id, runtime=args.runtime
+        )
         if args.dry_run:
             newagent.check(plan)
         else:
@@ -134,13 +149,15 @@ def _from_spec(args) -> int:
         for flag, value in (
             ("--model", args.model),
             ("--model-id", args.model_id),
+            ("--runtime", args.runtime),
             ("--stack-for", args.stack_for),
         )
         if value is not None
     ]
     if clashing:
         error = newagent.NewAgentError(
-            "USAGE", f"--from-spec takes the model from the spec; drop {', '.join(clashing)}"
+            "USAGE",
+            f"--from-spec takes the model and runtime from the spec; drop {', '.join(clashing)}",
         )
         return _refused(error, args)
     try:
@@ -265,15 +282,25 @@ def _verification(summary: dict) -> list[str]:
     from agentbreeder import newagent
 
     model = summary["model"]
-    if not summary["verified"]:
-        return [
+    runtime = summary.get("runtime", newagent.RUNTIME)
+    lines = []
+    # `--from-spec` says both through `combination` and its `refs` (the caller's notes).
+    if runtime != newagent.RUNTIME and "combination" not in summary:
+        lines.append(
+            f"{runtime} is not the runtime version this starter has been run end to end on "
+            f"({newagent.RUNTIME})."
+        )
+        if summary.get("runtime_root_kind", "builtin") != "builtin":
+            lines.append(f"Code that runs in agents, not shipped with AgentBreeder: {runtime}.")
+    if not newagent.PROVIDERS[model].verified:
+        return lines + [
             f"{model} is config-only: this starter has not been run end to end with it (the "
             "eval judge needs strict json_schema output)."
         ]
     default = newagent.PROVIDERS[model].model
     if summary["model_id"] != default:
-        return [
+        return lines + [
             f"{model} has been run end to end with {default}, not with this model id: the eval "
             "gate may still fail on its answers."
         ]
-    return []
+    return lines

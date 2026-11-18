@@ -39,13 +39,14 @@ agentbreeder registry fork service/litellm@1.0.0 [--as NAME] [--version X.Y.Z] [
 agentbreeder registry edit prompt/support@1.0.0 --set prompt.md FILE [--remove PATH] [--bump patch|minor|major | --version X.Y.Z] [--project DIR] [--dry-run | --expect-digest SHA256] [--json]
 agentbreeder agent set-ref prompt/support@1.0.0 prompt/support@1.0.1 [--project DIR] [--dry-run | --expect-base SHA256] [--json]
 agentbreeder registry list [tool/] [--json]
+agentbreeder registry runtimes [--project DIR] [--json]   # runtime versions and what each supports
 agentbreeder registry verify [--json]                 # exit 2 if any version is unsafe or inconsistent
 agentbreeder registry show prompt/support@1.0.0 [--project DIR] [--json]
 agentbreeder registry diff prompt/support@1.0.0 prompt/support@1.0.1 [--context N] [--json]
 agentbreeder registry used-by tool/orders@1.0.0 [--project DIR ...] [--state-dir DIR] [--json]
 ```
 
-`list`, `verify`, `show` and `diff` search the roots of `--project` (default `.`).
+`list`, `runtimes`, `verify`, `show` and `diff` search the roots of `--project` (default `.`).
 
 Nothing below a search root may be a symlink (the root itself may be). A symlinked, or dangling,
 `<root>/<kind>` or `<root>/<kind>/<name>` directory makes every ref under it fail to resolve
@@ -427,6 +428,107 @@ sha256, diff, dry_run}`. Then build and release (`agentbreeder next` prints the 
 **What records an edit.** `registry edit` and `agent set-ref` change only the project's files:
 the new version directory and `agent.yaml`. Neither writes an audit-chain row; the record is the
 files and your git history if you commit them.
+
+## Runtime versions (on `main`, not in a published preview)
+
+A `runtime/` version is the agent server: a fixed `Dockerfile`, a `runtime/` directory with a
+hash-locked `requirements.lock`, and a `manifest.yaml`. Since #1083 F1 that manifest and one
+generated file are the only place `build`, `new agent` and the registry commands take framework
+facts from. Nothing in the engine branches on a framework's name. Only `runtime/adk` exists
+today; no other framework's runtime has been built or run.
+
+**Manifest keys** (beside `port`, `health_path`, `secrets` and `environment`):
+
+| Key | Meaning |
+|---|---|
+| `protocol` | The agent protocol version the runtime serves. This AgentBreeder knows `1`; any other number is `PROTOCOL_UNSUPPORTED`. A manifest **without** this key is a legacy version (below) |
+| `profile` | `v1` or `kit`. Required with `protocol`. `build` writes the deploy manifest's `runtime` field only for `kit` (see [manifest.md](manifest.md)) |
+| `kit` | The runtime kit version (`X.Y.Z`) the runtime vendors. Required with `profile: kit`, refused otherwise |
+| `framework` | A short lower-case name (`[a-z][a-z0-9-]`, at most 32). Required with `protocol` |
+| `display_name` | The framework's name as shown to people: one printable line, at most 100 characters. Required with `protocol` |
+| `capabilities` | What the runtime supports: `mcp`, `knowledge`, `notes`, `subagents`, `skills`, `skill_scripts`. `build` refuses an `agent.yaml` part whose capability is missing |
+| `limits` | `{knowledge, tools, mcp_servers}`: how many of each the runtime takes, at most `agent.yaml`'s own ceilings (5, 50 and 10). A part left out keeps the limit every runtime had before: 1, 50 and 10 |
+| `reserved_tool_names` | Up to 100 tool names the runtime keeps for itself. `build` refuses an MCP tool with one of these names (`MCP_TOOL_RESERVED`), and a function tool named like one (`TOOL_NAME_RESERVED`) |
+| `model_api` | `openai-chat` or `anthropic-messages`. Read and checked; nothing uses it yet |
+| `notes` | An optional one-line note, at most 300 characters |
+| `docs` | An optional relative path to the runtime's docs page |
+
+An invalid key is `ARTIFACT_INVALID` and names the key only (`invalid limits.tools`), never its
+value. So is one of `profile`, `kit`, `display_name`, `limits`, `reserved_tool_names`,
+`model_api`, `notes` or `docs` in a manifest without `protocol` (`limits needs protocol`): it
+is not read as a legacy version with those keys dropped.
+
+**Legacy versions.** Published versions are append-only, so the `runtime/adk` versions that
+predate these keys (1.0.4 to 1.4.0) are not edited. A manifest without `protocol` gets one
+profile held in the engine, `LEGACY_ADK`: display name "Google ADK", protocol 1, profile `v1`,
+capabilities `knowledge` and `notes` plus whatever the manifest lists (`mcp` from 1.1.0), one
+knowledge set, 50 tools, 10 MCP servers, and the five MCP tool names ADK skips
+(`transfer_to_agent`, `adk_request_credential`, `adk_request_confirmation`, `adk_request_input`,
+`set_model_response`). For these versions the reserved names are checked against an MCP
+server's own tool names only, as before; a runtime that declares `protocol` also has them
+checked against every name the model would see (a function tool's name and `<server>_<tool>`).
+A test builds Northwind and the `new agent` starter on `runtime/adk` 1.2.0, 1.3.0 and 1.4.0 and
+compares the build context, the manifests and the deploy template byte for byte with digests
+taken before this change, and checks that the refusals they gave are still given.
+
+One refusal moved: `agent.yaml` used to refuse a second `knowledge:` entry itself
+(`AGENT_INVALID`). It now allows up to 5, and `build` refuses more than the pinned runtime takes
+(`RUNTIME_LIMIT`: `runtime/adk@1.3.0 takes at most 1 knowledge: entry (limits.knowledge); the
+agent has 2`). `agentbreeder validate` checks the file's shape only, so it no longer refuses a
+second entry; `build` does.
+
+**`runtime/modules.json`.** A runtime that declares `protocol` must ship this generated file
+(`ARTIFACT_INVALID` without it): the runtime's own top-level module names, and the import names
+of every package in its lock.
+
+```json
+{"schema_version": 1, "modules": ["kit", "server"], "imports": {"httpx": ["httpx"]}}
+```
+
+`python scripts/runtime_modules.py VERSION_DIR --site-packages DIR` writes it from the lock
+installed into `DIR`, and a repository test fails when a built-in version's file does not list
+exactly its `runtime/` modules and its lock's packages. `build` refuses a tool function whose
+module is one of those names (`TOOL_MODULE_SHADOWS`), and `registry publish|import|fork|edit` refuse a
+`tool/` version that would shadow a name from any built-in runtime's file (`TOOL_INVALID`).
+Legacy versions have no file: their names are in `LEGACY_ADK`, and those checks are unchanged
+for them.
+
+**`agentbreeder registry runtimes [--project DIR] [--json]`** prints the engine's resolved view,
+so a reader such as the local console needs no knowledge of profiles:
+
+```json
+{
+  "schema_version": 1,
+  "runtimes": [
+    {
+      "ref": "runtime/adk@1.4.0", "name": "adk", "version": "1.4.0", "root_kind": "builtin",
+      "display_name": "Google ADK", "framework": "google-adk", "protocol": 1, "profile": "v1",
+      "capabilities": ["knowledge", "mcp", "notes"],
+      "limits": {"knowledge": 1, "mcp_servers": 10, "tools": 50},
+      "reserved_tool_names": ["adk_request_confirmation", "…"],
+      "verified": true, "usable": true
+    }
+  ]
+}
+```
+
+- `kit`, `notes` and `docs` appear only when the manifest has them.
+- `verified` is true for a runtime version that has been run end to end. Today that is
+  `runtime/adk@1.3.0` (Northwind 61/61, #1095) and `runtime/adk@1.4.0` (the starter and the
+  3.0.0a3 public-registry runs). It is about the version, not a `new agent` combination: those
+  all ran on the starter's default, `runtime/adk@1.4.0`, so a spec or `--runtime` that pins
+  `1.3.0` still has `verified: false` in `new agent`'s output.
+- A version the engine cannot use is still listed, with `usable: false`, a `code` and a
+  `reason` and without the profile fields: an invalid manifest or a missing `modules.json`
+  (`ARTIFACT_INVALID`), an unknown protocol (`PROTOCOL_UNSUPPORTED`), a version under a
+  symlinked directory or with a link or non-regular file inside (`ENTRY_UNSAFE`), one with a
+  file that cannot be read (`ENTRY_UNREADABLE`), a directory whose name is not an `X.Y.Z`
+  version (`REF_UNPINNED`) or one with different content in two roots
+  (`REF_CONFLICT`). Each version is hashed as `build` would copy it before its manifest is
+  read, so nothing is read from outside the version.
+- Versions run end to end come first, then by name, newest version first.
+- The conformance result the console design mentions is not part of this output; there is no
+  `agentbreeder conformance` command yet.
 
 ## Skills (on `main`, not in a published preview)
 

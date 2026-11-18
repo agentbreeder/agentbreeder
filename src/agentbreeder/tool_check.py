@@ -22,7 +22,8 @@ import sys
 from collections import OrderedDict
 from pathlib import Path
 
-from agentbreeder import registry, strict_yaml
+from agentbreeder import registry, runtime_profile, strict_yaml
+from agentbreeder.runtime_profile import LEGACY_ADK
 
 CODE = "TOOL_INVALID"
 CHECKER_VERSION = 1  # part of the `show` cache key: raise it when the view changes
@@ -41,10 +42,11 @@ MAX_FUNCTIONS = 64  # per tool.yaml; bounds the work `show` does in the console 
 SIGNATURE_NODES = 2000  # AST nodes in a def's parameters and return annotation that are unparsed
 ALLOWED_NOTE = "a tool holds only manifest.yaml, tool.yaml, README* and src/**/*.py"
 
-# Module names of the runtime itself (`runtime/adk/*/runtime/*.py`); a test keeps this in step.
-RUNTIME_MODULES = frozenset(
-    {"agent", "config", "mcp_client", "memory", "rag", "redaction", "server", "telemetry", "tools"}
-)
+# The module names of the runtimes published before #1083 F1 (`runtime_profile.LEGACY_ADK`):
+# the runtime's own modules and its lock's import names. A later runtime version ships them in
+# its own `runtime/modules.json`, which `runtime_names` reads from the built-in registry.
+RUNTIME_MODULES = LEGACY_ADK.modules
+LOCKED_IMPORTS = LEGACY_ADK.imports
 # Standard-library modules removed in Python 3.12 and 3.13: absent from a newer host's
 # `sys.stdlib_module_names`, but the runtime image may still have them.
 REMOVED_STDLIB = frozenset(
@@ -56,148 +58,49 @@ REMOVED_STDLIB = frozenset(
 )  # fmt: skip
 # In the runtime image but outside the lock (pip and its build tooling).
 IMAGE_EXTRAS = frozenset({"pip", "setuptools", "pkg_resources", "_distutils_hack", "wheel"})
-# Top-level import names of every package in a built-in `runtime/adk` requirements.lock (read
-# from the installed distributions, `importlib.metadata.packages_distributions()`, in the CI
-# image). tests/test_tool_check.py fails when a lock gains a package missing here.
-LOCKED_IMPORTS: dict[str, tuple[str, ...]] = {
-    "aiohappyeyeballs": ("aiohappyeyeballs",),
-    "aiohttp": ("aiohttp",),
-    "aiosignal": ("aiosignal",),
-    "aiosqlite": ("aiosqlite",),
-    "alembic": ("alembic",),
-    "annotated-doc": ("annotated_doc",),
-    "annotated-types": ("annotated_types",),
-    "anyio": ("anyio",),
-    "attrs": (
-        "attr",
-        "attrs",
-    ),
-    "authlib": ("authlib",),
-    "boto3": ("boto3",),
-    "botocore": ("botocore",),
-    "certifi": ("certifi",),
-    "cffi": (
-        "_cffi_backend",
-        "cffi",
-    ),
-    "charset-normalizer": ("charset_normalizer",),
-    "click": ("click",),
-    "cryptography": ("cryptography",),
-    "distro": ("distro",),
-    "fastapi": ("fastapi",),
-    "fastuuid": ("fastuuid",),
-    "filelock": ("filelock",),
-    "frozenlist": ("frozenlist",),
-    "fsspec": ("fsspec",),
-    "google-adk": ("google",),
-    "google-api-core": ("google",),
-    "google-auth": ("google",),
-    "google-cloud-core": ("google",),
-    "google-cloud-monitoring": ("google",),
-    "google-cloud-spanner": ("google",),
-    "google-genai": ("google",),
-    "googleapis-common-protos": ("google",),
-    "graphviz": ("graphviz",),
-    "greenlet": ("greenlet",),
-    "grpc-google-iam-v1": ("google",),
-    "grpc-interceptor": ("grpc_interceptor",),
-    "grpcio": ("grpc",),
-    "grpcio-status": ("grpc_status",),
-    "h11": ("h11",),
-    "h2": ("h2",),
-    "hf-xet": ("hf_xet",),
-    "hpack": ("hpack",),
-    "httpcore": ("httpcore",),
-    "httpcore2": ("httpcore2",),
-    "httpx": ("httpx",),
-    "httpx2": ("httpx2",),
-    "huggingface-hub": ("huggingface_hub",),
-    "hyperframe": ("hyperframe",),
-    "idna": ("idna",),
-    "importlib-metadata": ("importlib_metadata",),
-    "jinja2": ("jinja2",),
-    "jiter": ("jiter",),
-    "jmespath": ("jmespath",),
-    "joserfc": ("joserfc",),
-    "jsonschema": ("jsonschema",),
-    "jsonschema-specifications": ("jsonschema_specifications",),
-    "litellm": ("litellm",),
-    "mako": ("mako",),
-    "markupsafe": ("markupsafe",),
-    "mcp": ("mcp",),
-    "mcp-types": ("mcp_types",),
-    "mmh3": ("mmh3",),
-    "multidict": ("multidict",),
-    "openai": ("openai",),
-    "opentelemetry-api": ("opentelemetry",),
-    "opentelemetry-exporter-otlp-proto-common": ("opentelemetry",),
-    "opentelemetry-exporter-otlp-proto-http": ("opentelemetry",),
-    "opentelemetry-proto": ("opentelemetry",),
-    "opentelemetry-resourcedetector-gcp": ("opentelemetry",),
-    "opentelemetry-sdk": ("opentelemetry",),
-    "opentelemetry-semantic-conventions": ("opentelemetry",),
-    "packaging": ("packaging",),
-    "propcache": ("propcache",),
-    "proto-plus": ("proto",),
-    "protobuf": ("google",),
-    "psycopg": ("psycopg",),
-    "psycopg-binary": ("psycopg_binary",),
-    "pyasn1": ("pyasn1",),
-    "pyasn1-modules": ("pyasn1_modules",),
-    "pycparser": ("pycparser",),
-    "pydantic": ("pydantic",),
-    "pydantic-core": ("pydantic_core",),
-    "pydantic-settings": ("pydantic_settings",),
-    "pyjwt": ("jwt",),
-    "python-dateutil": ("dateutil",),
-    "python-dotenv": ("dotenv",),
-    "python-multipart": (
-        "multipart",
-        "python_multipart",
-    ),
-    "pyyaml": (
-        "_yaml",
-        "yaml",
-    ),
-    "referencing": ("referencing",),
-    "regex": ("regex",),
-    "requests": ("requests",),
-    "rpds-py": ("rpds",),
-    "s3transfer": ("s3transfer",),
-    "six": ("six",),
-    "sniffio": ("sniffio",),
-    "sqlalchemy": ("sqlalchemy",),
-    "sqlalchemy-spanner": ("google",),
-    "sqlparse": ("sqlparse",),
-    "sse-starlette": ("sse_starlette",),
-    "starlette": ("starlette",),
-    "tenacity": ("tenacity",),
-    "tiktoken": (
-        "tiktoken",
-        "tiktoken_ext",
-    ),
-    "tokenizers": ("tokenizers",),
-    "tqdm": ("tqdm",),
-    "truststore": ("truststore",),
-    "typing-extensions": (
-        "__pycache__",
-        "typing_extensions",
-    ),
-    "typing-inspection": ("typing_inspection",),
-    "urllib3": ("urllib3",),
-    "uvicorn": ("uvicorn",),
-    "watchdog": ("watchdog",),
-    "websockets": ("websockets",),
-    "yarl": ("yarl",),
-    "zipp": ("zipp",),
-}
+
+
+def runtime_names(root: Path | None = None) -> tuple[frozenset[str], frozenset[str]]:
+    """(runtime module names, locked import names) a tool's src/ must not shadow: `LEGACY_ADK`'s
+    plus every built-in runtime version's `runtime/modules.json`. A tool is checked when it is
+    published, before any agent pins a runtime, so the names of every built-in runtime count.
+    Cached per registry root; the built-in files never change in an installed package."""
+    root = registry.BUILTIN_ROOT if root is None else root
+    cached = _RUNTIME_NAMES.get(root)
+    if cached is None:
+        modules, imports = set(RUNTIME_MODULES), set()
+        for names in LOCKED_IMPORTS.values():
+            imports.update(names)
+        for path in sorted(root.glob(f"runtime/*/*/{runtime_profile.MODULES_FILE}")):
+            try:
+                found = runtime_profile.parse_modules(_read_modules(path))
+            except runtime_profile.ProfileError as error:
+                shown = path.relative_to(root).as_posix()
+                raise registry.RegistryError(error.code, f"{shown}: {error.message}") from None
+            modules |= found.modules
+            for names in found.imports.values():
+                imports.update(names)
+        cached = _RUNTIME_NAMES[root] = (frozenset(modules), frozenset(imports))
+    return cached
+
+
+_RUNTIME_NAMES: dict[Path, tuple[frozenset[str], frozenset[str]]] = {}
+
+
+def _read_modules(path: Path) -> bytes:
+    if path.is_symlink():
+        raise runtime_profile.ProfileError("ARTIFACT_INVALID", "must not be a symlink")
+    try:
+        with path.open("rb") as handle:
+            return handle.read(runtime_profile.MODULES_LIMIT + 1)
+    except OSError:
+        raise runtime_profile.ProfileError("ARTIFACT_INVALID", "unreadable") from None
 
 
 def _reserved() -> frozenset[str]:
-    names = set(RUNTIME_MODULES) | REMOVED_STDLIB | IMAGE_EXTRAS
+    modules, imports = runtime_names()
+    names = set(modules) | set(imports) | REMOVED_STDLIB | IMAGE_EXTRAS
     names |= set(sys.stdlib_module_names) | set(sys.builtin_module_names)
-    for imports in LOCKED_IMPORTS.values():
-        names.update(imports)
     return frozenset(names)
 
 
@@ -207,7 +110,8 @@ def shadows(name: str) -> str | None:
         return "is a reserved Python name"
     if name in HOOK_NAMES:
         return "is a name Python or pytest imports by itself"
-    if name in RUNTIME_MODULES:
+    modules, imports = runtime_names()
+    if name in modules:
         return "shadows a runtime module"
     if (
         name in sys.stdlib_module_names
@@ -215,7 +119,7 @@ def shadows(name: str) -> str | None:
         or name in sys.builtin_module_names
     ):
         return "shadows a standard-library module"
-    if name in RESERVED:
+    if name in imports or name in IMAGE_EXTRAS:
         return "shadows a package the runtime installs"
     return None
 

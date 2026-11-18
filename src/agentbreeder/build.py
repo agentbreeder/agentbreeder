@@ -23,13 +23,13 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from agentbreeder import registry
+from agentbreeder import registry, runtime_profile
 from agentbreeder.agentfile import AgentFile, load_agent_file
 from agentbreeder.lock import Lock, materialise
 from agentbreeder.manifest import IdentityReference, Manifest
 from agentbreeder.operator_config import OperatorConfig
 from agentbreeder.package import DeployTemplate
-from agentbreeder.runtime_caps import CapabilitiesError, runtime_capabilities
+from agentbreeder.runtime_profile import KNOWLEDGE_TOOL, Profile, ProfileError
 from agentbreeder.strict_yaml import StrictYamlError, load_file
 
 IMAGE_KINDS = ("prompt", "knowledge", "tool")
@@ -237,12 +237,14 @@ def _mcp_names(entries: list) -> dict[str, str]:
     }
 
 
-def check_subagent_names(agent: AgentFile, placed: dict[str, Path]) -> None:
-    """A sub-agent is the parent's tool `ask_<name>` and an ADK agent of that name (spec §5.3):
-    refuse a clash with the parent's own name, functions, MCP tools or built-in tools, and a
-    clash between tools inside one sub-agent. Messages name the location only."""
+def check_subagent_names(agent: AgentFile, placed: dict[str, Path], profile: Profile) -> None:
+    """A sub-agent is the parent's tool `ask_<name>` and an agent of that name in the runtime
+    (spec §5.3): refuse a clash with the parent's own name, functions, MCP tools or the
+    runtime's reserved tool names, and a clash between tools inside one sub-agent. Messages
+    name the location only."""
+    builtin = "an ADK built-in tool" if profile.legacy else "a tool name the runtime reserves"
     parent = {re.sub(r"[^a-zA-Z0-9_]", "_", agent.name): "the agent's own name"}
-    parent |= {name: "an ADK built-in tool" for name in ADK_RESERVED_TOOLS}
+    parent |= {name: builtin for name in profile.reserved_tool_names}
     if agent.knowledge:
         parent[KNOWLEDGE_TOOL] = "knowledge search"
     parent |= _function_names(agent.tools, placed) | _mcp_names(agent.mcp)
@@ -254,7 +256,7 @@ def check_subagent_names(agent: AgentFile, placed: dict[str, Path]) -> None:
                 f"subagents[{i}].name: the agent would see {tool}, which {parent[tool]} "
                 "also defines",
             )
-        own: dict[str, str] = {name: "an ADK built-in tool" for name in ADK_RESERVED_TOOLS}
+        own: dict[str, str] = {name: builtin for name in profile.reserved_tool_names}
         if sub.knowledge:
             own[KNOWLEDGE_TOOL] = "knowledge search"
         for name, ref in [
@@ -269,36 +271,38 @@ def check_subagent_names(agent: AgentFile, placed: dict[str, Path]) -> None:
             own[name] = ref
 
 
-# ADK skips an MCP tool with one of these names, so runtime/adk@1.1.0 refuses them at startup.
-ADK_RESERVED_TOOLS = frozenset(
-    {
-        "transfer_to_agent",
-        "adk_request_credential",
-        "adk_request_confirmation",
-        "adk_request_input",
-        "set_model_response",
-    }
-)
-KNOWLEDGE_TOOL = "search_knowledge_base"
-
-
-def _check_mcp_names(agent: AgentFile, placed: dict[str, Path]) -> None:
+def _check_mcp_names(agent: AgentFile, placed: dict[str, Path], profile: Profile) -> None:
     """The model sees MCP tools as `<server>_<tool>` (`-` in the server name becomes `_`). The
     runtime refuses, at startup, a reserved name or one that clashes across servers, with a
     function tool or with knowledge search; deploy's health check can't see that, so every turn
-    would fail. Build has every input, so it refuses them here."""
+    would fail. Build has every input, so it refuses them here.
+
+    The reserved names are the runtime's (`reserved_tool_names`). An MCP server's own tool name
+    is checked against them on every runtime (ADK skips such a tool before it is prefixed). A
+    runtime that declares `protocol` also has every name the model would see checked: a
+    function tool's name and the prefixed MCP name."""
+    reserved_names = profile.reserved_tool_names
+    owner = "the ADK runtime" if profile.legacy else agent.runtime
     taken: dict[str, str] = {KNOWLEDGE_TOOL: "knowledge search"} if agent.knowledge else {}
+    if not profile.legacy:  # every agent's function tools, a sub-agent's included
+        for name, ref in _function_names(_all_tools(agent), placed).items():
+            if name in reserved_names:
+                raise BuildError("TOOL_NAME_RESERVED", f"{ref}: {name} is reserved by {owner}")
     for tool in agent.tools:
         spec = load_file(placed[tool.ref] / "tool.yaml")  # parsed by _check_tool_modules
         for function in spec.get("functions") or []:
             taken[str((function or {}).get("name", ""))] = tool.ref
     for entry in agent.mcp:
         prefix = registry.Ref.parse(entry.ref).name.replace("-", "_")
-        reserved = sorted(set(entry.tools) & ADK_RESERVED_TOOLS)
+        reserved = sorted(set(entry.tools) & reserved_names)
+        if not profile.legacy:
+            reserved += sorted(
+                name for tool in entry.tools if (name := f"{prefix}_{tool}") in reserved_names
+            )
         if reserved:
             raise BuildError(
                 "MCP_TOOL_RESERVED",
-                f"{entry.ref}: {', '.join(reserved)} is reserved by the ADK runtime",
+                f"{entry.ref}: {', '.join(reserved)} is reserved by {owner}",
             )
         for tool in entry.tools:
             name = f"{prefix}_{tool}"
@@ -344,24 +348,114 @@ def _runtime_serving(runtime_dir: Path, ref: str) -> dict:
     return {"port": port, "health_path": health}
 
 
-def _runtime_capabilities(runtime_dir: Path, ref: str) -> frozenset[str]:
-    """What the runtime supports beyond serving an agent (`runtime_caps`, the parser
-    `agentspec` shares)."""
+def _runtime_profile(runtime_dir: Path, ref: str) -> tuple[Profile, runtime_profile.Modules]:
+    """Every framework fact `build` uses, read from the resolved runtime version
+    (`runtime_profile`, the parser `agentspec` and `registry runtimes` share): its manifest
+    keys and its module names. `build` never branches on a framework name."""
     try:
-        return runtime_capabilities(runtime_dir)
-    except CapabilitiesError as error:
+        profile = runtime_profile.load(runtime_dir)
+    except ProfileError as error:
+        if error.code == "PROTOCOL_UNSUPPORTED":
+            raise BuildError(error.code, f"{ref}: {error}") from error
         raise BuildError("ARTIFACT_INVALID", f"{ref} manifest.yaml: {error}") from error
+    try:
+        return profile, runtime_profile.load_modules(runtime_dir, profile)
+    except ProfileError as error:
+        raise BuildError(error.code, f"{ref}: {error}") from error
+
+
+def _runtime_capabilities(runtime_dir: Path, ref: str) -> frozenset[str]:
+    """What the runtime supports beyond serving an agent (its profile's capabilities)."""
+    return _runtime_profile(runtime_dir, ref)[0].capabilities
+
+
+def check_runtime(agent: AgentFile, profile: Profile) -> None:
+    """Refuse an agent whose parts its runtime version cannot run: a missing capability or a
+    count over the runtime's limit. Messages name the runtime ref and the capability or limit."""
+    ref = agent.runtime
+    if agent.skills and not profile.has("skills"):
+        # No runtime loads skills yet (#1059 RT); refused before docker build, so a skill's
+        # scripts/ never reaches an image. Before a runtime claims `skills`, RT must run
+        # skill_check.check on each placed skill and place it without scripts/ (spec §7).
+        raise BuildError(
+            "RUNTIME_NO_SKILLS",
+            f"{ref} does not load skills, so the agent's skills: would never "
+            "reach the model; remove skills: until a runtime version supports them",
+        )
+    if agent.subagents and not profile.has("subagents"):
+        raise BuildError(
+            "RUNTIME_NO_SUBAGENTS",
+            f"{ref} does not run sub-agents, so the agent's subagents: would "
+            "never be called; remove subagents: until a runtime version supports them",
+        )
+    if agent.mcp and not profile.has("mcp"):
+        raise BuildError(
+            "MCP_RUNTIME_UNSUPPORTED",
+            f"{ref} has no `mcp` capability (no MCP client), so the agent's mcp: tools would "
+            "never appear; use a runtime version that lists it",
+        )
+    if any(sub.mcp for sub in agent.subagents) and not profile.has("mcp"):
+        raise BuildError(
+            "MCP_RUNTIME_UNSUPPORTED",
+            f"{ref} has no `mcp` capability (no MCP client), so a sub-agent's mcp: tools "
+            "would never appear; use a runtime version that lists it",
+        )
+    if agent.knowledge and not profile.has("knowledge"):
+        raise BuildError(
+            "RUNTIME_NO_KNOWLEDGE",
+            f"{ref} has no `knowledge` capability, so the agent's knowledge: would never be "
+            "searched; use a runtime version that lists it",
+        )
+    if agent.memory.notes and not profile.has("notes"):
+        raise BuildError(
+            "RUNTIME_NO_NOTES",
+            f"{ref} has no `notes` capability, so memory.notes would never be kept; set "
+            "memory.notes to false or use a runtime version that lists it",
+        )
+    # The agent's own lists, as `agent.yaml` counts them (a sub-agent's are bounded there).
+    for part, field, used in (
+        ("knowledge", "knowledge", len(agent.knowledge)),
+        ("tools", "tools", len(agent.tools)),
+        ("mcp_servers", "mcp", len(agent.mcp)),
+    ):
+        allowed = profile.limit(part)
+        if used > allowed:
+            raise BuildError(
+                "RUNTIME_LIMIT",
+                f"{ref} takes at most {allowed} {field}: {'entry' if allowed == 1 else 'entries'}"
+                f" (limits.{part}); the agent has {used}",
+            )
+
+
+def _check_shadowing(agent: AgentFile, placed: dict[str, Path], names: frozenset[str]) -> None:
+    """A tool module named like one of the runtime's own modules, or like a package its lock
+    installs, would hide it. `registry publish` checks this against the built-in runtimes
+    (`tool_check`); a runtime that ships `runtime/modules.json` is checked here too, because it
+    may come from a project registry `tool_check` never saw."""
+    for tool in _all_tools(agent):
+        spec = load_file(placed[tool.ref] / "tool.yaml")  # parsed by _check_tool_modules
+        for function in spec.get("functions") or []:
+            module = str((function or {}).get("module", "")).split(".")[0]
+            if module in names:
+                raise BuildError(
+                    "TOOL_MODULE_SHADOWS",
+                    f"{tool.ref}: module {module!r} would hide a module of {agent.runtime}",
+                )
 
 
 def _where(error: ValidationError) -> str:
     return ", ".join(".".join(map(str, e["loc"])) for e in error.errors()[:5])
 
 
-def template(agent: AgentFile, serving: dict, aliases: list[str]) -> DeployTemplate:
+def template(
+    agent: AgentFile, serving: dict, aliases: list[str], profile: Profile | None = None
+) -> DeployTemplate:
     """The deploy fields derived from the agent and its runtime only (spec §5.4): port,
-    health_path, aliases, budget_usd, rpm, mcp_access and guardrails (#1053). It is
-    environment-neutral, so a released package can carry it; identity, secrets, the gateway,
-    target and image are `bind`'s, and the template schema has no field for them."""
+    health_path, aliases, budget_usd, rpm, mcp_access, guardrails (#1053) and, for a kit
+    runtime only, `runtime` (#1083 F1). It is environment-neutral, so a released package can
+    carry it; identity, secrets, the gateway, target and image are `bind`'s, and the template
+    schema has no field for them."""
+    kit = profile is not None and profile.profile == "kit"
     try:
         return DeployTemplate.model_validate(
             {
@@ -372,6 +466,9 @@ def template(agent: AgentFile, serving: dict, aliases: list[str]) -> DeployTempl
                 "rpm": agent.model.rpm,
                 "mcp_access": [{"ref": m.ref, "tools": list(m.tools)} for m in agent.mcp],
                 "guardrails": list(agent.guardrails) or None,
+                # Written only for a kit runtime, so every manifest, package and revision
+                # digest of an agent on an earlier runtime keeps its bytes.
+                "runtime": {"ref": agent.runtime, "profile": "kit"} if kit else None,
             }
         )
     except ValidationError as error:
@@ -414,6 +511,8 @@ def bind(
         data["mcp_access"] = fields["mcp_access"]
     if fields.get("guardrails"):  # #1053: left out when the agent names none
         data["guardrails"] = list(fields["guardrails"])
+    if fields.get("runtime"):  # #1083 F1: a kit runtime only
+        data["runtime"] = dict(fields["runtime"])
     try:
         Manifest.model_validate(data)  # generated manifests must satisfy the deploy contract
     except ValidationError as error:
@@ -498,28 +597,8 @@ def build(
         )
         runtime_dir = artifacts / "runtime" / registry.Ref.parse(agent.runtime).name
         serving = _runtime_serving(runtime_dir, agent.runtime)
-        capabilities = _runtime_capabilities(runtime_dir, agent.runtime)
-        if agent.skills and "skills" not in capabilities:
-            # No runtime loads skills yet (#1059 RT); refused before docker build, so a skill's
-            # scripts/ never reaches an image. Before a runtime claims `skills`, RT must run
-            # skill_check.check on each placed skill and place it without scripts/ (spec §7).
-            raise BuildError(
-                "RUNTIME_NO_SKILLS",
-                f"{agent.runtime} does not load skills, so the agent's skills: would never "
-                "reach the model; remove skills: until a runtime version supports them",
-            )
-        if agent.subagents and "subagents" not in capabilities:
-            raise BuildError(
-                "RUNTIME_NO_SUBAGENTS",
-                f"{agent.runtime} does not run sub-agents, so the agent's subagents: would "
-                "never be called; remove subagents: until a runtime version supports them",
-            )
-        if agent.mcp and "mcp" not in capabilities:
-            raise BuildError(
-                "MCP_RUNTIME_UNSUPPORTED",
-                f"{agent.runtime} has no MCP client, so the agent's mcp: tools would never "
-                "appear; use runtime/adk@1.1.0 or later",
-            )
+        profile, modules = _runtime_profile(runtime_dir, agent.runtime)
+        check_runtime(agent, profile)
         for item in RUNTIME_FILES:
             if not (runtime_dir / item).exists():
                 raise BuildError("ARTIFACT_INVALID", f"{agent.runtime} is missing {item}")
@@ -532,14 +611,17 @@ def build(
         for path in agent.paths():  # the parent's and each sub-agent's path prompt
             _prompt_as_prompt_md(placed[f"path:{Path(path).as_posix()}"])
         _check_tool_modules(agent, placed)
-        _check_mcp_names(agent, placed)
-        check_subagent_names(agent, placed)
+        if not profile.legacy:
+            _check_shadowing(agent, placed, modules.names())
+        _check_mcp_names(agent, placed, profile)
+        check_subagent_names(agent, placed, profile)
         config = _config(agent, placed, context)
         (context / "agent.config.json").write_text(json.dumps(config, indent=2, sort_keys=True))
         _world_readable(context)  # the image runs as uid 65532; COPY keeps these modes
         # The parent's alias, each sub-agent's, then the knowledge embedding alias (spec §6).
         aliases = agent.aliases([_knowledge_alias(placed[k.ref]) for k in agent.knowledge])
-        deploy = template(agent, serving, aliases)  # refuse a bad template before docker build
+        # Refuse a bad template before docker build.
+        deploy = template(agent, serving, aliases, profile)
         image = builder(context, Path(temporary) / "image-id")
     if not image.startswith("sha256:"):
         raise BuildError("BUILD_FAILED", "docker build did not return an image ID")

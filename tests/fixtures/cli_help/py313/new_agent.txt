@@ -1,6 +1,6 @@
 usage: agentbreeder new agent [-h]
                               [--model {anthropic,gemini,ollama,openai,openrouter}]
-                              [--model-id ID] [--dir DIR |
+                              [--model-id ID] [--runtime REF] [--dir DIR |
                               --stack-for AGENT_YAML] [--from-spec FILE]
                               [--dry-run] [--expect-digest SHA256] [--json]
                               name
@@ -25,6 +25,10 @@ options:
                         provider's own, e.g.
                         openrouter/google/gemini-3.8-flash; openrouter ids are
                         openrouter/<vendor>/<model>)
+  --runtime REF         Runtime version agent.yaml pins, runtime/NAME@X.Y.Z
+                        (default: runtime/adk@1.4.0, the only one the starter
+                        has been run end to end on); `agentbreeder registry
+                        runtimes` lists them
   --dir DIR             Destination (default ./NAME)
   --stack-for AGENT_YAML
                         Instead of a starter, write stack.yaml and

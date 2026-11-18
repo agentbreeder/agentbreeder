@@ -29,6 +29,12 @@ MAX_BYTES = 64 * 1024
 NAME_PATTERN = r"^[a-z0-9]([a-z0-9-]{0,51}[a-z0-9])?$"  # ≤ 53: room for "-candidate"
 NOTES_TOOL = "tool/customer-notes"
 ALIAS_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$"
+# The most any runtime may take; `runtime_profile.ENGINE_LIMITS` holds the same numbers (a test
+# keeps them equal). Written here, not imported: the console's server process loads this module
+# and its allowlist of AgentBreeder modules stays as it was.
+MAX_KNOWLEDGE = 5
+MAX_TOOLS = 50
+MAX_MCP = 10
 
 
 class AgentFileError(ValueError):
@@ -159,10 +165,12 @@ class AgentFile(_Strict):
     description: str = Field(default="", max_length=500)
     model: Model
     prompt: PromptSource
-    # runtime/adk 1.x retrieves from one knowledge set (chunk ids are not namespaced per set)
-    knowledge: list[Knowledge] = Field(default_factory=list, max_length=1)
-    tools: list[RefEntry] = Field(default_factory=list, max_length=50)
-    mcp: list[McpEntry] = Field(default_factory=list, max_length=10)
+    # The most any runtime may take (`runtime_profile.ENGINE_LIMITS`). How many the pinned
+    # runtime version takes is its own `limits` (one knowledge set on every `runtime/adk`
+    # version so far), which `build` checks (`RUNTIME_LIMIT`, #1083 F1).
+    knowledge: list[Knowledge] = Field(default_factory=list, max_length=MAX_KNOWLEDGE)
+    tools: list[RefEntry] = Field(default_factory=list, max_length=MAX_TOOLS)
+    mcp: list[McpEntry] = Field(default_factory=list, max_length=MAX_MCP)
     memory: Memory = Field(default_factory=Memory)
     agent_events: Literal["postgres", "none"] = "postgres"
     traces: Literal["otlp", "none"] = "otlp"

@@ -164,6 +164,18 @@ class McpAccess(_Strict):
         return value
 
 
+class RuntimeInfo(BaseModel):
+    """The runtime version a built agent's image runs on (#1083 F1). `build` writes it only for
+    a kit runtime (the runtime manifest's `profile: kit`), so a manifest built on an earlier
+    runtime never carries it. It is an operational signal, not a security boundary: a
+    hand-written manifest can leave it out, as it can name any image."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    ref: str = Field(pattern=r"^runtime/[a-z0-9][a-z0-9-]{0,62}@[0-9]+\.[0-9]+\.[0-9]+$")
+    profile: Literal["kit"]
+
+
 class Manifest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -184,22 +196,25 @@ class Manifest(BaseModel):
     # config defines. They only add to the environment floor; the deploy attaches them to
     # this deployment's gateway key through LiteLLM's policy engine.
     guardrails: list[str] | None = Field(default=None, min_length=1, max_length=10)
+    # The kit runtime version the image was built on (#1083 F1); unset for every other image.
+    runtime: RuntimeInfo | None = None
 
     def digest(self) -> str:
         """Spec digest. Optional fields added later are left out when unset, so a manifest
         deployed before they existed keeps the same digest (no NAME_CONFLICT on redeploy)."""
         exclude = {
             name
-            for name in ("model_access", "mcp_access", "guardrails")
+            for name in ("model_access", "mcp_access", "guardrails", "runtime")
             if getattr(self, name) is None
         }
         return hashlib.sha256(self.model_dump_json(exclude=exclude).encode()).hexdigest()
 
     def revision_dump(self) -> dict:
-        """The manifest as the revision digest hashes it: `guardrails` (#1053) is left out
-        when unset, so the revisions of manifests without it do not change."""
-        exclude = {"guardrails"} if self.guardrails is None else None
-        return self.model_dump(mode="json", exclude=exclude)
+        """The manifest as the revision digest hashes it: `guardrails` (#1053) and `runtime`
+        (#1083 F1) are left out when unset, so the revisions of manifests without them do not
+        change."""
+        exclude = {name for name in ("guardrails", "runtime") if getattr(self, name) is None}
+        return self.model_dump(mode="json", exclude=exclude or None)
 
     @field_validator("guardrails")
     @classmethod
@@ -228,6 +243,10 @@ class Manifest(BaseModel):
                 raise ValueError("mcp_access names each MCP server once")
         if self.guardrails is not None and self.model_access is None:
             raise ValueError("guardrails apply to gateway model calls: they need model_access")
+        if self.runtime is not None and (self.model_access is None or self.schema_version != 2):
+            raise ValueError(
+                "runtime is for built agents: it needs schema_version 2 and model_access"
+            )
         return self
 
     @model_validator(mode="after")
