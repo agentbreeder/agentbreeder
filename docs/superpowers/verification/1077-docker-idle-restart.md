@@ -9,9 +9,9 @@ No AgentBreeder command restarts Docker. `services up` does not detect the resta
 needs is described below and is **not made** in this PR. Two of the reports are not explained: the recreated `Docker.raw`, and why the VM did not wake in
 the "partly wedged" report.
 
-The other three tasks of this session (#1048, #1111, #1019) were **not run**: the reproduction
-below showed "create succeeds but the object is missing", which is one of the session's stop
-conditions, so the session stopped after recording it.
+The reproduction showed "create succeeds but the object is missing", one of the session's stop
+conditions, so the session paused there. Its other tasks (#1048, #1111, #1019) ran afterwards with
+a keepalive container, which kept the idle timer from firing, and are recorded separately.
 
 This is a record only. It is on `main`, not in a published preview.
 
