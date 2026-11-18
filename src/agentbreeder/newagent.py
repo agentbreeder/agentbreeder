@@ -267,8 +267,12 @@ class Plan:
     # (alias, LiteLLM model) of a knowledge version's embedding alias (`--from-spec`), served
     # beside `chat` and `judge`.
     embedding: tuple[str, str] | None = None
-    # The runtime `agent.yaml` pins: a spec v2 may name one (#1058 SP); the starter's otherwise.
+    # The runtime `agent.yaml` pins: `--runtime` (#1083 F1) or a spec v2 (#1058 SP) may name
+    # one; the starter's otherwise.
     runtime: str = RUNTIME
+    # Where `--runtime`'s version comes from (`registry.root_kind`): `builtin`, or `path` for
+    # one on AGENTBREEDER_REGISTRY_PATH, which is code AgentBreeder does not ship.
+    runtime_root_kind: str = "builtin"
     # (alias, LiteLLM model) of sub-agents' own gateway aliases (`--from-spec` v2, CC2), served
     # after `chat` and `judge` and before the embedding alias.
     served: tuple[tuple[str, str], ...] = ()
@@ -283,14 +287,15 @@ class Plan:
             }
             for relative, content in self.files.items()
         ]
-        return {
+        result = {
             "schema_version": SUMMARY_VERSION,
             "dry_run": dry_run,
             "name": self.name,
             "directory": str(self.directory),
             "model": self.model,
             "model_id": self.model_id,
-            "verified": PROVIDERS[self.model].verified,
+            # Every end-to-end run of the starter used the default runtime version.
+            "verified": PROVIDERS[self.model].verified and self.runtime == RUNTIME,
             "runtime": self.runtime,
             "aliases": ["chat", "judge"]
             + [alias for alias, _ in self.served]
@@ -306,6 +311,11 @@ class Plan:
             ],
             "lock": "agent.lock",
         }
+        if self.runtime_root_kind != "builtin":
+            # Only for a runtime version AgentBreeder does not ship (#1083 F1), so the summary
+            # of every other project is what it was.
+            result["runtime_root_kind"] = self.runtime_root_kind
+        return result
 
 
 def _cases() -> list[dict]:
@@ -383,8 +393,10 @@ def plan(
     directory: Path | None = None,
     today: date | None = None,
     model_id: str | None = None,
+    runtime: str | None = None,
 ) -> Plan:
-    """Check the inputs and fill the templates; writes nothing."""
+    """Check the inputs and fill the templates; writes nothing. `runtime`: the runtime version
+    `agent.yaml` pins instead of the default (`--runtime`, #1083 F1)."""
     check_inputs(name, model)
     resolved = model_id_for(model, model_id)
     today = today or date.today()
@@ -393,7 +405,7 @@ def plan(
     values = {
         "name": name,
         "today": today.isoformat(),
-        "runtime": RUNTIME,
+        "runtime": RUNTIME if runtime is None else runtime_ref(runtime),
         "version": VERSION,
         "review_by": review_by,
         "model_yaml": model_yaml(resolved),
@@ -422,7 +434,72 @@ def plan(
         raise NewAgentError(
             "DESTINATION_UNSAFE", "the destination path has control, bidi or invisible characters"
         )
-    return Plan(name, model, target, review_by, files, publishes, model_id=resolved)
+    plan = Plan(name, model, target, review_by, files, publishes, model_id=resolved)
+    if runtime is None:
+        return plan
+    ref, root_kind, digest = check_runtime(values["runtime"], files["agent.yaml"])
+    return replace(
+        plan,
+        runtime=ref,
+        runtime_root_kind=root_kind,
+        # A version outside the built-ins is locked in the final directory, and must still be
+        # the one checked here.
+        lock_after_move=root_kind != "builtin",
+        pinned={ref: digest},
+    )
+
+
+def runtime_ref(text: str) -> str:
+    """`--runtime`'s value as a pinned `runtime/name@X.Y.Z` ref. The supplied text is never
+    echoed."""
+    try:
+        ref = registry.Ref.parse(text)
+    except registry.RegistryError:
+        ref = None
+    if ref is None or ref.kind != "runtime":
+        raise NewAgentError("RUNTIME_INVALID", "--runtime must be a pinned runtime/name@X.Y.Z ref")
+    return str(ref)
+
+
+def check_runtime(ref_text: str, agent_text: str) -> tuple[str, str, str]:
+    """Resolve `--runtime`'s version (the built-ins and AGENTBREEDER_REGISTRY_PATH; the project
+    does not exist yet) and refuse one `build` would refuse for this agent: an unreadable or
+    invalid runtime manifest, an unknown protocol, a missing capability or a count over a
+    limit. Returns the ref, where it comes from and its digest."""
+    from agentbreeder import runtime_profile
+    from agentbreeder.agentfile import AgentFile
+    from agentbreeder.build import BuildError
+    from agentbreeder.build import check_runtime as build_check
+    from agentbreeder.strict_yaml import load_text
+
+    try:
+        hit = registry.resolve(registry.Ref.parse(ref_text), registry.roots())
+        digest = registry.copy_and_hash(hit.path)
+    except registry.RegistryError as error:
+        raise NewAgentError(error.code, _bare(error)) from None
+    except OSError:
+        raise NewAgentError(
+            "ENTRY_UNREADABLE", f"{ref_text}: a file in the version cannot be read"
+        ) from None
+    try:
+        profile = runtime_profile.load(hit.path)
+        runtime_profile.load_modules(hit.path, profile)
+    except runtime_profile.ProfileError as error:
+        code = error.code if error.code == "PROTOCOL_UNSUPPORTED" else "ARTIFACT_INVALID"
+        raise NewAgentError(code, f"{hit.ref}: {error}") from None
+    try:
+        build_check(AgentFile.model_validate(load_text(agent_text)), profile)
+    except BuildError as error:
+        raise NewAgentError(error.code, _bare(error)) from None
+    try:  # what was read must be the version that was hashed (and is pinned in agent.lock)
+        unchanged = registry.copy_and_hash(hit.path) == digest
+    except registry.RegistryError as error:
+        raise NewAgentError(error.code, _bare(error)) from None
+    except OSError:
+        unchanged = False
+    if not unchanged:
+        raise NewAgentError("DIGEST_MISMATCH", f"{hit.ref} changed while it was read; try again")
+    return str(hit.ref), registry.root_kind(hit.root), digest
 
 
 def check(plan: Plan) -> bool:

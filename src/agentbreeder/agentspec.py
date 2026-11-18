@@ -60,7 +60,7 @@ from pydantic import (
     model_validator,
 )
 
-from agentbreeder import evals, newagent, registry, stackfor
+from agentbreeder import evals, newagent, registry, runtime_profile, stackfor
 from agentbreeder.agentfile import (
     MAX_SUBAGENTS,
     MAX_TURN_MODEL_CALLS,
@@ -75,7 +75,6 @@ from agentbreeder.newagent import (
     VERSION,
     NewAgentError,
 )
-from agentbreeder.runtime_caps import CapabilitiesError, runtime_capabilities
 
 # Spec versions this CLI reads. 2 (#1058 SP, shared with #1085's `runtime`) adds `runtime`,
 # `subagents`, `skills`, `limits`, case `tags` and the sub-agent and skill checks; a version 1
@@ -100,16 +99,18 @@ MAX_TEXT = 4000  # a turn or a reference
 MAX_CASES = 100  # the builder's limit; the eval loader allows more
 CASE_ID = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
 MCP_TOOL = r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$"  # services.schema.MCP_TOOL
-# Combinations run end to end with this command (services up, release, invoke), as the sorted
-# names of the parts the spec uses beyond the model, prompt and evals every spec has. A provider
-# must also be verified (`PROVIDERS`).
+# Combinations run end to end with this command (services up, release, invoke), keyed by the
+# runtime's name (#1083 F1, console spec §4.3), as the sorted names of the parts the spec uses
+# beyond the model, prompt and evals every spec has. A provider must also be verified
+# (`PROVIDERS`). A runtime name is added only by a verification record; every run so far used
+# the default version (`newagent.RUNTIME`), so another version of a listed runtime is unverified.
 # One knowledge version was run end to end with gemini alone and with one path tool, and one path
 # tool alone (#833), and one knowledge version with openai alone (#1020,
 # `openai/text-embedding-3-small`); MCP was not, so any combination with MCP stays unverified.
 # Every run had one tool, so a spec with more tools is unverified too (`VERIFIED_TOOLS`).
-VERIFIED: frozenset[tuple[str, ...]] = frozenset(
-    {(), ("knowledge",), ("tools",), ("knowledge", "tools")}
-)
+VERIFIED: dict[str, frozenset[tuple[str, ...]]] = {
+    "adk": frozenset({(), ("knowledge",), ("tools",), ("knowledge", "tools")}),
+}
 VERIFIED_TOOLS = 1  # the most tools a verified spec has
 # The providers a combination with a tool was run with (#833); openrouter ran model + prompt +
 # evals alone and openai that plus one knowledge version (#1020), so a tool on any other provider
@@ -420,7 +421,9 @@ class Spec(_Strict):
     prompt: Prompt
     evals: Evals
     tools: list[str] = Field(default_factory=list, max_length=50)
-    # runtime/adk 1.x retrieves from one knowledge set (agentfile.AgentFile.knowledge)
+    # The builder writes a stack that serves one embedding alias, so a spec picks at most one
+    # knowledge set whatever the runtime; the runtime's own `limits.knowledge` and `knowledge`
+    # capability are checked as build checks them (`_runtime`).
     knowledge: list[Knowledge] = Field(default_factory=list, max_length=1)
     mcp: list[Mcp] = Field(default_factory=list, max_length=10)
     # Spec v2 only (`_v1_only` refuses them under 1).
@@ -700,14 +703,12 @@ class Composition:
     keys: list[str]  # provider keys the sub-agents add
     tools: dict[str, registry.Resolved]  # every picked tool ref (agent's, then sub-agents')
     skills: list[dict]  # the skills' ref entries
+    profile: runtime_profile.Profile  # the runtime version's resolved view
 
 
-def _runtime(spec: Spec, directory: Path) -> tuple[str, list[dict], frozenset[str] | None]:
-    """The runtime ref, its ref entry when the spec pins one, and its capabilities (None when
-    nothing needs them: the default runtime for a spec without sub-agents or skills, so a
-    version 1 spec reads nothing more than it did)."""
-    if spec.runtime is None and not (spec.subagents or spec.skills):
-        return RUNTIME, [], None
+def _runtime(spec: Spec, directory: Path) -> tuple[str, list[dict], runtime_profile.Profile]:
+    """The runtime ref, its ref entry when the spec pins one, and its profile
+    (`runtime_profile`: capabilities, limits and reserved names, read from the version)."""
     if spec.runtime is None:
         try:
             hit = registry.resolve(registry.Ref.parse(RUNTIME), [registry.BUILTIN_ROOT])
@@ -718,20 +719,40 @@ def _runtime(spec: Spec, directory: Path) -> tuple[str, list[dict], frozenset[st
         hit = _resolve(spec.runtime, "runtime", "runtime", directory)
         entries = [_ref_entry(hit, directory)]  # hashed before its manifest is read
     try:
-        capabilities = runtime_capabilities(hit.path)
-    except CapabilitiesError as error:
+        profile = runtime_profile.load(hit.path)
+    except runtime_profile.ProfileError as error:
+        if error.code == "PROTOCOL_UNSUPPORTED":
+            raise NewAgentError(error.code, f"{hit.ref}: {error}") from None
         raise NewAgentError("ARTIFACT_INVALID", f"{hit.ref} manifest.yaml: {error}") from None
+    try:
+        runtime_profile.load_modules(hit.path, profile)  # build would refuse a missing file
+    except runtime_profile.ProfileError as error:
+        raise NewAgentError(error.code, f"{hit.ref}: {error}") from None
     if entries and _version_digest(hit) != entries[0]["sha256"]:
         raise NewAgentError("DIGEST_MISMATCH", f"{hit.ref} changed while it was read; try again")
-    # build's refusals (`build.build`), so a spec never writes a project that cannot build
+    # build's refusals (`build.check_runtime`), so a spec never writes a project that cannot
+    # build
     for code, used, needed, what in (
         ("RUNTIME_NO_SUBAGENTS", spec.subagents, "subagents", "does not run sub-agents"),
         ("RUNTIME_NO_SKILLS", spec.skills, "skills", "does not load skills"),
         ("MCP_RUNTIME_UNSUPPORTED", spec.mcp, "mcp", "has no MCP client"),
+        ("RUNTIME_NO_KNOWLEDGE", spec.knowledge, "knowledge", "does not search knowledge"),
     ):
-        if used and needed not in capabilities:
+        if used and not profile.has(needed):
             raise NewAgentError(code, f"{hit.ref} {what}; pick a runtime version that does")
-    return str(hit.ref), entries, capabilities
+    for part, field, used in (
+        ("knowledge", "knowledge", len(spec.knowledge)),
+        ("tools", "tools", len(spec.tools)),
+        ("mcp_servers", "mcp", len(spec.mcp)),
+    ):
+        allowed = profile.limit(part)
+        if used > allowed:  # worded as build's refusal
+            raise NewAgentError(
+                "RUNTIME_LIMIT",
+                f"{hit.ref} takes at most {allowed} {field}: "
+                f"{'entry' if allowed == 1 else 'entries'} (limits.{part}); the spec has {used}",
+            )
+    return str(hit.ref), entries, profile
 
 
 def _subagents(spec: Spec, model_id: str) -> tuple[list[Sub], tuple, list[str]]:
@@ -829,7 +850,7 @@ def _skills(spec: Spec, directory: Path, capabilities: frozenset[str] | None) ->
 
 
 def _composition(spec: Spec, model_id: str, directory: Path) -> Composition:
-    runtime, entries, capabilities = _runtime(spec, directory)
+    runtime, entries, profile = _runtime(spec, directory)
     subs, served, keys = _subagents(spec, model_id)
     granted = {entry.ref: set(entry.tools) for entry in spec.mcp}
     for index, sub in enumerate(spec.subagents):
@@ -841,8 +862,8 @@ def _composition(spec: Spec, model_id: str, directory: Path) -> Composition:
                     "agent's own mcp: entry for that server",
                 )
     tools = _tools(spec, directory)
-    skills = _skills(spec, directory, capabilities)
-    return Composition(runtime, entries, subs, served, keys, tools, skills)
+    skills = _skills(spec, directory, profile.capabilities)
+    return Composition(runtime, entries, subs, served, keys, tools, skills, profile)
 
 
 # -- the plan ------------------------------------------------------------------------------------
@@ -988,17 +1009,22 @@ def _check_agent(text: str, spec: Spec, runtime: str = RUNTIME, subs: list[Sub] 
     return agent
 
 
-def _check_names(agent, tools: dict[str, registry.Resolved]) -> None:
-    """build's sub-agent name checks (SUBAGENT_NAME_CLASH: `ask_<name>` against the agent's
-    own functions, MCP and built-in tools, and clashes inside one sub-agent), over the picked
-    versions as they resolve, so the preview shows the refusal build would make."""
-    if not agent.subagents:
-        return
-    from agentbreeder.build import BuildError, check_subagent_names
+def _check_names(
+    agent, tools: dict[str, registry.Resolved], profile: runtime_profile.Profile
+) -> None:
+    """build's checks of the written agent against its runtime (`check_runtime`: a missing
+    capability or a count over a limit) and its sub-agent name checks (SUBAGENT_NAME_CLASH:
+    `ask_<name>` against the agent's own functions, MCP and the runtime's reserved tool names,
+    and clashes inside one sub-agent), over the picked versions as they resolve, so the preview
+    shows the refusal build would make."""
+    from agentbreeder.build import BuildError, check_runtime, check_subagent_names
     from agentbreeder.strict_yaml import StrictYamlError
 
     try:
-        check_subagent_names(agent, {ref: hit.path for ref, hit in tools.items()})
+        check_runtime(agent, profile)
+        if not agent.subagents:
+            return
+        check_subagent_names(agent, {ref: hit.path for ref, hit in tools.items()}, profile)
     except BuildError as error:
         raise NewAgentError(error.code, newagent._bare(error)) from None
     except (StrictYamlError, OSError):
@@ -1017,14 +1043,23 @@ def combination(spec: Spec) -> tuple[str, ...]:
     return tuple(sorted(part for part, used in parts if used))
 
 
+def runtime_verified(ref: str) -> bool:
+    """Whether this runtime version is one a combination was run end to end on: a runtime
+    name in `VERIFIED`, at the version those runs used (`newagent.RUNTIME`)."""
+    return ref == RUNTIME and ref.removeprefix("runtime/").partition("@")[0] in VERIFIED
+
+
 def verified(spec: Spec) -> bool:
-    """Whether the spec's combination was run end to end: its parts (`VERIFIED`), a verified
-    provider, and for a spec with tools at most `VERIFIED_TOOLS` of them on a `TOOL_PROVIDERS`
-    provider. Every verified run used the default runtime (`newagent.RUNTIME`), so a spec that
-    pins another is not verified."""
-    if spec.runtime not in (None, RUNTIME):
+    """Whether the spec's combination was run end to end: its runtime (`runtime_verified`), its
+    parts (`VERIFIED` for that runtime's name), a verified provider, and for a spec with tools
+    at most `VERIFIED_TOOLS` of them on a `TOOL_PROVIDERS` provider. Every verified run used the
+    default runtime version (`newagent.RUNTIME`), so a spec that pins another is not
+    verified."""
+    runtime = spec.runtime or RUNTIME
+    if not runtime_verified(runtime):
         return False
-    if combination(spec) not in VERIFIED or not PROVIDERS[spec.model].verified:
+    name = runtime.removeprefix("runtime/").partition("@")[0]
+    if combination(spec) not in VERIFIED[name] or not PROVIDERS[spec.model].verified:
         return False
     return not spec.tools or (len(spec.tools) <= VERIFIED_TOOLS and spec.model in TOOL_PROVIDERS)
 
@@ -1071,7 +1106,7 @@ def plan(
     keys = [*parts.keys, *(key for key in keys if key not in parts.keys)]
     agent_text = _agent_yaml(spec, today, parts.runtime, parts.subs)
     agent = _check_agent(agent_text, spec, parts.runtime, parts.subs)
-    _check_names(agent, parts.tools)
+    _check_names(agent, parts.tools, parts.profile)
     review_by = (today + timedelta(days=REVIEW_DAYS)).isoformat()
     stack = stackfor.render(
         name,
@@ -1128,6 +1163,7 @@ def plan(
         pinned={entry["ref"]: entry["sha256"] for entry in refs},
         embedding=served,
         runtime=parts.runtime,
+        runtime_root_kind=parts.entries[0]["root_kind"] if parts.entries else "builtin",
         served=sub_models,
     )
     extra = {
@@ -1227,6 +1263,9 @@ def summary(plan: newagent.Plan, extra: dict, dry_run: bool) -> dict:
     """The `--json` shape: `new agent`'s, with each file's text (the console's preview shows
     exactly what is written) and the builder's fields."""
     result = plan.summary(dry_run=dry_run)
+    # As before `--runtime` existed: the provider's own verification. Whether this runtime and
+    # these parts were run is `combination.verified`.
+    result["verified"] = PROVIDERS[plan.model].verified
     for entry in result["files"]:
         entry["content"] = plan.files[entry["path"]]
     result.update(extra)

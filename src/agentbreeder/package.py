@@ -40,7 +40,7 @@ from pydantic import (
 
 from agentbreeder.agentfile import MAX_BYTES as AGENT_YAML_LIMIT
 from agentbreeder.agentfile import NAME_PATTERN
-from agentbreeder.manifest import _ALIAS, _ENVIRONMENT, _GUARDRAIL, McpAccess
+from agentbreeder.manifest import _ALIAS, _ENVIRONMENT, _GUARDRAIL, McpAccess, RuntimeInfo
 from agentbreeder.registry import (
     KINDS,
     PACKAGE_KIND,
@@ -136,6 +136,9 @@ class DeployTemplate(_Strict):
     # Agent-level guardrails (#1053). None (left out of package.json) when the agent names
     # none, so packages released before the field keep their bytes.
     guardrails: tuple[str, ...] | None = Field(default=None, min_length=1, max_length=10)
+    # The kit runtime the image was built on (#1083 F1, `manifest.RuntimeInfo`). None (left
+    # out of package.json) for every other runtime, so their packages keep their bytes.
+    runtime: RuntimeInfo | None = None
 
     @field_validator("aliases", "mcp_access", "guardrails", mode="before")
     @classmethod
@@ -183,7 +186,8 @@ class Package(_Strict):
 
     def to_bytes(self) -> bytes:
         """The canonical `package.json` bytes: field order as declared, two-space indent."""
-        exclude = {"deploy": {"guardrails"}} if self.deploy.guardrails is None else None
+        unset = {name for name in ("guardrails", "runtime") if getattr(self.deploy, name) is None}
+        exclude = {"deploy": unset} if unset else None
         data = self.model_dump(mode="json", exclude=exclude)
         return (json.dumps(data, indent=2) + "\n").encode()
 

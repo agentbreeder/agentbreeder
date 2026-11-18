@@ -202,13 +202,17 @@ def test_openai_uses_its_embedding_model(tmp_path, kb_root):
 
 def test_the_verified_combinations():
     """The #833 runs: gemini with one knowledge version, one path tool, or both; never MCP."""
-    assert agentspec.VERIFIED == frozenset(
-        {(), ("knowledge",), ("tools",), ("knowledge", "tools")}
-    )
+    # Keyed by the runtime's name since #1083 F1; only runtime/adk has been run.
+    assert agentspec.VERIFIED == {
+        "adk": frozenset({(), ("knowledge",), ("tools",), ("knowledge", "tools")})
+    }
     assert agentspec.VERIFIED_TOOLS == 1
     # openrouter and openai ran without tools (#1020)
     assert agentspec.TOOL_PROVIDERS == {"gemini"}
-    assert not any("mcp" in parts for parts in agentspec.VERIFIED)
+    assert not any("mcp" in parts for runs in agentspec.VERIFIED.values() for parts in runs)
+    assert agentspec.runtime_verified(newagent.RUNTIME)
+    assert not agentspec.runtime_verified("runtime/adk@1.3.0")  # not the version that ran
+    assert not agentspec.runtime_verified("runtime/langgraph@1.0.0")
 
 
 def publish_echo(tmp_path: Path, root: Path, *names: str) -> list[str]:

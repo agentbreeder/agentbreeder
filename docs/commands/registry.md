@@ -8,4 +8,6 @@ On `main`, not in a published preview: `list`, `show`, `diff` and `verify` also 
 
 On `main`, not in a published preview: `publish`, `import`, `fork` and `edit` check a `tool/` version before writing it (allowed files only, no module that shadows the standard library, the runtime or its locked packages, every function resolving to a top-level `def` that parses; `TOOL_INVALID`), and `show` of a tool lists its functions with their `tool.yaml` parameters and Python signatures. See [Tool versions](../registry.md#editing-a-project-version-on-main-not-in-a-published-preview).
 
+On `main`, not in a published preview (#1083 F1): `registry runtimes [--project DIR] [--json]` lists every `runtime/` version in the search roots with what the engine reads from it: its framework and display name, protocol and profile, capabilities, limits and reserved tool names, whether a combination has been run end to end on it, and, for a version the engine cannot use, why. See [Runtime versions](../registry.md#runtime-versions-on-main-not-in-a-published-preview).
+
 Flags: `agentbreeder registry --help`.
