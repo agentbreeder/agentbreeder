@@ -68,7 +68,19 @@ def test_the_parent_is_found_by_its_invocation_id(runtime):  # noqa: F811
 
 def test_a_child_is_found_by_the_state_key_its_session_carries(runtime):  # noqa: F811
     entry = live(runtime)
-    assert runtime.turn_for(context("child-invocation", {KEY: "t1"})) is entry
+    child = context("child-invocation", {KEY: "t1"}, user_id="cust-001")
+    assert runtime.turn_for(child) is entry
+
+
+def test_the_state_key_never_reaches_another_customers_turn(runtime):  # noqa: F811
+    # A sub-agent's session belongs to its turn's customer; a key that names someone else's
+    # live turn selects nothing (review r1, L1).
+    live(runtime, "t1", customer="cust-001")
+    for other in ("cust-002", None, ""):
+        with pytest.raises(agent_module.TurnUnknown):
+            runtime.turn_for(context("child-invocation", {KEY: "t1"}, user_id=other))
+    with pytest.raises(agent_module.TurnUnknown):  # no user id on the context at all
+        runtime.turn_for(context("child-invocation", {KEY: "t1"}))
 
 
 def test_the_invocation_id_wins_over_the_state_key(runtime):  # noqa: F811
@@ -100,11 +112,20 @@ def test_an_unknown_turn_fails_closed(runtime, lost):  # noqa: F811
 def test_text_the_model_wrote_selects_nothing(runtime):  # noqa: F811
     # The key is read from session state only: a tool argument or request text that holds the
     # key or another turn's id is just text.
-    live(runtime, "t1")
+    first, second = live(runtime, "t1"), live(runtime, "t2")
     args = {KEY: "t1", "request": f"{KEY}=t1", "invocation_id": "t1"}
     lost = SimpleNamespace(invocation_id="child", state={}, args=args, user_content=str(args))
     with pytest.raises(agent_module.TurnUnknown):
         runtime.turn_for(lost)
+    # With a state that names a turn, the state decides and the text is ignored.
+    named = SimpleNamespace(
+        invocation_id="child",
+        state={KEY: "t2"},
+        user_id="cust-001",
+        args=args,
+        user_content=str(args),
+    )
+    assert runtime.turn_for(named) is second and second is not first
 
 
 def test_a_callback_after_its_turn_ended_fails_closed(runtime):  # noqa: F811
@@ -181,7 +202,13 @@ def test_a_lost_turn_in_the_parent_ends_the_turn_with_the_fixed_reply(runtime): 
     FakeMemory.events = []
     result = chat(runtime)
     assert result["reply"] == agent_module.NO_ANSWER
-    assert "model_called" not in [event[4] for event in FakeMemory.events]
+    actions = [event[4] for event in FakeMemory.events]
+    assert "model_called" not in actions
+    # Never mistaken for a model's non-answer: an event and the turn record say so (r1, M1).
+    failed = [event for event in FakeMemory.events if event[4] == "turn_failed"]
+    assert len(failed) == 1 and failed[0][0] == result["turn_id"]
+    assert failed[0][5] == {"error": "TurnUnknown: a callback found no running turn"}
+    assert FakeMemory.last_turn["error"].startswith("TurnUnknown")
     assert runtime.turns == {}
 
 
@@ -190,6 +217,10 @@ def test_another_failure_still_propagates(runtime):  # noqa: F811
     wrapped = RuntimeError("plugin failed")
     wrapped.__cause__ = agent_module.TurnUnknown()
     assert agent_module.caused_by(wrapped, agent_module.TurnUnknown) is True
+    group = ExceptionGroup("tasks", [ValueError("x"), wrapped])
+    assert agent_module.caused_by(group, agent_module.TurnUnknown) is True
+    assert agent_module.caused_by(ExceptionGroup("t", [ValueError("x")]), ValueError) is True
+    assert agent_module.caused_by(ExceptionGroup("t", [KeyError("x")]), ValueError) is False
     assert agent_module.caused_by(None, agent_module.TurnUnknown) is False
 
 
@@ -218,28 +249,44 @@ def test_callbacks_without_a_turn_raise_instead_of_skipping(runtime):  # noqa: F
     with pytest.raises(agent_module.TurnUnknown):
         plugin._call_detail(tool, {}, lost)
     with pytest.raises(agent_module.TurnUnknown):
-        plugin._recorded(lost)
+        plugin._recorded(tool, lost)
     assert FakeMemory.events == []
 
 
 def test_the_turn_table_is_read_only_through_turn_for():
     """The census: `.turns` is touched where a turn starts and ends, and in turn_for. A lookup
     anywhere else (a `.get()` that skips, a `[]` that guesses) fails this test."""
-    allowed = {"__init__", "turn_for", "chat_async", "run_turn"}
+    counts = {}
     for path in sorted(RUNTIME.glob("*.py")):
-        source = path.read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        found = [
-            (path.name, _owner(tree, node))
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Attribute) and node.attr == "turns"
-        ]
-        assert all(owner in allowed for _, owner in found), found
-        if path.name != "agent.py":
-            assert found == [], found
-        assert ".turns.get(" not in source.replace("self.turns.get(invocation)", "").replace(
-            "self.turns.get(named)", ""
-        )
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr == "turns":
+                key = (path.name, _owner(tree, node))
+                counts[key] = counts.get(key, 0) + 1
+            # No way around the attribute (getattr(x, "turns"), x.__dict__["turns"]) in the
+            # modules that hold a runtime.
+            named = isinstance(node, ast.Constant) and node.value == "turns"
+            assert not (named and path.name in ("agent.py", "subagents.py", "skills.py"))
+    assert counts == {
+        ("agent.py", "__init__"): 1,  # the empty table
+        ("agent.py", "turn_for"): 2,  # by invocation id, by the state key
+        ("agent.py", "chat_async"): 2,  # the entry is registered, and removed
+        ("agent.py", "run_turn"): 1,  # the turn chat_async just registered, by its own id
+    }
+
+
+def test_a_contexts_invocation_id_is_read_only_in_turn_for():
+    """Nothing is written under a context's own invocation id (a sub-agent's differs from the
+    turn's): only turn_for reads it."""
+    found = []
+    for path in sorted(RUNTIME.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr == "invocation_id":
+                found.append((path.name, _owner(tree, node)))
+            if isinstance(node, ast.Constant) and node.value == "invocation_id":
+                found.append((path.name, _owner(tree, node)))
+    assert found == [("agent.py", "turn_for")]
 
 
 def _owner(tree, target):

@@ -38,6 +38,7 @@ MODULE_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}")
 # Tool src dirs go on sys.path; a tool module must not shadow a runtime or stdlib module.
 RESERVED = {
     "agent", "config", "mcp_client", "memory", "rag", "redaction", "server", "telemetry", "tools",
+    "skills", "subagents", "turns",
 } | set(sys.stdlib_module_names)  # fmt: skip
 # sys.path before any tool's src/ is inserted: what a tool's top-level names must not shadow.
 ORIGINAL_PATH = list(sys.path)
@@ -137,13 +138,42 @@ def check_shadowing(tool: str, source: Path, owners: dict[str, str]) -> None:
         owners[name] = tool
 
 
-def load_functions(tools: list[dict], resolve_dir) -> list[FunctionSpec]:
-    """Read every tool artifact's tool.yaml and import its functions from src/."""
-    specs: list[FunctionSpec] = []
-    seen: set[str] = set()
-    owners: dict[str, str] = {}  # top-level module name -> tool
-    for entry in tools:
-        directory: Path = resolve_dir(entry["dir"])
+class ToolLoader:
+    """Imports each tool artifact once for the whole process, however many agents list it
+    (the parent and its sub-agents, 1.5.0): one shadowing check across all of them, since
+    every tool's src/ shares one sys.path and one module table."""
+
+    def __init__(self, resolve_dir):
+        self.resolve_dir = resolve_dir
+        self.owners: dict[str, str] = {}  # top-level module name -> tool
+        self.loaded: dict[str, tuple[dict, list[FunctionSpec]]] = {}  # tool name -> entry, specs
+
+    def functions(self, tools: list[dict]) -> list[FunctionSpec]:
+        """One agent's functions, in order. A function name is unique within the agent."""
+        specs: list[FunctionSpec] = []
+        seen: set[str] = set()
+        for entry in tools:
+            for spec in self._tool(entry):
+                if spec.name in seen:
+                    raise ToolLoadError(f"function {spec.name} is declared by two tools")
+                seen.add(spec.name)
+                specs.append(spec)
+        return specs
+
+    def _tool(self, entry: dict) -> list[FunctionSpec]:
+        known = self.loaded.get(entry["name"])
+        if known is not None:
+            if (known[0]["dir"], known[0].get("version")) != (entry["dir"], entry.get("version")):
+                raise ToolLoadError(f"tool {entry['name']}: two versions in one agent")
+            return known[1]
+        specs = self._load(entry)
+        self.loaded[entry["name"]] = (entry, specs)
+        return specs
+
+    def _load(self, entry: dict) -> list[FunctionSpec]:
+        """Read one tool artifact's tool.yaml and import its functions from src/."""
+        specs: list[FunctionSpec] = []
+        directory: Path = self.resolve_dir(entry["dir"])
         try:
             definition = yaml.safe_load((directory / "tool.yaml").read_text(encoding="utf-8"))
         except (OSError, yaml.YAMLError) as error:
@@ -151,7 +181,7 @@ def load_functions(tools: list[dict], resolve_dir) -> list[FunctionSpec]:
         functions = (definition or {}).get("functions") or []
         if not functions:
             raise ToolLoadError(f"tool {entry['name']}: tool.yaml declares no functions")
-        check_shadowing(entry["name"], directory / "src", owners)
+        check_shadowing(entry["name"], directory / "src", self.owners)
         source = str(directory / "src")
         if source not in sys.path:
             sys.path.insert(0, source)
@@ -164,9 +194,8 @@ def load_functions(tools: list[dict], resolve_dir) -> list[FunctionSpec]:
             if importlib.machinery.PathFinder.find_spec(module, [source]) is None:
                 # Not an installed package's module: only the tool's own src/ is imported.
                 raise ToolLoadError(f"tool {entry['name']}: module {module!r} is not in its src/")
-            if name in seen:
+            if name in {spec.name for spec in specs}:
                 raise ToolLoadError(f"function {name} is declared by two tools")
-            seen.add(name)
             parameters = item.get("parameters") or {"type": "object", "properties": {}}
             if parameters.get("type") != "object":
                 raise ToolLoadError(f"{name}: parameters must be a JSON Schema object")
@@ -185,7 +214,12 @@ def load_functions(tools: list[dict], resolve_dir) -> list[FunctionSpec]:
                     call=call,
                 )
             )
-    return specs
+        return specs
+
+
+def load_functions(tools: list[dict], resolve_dir) -> list[FunctionSpec]:
+    """Read every tool artifact's tool.yaml and import its functions from src/."""
+    return ToolLoader(resolve_dir).functions(tools)
 
 
 class RegistryTool(BaseTool):

@@ -462,11 +462,11 @@
   },
   "builtin_registry/runtime/adk/1.5.0/manifest.yaml": {
    "exec": false,
-   "sha256": "b3f4dbc4e4ea9149ee0f650915e44fa86b3ab060b3973fd7a45f99fa50ad5587"
+   "sha256": "d02b2e4e3ec2850406d60a0b4b46a72753c282ad57f7c0adcb281608a863db96"
   },
   "builtin_registry/runtime/adk/1.5.0/runtime/agent.py": {
    "exec": false,
-   "sha256": "9868578c9a34d6fa821b33d47c0beae854340c6c542c29b97d57cc097b33a8c5"
+   "sha256": "52544f05bd17f3e96996aaccd07ff7e1b9caea22653567503f306db6650484cd"
   },
   "builtin_registry/runtime/adk/1.5.0/runtime/chat.html": {
    "exec": false,
@@ -504,13 +504,21 @@
    "exec": false,
    "sha256": "fceccaddab1bee96d44ef445566ded5357399ed60d48429541d6f33cc66ce8f9"
   },
+  "builtin_registry/runtime/adk/1.5.0/runtime/subagents.py": {
+   "exec": false,
+   "sha256": "44d1a95e880b1480e31994a37f45c384f119bf3e711989eb27e89632fe083017"
+  },
   "builtin_registry/runtime/adk/1.5.0/runtime/telemetry.py": {
    "exec": false,
    "sha256": "2616200bd55de7ee47b98291cb4719df5d2315170d7b768d2f23148d2ce198f9"
   },
   "builtin_registry/runtime/adk/1.5.0/runtime/tools.py": {
    "exec": false,
-   "sha256": "9dca0173a46a1de5bc0a1fd15aadb972b20b53addd530a7bb76cd998aad75d46"
+   "sha256": "2ae974c6b0984b28bb0f0a7496edce3e1851a455b67835fe8a8ed4f7b3ca6ec4"
+  },
+  "builtin_registry/runtime/adk/1.5.0/runtime/turns.py": {
+   "exec": false,
+   "sha256": "fb01ccce5a4e66d83db9badb67f62fa2e223800379c94b44ae958629a8c59a91"
   },
   "builtin_registry/runtime/adk/1.5.0/runtime_tests/relay_harness.py": {
    "exec": false,
@@ -528,9 +536,13 @@
    "exec": false,
    "sha256": "3405027c0c38eef00be93f680b5d8ff910a7dd57888148b9284350315c175660"
   },
+  "builtin_registry/runtime/adk/1.5.0/runtime_tests/test_subagents.py": {
+   "exec": false,
+   "sha256": "6c346d390b6d87ed68e12d78314d00590c6d65af47c6efc5de30edd01ef0516c"
+  },
   "builtin_registry/runtime/adk/1.5.0/runtime_tests/test_turn_for.py": {
    "exec": false,
-   "sha256": "b0062a77a0e10e4484404067899861bb15264bafe6402852c36d030efaeb384a"
+   "sha256": "bffd7c32a5a8958cb8f62b56472406bb73dbd1b4ab42c95052244b9808b6e92b"
   },
   "builtin_registry/runtime/adk/1.5.0/runtime_tests/test_usage_tools_guardrails.py": {
    "exec": false,

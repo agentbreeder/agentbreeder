@@ -18,6 +18,9 @@
   turns:   every callback finds its turn through Runtime.turn_for (the invocation id, else the
            session state key a sub-agent call set); an unknown turn raises TurnUnknown, so
            nothing is counted, capped or audited against a missing or wrong turn (1.5.0)
+  agents:  `subagents:` are child LlmAgents the parent calls as tools, `ask_<name>(request)`
+           (subagents.py): one turn id, caps per agent and per turn, cost and spans per
+           sub-agent, `subagents[]` in the reply (1.5.0)
 
 Retrieval-augmented generation runs before the model call: the top knowledge passages are added
 to the customer's message. Each turn is recorded in `turns`. The customer is always the Runner's
@@ -29,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import contextvars
+import dataclasses
 import json
 import math
 import re
@@ -43,6 +47,7 @@ import mcp_client
 import psycopg
 import psycopg.sql
 import redaction
+import subagents
 import telemetry
 from google.adk.agents import LlmAgent
 from google.adk.agents.invocation_context import LlmCallsLimitExceededError
@@ -60,7 +65,8 @@ from memory import Memory
 from opentelemetry import trace as otel
 from rag import Embedder, KnowledgeSet, Retriever
 from telemetry import as_text, ids, set_documents, set_output, span
-from tools import RegistryTool, ToolRuntime, load_functions, run_to_completion
+from tools import RegistryTool, ToolLoader, ToolRuntime, run_to_completion
+from turns import TURN_KEY, TurnUnknown, caused_by
 
 warnings.filterwarnings("ignore", message=r"\[EXPERIMENTAL\]")
 
@@ -71,29 +77,7 @@ REASONING = {"none": None, "low": "low", "medium": "medium", "high": "high"}
 
 RUNTIME_REF = "runtime/adk@1.5.0"
 
-# Session state key naming the turn a context belongs to when its invocation id is not the
-# turn's own. Only the runtime sets it, server-side; no instruction or tool reads state.
-TURN_KEY = "agentbreeder:turn"
 NO_ANSWER = "Sorry, I couldn't put an answer together. Could you rephrase that?"
-
-
-class TurnUnknown(Exception):
-    """A callback's context names no live turn. Nothing is counted, capped or audited for it:
-    the call fails instead (and in the parent agent, the turn ends with the fixed reply)."""
-
-    def __init__(self):
-        super().__init__("this call belongs to no running turn")
-
-
-def caused_by(failure: BaseException | None, kind: type) -> bool:
-    """Whether `failure` or anything in its cause chain is a `kind` (ADK wraps a plugin
-    callback's exception in a RuntimeError)."""
-    seen = 0
-    while failure is not None and seen < 20:
-        if isinstance(failure, kind):
-            return True
-        failure, seen = failure.__cause__ or failure.__context__, seen + 1
-    return False
 
 
 class SessionBusy(Exception):
@@ -111,6 +95,7 @@ redact = redaction.redact  # MCP tokens, the gateway key and key-shaped strings
 RUNTIME_KEYS = frozenset(
     {"tools", "evidence", "sources", "mcp_unavailable", "unknown_tools"}
     | {"args", "agent", "tool", "mcp", "latency_ms", "ok", "error", "writes_request"}
+    | {"subagents", "subagent", "request_sha256"}
 )
 
 # LiteLLM's SDK keeps the gateway's response headers, prefixed, in `_hidden_params`.
@@ -169,6 +154,9 @@ def new_tally() -> dict:
         "route": None,  # the latest call's (fallbacks, model group), for its model_called event
         "waited": 0.0,
         "deadline": time.monotonic() + RETRY_DEADLINE,
+        "mark": 0,  # `calls` when the current model call began (before_model_callback)
+        # agent name ("" for the parent) -> {usd, unknown, calls}; sums to the turn's totals.
+        "by_agent": {},
     }
 
 
@@ -399,7 +387,9 @@ def quiet_library_logs() -> None:
 class Runtime:
     """Everything built from one agent.config.json. Tests construct it with stubs."""
 
-    def __init__(self, config: dict, database_url: str, gateway_key: str, model=None):
+    def __init__(
+        self, config: dict, database_url: str, gateway_key: str, model=None, child_models=None
+    ):
         self.config = config
         self.app = config["name"]
         self.model_alias = config["model"]["alias"]
@@ -426,7 +416,8 @@ class Runtime:
         )
         self.top_k = max([int(k.get("top_k", 5)) for k in knowledge] or [5])
         self.extra_searches = max([int(k.get("extra_searches", 1)) for k in knowledge] or [0])
-        self.functions = load_functions(config.get("tools") or [], cfg.artifact)
+        self.loader = ToolLoader(cfg.artifact)  # one import and shadowing check for all agents
+        self.functions = self.loader.functions(config.get("tools") or [])
         tools: list[BaseTool] = [RegistryTool(f, self.tool_runtime) for f in self.functions]
         if knowledge:
             tools.insert(0, KnowledgeSearchTool(self))
@@ -437,25 +428,40 @@ class Runtime:
             mcp_client.RelayToolset(server, self.mcp_unavailable) for server in self.mcp_servers
         ]
         quiet_library_logs()
-        reasoning = REASONING[config["model"].get("reasoning", "low")]
-        extra = {"reasoning_effort": reasoning} if reasoning else {}
+        self.gateway_key = gateway_key
+        self.plugin = AgentPlugin(self, name="agentbreeder_runtime")
+        name = re.sub(r"[^a-zA-Z0-9_]", "_", self.app)
+        declared = config.get("subagents") or []
+        # Every model call of a turn, all agents together (None without sub-agents: the
+        # parent's own cap is then the only one, as before 1.5.0).
+        self.turn_cap: int | None = None
+        if declared:
+            limit = (config.get("limits") or {}).get("turn_model_calls")
+            self.turn_cap = int(limit) if limit else min(40, self.max_steps + 6)
+        self.children: dict[str, subagents.Child] = {}  # ADK agent name (`ask_<name>`) -> child
+        for entry in declared:
+            child = self.child(entry, bool(knowledge), (child_models or {}).get(entry["name"]))
+            taken = {name, *self.children, *(tool.name for tool in tools)}
+            taken |= set(mcp_client.tool_index(self.mcp_servers, []))
+            if child.tool in taken:
+                raise cfg.ConfigError(f"sub-agent {child.name}: {child.tool} is already a name")
+            self.children[child.tool] = child
+        if len(self.children) > subagents.MAX_SUBAGENTS:
+            raise cfg.ConfigError(f"at most {subagents.MAX_SUBAGENTS} sub-agents")
+        tools += [subagents.SubAgentTool(child, self) for child in self.children.values()]
         self.agent = LlmAgent(
-            name=re.sub(r"[^a-zA-Z0-9_]", "_", self.app),
+            name=name,
             description=config.get("description", ""),
-            # "openai/" = the gateway's OpenAI-compatible API; it maps the alias to providers.
             model=model
-            or LiteLlm(
-                model=f"openai/{self.model_alias}",
-                api_base=cfg.gateway_url(),
-                api_key=gateway_key,
-                timeout=90,
-                llm_client=CostClient(),
-                **MODEL_ARGS,
-                **extra,
-            ),
+            or self.model_for(config["model"], subagents.request_tags(None) if declared else {}),
             instruction=self.instruction,
             tools=[*tools, *self.mcp_toolsets],
         )
+        # Closed together on SIGTERM: the parent's relay sessions and each sub-agent's.
+        self.mcp_toolsets = [
+            *self.mcp_toolsets,
+            *(toolset for child in self.children.values() for toolset in child.toolsets),
+        ]
         ensure_sessions_schema(database_url)
         self.sessions = DatabaseSessionService(
             db_url=sessions_url(database_url), pool_pre_ping=True
@@ -464,9 +470,91 @@ class Runtime:
             app_name=self.app,
             agent=self.agent,
             session_service=self.sessions,
-            plugins=[AgentPlugin(self, name="agentbreeder_runtime")],
+            plugins=[self.plugin],
             auto_create_session=True,
         )
+
+    def model_for(self, model: dict, extra: dict) -> LiteLlm:
+        """An agent's model client: its gateway alias, with its own cost-tallying client."""
+        reasoning = REASONING[model.get("reasoning", "low")]
+        return LiteLlm(
+            # "openai/" = the gateway's OpenAI-compatible API; it maps the alias to providers.
+            model=f"openai/{model['alias']}",
+            api_base=cfg.gateway_url(),
+            api_key=self.gateway_key,
+            timeout=90,
+            llm_client=CostClient(),
+            **MODEL_ARGS,
+            **({"reasoning_effort": reasoning} if reasoning else {}),
+            **extra,
+        )
+
+    def child(self, entry: dict, has_knowledge: bool, model) -> subagents.Child:
+        """One sub-agent from agent.config.json: its own model client, prompt (never the
+        customer's notes), registry tools, knowledge search when asked for, and one relay
+        session per MCP server, offering only the tools it lists."""
+        name = entry.get("name")
+        if not isinstance(name, str) or not subagents.NAME.fullmatch(name):
+            raise cfg.ConfigError("a sub-agent's name must match [a-z][a-z0-9_]{0,31}")
+        calls = int(entry.get("max_calls_per_turn", 2))
+        if not 1 <= calls <= subagents.MAX_CALLS_PER_TURN:
+            raise cfg.ConfigError(f"sub-agent {name}: max_calls_per_turn must be 1 to 3")
+        child = subagents.Child(
+            name=name,
+            alias=entry["model"]["alias"],
+            max_model_calls=int(entry["model"].get("max_model_calls", 4)),
+            max_calls_per_turn=calls,
+            description=str(entry.get("description", "")),
+        )
+        system = (
+            (cfg.artifact(entry["prompt"]["dir"]) / "prompt.md").read_text(encoding="utf-8")
+        ).strip()
+
+        async def instruction(context: ReadonlyContext) -> str:
+            # A function, so ADK never fills `{...}` in the prompt from session state.
+            self.turn_for(context)
+            return system
+
+        tools: list[BaseTool] = [
+            RegistryTool(f, self.tool_runtime)
+            for f in self.loader.functions(entry.get("tools") or [])
+        ]
+        if entry.get("knowledge"):
+            if not has_knowledge:
+                raise cfg.ConfigError(f"sub-agent {name}: knowledge needs a knowledge set")
+            tools.insert(0, KnowledgeSearchTool(self))
+        parents = {server.name: server for server in self.mcp_servers}
+        servers = []
+        for listed in entry.get("mcp") or []:
+            server = parents.get(listed["name"])
+            wanted = tuple(listed["tools"])
+            if server is None or server.version != listed["version"]:
+                raise cfg.ConfigError(f"sub-agent {name}: mcp/{listed['name']} is not the agent's")
+            if not set(wanted) <= set(server.tools):
+                raise cfg.ConfigError(
+                    f"sub-agent {name}: mcp/{listed['name']} lists a tool the agent does not"
+                )
+            servers.append(dataclasses.replace(server, tools=wanted))
+        mcp_client.tool_index(servers, [tool.name for tool in tools])
+        child.toolsets = [mcp_client.RelayToolset(s, self.mcp_unavailable) for s in servers]
+        child.agent = LlmAgent(
+            name=child.tool,
+            description=child.description,
+            model=model or self.model_for(entry["model"], subagents.request_tags(name)),
+            instruction=instruction,
+            tools=[*tools, *child.toolsets],
+        )
+        return child
+
+    def child_of(self, context) -> subagents.Child | None:
+        """The sub-agent a callback's context belongs to, or None for the parent."""
+        return self.children.get(getattr(context, "agent_name", None))
+
+    async def audit(self, turn: dict, actor: str, action: str, detail: dict) -> None:
+        await run_to_completion(
+            turn["memory"].audit, turn["id"], turn["session"], turn["customer"],
+            actor, action, detail,
+        )  # fmt: skip
 
     # -- MCP ---------------------------------------------------------------------------------
 
@@ -482,6 +570,10 @@ class Runtime:
             except Exception:  # noqa: BLE001 - no state, or state of an unexpected kind
                 named = None
             turn = self.turns.get(named) if isinstance(named, str) else None
+            # A sub-agent's session is created for the turn's customer (subagents.py): a
+            # state key naming another customer's turn is never honoured.
+            if turn is not None and getattr(context, "user_id", None) != turn["customer"]:
+                turn = None
         if turn is None:
             raise TurnUnknown
         return turn
@@ -489,7 +581,9 @@ class Runtime:
     async def mcp_unavailable(self, server, context, failed: bool) -> bool:
         """Whether `server` already failed in this turn; records the first failure (trace and
         one audit event) so the turn's later model steps don't reconnect or audit again."""
-        if context is None:  # ADK listing tools outside any invocation: there is no turn
+        if context is None:
+            # ADK listing tools outside any invocation: there is no turn to record against.
+            # Inside a turn ADK always passes the context; without one the memo is skipped.
             return False
         turn = self.turn_for(context)
         down = turn["trace"]["mcp_unavailable"]
@@ -497,10 +591,9 @@ class Runtime:
             return True
         if failed:
             down.append(server.name)
-            await run_to_completion(
-                turn["memory"].audit, turn["id"], turn["session"], turn["customer"], "system",
-                "mcp_unavailable", {"server": server.name, "mcp": server.ref},
-            )  # fmt: skip
+            await self.audit(
+                turn, "system", "mcp_unavailable", {"server": server.name, "mcp": server.ref}
+            )
         return False
 
     async def close_mcp(self, timeout: float) -> None:
@@ -517,7 +610,7 @@ class Runtime:
     def tool_runtime(self, tool_context: ToolContext) -> ToolRuntime:
         turn = self.turn_for(tool_context)
         return ToolRuntime(
-            customer=tool_context.user_id,
+            customer=turn["customer"],  # the server-side customer, also for a sub-agent's tool
             session=turn["session"],
             turn=turn["id"],
             db=turn["memory"].db,
@@ -582,7 +675,7 @@ class Runtime:
         }
         cost = new_tally()
         cost_token = TURN_COST.set(cost)
-        self.turns[turn] = {
+        entry = self.turns[turn] = {
             "id": turn,  # the `turns` row's id: what every audit, ticket and request row carries
             "memory": memory,
             "customer": customer,
@@ -593,6 +686,11 @@ class Runtime:
             "started": {},  # function_call_id -> monotonic start, for detail.latency_ms
             "failed": set(),  # function_call_ids already audited by on_tool_error_callback
             "cost": cost,
+            "lost": False,  # a callback found no turn (run_turn): the fixed reply, and an error
+            "agent_calls": {},  # ADK agent name -> model calls this turn
+            "kb": {},  # ADK agent name -> knowledge searches this turn
+            "subagents": {},  # sub-agent name -> its usage this turn, in first-call order
+            "subagent_lock": asyncio.Lock(),  # one sub-agent call at a time
         }
         reply, error, trace_id, span_id = "", None, None, None
         try:
@@ -623,6 +721,16 @@ class Runtime:
                 try:
                     reply = await self.run_turn(turn, session, customer, message)
                     set_output(root, reply)
+                    if entry["lost"]:
+                        # Not a model's non-answer: say so in the turn record, an event and
+                        # the log, so a lost turn is never mistaken for one.
+                        error = "TurnUnknown: a callback found no running turn"
+                        root.set_attribute("agentbreeder.error_code", "TURN_UNKNOWN")
+                        await run_to_completion(
+                            memory.audit, turn, session, customer, "system", "turn_failed",
+                            {"error": error},
+                        )  # fmt: skip
+                        print(f"turn lost: turn={turn}", flush=True)
                 except Exception as failure:
                     # The detail stays here: the turn record, its audit event and one log line.
                     error = redaction.upstream(f"{type(failure).__name__}: {failure}")[:500]
@@ -671,6 +779,7 @@ class Runtime:
                 "fallbacks": fallbacks,
                 "served_by": served_by,
                 "rate_limit_wait_s": round(cost["waited"], 3),
+                **self.subagent_reply(entry["subagents"]),
             }
         finally:
             TURN_COST.reset(cost_token)
@@ -699,6 +808,13 @@ class Runtime:
                 print(f"turn record failed: {type(failure).__name__}", flush=True)
             finally:
                 await run_to_completion(memory.close)
+
+    def subagent_reply(self, used: dict) -> dict:
+        """`subagents` for the reply: one entry per sub-agent that ran, in first-call order.
+        No key at all for an agent without sub-agents."""
+        if not self.children:
+            return {}
+        return {"subagents": [subagents.reply_entry(usage) for usage in used.values()]}
 
     def mark_root(self, root, tally: dict, trace: dict) -> None:
         """The turn's fallbacks (#1039), cached prompt tokens (#1056) and unknown tool names
@@ -767,7 +883,7 @@ class Runtime:
                 session_id=session,
                 invocation_id=turn,
                 new_message=content,
-                run_config=RunConfig(max_llm_calls=self.max_steps + 1),
+                run_config=RunConfig(max_llm_calls=(self.turn_cap or self.max_steps) + 1),
             ):
                 if event.author != "user" and event.content and event.is_final_response():
                     text = "".join(
@@ -781,6 +897,7 @@ class Runtime:
             if not caused_by(failure, TurnUnknown):
                 raise
             reply = ""  # a callback lost its turn: nothing it produced is trusted
+            context["lost"] = True
         return reply or NO_ANSWER
 
 
@@ -814,8 +931,14 @@ class KnowledgeSearchTool(BaseTool):
     async def run_async(self, *, args, tool_context: ToolContext):
         turn = self.runtime.turn_for(tool_context)
         trace = turn["trace"]
-        if trace["kb_searches"] >= self.runtime.extra_searches:
+        # Counted per agent. The parent already has the passages retrieved before its first
+        # model call; a sub-agent has none, so it may always search once.
+        child = self.runtime.child_of(tool_context)
+        allowed = max(1, self.runtime.extra_searches) if child else self.runtime.extra_searches
+        searched = turn["kb"].get(tool_context.agent_name if child else "", 0)
+        if searched >= allowed:
             return "Search limit reached. Answer now from the passages you already have."
+        turn["kb"][tool_context.agent_name if child else ""] = searched + 1
         trace["kb_searches"] += 1
         hits = await run_to_completion(
             self.runtime.retriever.search,
@@ -838,19 +961,28 @@ class AgentPlugin(BasePlugin):
         self.runtime = runtime
 
     async def _audit(self, context, actor: str, action: str, detail: dict) -> None:
-        turn = self.runtime.turn_for(context)
-        await run_to_completion(
-            turn["memory"].audit, turn["id"], turn["session"], turn["customer"],
-            actor, action, detail,
-        )  # fmt: skip
+        await self.runtime.audit(self.runtime.turn_for(context), actor, action, detail)
 
     async def before_model_callback(self, *, callback_context, llm_request):
         turn = self.runtime.turn_for(callback_context)
+        child = self.runtime.child_of(callback_context)
         turn["trace"]["model_calls"] += 1
-        turn["cost"]["last"] = None
-        turn["cost"]["route"] = None
+        cost = turn["cost"]
+        cost["last"], cost["route"], cost["mark"] = None, None, cost["calls"]
+        # The model client reads the tally from this variable. Set here, in the context the
+        # model call runs in, so it is the caller's turn even in a task that began without it.
+        TURN_COST.set(cost)
         step = turn["trace"]["model_calls"]
-        final = step >= self.runtime.max_steps
+        # Caps, per turn: this agent's own count, and every agent's together. At either, the
+        # call runs without tools, so the model must reply: a sub-agent returns its text and
+        # the parent's next call is its last.
+        agent = child.tool if child else ""
+        own = turn["agent_calls"][agent] = turn["agent_calls"].get(agent, 0) + 1
+        final = own >= (child.max_model_calls if child else self.runtime.max_steps)
+        if self.runtime.turn_cap is not None and step >= self.runtime.turn_cap:
+            final = True
+        if child:
+            turn["subagents"][child.name]["model_calls"] += 1
         if final:  # last allowed call: no tools, so the model must reply
             llm_request.config.tool_config = types.ToolConfig(
                 function_calling_config=types.FunctionCallingConfig(mode="NONE")
@@ -863,6 +995,7 @@ class AgentPlugin(BasePlugin):
             "input.value",
             json.dumps({"step": step, "contents": len(llm_request.contents), "final": final}),
         )
+        mark_subagent(current, child)
         return None
 
     async def after_model_callback(self, *, callback_context, llm_response):
@@ -881,13 +1014,18 @@ class AgentPlugin(BasePlugin):
         turn["trace"]["prompt_tokens"] += prompt
         turn["trace"]["output_tokens"] += output
         turn["trace"]["cached_prompt_tokens"] += cached
+        child = self.runtime.child_of(callback_context)
+        self._attribute_cost(turn, child)
         await self._audit(
             callback_context,
             "agent",
             "model_called",
             {
                 "step": turn["trace"]["model_calls"],
-                "model": self.runtime.model_alias,
+                # The deployed agent, and the sub-agent when one made the call (1.5.0).
+                "agent": self.runtime.app,
+                **({"subagent": child.name} if child else {}),
+                "model": child.alias if child else self.runtime.model_alias,
                 "prompt_tokens": prompt,
                 "cached_prompt_tokens": cached,
                 "output_tokens": output,
@@ -899,6 +1037,38 @@ class AgentPlugin(BasePlugin):
             },
         )
         return None
+
+    def _attribute_cost(self, turn: dict, child) -> None:
+        """This model call's gateway cost, to the agent that made it. Model calls of a turn
+        are sequential, so `last` and `route` are this call's. A call the gateway never
+        answered through CostClient (a stub model) adds nothing."""
+        cost = turn["cost"]
+        if cost["calls"] == cost["mark"]:
+            return
+        bucket = cost["by_agent"].setdefault(
+            child.name if child else "", {"usd": 0.0, "unknown": 0, "calls": 0}
+        )
+        usage = turn["subagents"][child.name] if child else None
+        bucket["calls"] += 1
+        if usage:
+            usage["cost_calls"] += 1
+        if cost["last"] is None:
+            bucket["unknown"] += 1
+            if usage:
+                usage["cost_unknown"] += 1
+        else:
+            bucket["usd"] += cost["last"]
+            if usage:
+                usage["usd"] += cost["last"]
+        group = (cost["route"] or (0, None))[1]
+        if usage and group is not None and group not in usage["served_by"]:
+            usage["served_by"].append(group)
+
+    @staticmethod
+    def _call_key(tool_context) -> tuple:
+        """One tool call of a turn: the agent that made it and its function call id (two
+        agents' models may issue the same id)."""
+        return (tool_context.agent_name, tool_context.function_call_id)
 
     async def before_tool_callback(self, *, tool, tool_args, tool_context):
         turn = self.runtime.turn_for(tool_context)
@@ -913,11 +1083,16 @@ class AgentPlugin(BasePlugin):
             current.set_attribute("openinference.span.kind", "CHAIN")
             current.set_attribute("agentbreeder.unknown_tool", name)
             return None
-        turn["trace"]["tools"].append(tool.name)
-        turn["started"][tool_context.function_call_id] = time.monotonic()
-        turn["recorded"][tool_context.function_call_id] = {
+        child = self.runtime.child_of(tool_context)
+        turn["trace"]["tools"].append(tool.name)  # every agent's calls, unqualified
+        if child:
+            turn["subagents"][child.name]["tools"].append(tool.name)
+        turn["started"][self._call_key(tool_context)] = time.monotonic()
+        turn["recorded"][self._call_key(tool_context)] = {
             key: len(value) for key, value in turn["trace"].items() if isinstance(value, list)
         }
+        # The sub-agent's own spans, and the parent's `ask_<name>` call that starts it.
+        mark_subagent(current, child or getattr(tool, "child", None))
         current.set_attribute("openinference.span.kind", "TOOL")
         current.set_attribute("tool.name", tool.name)
         current.set_attribute("tool.parameters", json.dumps(tool_args, default=str))
@@ -927,6 +1102,9 @@ class AgentPlugin(BasePlugin):
     def _call_detail(self, tool, tool_args, tool_context) -> dict:
         """What every tool row carries: args, agent, registry tool or MCP server, latency."""
         detail = {"args": tool_args, "agent": self.runtime.app}
+        child = self.runtime.child_of(tool_context)
+        if child:
+            detail["subagent"] = child.name
         spec = getattr(tool, "spec", None)
         if spec is not None:
             detail["tool"] = f"tool/{spec.tool}@{spec.version}"
@@ -934,16 +1112,18 @@ class AgentPlugin(BasePlugin):
         if mcp_ref is not None:
             detail["mcp"] = mcp_ref
         turn = self.runtime.turn_for(tool_context)
-        started = turn["started"].pop(tool_context.function_call_id, None)
+        started = turn["started"].pop(self._call_key(tool_context), None)
         if started is not None:
             detail["latency_ms"] = int((time.monotonic() - started) * 1000)
         return detail
 
-    def _recorded(self, tool_context) -> dict:
+    def _recorded(self, tool, tool_context) -> dict:
         """What the tool added to the turn (tickets, request IDs …) for the event detail, without
         RUNTIME_KEYS."""
         turn = self.runtime.turn_for(tool_context)
-        before = turn["recorded"].pop(tool_context.function_call_id, {})
+        before = turn["recorded"].pop(self._call_key(tool_context), {})
+        if isinstance(tool, subagents.SubAgentTool):
+            return {}  # what the sub-agent's tools recorded is on their own rows, not this one
         added = {}
         for key, value in turn["trace"].items():
             if isinstance(value, list) and key not in RUNTIME_KEYS:
@@ -955,15 +1135,15 @@ class AgentPlugin(BasePlugin):
     async def after_tool_callback(self, *, tool, tool_args, tool_context, result):
         turn = self.runtime.turn_for(tool_context)
         set_output(otel.get_current_span(), as_text(result))
-        if tool_context.function_call_id in turn["failed"]:
+        if self._call_key(tool_context) in turn["failed"]:
             # ADK also runs this callback with the error callback's result; that call is
             # already audited as failed (runtime 1.1.0 wrote a second, "ok" row here).
-            turn["failed"].discard(tool_context.function_call_id)
+            turn["failed"].discard(self._call_key(tool_context))
             return None
         spec = getattr(tool, "spec", None)
         # What the tool recorded first, so it cannot overwrite the runtime's own fields.
         detail = {
-            **self._recorded(tool_context),
+            **self._recorded(tool, tool_context),
             **self._call_detail(tool, tool_args, tool_context),
             "ok": True,
             "error": None,
@@ -975,6 +1155,11 @@ class AgentPlugin(BasePlugin):
                 detail["ok"], detail["error"] = False, redact(failed)[:300]
         if spec is not None and spec.writes_requests:
             detail["writes_request"] = True
+            child = self.runtime.child_of(tool_context)
+            if child:
+                # Which request of the parent's this sub-agent was answering when it filed
+                # the row: a hash, never the text.
+                detail["request_sha256"] = turn["subagents"][child.name]["request_sha256"]
         await self._audit(tool_context, "agent", f"tool:{tool.name}", detail)
         return None
 
@@ -992,18 +1177,45 @@ class AgentPlugin(BasePlugin):
                  "error": UNKNOWN_TOOL_ERROR},
             )  # fmt: skip
             return {"error": UNKNOWN_TOOL_REPLY}
+        if isinstance(tool, subagents.SubAgentTool) and model_failure(error) is not None:
+            # A sub-agent's failed model call ends the whole turn with its code, as the
+            # parent's does: not answered here, so ADK raises it out of the turn.
+            self._recorded(tool, tool_context)
+            detail = self._call_detail(tool, tool_args, tool_context)
+            detail.update(ok=False, error="the sub-agent's model call failed")
+            await self._audit(tool_context, "agent", f"tool:{tool.name}", detail)
+            return None
         message = redact(str(error))[:300]
         otel.get_current_span().set_attribute("tool.error", message)
-        self._recorded(tool_context)
+        self._recorded(tool, tool_context)
         detail = self._call_detail(tool, tool_args, tool_context)
         detail.update(ok=False, error=message)
-        turn["failed"].add(tool_context.function_call_id)
+        turn["failed"].add(self._call_key(tool_context))
         await self._audit(tool_context, "agent", f"tool:{tool.name}", detail)
         return {"error": message}
 
     async def before_agent_callback(self, *, agent, callback_context):
-        otel.get_current_span().set_attribute("openinference.span.kind", "AGENT")
+        current = otel.get_current_span()
+        current.set_attribute("openinference.span.kind", "AGENT")
+        mark_subagent(current, self.runtime.child_of(callback_context))
         return None
+
+
+def mark_subagent(current, child) -> None:
+    """`agentbreeder.subagent` on a span that belongs to a sub-agent (its agent, model and
+    tool spans, and the parent's `ask_<name>` call)."""
+    if child is not None:
+        current.set_attribute("agentbreeder.subagent", child.name)
+
+
+def model_failure(failure):
+    """The failed model call in an exception's cause chain, or None."""
+    seen = 0
+    while failure is not None and seen < 20:
+        if upstream_status(failure) is not None:
+            return failure
+        failure, seen = failure.__cause__ or failure.__context__, seen + 1
+    return None
 
 
 def unknown_tool(tool) -> bool:

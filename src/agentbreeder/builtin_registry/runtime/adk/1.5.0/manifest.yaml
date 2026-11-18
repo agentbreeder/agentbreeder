@@ -23,10 +23,19 @@ description: >-
   model invented under `unknown_tools` (with one `tool_unknown` event), never as a tool call;
   and answers a gateway guardrail block as MODEL_BLOCKED (HTTP 422) with a `guardrail_blocked`
   event and root span attributes naming the guardrail and entity type, never the matched text.
+  1.5.0 runs an agent's `subagents:`: each is a child agent the parent calls as a tool,
+  `ask_<name>(request)`, which sees only that request (no history, no session state, no customer
+  notes) and acts as the turn's customer. One turn id on every row, model-call caps per agent
+  and per turn (`limits.turn_model_calls`), `subagents[]` in the reply with each one's calls,
+  tools and gateway cost, `agent` and `subagent` on model_called and tool events, an
+  `agentbreeder.subagent` span attribute, and an `agentbreeder-subagent:<name>` request tag for
+  the gateway's spend log. Tool separation between agents is not a security boundary: all tool
+  code runs in one process. A callback that finds no running turn now fails instead of being
+  skipped.
 framework: google-adk
 port: 8080
 health_path: /health
-capabilities: [mcp]
+capabilities: [mcp, subagents]
 # The memory schema version this runtime writes (M16 refuses unknown ones; 1 = every earlier
 # version, implied).
 memory_schema: 2
