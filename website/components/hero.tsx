@@ -152,7 +152,8 @@ export function Hero() {
   const [copied, setCopied] = useState(false);
   const [sectionRef, onScreen] = useOnScreen<HTMLElement>();
   // The replay and the gate dot loop, so a pause control stops both (WCAG 2.2.2).
-  const [stopped, setStopped] = useState(false);
+  // Show the complete recording on arrival; replay starts only when requested.
+  const [stopped, setStopped] = useState(true);
   const active = onScreen && !stopped;
   const shown = useSessionReplay(SESSION.length, onScreen, stopped);
 

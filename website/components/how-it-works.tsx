@@ -49,7 +49,7 @@ const STEPS: Step[] = [
     title: 'Re-verify and stop',
     desc: (
       <>
-        <Code>status</Code> and <Code>reconcile</Code> re-check the principal and flag drift.
+        <Code>status</Code> and <Code>reconcile</Code> re-check the principal and flag drift.{' '}
         <Code>disable</Code> blocks the principal and removes its containers.
       </>
     ),

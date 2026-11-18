@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "postbuild": "node scripts/verify-build.mjs",
+    "test": "node --test scripts/*.test.mjs",
     "start": "next start",
     "lint": "eslint",
     "waitlist:export": "node --env-file=.env.local scripts/export-waitlist.mjs"
