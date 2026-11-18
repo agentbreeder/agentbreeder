@@ -604,8 +604,20 @@ def test_registry_runtimes_on_the_shipped_registry(tmp_path, capsys, monkeypatch
     assert cli.main(["registry", "runtimes", "--json", "--project", str(tmp_path)]) == 0
     rows = json.loads(capsys.readouterr().out)["runtimes"]
     assert rows and all(row["usable"] and row["root_kind"] == "builtin" for row in rows)
-    assert [row["ref"] for row in rows if row["verified"]] == [newagent.RUNTIME]
-    assert rows[0]["ref"] == newagent.RUNTIME
+    # 1.3.0 (Northwind 61/61, #1095) and 1.4.0 (the starter and the 3.0.0a3 runs) were run end
+    # to end; they come first, newest first. No older version was.
+    run = ["runtime/adk@1.4.0", "runtime/adk@1.3.0"]
+    assert [row["ref"] for row in rows if row["verified"]] == run
+    assert [row["ref"] for row in rows[:2]] == run and rows[0]["ref"] == newagent.RUNTIME
+    by_ref = {row["ref"]: row for row in rows}
+    for older in ("1.0.4", "1.0.5", "1.0.6", "1.1.0", "1.2.0"):
+        assert by_ref[f"runtime/adk@{older}"]["verified"] is False
+
+    assert cli.main(["registry", "runtimes", "--project", str(tmp_path)]) == 0
+    text = capsys.readouterr().out
+    assert "runtime/adk@1.4.0  Google ADK  protocol 1 (v1)  run end to end\n" in text
+    assert "runtime/adk@1.3.0  Google ADK  protocol 1 (v1)  run end to end\n" in text
+    assert "runtime/adk@1.2.0  Google ADK  protocol 1 (v1)  not run end to end\n" in text
 
 
 def test_registry_runtimes_marks_a_symlinked_version_unusable(project, capsys):  # noqa: F811
@@ -863,8 +875,11 @@ def test_a_spec_is_checked_against_its_runtime_as_build_checks_it(tmp_path, shar
 
 
 def test_verified_is_keyed_by_the_runtime_name():
+    """The builder's check stays on the default version: `runtime/adk@1.3.0` was run end to
+    end (the registry label), but no `new agent` combination ran on it."""
     spec = agentspec.Spec.model_validate(_spec())
     assert agentspec.verified(spec)
+    assert agentspec.runtime_verified("runtime/adk@1.3.0")
     for runtime, expected in (
         (newagent.RUNTIME, True),
         ("runtime/adk@1.3.0", False),

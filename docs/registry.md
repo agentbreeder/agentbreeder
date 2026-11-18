@@ -513,8 +513,11 @@ so a reader such as the local console needs no knowledge of profiles:
 ```
 
 - `kit`, `notes` and `docs` appear only when the manifest has them.
-- `verified` is true for a runtime version that a `new agent` combination has been run end to
-  end on. Today that is the starter's default version only, `runtime/adk@1.4.0`.
+- `verified` is true for a runtime version that has been run end to end. Today that is
+  `runtime/adk@1.3.0` (Northwind 61/61, #1095) and `runtime/adk@1.4.0` (the starter and the
+  3.0.0a3 public-registry runs). It is about the version, not a `new agent` combination: those
+  all ran on the starter's default, `runtime/adk@1.4.0`, so a spec or `--runtime` that pins
+  `1.3.0` still has `verified: false` in `new agent`'s output.
 - A version the engine cannot use is still listed, with `usable: false`, a `code` and a
   `reason` and without the profile fields: an invalid manifest or a missing `modules.json`
   (`ARTIFACT_INVALID`), an unknown protocol (`PROTOCOL_UNSUPPORTED`), a version under a

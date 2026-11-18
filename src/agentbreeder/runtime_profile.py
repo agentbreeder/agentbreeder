@@ -551,8 +551,8 @@ def listing(search: list[Path], project_dir: Path | None = None) -> dict:
     """`registry runtimes --json`: the engine's resolved view of every `runtime/` version in
     the search roots (console spec §8), so a reader holds no profile logic of its own.
 
-    A usable version has the profile's fields and `verified` (a combination was run end to end
-    on it, `agentspec.runtime_verified`). One the engine cannot use (an invalid manifest, an
+    A usable version has the profile's fields and `verified` (the version was run end to end,
+    `agentspec.runtime_verified`). One the engine cannot use (an invalid manifest, an
     unknown protocol, a missing `modules.json`, a symlinked directory, a conflict between
     roots) is listed with `usable: false`, a `code` and a `reason`, never dropped. Versions run
     end to end come first, then by name, newest version first."""

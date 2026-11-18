@@ -210,8 +210,12 @@ def test_the_verified_combinations():
     # openrouter and openai ran without tools (#1020)
     assert agentspec.TOOL_PROVIDERS == {"gemini"}
     assert not any("mcp" in parts for runs in agentspec.VERIFIED.values() for parts in runs)
+    # The registry label is a separate table of runtime versions (owner decision 2026-11-17).
+    assert agentspec.RUNTIMES_RUN == {"runtime/adk@1.3.0", "runtime/adk@1.4.0"}
+    assert newagent.RUNTIME in agentspec.RUNTIMES_RUN
     assert agentspec.runtime_verified(newagent.RUNTIME)
-    assert not agentspec.runtime_verified("runtime/adk@1.3.0")  # not the version that ran
+    assert agentspec.runtime_verified("runtime/adk@1.3.0")  # Northwind 61/61 (#1095)
+    assert not agentspec.runtime_verified("runtime/adk@1.2.0")
     assert not agentspec.runtime_verified("runtime/langgraph@1.0.0")
 
 

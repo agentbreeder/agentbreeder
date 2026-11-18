@@ -112,6 +112,15 @@ VERIFIED: dict[str, frozenset[tuple[str, ...]]] = {
     "adk": frozenset({(), ("knowledge",), ("tools",), ("knowledge", "tools")}),
 }
 VERIFIED_TOOLS = 1  # the most tools a verified spec has
+# Runtime versions that were run end to end, each with its run (owner decision 2026-11-17).
+# This is what `registry runtimes` labels (`runtime_verified`). It says nothing about a
+# `new agent` combination: those all ran on `newagent.RUNTIME`, so `verified` does not read it.
+RUNTIMES_RUN = frozenset(
+    {
+        "runtime/adk@1.3.0",  # Northwind 61/61 (#1095)
+        "runtime/adk@1.4.0",  # the starter and the 3.0.0a3 public-registry runs (#836)
+    }
+)
 # The providers a combination with a tool was run with (#833); openrouter ran model + prompt +
 # evals alone and openai that plus one knowledge version (#1020), so a tool on any other provider
 # stays unverified.
@@ -1044,21 +1053,23 @@ def combination(spec: Spec) -> tuple[str, ...]:
 
 
 def runtime_verified(ref: str) -> bool:
-    """Whether this runtime version is one a combination was run end to end on: a runtime
-    name in `VERIFIED`, at the version those runs used (`newagent.RUNTIME`)."""
-    return ref == RUNTIME and ref.removeprefix("runtime/").partition("@")[0] in VERIFIED
+    """Whether this runtime version was run end to end (`RUNTIMES_RUN`): the label
+    `registry runtimes` shows. Not the builder's check; a spec on such a version can still be
+    an unverified combination (`verified`)."""
+    return ref in RUNTIMES_RUN
 
 
 def verified(spec: Spec) -> bool:
-    """Whether the spec's combination was run end to end: its runtime (`runtime_verified`), its
-    parts (`VERIFIED` for that runtime's name), a verified provider, and for a spec with tools
-    at most `VERIFIED_TOOLS` of them on a `TOOL_PROVIDERS` provider. Every verified run used the
-    default runtime version (`newagent.RUNTIME`), so a spec that pins another is not
-    verified."""
+    """Whether the spec's combination was run end to end: its runtime is the default version
+    (`newagent.RUNTIME`) of a name in `VERIFIED`, its parts are in `VERIFIED` for that name, its
+    provider is verified, and for a spec with tools there are at most `VERIFIED_TOOLS` of them
+    on a `TOOL_PROVIDERS` provider. Every combination ran on the default runtime version, so a
+    spec that pins another is not verified, even one `registry runtimes` shows as run end to
+    end (`runtime_verified`, e.g. `runtime/adk@1.3.0`)."""
     runtime = spec.runtime or RUNTIME
-    if not runtime_verified(runtime):
-        return False
     name = runtime.removeprefix("runtime/").partition("@")[0]
+    if runtime != RUNTIME or name not in VERIFIED:
+        return False
     if combination(spec) not in VERIFIED[name] or not PROVIDERS[spec.model].verified:
         return False
     return not spec.tools or (len(spec.tools) <= VERIFIED_TOOLS and spec.model in TOOL_PROVIDERS)
