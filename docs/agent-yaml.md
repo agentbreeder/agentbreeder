@@ -114,6 +114,17 @@ the runtime checks at start; `agent.lock` keeps the hash of the whole registry v
 two differ on purpose. An agent file without `skills:` builds exactly as before; `validate
 --json` now prints `"skills": []` for it (and `"guardrails": []` when it has no `guardrails:`).
 
+`registries:` (optional, at most 10, on `main`, not in a published preview, #829) names git
+repositories that hold registry versions, each pinned to a full commit SHA:
+`- {name: acme, git: https://github.com/acme/agent-registry.git, commit: <40 hex>, path: registry}`.
+Refs stay `kind/name@X.Y.Z`; `build` looks for them in `./registry`, then
+`AGENTBREEDER_REGISTRY_PATH`, then each source in order, then the built-in registry, and a ref
+with different content in two places is `REF_CONFLICT`. A source must be in your trusted list
+first (`registry trust`), and with `registries:` the lock is version 2. Only `git` sources, and
+only `prompt`, `eval`, `knowledge` and `tool` versions, in this version. See
+[Remote registry sources](registry.md#remote-registry-sources-git-on-main-not-in-a-published-preview).
+An agent file without `registries:` builds exactly as before (lock version 1).
+
 ## Sub-agents (on `main`, not in a published preview)
 
 `subagents:` (optional, at most 5) declares specialist agents that run in the **same container,

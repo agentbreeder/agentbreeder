@@ -267,6 +267,18 @@ manifest or JSON Schema change. Website: no change until release R. Cloud: a `CL
 only; a grep of its tracked files on 2026-11-19 found no reader of `agent.lock` or
 `stack.lock`. Any future Cloud reader must accept v1 and v2 and refuse unknown keys.
 
+**Remote registry sources, #829 M9b slice 1b (git), per side.** OSS (on `main`, not in a
+published preview; tested only against a loopback `git http-backend`): `agent.yaml` gains
+optional `registries:` (git only), which makes `build` write `agent.lock` v2; `sources/git.py`
+(hardened fetcher), `trust.py` (`~/.agentbreeder/sources.yaml`, `AGENTBREEDER_REGISTRY_TRUST`),
+`cache.py`, `remote.py`; `registry trust`; `build --offline`; `build.json` and `package.json`
+`inputs.sources` carry the sources table (only with `registries:`); `package.py` and the
+console's `center/reads.py` accept lock v2 via `Lock.parse_bytes`. New
+`docs/agent-lock.schema.json`. Without `registries:` every output is byte-identical. Website: no
+change until release R. Cloud: a `CLAUDE.md` note only; a grep of its tracked files on
+2026-11-19 found no reader of `agent.lock`, `stack.lock`, `lock_version`, `package.json` inputs,
+`build.json`, `sources.yaml` or the trust variable.
+
 **Runtime kit and LangGraph, #1083 F2b + F3 (multi-framework), per side.** OSS (on `main`; run
 end to end on macOS x86_64, not verified): `src/agentbreeder/runtime_kit/` (protocol v1 `kit`
 profile, the turn, the loopback model proxy with 1.3.0's retries and codes and a step cap that

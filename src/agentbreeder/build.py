@@ -18,7 +18,8 @@ import re
 import shutil
 import stat
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -620,6 +621,19 @@ def docker_platform(image: str) -> str:
     return value
 
 
+@contextmanager
+def _remotes(table: dict | None, offline: bool) -> Iterator:
+    """The declared sources for one build (#829), or None without `registries:`. Imported
+    only when a source is declared, so a build without one loads no network code."""
+    if table is None:
+        yield None
+        return
+    from agentbreeder.sources.remote import Remotes
+
+    with Remotes(table, offline=offline) as remotes:
+        yield remotes
+
+
 def build(
     agent_path: Path,
     operator: OperatorConfig,
@@ -629,6 +643,7 @@ def build(
     update: set[str] | None = None,
     output: Path | None = None,
     builder: Callable[[Path, Path], str] = docker_build,
+    offline: bool = False,
 ) -> BuildResult:
     agent = load_agent_file(agent_path)
     project = agent_path.resolve().parent
@@ -650,7 +665,11 @@ def build(
     lock_path = project / "agent.lock"
     lock = Lock.load(lock_path)
     output = (output or project / "deploy").resolve()
-    with tempfile.TemporaryDirectory(prefix="agentbreeder-build-") as temporary:
+    table = agent.sources_table()
+    with (
+        tempfile.TemporaryDirectory(prefix="agentbreeder-build-") as temporary,
+        _remotes(table, offline) as remotes,
+    ):
         context = Path(temporary) / "context"
         artifacts = context / "artifacts"
         entries, changed = materialise(
@@ -662,6 +681,7 @@ def build(
             context=artifacts,
             mode=mode,
             update=update,
+            remotes=remotes,
         )
         runtime_dir = artifacts / "runtime" / registry.Ref.parse(agent.runtime).name
         serving = _runtime_serving(runtime_dir, agent.runtime)
@@ -721,6 +741,8 @@ def build(
         "refs": refs,
         "aliases": aliases,
     }
+    if table is not None:  # only with registries:, so a file without them writes the same record
+        record["sources"] = table
     if agent.subagents:  # only when present, so a file without them writes the same record
         record["subagents"] = [{"name": s.name, "alias": s.model.alias} for s in agent.subagents]
     record_path = output / f"{agent.name}.build.json"
