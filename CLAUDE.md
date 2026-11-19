@@ -234,6 +234,18 @@ format change. Website: no change until release R. Cloud: a `CLAUDE.md` note onl
 kind and the strict `package.json`); a grep of its tracked files on 2026-11-18 for the package,
 artifact and registry codes found nothing.
 
+**Kit egress, #1083 F1b (multi-framework), per side.** OSS (on `main`; unit-tested, the opt-in
+real-engine tests are written and not yet run): a manifest with `runtime.profile: kit` deploys
+with default-deny egress. Local Docker: internal networks only and a forwarding sidecar
+(`egress/kit.py`, `egress/forwarder.py`, the phase-4 boundary's pattern) for ingress and for a
+gateway at `http://host.docker.internal`; `KIT_EGRESS_UNSUPPORTED` for what it cannot reach.
+`kind`: a NetworkPolicy that allows cluster DNS and the new optional operator key
+`kubernetes.agents_cidrs` (written by `cluster up`), else `KUBERNETES_KIT_EGRESS_UNCONFIGURED`.
+No runtime has `profile: kit`, so every existing deployment is unchanged (goldens). No manifest,
+JSON Schema, digest or `agent.lock` change. Website: no change until a framework passes its
+acceptance. Cloud: a `CLAUDE.md` note only; it has no code that reads the operator config or
+deploys through these paths.
+
 ## 🎯 When Adding a New Feature
 
 1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?

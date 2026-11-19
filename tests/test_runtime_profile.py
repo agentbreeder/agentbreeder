@@ -104,12 +104,21 @@ def test_a_manifest_without_protocol_gets_the_legacy_adk_profile():
     assert profile.kit is None and profile.notes is None and profile.docs is None
 
 
+# Modules runtime/adk@1.5.0 added; it is the first version with `protocol` and its own
+# runtime/modules.json (tests/test_runtime_adk_150.py).
+ADK_150_MODULES = frozenset({"skill_hash", "skills", "subagents", "turns"})
+
+
 @pytest.mark.parametrize("name", sorted(path.name for path in ADK.iterdir()))
 def test_every_builtin_adk_version_is_legacy_and_usable(name):
     profile = runtime_profile.load(ADK / name)
-    assert profile.legacy and profile.framework == "google-adk"
-    assert profile.has("mcp") is (tuple(map(int, name.split("."))) >= (1, 1, 0))
-    assert runtime_profile.load_modules(ADK / name, profile).modules == LEGACY_ADK.modules
+    version = tuple(map(int, name.split(".")))
+    assert profile.framework == "google-adk"
+    assert profile.legacy is (version < (1, 5, 0))  # published before the `protocol` key
+    assert profile.has("mcp") is (version >= (1, 1, 0))
+    assert profile.has("knowledge") and profile.has("notes")
+    own = LEGACY_ADK.modules | (ADK_150_MODULES if version >= (1, 5, 0) else frozenset())
+    assert runtime_profile.load_modules(ADK / name, profile).modules == own
 
 
 def test_a_manifest_with_protocol_is_read_from_its_own_keys():
@@ -893,8 +902,10 @@ def test_verified_is_keyed_by_the_runtime_name():
 
 
 def test_tool_check_reads_modules_files_from_the_builtin_registry(tmp_path, monkeypatch):
-    legacy_modules, legacy_imports = tool_check.runtime_names()
-    assert legacy_modules == LEGACY_ADK.modules and "litellm" in legacy_imports
+    # Every built-in version counts: the legacy table and runtime/adk@1.5.0's own file.
+    builtin_modules, legacy_imports = tool_check.runtime_names()
+    assert builtin_modules == LEGACY_ADK.modules | ADK_150_MODULES
+    assert "litellm" in legacy_imports
     assert tool_check.shadows("langgraph") is None and tool_check.shadows("kit") is None
 
     root = tmp_path / "builtin"

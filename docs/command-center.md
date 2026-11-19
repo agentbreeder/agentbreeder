@@ -1092,6 +1092,56 @@ under **Model calls and the eval gate**, model calls per turn (1 to 20), the pas
 yet. The browser never builds YAML: it sends the form as `new agent --from-spec`'s JSON spec
 (`docs/commands/new.md`).
 
+**Framework** (#1085 S1, on `main`, not in a published preview) is the first field after the
+name: one radio per framework that has a `runtime/` version, named by the framework's own name
+alone. Under each radio a second line gives the ref and its status, and a third line the runtime's
+own note when its manifest has one; both are tied to the radio with `aria-describedby`. A
+**Version** select under the group lists the chosen framework's versions, newest first (static
+text when there is one), and a change of framework or version is announced once ("Google ADK
+1.3.0: Run end to end (Northwind)"). The form starts on Google ADK's newest version, and each
+framework starts on its newest version. Frameworks with a version run end to end come first, then
+by name. **Only `runtime/adk` exists today, so the group shows Google ADK alone**; other frameworks
+appear when their runtimes land, with no console change. There are no logos.
+
+- **Where the list comes from.** `GET /api/builder/parts` gains `runtimes`: the engine's resolved
+  view of every `runtime/` version, read by a CLI child (`agentbreeder registry runtimes --json`,
+  never the last good answer) over the roots a new project resolves, and reduced by the server to
+  an allow-list (`BAD_OUTPUT` otherwise; the child's output is capped at 1 MiB and it has 60
+  seconds). The tool and MCP pickers are in the same answer, so they wait for this child and
+  fail with it: without a runtime nothing can be previewed. A preview and a create each run it
+  once more for the server's check. The console holds no framework name, note, capability or
+  limit of its own. Every existing `runtime/adk` version has no `protocol` key, so the engine's
+  legacy profile names it "Google ADK". `display_name` and `notes` are cleaned and cut at 100 and
+  300 characters, `docs` is passed on only as a relative path, and all are shown as text.
+- **Status** is one of four values, in words: "Run end to end (Northwind)" (the CLI's `verified`:
+  `runtime/adk@1.3.0` and `1.4.0`), "Conformance passed; not run end to end", "Conformance failed;
+  not run end to end" and "Not run end to end". The two conformance values need a `conformance`
+  field that no CLI prints yet (architecture F2a), so only the first and last appear today; the
+  link from "Conformance failed" to the report comes with the runtime detail (S3).
+- **A runtime the CLI cannot use** (an unknown `protocol`, an invalid manifest, a conflict between
+  roots) is not a disabled radio. It is a line under the group: "Cannot be used: REF: reason
+  (CODE)".
+- **What follows from the chosen version.** Without the `mcp` capability the MCP picker is
+  replaced by "NAME VERSION has no MCP client" (today `runtime/adk@1.0.4` to `1.0.6`). The tools
+  picker stops at `limits.tools`. A tool version with a function name (`tool.yaml`
+  `functions[].name`, read by the server for the picker) in `reserved_tool_names` cannot be picked.
+- **A switch never drops a pick.** A pick that does not fit the new framework or version (an MCP
+  server, a tool past the limit, a reserved name) stays on the form in a warning row with its
+  reason and a **Remove** control, still there when the picker itself is not offered. One
+  announcement covers them ("2 picks do not work with NAME VERSION."), Preview is off with "…
+  Remove them or choose another framework.", and switching back clears the marks. A pick the
+  registries no longer offer is still dropped on a re-read, as before.
+- **Loading and errors.** While the read runs the group says "Reading the registries…"
+  (`role="status"`). A failed read shows its message and code with **Try again**, and so does a
+  list with no usable runtime; Preview is off ("Choose a framework first.") until a runtime is
+  chosen.
+
+The spec the form sends is `schema_version` 2 with `runtime` (the ref), which `new agent
+--from-spec` writes into `agent.yaml`; on the default runtime the files are the ones a version 1
+spec writes. Before any `new agent` child the server checks that the ref is a usable one in a
+fresh `registry runtimes` read (`SPEC_UNSUPPORTED`), on Preview and on Create, and that the
+answer's `runtime` is the one sent (`BAD_OUTPUT`). The preview names the framework and the ref.
+
 **Tools** and **MCP servers** are pickers over what a new project resolves: the
 `AGENTBREEDER_REGISTRY_PATH` roots and the built-ins (`GET /api/builder/parts`, read in the server
 process; CLI children inherit the same variable). Each tool name has a select, **Not used** or one
@@ -1120,15 +1170,20 @@ It is a three-tier confirm:
 2. When a picked part brings code from outside the built-in registry (`runs_code`), a **This code
    runs in agents** box names it and its checkbox must be ticked: a tool or MCP server from
    `AGENTBREEDER_REGISTRY_PATH`. The built-in MCP servers ship with AgentBreeder and do not ask.
-   A form edit, a different pick included, clears the tick.
+   A form edit, a different pick included, clears the tick. A runtime from outside the built-in
+   registry (#1085 S1) is listed in the same box, worded as for a tool.
 3. **Create agent and add project** is on only for a combination run end to end
    (`combination.verified`: today gemini with a prompt and evals, alone or with one path tool, on
    `main`, not in a published preview, #833, and openrouter with a prompt and evals alone,
    #1020; no combination with two or more tools or with MCP servers has been run end to end
-   yet). Otherwise the preview names what has not been run
-   (the provider, "a new agent with tools", "… with MCP servers") and says `agentbreeder new agent
-   --from-spec` writes it anyway. Create sends the previewed `plan_sha256`; the server runs the dry
-   run again with `--expect-digest`, refuses `COMBINATION_UNVERIFIED` or `CODE_CONFIRM_REQUIRED`
+   yet). A combination is keyed by the runtime's name (`agentspec.VERIFIED`), and every one of
+   them ran on the default version, `runtime/adk@1.4.0`: so Create is off for any other version,
+   `runtime/adk@1.3.0` included, although the list marks 1.3.0 "Run end to end (Northwind)" for
+   Northwind's own run. Otherwise the preview names what has not been run
+   (the provider, "Google ADK 1.4.0 with tools", "… with MCP servers", "a new agent on Google ADK
+   1.3.0"), Create's own reason says the same ("Google ADK 1.4.0 with MCP servers has not been
+   run end to end."), and the preview says `agentbreeder new agent --from-spec` writes it
+   anyway. Create sends the previewed `plan_sha256`; the server runs the dry run again with `--expect-digest`, refuses `COMBINATION_UNVERIFIED` or `CODE_CONFIRM_REQUIRED`
    on that fresh answer, then runs the write with `--expect-digest` (a spec, picked version or date
    that changed is `DIGEST_MISMATCH`: preview again) and registers the new folder. The project then
    opens on Home with its guided path.
@@ -1144,9 +1199,9 @@ a case's `tags` or a sub-agent or skill check) is `SPEC_INVALID`; for version 2 
 checks the `runtime/` and `skill/` refs' shape (at most 10 skills, one version each), each
 sub-agent's fields, name, provider, model id, tools (at most 20) and servers (at most 5
 sub-agents), and `limits.turn_model_calls` (1 to 40, only with a sub-agent). The answer's
-`spec_version` must be the version sent. The form itself still sends only version 1 specs: its
-Sub-agents and Skills sections are not built yet. The preview and create
-routes (`POST /api/projects/builder`, `/api/projects/builder/create`) take bodies up to 1 MiB;
+`spec_version` must be the version sent. The form sends version 2 specs with `runtime` and no
+other version 2 field (#1085 S1): its Sub-agents and Skills sections are not built yet. The
+preview and create routes (`POST /api/projects/builder`, `/api/projects/builder/create`) take bodies up to 1 MiB;
 the CLI checks the spec in full.
 
 Tested on the server against the real `new agent --from-spec` (the argv, the spec file's modes
@@ -1161,6 +1216,18 @@ console: that is the M17 verification. The same gemini spec with one path tool, 
 knowledge version, was run end to end through `new agent --from-spec` (#833), which put it in
 `agentspec.VERIFIED`. Create turned on for the tool-only spec with no console change; the form
 still refuses knowledge.
+
+The Framework group (#1085 S1) is tested on the server against the real `registry runtimes
+--json` and `new agent --from-spec` (the list and its order, the legacy profile's "Google ADK" on
+1.2.0 and 1.3.0, the allow-list and its caps, a failed read's code, a ref that is not listed or
+not usable refused before any `new agent` child, 1.3.0 previewed and not created, a path
+runtime previewed as code), in `node --test` (the grouping, default, status words, invalid picks
+and Create's reasons) and with Playwright and axe in light and dark (`tests/ui/
+test_builder_framework.py`). The Playwright cases that need a second framework, the conformance
+status words, a note, a limit below 50 or an unusable runtime give the fake CLI a scripted
+`registry runtimes` answer, because no such runtime exists: **no framework other than Google ADK
+has been listed, previewed or created from a real registry**, and no agent built on a version
+other than `runtime/adk@1.4.0` has been created from the console.
 
 ### Agents (#823, second part): on `main`, not in a published preview
 
@@ -1708,6 +1775,11 @@ Local clusters only. `kind` is the verified path.
   no service account token. Secrets are mounted read-only and go to `kubectl` on stdin. Images are
   referenced by digest.
 - Refused rather than weakened: `mcp_access` and runtime enforcement.
+- A manifest with `runtime: {profile: kit}` (none is built today) gets a default-deny
+  NetworkPolicy: cluster DNS and the stack's agents network (`kubernetes.agents_cidrs`, which
+  `cluster up` records) only. Written and unit-tested, not yet run on a cluster; see
+  [Kit egress](local-deployment.md#kit-egress) (#1083 F1b, on `main`, not in a published
+  preview).
 
 ### Measured on the 2026-11-10 run
 

@@ -65,6 +65,7 @@ class Kubernetes:
         self.cluster_uid = ""
         self.namespace = ""
         self.blocked: tuple[str, ...] = ()
+        self.allowed: tuple[str, ...] = ()  # the only egress of a kit deployment (F1b)
 
     def select(self, environment: str | None) -> None:
         """Bind to the cluster the operator configured for this environment."""
@@ -80,6 +81,7 @@ class Kubernetes:
         self.namespace = target.namespace
         self.kubeconfig = target.kubeconfig
         self.blocked = tuple(target.blocked_cidrs)
+        self.allowed = tuple(target.agents_cidrs)
         self.context = "|".join(
             (target.context, target.cluster_uid, target.namespace, target.kubeconfig)
         )
@@ -229,10 +231,22 @@ class Kubernetes:
             raise DeploymentError("Runtime enforcement is not supported on Kubernetes")
         if not self.blocked:
             raise DeploymentError("[KUBERNETES_UNCONFIGURED] blocked_cidrs is required")
+        # A kit runtime (manifest `runtime.profile: kit`) gets default-deny egress: only the
+        # stack's agents network and cluster DNS (#1083 F1b). Every other manifest gets the
+        # objects it always did.
+        kit = manifest.runtime is not None and manifest.runtime.profile == "kit"
         document = {
             "apiVersion": "v1",
             "kind": "List",
-            "items": _objects(record, manifest, self.namespace, environment, mounts, self.blocked),
+            "items": _objects(
+                record,
+                manifest,
+                self.namespace,
+                environment,
+                mounts,
+                self.blocked,
+                allowed=kit_destinations(self.allowed, self.blocked) if kit else None,
+            ),
         }
         self._delete(record["id"])  # a previous attempt may have left objects behind
         try:
@@ -562,7 +576,35 @@ def _pod_view(pod: dict) -> dict:
     }
 
 
-def _objects(record, manifest, namespace, environment, mounts, blocked) -> list[dict]:
+def kit_destinations(allowed, blocked) -> list[dict]:
+    """The `ipBlock`s a kit deployment may reach: each allowed range, minus the blocked ranges
+    inside it. A range that a blocked range covers is dropped. With nothing left the deploy is
+    refused: default deny never falls back to the open rule."""
+    result = []
+    try:
+        denied = [(item, ipaddress.ip_network(item, strict=False)) for item in blocked]
+        for cidr in allowed:
+            network = ipaddress.ip_network(cidr)
+            if any(network.subnet_of(other) for _, other in denied):
+                continue
+            inside = [item for item, other in denied if other.subnet_of(network)]
+            result.append({"ipBlock": {"cidr": cidr, **({"except": inside} if inside else {})}})
+    except (ValueError, TypeError) as error:
+        raise DeploymentError(
+            "[KUBERNETES_KIT_EGRESS_UNCONFIGURED] agents_cidrs or blocked_cidrs is not a "
+            "valid IPv4 range"
+        ) from error
+    if not result:
+        raise DeploymentError(
+            "[KUBERNETES_KIT_EGRESS_UNCONFIGURED] A kit runtime needs kubernetes.agents_cidrs "
+            "(the stack's agents network); run `agentbreeder cluster up` again"
+        )
+    return result
+
+
+def _objects(
+    record, manifest, namespace, environment, mounts, blocked, allowed=None
+) -> list[dict]:
     identifier, name = record["id"], record["container"]
     labels = {
         MANAGED_BY: "agentbreeder",
@@ -630,7 +672,9 @@ def _objects(record, manifest, namespace, environment, mounts, blocked) -> list[
                             {"protocol": "TCP", "port": 53},
                         ],
                     },
-                    {"to": [{"ipBlock": {"cidr": "0.0.0.0/0", "except": list(blocked)}}]},
+                    {"to": [{"ipBlock": {"cidr": "0.0.0.0/0", "except": list(blocked)}}]}
+                    if allowed is None
+                    else {"to": list(allowed)},
                 ],
             },
         }
