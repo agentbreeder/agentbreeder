@@ -1,9 +1,13 @@
 # F2a verification: the ADK baseline against agent protocol v1 (#1083, #758, #759)
 
-Status: **not run.** No conformance run on a real container is recorded here. The lane that
-built F2a (2026-11-18, macOS) was not allowed to use Docker, so `agentbreeder conformance` has
-only run against a stub agent and a fake Docker runner in the test suite. Everything under
-"Expected gaps" is a reading of `runtime/adk@1.3.0`'s source, **not a result**.
+Status: **run** (2026-11-19, from a wheel of `main` at 160b7d10 in a clean sandbox, macOS 13.7.8
+x86_64, Docker Desktop engine 27.5.1, during the #1058/#1059 acceptance session; see
+`1058-subagents.md` for the sandbox). Both Northwind images were checked: `runtime/adk@1.3.0`
+(what Northwind pinned) and `runtime/adk@1.5.0` (after this PR's relock). Each report is
+`fail`: **22 pass, 4 fail, 8 not run, 5 not applicable** of 39, the same checks on both. Three
+failures are the v1 gaps predicted below; the fourth, `traces.llm_span`, contradicts what Phoenix
+showed for the same runtime (see Notes). The section "Expected gaps" was written before the run
+and is kept, with each row marked by what the run found.
 
 This is on `main`, not in a published preview.
 
@@ -47,15 +51,40 @@ time allows; it is not required by the spec.
 
 | Run | Image | Result | pass | fail | not run | not applicable |
 |---|---|---|---|---|---|---|
-| `runtime/adk@1.3.0`, Northwind, profile `v1` | not run | not run | | | | |
+| `runtime/adk@1.3.0`, Northwind, profile `v1` | `sha256:acb361f3…` | `fail` (exit 1), 68 s | 22 | 4 | 8 | 5 |
+| `runtime/adk@1.5.0`, Northwind, profile `v1` | `sha256:68df1561…` | `fail` (exit 1), 62 s | 22 | 4 | 8 | 5 |
+
+Command, from the sandbox copy of Northwind built on each version (the `--project` directory
+holds that build's `deploy/northwind-support.build.json`; without it the command answers
+`CONFORMANCE_NO_BUILD_RECORD`):
+
+```bash
+agentbreeder conformance sha256:<image> --project . --json
+```
+
+No container or network labelled `io.agentbreeder.conformance` was left after either run. The
+two images the kit builds (`agentbreeder-conformance-fakes`, and `python:3.12-slim` and
+`pgvector/pgvector` it pulled) were removed at the session's teardown. The JSON reports were not
+attached to #759; the rows below are their content.
 
 ### Checks that failed
 
-Not run. One row per failing check, with the report's `detail`, when the run is done.
+The same on both versions.
 
-| Check | Detail | Decision (fix in a later `runtime/adk`, or a recorded ADK exception) |
+| Check | Detail (the report's) | Decision (fix in a later `runtime/adk`, or a recorded ADK exception) |
 |---|---|---|
-| | | |
+| `sessions.busy` | the second turn on a busy session was answered 200: it waited for the first instead of being refused | owner (D14) |
+| `traces.llm_span` | the turn's trace has no child LLM span | owner (D14), after the check is looked at (Notes) |
+| `model_errors.text_logs` | the gateway's text is in the log (7 of its messages) | owner (D14) |
+| `model_errors.text_spans` | the gateway's text is in the spans (7 of its messages) | owner (D14) |
+
+### Not run and not applicable
+
+`not_run` (8): `knowledge.sources`, `knowledge.extra_searches`, `tools.customer`, `tools.audit`,
+`sessions.notes`, `traces.tool_span` (the fixture agent is not built), `cost.model_called_rows`
+(no audit-row read yet) and `hygiene.egress` (waits for F1b's network log). `not_applicable`
+(5, kit-profile checks): `serving.readiness`, `serving.sigterm_drain`, `step_cap.enforced`,
+`model_errors.swallowed`, `proxy.requests`.
 
 ## Expected gaps (from the source, not observed)
 
@@ -67,20 +96,20 @@ that the run does not confirm is deleted, not kept.
 
 | Check | Why it is expected to fail | Source |
 |---|---|---|
-| `sessions.busy` | A second request for a session waits for the first (a blocking per-session lock) and is then answered 200. 409 is returned only after a turn timed out and is still stopping. The check asks for 409 while a turn is running | `server.py` `session_lock` (blocking by default), `agent.py` `chat` (`INFLIGHT`) |
-| `model_errors.text_logs` | A failed model call is logged as one line with `detail=` holding the gateway's message. It is redacted for keys and token hashes, not removed, so the scripted message is in the log | `agent.py` `chat_async` ("model call failed: … detail=…"), `redaction.upstream` |
-| `model_errors.text_spans` | The failing span's status and its `exception.message` event carry the error text, redacted the same way | `telemetry.py` `span` and `RedactingExporter` |
+| `sessions.busy` (**confirmed**) | A second request for a session waits for the first (a blocking per-session lock) and is then answered 200. 409 is returned only after a turn timed out and is still stopping. The check asks for 409 while a turn is running | `server.py` `session_lock` (blocking by default), `agent.py` `chat` (`INFLIGHT`) |
+| `model_errors.text_logs` (**confirmed**) | A failed model call is logged as one line with `detail=` holding the gateway's message. It is redacted for keys and token hashes, not removed, so the scripted message is in the log | `agent.py` `chat_async` ("model call failed: … detail=…"), `redaction.upstream` |
+| `model_errors.text_spans` (**confirmed**) | The failing span's status and its `exception.message` event carry the error text, redacted the same way | `telemetry.py` `span` and `RedactingExporter` |
 
 ### Not known until the run
 
 | Check | What is uncertain |
 |---|---|
-| `traces.llm_span` | Whether the trace has a child span with `openinference.span.kind` `LLM`. The runtime relabels ADK's own model span `CHAIN` and relies on "the provider SDK's span" for the LLM span; with a LiteLLM client there may be none |
-| `cost.reported` | Whether `prompt_tokens` and `output_tokens` equal the gateway's `usage` exactly (ADK's usage metadata may count differently) |
-| `serving.oversize_body` | `runtime/adk@1.3.0` answers 400 without reading a 64 KiB body. If the socket is then reset before the client reads the status, the check fails with "reset before a status could be read"; whether Docker's forwarder shows a reset has not been observed |
-| `serving.host` | Expected to pass (`localhost`, `127.0.0.1`, `agent`), but the request crosses the kit's TCP forwarder, which has not carried a real agent |
+| `traces.llm_span` (**failed**) | Whether the trace has a child span with `openinference.span.kind` `LLM`. The runtime relabels ADK's own model span `CHAIN` and relies on "the provider SDK's span" for the LLM span; with a LiteLLM client there may be none |
+| `cost.reported` (**passed**) | Whether `prompt_tokens` and `output_tokens` equal the gateway's `usage` exactly (ADK's usage metadata may count differently) |
+| `serving.oversize_body` (**passed**) | `runtime/adk@1.3.0` answers 400 without reading a 64 KiB body. If the socket is then reset before the client reads the status, the check fails with "reset before a status could be read"; whether Docker's forwarder shows a reset has not been observed |
+| `serving.host` (**passed**) | Expected to pass (`localhost`, `127.0.0.1`, `agent`), but the request crosses the kit's TCP forwarder, which has not carried a real agent |
 | every check on an agent with `mcp:` servers | The kit's relay address answers 503. The runtime is expected to report the server in `mcp_unavailable` and continue; Northwind has no `mcp:` server, so the baseline does not exercise it |
-| the environment itself | Docker's handling of the two networks, the secret-file mounts on Docker Desktop, the database wait and the published fakes ports have run only against a fake runner |
+| the environment itself (**worked** on Docker Desktop) | Docker's handling of the two networks, the secret-file mounts on Docker Desktop, the database wait and the published fakes ports have run only against a fake runner |
 
 ### Against the kit profile (not applicable to a `v1` image; listed for D14)
 
@@ -146,3 +175,11 @@ Also not done, as recorded deviations from the spec:
 - The three v1 gaps expected above are behaviours `docs/agent-protocol.md` describes as
   `runtime/adk@1.3.0`'s. If the run confirms them, the owner decides per D14 between a later
   `runtime/adk` version and a recorded ADK exception; the checks stay as the spec has them.
+- **`traces.llm_span` against Phoenix.** The same `runtime/adk@1.5.0` sent Phoenix a
+  `generate_content openai/chat` span of kind `LLM` under each `call_llm` span in the #1058 and
+  #1059 runs (`1058-subagents.md`, item 3). So the runtime does emit an LLM span to a real
+  collector; why the kit's OTLP reader found none is not known (the fakes' gateway, the turn-end
+  export added in 1.5.0, or the check's reading). Look at the check before deciding D14 for it.
+- `cost.reported`, `serving.oversize_body` and `serving.host` passed on both versions; their rows
+  in "Not known until the run" are kept above, marked.
+

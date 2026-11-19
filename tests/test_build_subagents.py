@@ -21,12 +21,14 @@ from agentbreeder.operator_config import DeploymentContext
 
 # What origin/main (b4a4d744, before sub-agents) wrote for these builds: sha256 of
 # agent.config.json, the deploy template and the build record. Sub-agents must not change a
-# byte for a file without them (plan §2, "unchanged happy path").
+# byte for a file without them (plan §2, "unchanged happy path"). Northwind's build record
+# changed once when it was relocked to runtime/adk@1.5.0 (#1058 AC: the record names the runtime
+# and the lock's hash); its config and deploy template did not.
 GOLDEN = {
     "northwind": {
         "config": "fcf0e6f4108bc3ed90659c4f16461526db73b9ecc63c506d74df78290e26a084",
         "template": "39aea2a7421d34812640fb151e7547659c29689895924bcfd0a1584ed8b8b7a9",
-        "record": "af47addedf3ba5ad0b2ead4101fda409497512bd372a625582f278226337a6fa",
+        "record": "e21aa6396decbc8107c2f83e36e0ccdeb3728a933741abd1e2f93e72b3a4fc82",
     },
     "helper": {
         "config": "37e915bb6cf771e25f68d35d322592306054e1359370f77d55f98ab2722be488",
