@@ -20,6 +20,11 @@ over the roots a new project resolves, AGENTBREEDER_REGISTRY_PATH and the built-
 offer, not a check: the CLI resolves every picked ref again (REF_NOT_FOUND, REF_CONFLICT,
 ENTRY_UNSAFE) and refuses a tool a server does not declare (MCP_TOOL_UNDECLARED).
 
+The Framework group (#1085 S1, console spec §4.1) offers `parts.runtimes`: the engine's resolved
+view of every `runtime/` version, read by a CLI child (`registry runtimes --json`) and reduced to
+an allow-list here (`runtimes`), so this process holds no profile logic. A spec's `runtime` must
+be one of the usable refs in that list (`check_runtime`: SPEC_UNSUPPORTED).
+
 Pure request and answer checks plus the temporary file: no engine module is loaded, so the
 server process keeps its allowlist (`tests/test_center_reads.py`). The CLI validates the spec
 itself; these checks keep the request to the spec's shape and size.
@@ -94,6 +99,30 @@ MAX_FILES = 40
 # tools each and 10 skills is 172.
 MAX_REFS = 200
 MAX_CONTENT = 2 * 1024 * 1024  # all files' text together: the prompt is at most 32 KiB
+TOOL_FILE_LIMIT = 64 * 1024  # a tool.yaml read for its function names
+MAX_FUNCTIONS = 100  # function names shown per tool version
+# `registry runtimes --json` (`runtime_profile.listing`), as the Framework group shows it.
+RUNTIMES_ARGV = ("registry", "runtimes", "--json")
+RUNTIMES_TIMEOUT = 60  # it hashes every runtime version
+RUNTIMES_VERSION = 1  # `runtime_profile.LISTING_VERSION`
+MAX_RUNTIMES = 200  # versions shown
+MAX_DISPLAY_NAME = 100  # `runtime_profile.MAX_DISPLAY_NAME`
+MAX_NOTES = 300  # `runtime_profile.MAX_NOTES`
+MAX_DOCS = 200  # `runtime_profile.MAX_DOCS`
+MAX_REASON = 300
+MAX_CAPABILITIES = 32  # `runtime_profile.MAX_CAPABILITIES`
+MAX_RESERVED = 100  # `runtime_profile.MAX_RESERVED`
+MAX_LIMITS = 16
+MAX_LIMIT = 10000
+WORD = re.compile(r"[a-z][a-z0-9_-]{0,63}")  # a capability, a limit's part, a framework, a profile
+CODE = re.compile(r"[A-Z][A-Z0-9_]{1,63}")
+# A row's ref as `registry.listing` admits it (`registry.REF`): the version is digits and dots.
+LISTED_RUNTIME = re.compile(r"runtime/(?P<name>[a-z0-9][a-z0-9-]{0,62})@(?P<version>[0-9.]{1,40})")
+MAX_RUNTIMES_BYTES = 1024 * 1024  # the child's stdout: 200 rows of a few KiB each
+KIT = re.compile(r"[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}")  # `runtime_profile.KIT_VERSION`
+# `runtime_profile.DOCS_PATH`: a relative docs path, never a URL or an absolute path.
+DOCS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*")
+DATE = re.compile(r"[0-9TZ:.+-]{1,40}")
 
 
 def request(body: object) -> tuple[str, dict]:
@@ -306,6 +335,179 @@ def _declared(version_dir: Path) -> list[dict] | None:
     return shown
 
 
+def _functions(version_dir: Path) -> list[str]:
+    """The function names `tool.yaml` declares (what the model sees), read only from a regular
+    file; none when it cannot be read. The Framework group marks a tool whose function has a
+    name the chosen runtime reserves (console spec §4.2); build makes the real check."""
+    path = version_dir / "tool.yaml"
+    try:
+        if not stat.S_ISREG(path.lstat().st_mode):
+            return []
+        data = load_file(path, TOOL_FILE_LIMIT)
+    except (OSError, StrictYamlError):
+        return []
+    functions = data.get("functions") if isinstance(data, dict) else None
+    if not isinstance(functions, list):
+        return []
+    names = []
+    for entry in functions[:MAX_FUNCTIONS]:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        if isinstance(name, str) and re.fullmatch(MCP_TOOL, name):
+            names.append(name)
+    return names
+
+
+def _shown(value: object, limit: int, required: bool = True) -> str | None:
+    """A manifest's text as the console shows it: cleaned of control and bidi characters, on
+    one line, cut at `limit`. Raises BadOutput for anything but text."""
+    if value is None and not required:
+        return None
+    if not isinstance(value, str):
+        raise BadOutput
+    text = " ".join(registry.clean(value)[0].split())
+    if required and not text:
+        raise BadOutput
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _words(value: object, limit: int, pattern: re.Pattern | str) -> list[str]:
+    if not isinstance(value, list) or len(value) > limit:
+        raise BadOutput
+    if not all(isinstance(item, str) and re.fullmatch(pattern, item) for item in value):
+        raise BadOutput
+    return list(value)
+
+
+def _limits(value: object) -> dict[str, int]:
+    if not isinstance(value, dict) or len(value) > MAX_LIMITS:
+        raise BadOutput
+    for part, count in value.items():
+        if not isinstance(part, str) or not WORD.fullmatch(part):
+            raise BadOutput
+        if not isinstance(count, int) or isinstance(count, bool) or not 0 <= count <= MAX_LIMIT:
+            raise BadOutput
+    return dict(value)
+
+
+def _conformance(value: object) -> dict:
+    """The newest conformance report of a runtime version (architecture F2a; no CLI prints it
+    yet): whether it passed, the image digest and the date."""
+    if not isinstance(value, dict) or not isinstance(value.get("passed"), bool):
+        raise BadOutput
+    digest, day = value.get("digest"), value.get("date")
+    if not isinstance(digest, str) or not DIGEST.fullmatch(digest):
+        raise BadOutput
+    if not isinstance(day, str) or not DATE.fullmatch(day):
+        raise BadOutput
+    return {"passed": value["passed"], "digest": digest, "date": day}
+
+
+def _runtime(entry: object) -> dict:
+    if not isinstance(entry, dict):
+        raise BadOutput
+    text = entry.get("ref")
+    # The CLI lists a directory that is not an X.Y.Z version (runtime/x/1.0) as unusable
+    # (REF_UNPINNED) and still shows the others, so an unusable row's version is digits and
+    # dots; a usable row's ref is a pinned one.
+    listed = LISTED_RUNTIME.fullmatch(text) if isinstance(text, str) else None
+    if listed is None or entry.get("root_kind") not in ROOT_KINDS:
+        raise BadOutput
+    usable, verified = entry.get("usable"), entry.get("verified")
+    if not isinstance(usable, bool) or not isinstance(verified, bool):
+        raise BadOutput
+    shown = {
+        "ref": text,
+        "name": listed["name"],
+        "version": listed["version"],
+        "root_kind": entry["root_kind"],
+        "usable": usable,
+    }
+    if not usable:
+        code = entry.get("code")
+        if not isinstance(code, str) or not CODE.fullmatch(code):
+            raise BadOutput
+        reason = _shown(entry.get("reason"), MAX_REASON, required=False)
+        return shown | {"verified": False, "code": code, "reason": reason or "no reason given"}
+    try:
+        registry.Ref.parse(text)
+    except registry.RegistryError:
+        raise BadOutput from None
+    protocol = entry.get("protocol")
+    if not isinstance(protocol, int) or isinstance(protocol, bool) or not 0 < protocol < 1000:
+        raise BadOutput
+    framework, profile = entry.get("framework"), entry.get("profile")
+    if not isinstance(framework, str) or not WORD.fullmatch(framework):
+        raise BadOutput
+    if not isinstance(profile, str) or not WORD.fullmatch(profile):
+        raise BadOutput
+    shown |= {
+        "display_name": _shown(entry.get("display_name"), MAX_DISPLAY_NAME),
+        "framework": framework,
+        "protocol": protocol,
+        "profile": profile,
+        "capabilities": _words(entry.get("capabilities"), MAX_CAPABILITIES, WORD),
+        "limits": _limits(entry.get("limits")),
+        "reserved_tool_names": _words(entry.get("reserved_tool_names"), MAX_RESERVED, MCP_TOOL),
+        "verified": verified,
+    }
+    kit = entry.get("kit")
+    if kit is not None:
+        if not isinstance(kit, str) or not KIT.fullmatch(kit):
+            raise BadOutput
+        shown["kit"] = kit
+    notes = _shown(entry.get("notes"), MAX_NOTES, required=False)
+    if notes:
+        shown["notes"] = notes
+    docs = entry.get("docs")
+    if docs is not None:
+        # A relative docs path only: anything else (a URL, a path that climbs) is not passed on.
+        if not isinstance(docs, str):
+            raise BadOutput
+        if len(docs) <= MAX_DOCS and DOCS.fullmatch(docs) and ".." not in docs.split("/"):
+            shown["docs"] = docs
+    if entry.get("conformance") is not None:
+        shown["conformance"] = _conformance(entry["conformance"])
+    return shown
+
+
+def runtimes(data: object) -> list[dict]:
+    """`registry runtimes --json`'s answer, checked against its schema 1 shape and reduced to
+    what the Framework group shows (console spec §8), in the CLI's order (versions run end to
+    end first, then by name, newest version first). A version the engine cannot use keeps its
+    code and reason. Every text is cleaned and capped. Raises BadOutput for anything else."""
+    try:
+        if not isinstance(data, dict) or data.get("schema_version") != RUNTIMES_VERSION:
+            raise BadOutput
+        rows = data.get("runtimes")
+        if not isinstance(rows, list) or len(rows) > MAX_RUNTIMES:
+            raise BadOutput
+        shown = [_runtime(entry) for entry in rows]
+        if len({entry["ref"] for entry in shown}) != len(shown):
+            raise BadOutput
+        return shown
+    except BadOutput:
+        raise BadOutput("`registry runtimes --json` printed an unexpected answer") from None
+
+
+def check_runtime(spec: dict, listed: list[dict]) -> None:
+    """Refuse a spec whose `runtime` is not a usable ref in `listed` (`runtimes`'s answer), so
+    the console writes only on a runtime its Framework group offers (console spec §8)."""
+    ref = spec.get("runtime")
+    if ref is None:
+        return
+    entry = next((item for item in listed if item["ref"] == ref), None)
+    if entry is None:
+        raise BadRequest(
+            f"{ref} is not a runtime version in the registries; reload the page and choose a "
+            "framework again",
+            "SPEC_UNSUPPORTED",
+        )
+    if not entry["usable"]:
+        raise BadRequest(
+            f"{ref} cannot be used: {entry['reason']} ({entry['code']})", "SPEC_UNSUPPORTED"
+        )
+
+
 def parts(search: list[Path]) -> dict:
     """What the pickers offer: every `tool/` and `mcp/` version in `search` (as `registry.resolve`
     reads them: the first root that has a version, none under a symlinked directory), newest
@@ -350,6 +552,8 @@ def parts(search: list[Path]) -> dict:
             "runs_code": registry.runs_code(ref.kind, path),
             "description": _description(manifest),
         }
+        if ref.kind == "tool":
+            entry["functions"] = _functions(path)
         if ref.kind == "mcp":
             declared = _declared(path)
             entry["tools"] = declared or []
@@ -457,11 +661,19 @@ def _grants(value: object) -> list[dict]:
 
 
 def summary(
-    data: object, name: str, dry_run: bool, model: str, directory: str, spec_version: int = 1
+    data: object,
+    name: str,
+    dry_run: bool,
+    model: str,
+    directory: str,
+    spec_version: int = 1,
+    runtime: str | None = None,
 ) -> dict:
     """`new agent --from-spec --json`'s answer, checked against its schema 1 shape and reduced
-    to what the preview shows; `model`, `directory` and `spec_version` are what was asked for
-    (a version 1 spec gets a version 1 answer). Raises BadOutput for anything else."""
+    to what the preview shows; `model`, `directory`, `spec_version` and `runtime` are what was
+    asked for (a version 1 spec gets a version 1 answer; a spec that names a runtime gets that
+    runtime, and for one that names none the answer's pinned `runtime/` ref is shown, which is
+    the CLI's default). Raises BadOutput for anything else."""
     try:
         if not isinstance(data, dict) or data.get("schema_version") != 1:
             raise BadOutput
@@ -470,6 +682,13 @@ def summary(
         if data.get("spec_version") != spec_version or data.get("model") != model:
             raise BadOutput
         if data.get("directory") != directory:  # what is shown is where it is registered
+            raise BadOutput
+        try:
+            answered = data.get("runtime")
+            pinned = registry.Ref.parse(answered if isinstance(answered, str) else "")
+        except registry.RegistryError:
+            raise BadOutput from None
+        if pinned.kind != "runtime" or (runtime is not None and str(pinned) != runtime):
             raise BadOutput
         text = {key: data.get(key) for key in ("directory", "model", "model_id", "review_by")}
         if not all(isinstance(value, str) for value in text.values()):
@@ -489,6 +708,7 @@ def summary(
         return {
             "name": name,
             **text,
+            "runtime": str(pinned),
             "aliases": _strings(data.get("aliases"), 10),
             "cases": _strings(data.get("cases"), 100),
             "files": _files(data.get("files")),

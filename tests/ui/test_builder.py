@@ -21,15 +21,30 @@ pytestmark = pytest.mark.ui
 PROMPT = "You are helper, an agent that answers questions about support hours."
 
 
+@pytest.fixture(autouse=True)
+def patient_previews():
+    """A preview is two real CLI children since #1085 S1 (`registry runtimes --json` for the
+    server's runtime check, then the dry run), about a second each on an idle machine and several
+    on a loaded one: the Build form's tests wait up to 30 s for what they expect."""
+    expect.set_options(timeout=30_000)
+    yield
+    expect.set_options(timeout=5_000)
+
+
 def home(console) -> Path:
     return Path(console.state).parent / "home"
 
 
-def open_builder(page, console) -> None:
+def open_builder(page, console, framework: bool = True) -> None:
+    """Open Build an agent; with `framework`, wait until the Framework group has its list
+    (#1085 S1: `registry runtimes --json` is a CLI child, and Preview waits for a runtime)."""
     sign_in(page, console, project=False)
     page.get_by_role("link", name="Build an agent").click()
     page.wait_for_url("**/#/build")
     page.get_by_role("heading", level=1, name="Build an agent").wait_for()
+    if framework:
+        radios = page.get_by_role("group", name="Framework").get_by_role("radio")
+        radios.first.wait_for(timeout=60000)
 
 
 def fill(page, name: str = "helper") -> None:

@@ -417,6 +417,8 @@ class Center:
         folder; with `digest`, refused unless the plan is still the previewed one. Returns
         (name, destination, checked summary)."""
         name, spec = builder.request(body)
+        if spec.get("runtime") is not None:  # a listed, usable ref, before any write (#1085)
+            builder.check_runtime(spec, self._runtimes())
         destination = self.projects_folder() / name
         expect = [] if digest is None else [f"--expect-digest={digest}"]
         with builder.spec_file(spec) as path:
@@ -426,20 +428,53 @@ class Center:
             )
         try:
             shown = builder.summary(
-                data, name, True, spec["model"], str(destination), spec["schema_version"]
+                data,
+                name,
+                True,
+                spec["model"],
+                str(destination),
+                spec["schema_version"],
+                spec.get("runtime"),
             )
         except builder.BadOutput as problem:
             raise BadRequest(str(problem), "BAD_OUTPUT") from problem
         return name, destination, shown
 
+    def _runtimes(self) -> list[dict]:
+        """The engine's resolved view of every `runtime/` version (#1085 S1, console spec §8):
+        `registry runtimes --json` as a CLI child, so this process holds no profile logic, over
+        the roots a new project resolves (AGENTBREEDER_REGISTRY_PATH, which the child inherits,
+        and the built-ins; the child runs in the console's own directory, which has no
+        registry). Never the last good answer: a spec is checked against what is there now."""
+        result = self.runner.read(
+            list(builder.RUNTIMES_ARGV),
+            timeout=builder.RUNTIMES_TIMEOUT,
+            cache=False,
+            track=True,  # stopped at shutdown, and its output is capped as it is read
+            max_bytes=builder.MAX_RUNTIMES_BYTES,
+        )
+        if result["error"]:
+            raise BadRequest(result["error"]["message"], result["error"]["code"])
+        try:
+            return builder.runtimes(result["data"])
+        except builder.BadOutput as problem:
+            raise BadRequest(str(problem), "BAD_OUTPUT") from problem
+
     def builder_parts(self) -> dict:
         """The builder's pickers (#833): the `tool/` and `mcp/` versions a new project resolves
-        (AGENTBREEDER_REGISTRY_PATH, which CLI children inherit, and the built-ins)."""
+        (AGENTBREEDER_REGISTRY_PATH, which CLI children inherit, and the built-ins), and the
+        Framework group's `runtimes` (#1085 S1). A failed runtimes read fails the whole answer
+        with the read's code: the form cannot be previewed without a runtime."""
         try:
-            return envelope(builder.parts(registry.roots(None)))
+            parts = builder.parts(registry.roots(None))
         except (registry.RegistryError, OSError):
             message = "The registries could not be read; run `agentbreeder registry verify`"
             return envelope(None, {"code": "REGISTRY_UNREADABLE", "message": message})
+        try:
+            parts["runtimes"] = self._runtimes()
+        except BadRequest as problem:
+            return envelope(None, {"code": problem.code, "message": str(problem)})
+        return envelope(parts)
 
     def preview_builder(self, body: object) -> dict:
         """Build a new agent, step 1 (#833): every file `new agent --from-spec` would write,
@@ -470,7 +505,13 @@ class Center:
             )
         try:
             builder.summary(
-                data, name, False, spec["model"], str(destination), spec["schema_version"]
+                data,
+                name,
+                False,
+                spec["model"],
+                str(destination),
+                spec["schema_version"],
+                spec.get("runtime"),
             )
             return self.register(destination)
         except (builder.BadOutput, BadRequest) as problem:
