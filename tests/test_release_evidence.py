@@ -121,7 +121,7 @@ def test_a_changed_eval_set_is_evaluated_again(project, operator, state):  # noq
     original = data["entries"]["eval/golden@1.0.0"]["sha256"]
     rows = promoted_rows(state)
     agent = load_agent_file(project / "agent.yaml")
-    data["entries"]["eval/golden@1.0.0"]["sha256"] = "0" * 64
+    data["entries"]["eval/golden@1.0.0"]["sha256"] = "sha256:" + "0" * 64
     lock_path.write_text(json.dumps(data))
     with pytest.raises(ReleaseError, match="RELEASE_EVALSET_CHANGED"):
         evidence.released(state, agent, project, state.active("helper"), IMAGE)

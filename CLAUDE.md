@@ -234,6 +234,16 @@ format change. Website: no change until release R. Cloud: a `CLAUDE.md` note onl
 kind and the strict `package.json`); a grep of its tracked files on 2026-11-18 for the package,
 artifact and registry codes found nothing.
 
+**Remote registry sources, #829 M9b slice 1a, per side.** OSS (on `main`, not in a published
+preview): `registry.Root` and labelled roots, a strict `Lock.load` (unknown keys and malformed
+hashes are `LOCK_INVALID`), `agent.lock` v2 read/write (a `sources` table, `remote:<name>`
+entries, per-entry `pin`; nothing writes it yet, v1 is byte-identical), `--locked` reading only
+the locked, currently configured root, `sources/` (canonical URL form, `locate`; no network),
+and empty directories refused in registry versions. `stack.lock` stays v1. No `agent.yaml`,
+manifest or JSON Schema change. Website: no change until release R. Cloud: a `CLAUDE.md` note
+only; a grep of its tracked files on 2026-11-19 found no reader of `agent.lock` or
+`stack.lock`. Any future Cloud reader must accept v1 and v2 and refuse unknown keys.
+
 ## 🎯 When Adding a New Feature
 
 1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?
