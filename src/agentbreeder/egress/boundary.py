@@ -72,8 +72,13 @@ class BoundaryUnverified(DeploymentError):
 
 def sidecar_context() -> tuple[bytes, str]:
     """A deterministic build context: the stdlib-only sidecar code plus a Dockerfile."""
+    return build_context(_CODE_FILES, "agentbreeder.egress.sidecar")
+
+
+def build_context(code_files, module: str) -> tuple[bytes, str]:
+    """The context of a sidecar image that runs `module`, and the digest of its code."""
     files = {}
-    for target, (package, name) in _CODE_FILES:
+    for target, (package, name) in code_files:
         files[target] = resources.files(package).joinpath(name).read_bytes()
     digest = hashlib.sha256()
     for target in sorted(files):
@@ -85,7 +90,7 @@ def sidecar_context() -> tuple[bytes, str]:
         "ENV PYTHONPATH=/opt/agentbreeder PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1\n"
         f"LABEL io.agentbreeder.sidecar-code={code_digest}\n"
         "USER 65532:65532\n"
-        'ENTRYPOINT ["python", "-m", "agentbreeder.egress.sidecar"]\n'
+        f'ENTRYPOINT ["python", "-m", "{module}"]\n'
     ).encode()
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w", format=tarfile.USTAR_FORMAT) as archive:
@@ -162,8 +167,11 @@ class Boundary:
     # -- sidecar image -----------------------------------------------------------------------
 
     def image(self) -> tuple[str, str]:
-        context, code_digest = sidecar_context()
-        tag = "agentbreeder-sidecar:" + code_digest[7:23]
+        return self.built("agentbreeder-sidecar", *sidecar_context())
+
+    def built(self, repository: str, context: bytes, code_digest: str) -> tuple[str, str]:
+        """The local image for `context`, built unless one with this code digest exists."""
+        tag = f"{repository}:" + code_digest[7:23]
         try:
             info = json.loads(self.runtime.command("image", "inspect", tag))[0]
             if (info["Config"]["Labels"] or {}).get("io.agentbreeder.sidecar-code") == code_digest:
@@ -548,6 +556,10 @@ class Boundary:
             "dns_must_fail": list(DNS_MUST_FAIL),
             "gateway": f"http://{GATEWAY_HOST}:{GATEWAY_PORT}/healthz",
         }
+        return self.run_probe(record, image, plan)
+
+    def run_probe(self, record: dict, image: str, plan: dict) -> dict:
+        """Run `plan` in a short-lived container inside the agent's network namespace."""
         output = self.runtime.command(
             "container",
             "run",

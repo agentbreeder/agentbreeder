@@ -1222,6 +1222,37 @@ def test_cluster_block_reaches_the_grant_and_operator_config(env, monkeypatch):
     assert connected and connected[-1][0] == local_cluster.NODE
 
 
+def test_a_recreated_agents_network_refreshes_the_recorded_agents_ranges(env, monkeypatch):
+    """`services up` recreates the agents network: a block that records `agents_cidrs` (kit
+    egress, #1083 F1b) follows it, and a block without the key gains nothing."""
+    from agentbreeder import cluster as local_cluster
+
+    monkeypatch.setattr(local_cluster, "connect", lambda *pair: None)
+    monkeypatch.setattr(local_cluster, "blocked_cidrs", lambda network: ["10.0.0.0/8"])
+    asked = []
+
+    def ranges(network):
+        asked.append(network)
+        return ["172.20.0.0/16"]
+
+    monkeypatch.setattr(local_cluster, "agents_cidrs", ranges)
+    docker = FakeDocker()
+    up(env, docker)
+    stored = engine(env, docker)
+    try:
+        plan = stored.plan()
+        stored.state.put("kubernetes", json.dumps(CLUSTER))
+        stored._attach_cluster(plan)
+        assert "agents_cidrs" not in json.loads(stored.state.get("kubernetes"))
+        assert asked == []
+        stored.state.put("kubernetes", json.dumps({**CLUSTER, "agents_cidrs": ["172.19.0.0/16"]}))
+        stored._attach_cluster(plan)
+        assert json.loads(stored.state.get("kubernetes"))["agents_cidrs"] == ["172.20.0.0/16"]
+        assert asked == [plan.networks["agents"]]
+    finally:
+        stored.close()
+
+
 def test_cluster_grant_needs_confirmation(env, monkeypatch):
     from agentbreeder import cluster as local_cluster
 
