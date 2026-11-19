@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import sys
 from datetime import date
@@ -380,7 +381,7 @@ def test_a_v2_preview_shows_the_clis_capability_refusal(center, cookie, home, ca
     assert len(calls) == 1
 
 
-def test_the_v1_form_sends_and_gets_version_1(center, cookie, home, calls):
+def test_a_v1_body_sends_and_gets_version_1(center, cookie, home, calls):
     status, data, _ = preview(center, cookie)
     assert status == 200, data
     assert calls[0]["spec"]["schema_version"] == 1
@@ -539,6 +540,7 @@ def answer(**changes) -> dict:
         "cases": ["hours"],
         "files": [{"path": "agent.yaml", "mode": "0644", "sha256": DIGEST, "content": "a\n"}],
         "spec_version": 1,
+        "runtime": "runtime/adk@1.4.0",
         "combination": {"parts": ["model", "prompt", "evals"], "verified": True},
         "refs": [],
         "runs_code": False,
@@ -594,11 +596,24 @@ def test_summary_keeps_what_the_preview_shows():
         {"keys": "GEMINI_API_KEY"},
         {"directory": None},
         {"directory": "/elsewhere/helper"},
+        {"runtime": None},
+        {"runtime": "runtime/adk"},  # not pinned
+        {"runtime": "tool/adk@1.4.0"},
     ],
 )
 def test_summary_refuses_an_unexpected_answer(changes):
     with pytest.raises(builder.BadOutput):
         builder.summary(answer(**changes), *ASKED)
+
+
+def test_summary_shows_the_runtime_and_refuses_another_than_the_one_asked_for():
+    """#1085 S1: the preview names the runtime the CLI pinned; a spec that named one gets that
+    one, and a spec that named none gets the CLI's default."""
+    assert builder.summary(answer(), *ASKED)["runtime"] == "runtime/adk@1.4.0"
+    asked = builder.summary(answer(spec_version=2), *ASKED, 2, "runtime/adk@1.4.0")
+    assert asked["runtime"] == "runtime/adk@1.4.0"
+    with pytest.raises(builder.BadOutput):
+        builder.summary(answer(spec_version=2), *ASKED, 2, "runtime/adk@1.3.0")
 
 
 # -- the tool and MCP pickers ------------------------------------------------------------------
@@ -825,3 +840,407 @@ def test_a_name_linked_in_one_root_is_not_offered_from_another(tmp_path):
     (linked / "tool" / "clock").symlink_to(real / "tool" / "clock")
     parts = builder.parts([linked, other])
     assert parts["tools"] == [] and parts["skipped"] == 2  # 0.1.0 (linked) and 0.2.0 (other)
+
+
+# -- the framework (#1085 S1): `parts.runtimes` and the spec's `runtime` --------------------------
+
+RUNTIMES_ARGV = ["registry", "runtimes", "--json"]
+ADK = "runtime/adk@1.4.0"
+
+
+def runtime_row(ref=ADK, **changes) -> dict:
+    """One usable row of `registry runtimes --json`."""
+    name, _, version = ref.removeprefix("runtime/").partition("@")
+    row = {
+        "ref": ref,
+        "name": name,
+        "version": version,
+        "root_kind": "builtin",
+        "display_name": "Google ADK",
+        "framework": "google-adk",
+        "protocol": 1,
+        "profile": "v1",
+        "capabilities": ["knowledge", "mcp", "notes"],
+        "limits": {"knowledge": 1, "mcp_servers": 10, "tools": 50},
+        "reserved_tool_names": ["transfer_to_agent"],
+        "verified": True,
+        "usable": True,
+    }
+    return row | changes
+
+
+UNUSABLE = {
+    "ref": "runtime/example@0.1.0",
+    "name": "example",
+    "version": "0.1.0",
+    "root_kind": "path",
+    "verified": False,
+    "usable": False,
+    "code": "PROTOCOL_UNSUPPORTED",
+    "reason": "protocol 3 is not supported by this AgentBreeder",
+}
+
+
+def listing(*rows) -> dict:
+    return {"schema_version": 1, "runtimes": list(rows)}
+
+
+@pytest.fixture
+def scripted_runtimes(center, monkeypatch):
+    """`registry runtimes --json` answered from `answers["result"]` (a `Runner.read` envelope);
+    every other child runs. The reads made are in `answers["calls"]`."""
+    answers = {"result": None, "calls": []}
+    real = center.runner.read
+
+    def read(argv, *args, **kwargs):
+        if list(argv) != RUNTIMES_ARGV:
+            return real(argv, *args, **kwargs)
+        answers["calls"].append(kwargs)
+        return answers["result"]
+
+    monkeypatch.setattr(center.runner, "read", read)
+    return answers
+
+
+def test_parts_lists_every_runtime_version_through_the_cli(center, cookie, calls):
+    """The engine's resolved view, read by a CLI child and never from the last good answer.
+    Every `runtime/adk` version has no `protocol` key, so the legacy profile names it "Google
+    ADK" and 1.2.0 and 1.3.0 are usable (console spec §9)."""
+    status, data, _ = api(center, "GET", PARTS, None, cookie)
+    assert status == 200 and data["error"] is None, data
+    assert [call["argv"] for call in calls] == [RUNTIMES_ARGV]
+    listed = {entry["ref"]: entry for entry in data["data"]["runtimes"]}
+    assert list(listed)[:2] == ["runtime/adk@1.4.0", "runtime/adk@1.3.0"]  # run end to end first
+    for ref in ("runtime/adk@1.2.0", "runtime/adk@1.3.0", "runtime/adk@1.4.0"):
+        entry = listed[ref]
+        assert entry["usable"] is True and entry["display_name"] == "Google ADK", entry
+        assert entry["name"] == "adk" and entry["root_kind"] == "builtin"
+        assert entry["protocol"] == 1 and entry["profile"] == "v1"
+        assert "mcp" in entry["capabilities"] and entry["limits"]["tools"] == 50
+        assert "transfer_to_agent" in entry["reserved_tool_names"]
+    assert [listed[f"runtime/adk@1.{n}.0"]["verified"] for n in (2, 3, 4)] == [False, True, True]
+    assert "mcp" not in listed["runtime/adk@1.0.4"]["capabilities"]
+    assert {entry["name"] for entry in listed.values()} == {"adk"}  # the only framework so far
+
+
+def test_the_runtimes_read_is_uncached(center, cookie, scripted_runtimes):
+    scripted_runtimes["result"] = {"data": listing(runtime_row()), "error": None, "stale": False}
+    status, data, _ = api(center, "GET", PARTS, None, cookie)
+    assert status == 200 and [e["ref"] for e in data["data"]["runtimes"]] == [ADK], data
+    [call] = scripted_runtimes["calls"]
+    assert call["cache"] is False and call["timeout"] == builder.RUNTIMES_TIMEOUT
+    assert call["track"] is True and call["max_bytes"] == builder.MAX_RUNTIMES_BYTES
+
+
+@pytest.mark.parametrize(
+    ("result", "code"),
+    [
+        (
+            {"data": None, "error": {"code": "REF_CONFLICT", "message": "two roots"}},
+            "REF_CONFLICT",
+        ),
+        ({"data": {"schema_version": 2, "runtimes": []}, "error": None}, "BAD_OUTPUT"),
+        ({"data": [], "error": None}, "BAD_OUTPUT"),
+    ],
+)
+def test_parts_fails_with_the_runtimes_reads_own_code(
+    center, cookie, scripted_runtimes, result, code
+):
+    """No runtime, no preview: the whole answer is the read's error, and the form says so."""
+    scripted_runtimes["result"] = result | {"stale": False}
+    status, data, _ = api(center, "GET", PARTS, None, cookie)
+    assert status == 200 and data["data"] is None, data
+    assert data["error"]["code"] == code
+
+
+def test_parts_shows_a_tools_function_names(center, cookie, path_registry):
+    """What a runtime's reserved names are compared with (console spec §4.2)."""
+    status, data, _ = api(center, "GET", PARTS, None, cookie)
+    assert status == 200, data
+    assert [entry["functions"] for entry in data["data"]["tools"]] == [["echo_clock"]] * 2
+    assert all("functions" not in entry for entry in data["data"]["mcp"])
+
+
+@pytest.mark.parametrize(
+    "text",
+    [None, "functions: nope\n", "functions:\n  - 7\n  - {name: 'a b'}\n", ": : :\n"],
+)
+def test_a_tool_yaml_that_cannot_be_read_shows_no_function_names(tmp_path, text):
+    if text is not None:
+        (tmp_path / "tool.yaml").write_text(text)
+    assert builder._functions(tmp_path) == []
+
+
+def test_a_linked_tool_yaml_is_not_read(tmp_path):
+    (tmp_path / "real.yaml").write_text("functions:\n  - {name: echo}\n")
+    (tmp_path / "tool.yaml").symlink_to(tmp_path / "real.yaml")
+    assert builder._functions(tmp_path) == []
+    (tmp_path / "tool.yaml").unlink()
+    (tmp_path / "real.yaml").rename(tmp_path / "tool.yaml")
+    assert builder._functions(tmp_path) == ["echo"]
+
+
+def test_runtimes_keeps_what_the_framework_group_shows():
+    full = runtime_row(
+        "runtime/langgraph@1.0.0",
+        display_name="Lang\u202eGraph\n" + "x" * 200,
+        framework="langgraph",
+        profile="kit",
+        kit="1.0.0",
+        notes="Needs an Anthropic-shaped\tgateway route. " + "y" * 400,
+        docs="docs/runtimes/langgraph.md",
+        verified=False,
+        conformance={"passed": True, "digest": DIGEST, "date": "2026-11-18", "extra": "dropped"},
+        secret="dropped",
+    )
+    [shown, unusable] = builder.runtimes(listing(full, UNUSABLE | {"path": "/private/x"}))
+    assert shown["ref"] == "runtime/langgraph@1.0.0" and shown["name"] == "langgraph"
+    assert shown["version"] == "1.0.0" and shown["kit"] == "1.0.0" and shown["profile"] == "kit"
+    assert shown["display_name"].startswith("LangGraph x")  # the bidi control and newline go
+    assert len(shown["display_name"]) == builder.MAX_DISPLAY_NAME
+    assert shown["notes"].startswith("Needs an Anthropic-shaped gateway route. y")
+    assert len(shown["notes"]) == builder.MAX_NOTES and shown["notes"].endswith("…")
+    assert shown["docs"] == "docs/runtimes/langgraph.md"
+    assert shown["conformance"] == {"passed": True, "digest": DIGEST, "date": "2026-11-18"}
+    assert "secret" not in shown
+    assert unusable == {
+        "ref": "runtime/example@0.1.0",
+        "name": "example",
+        "version": "0.1.0",
+        "root_kind": "path",
+        "usable": False,
+        "verified": False,
+        "code": "PROTOCOL_UNSUPPORTED",
+        "reason": "protocol 3 is not supported by this AgentBreeder",
+    }
+    plain = builder.runtimes(listing(runtime_row()))[0]
+    assert not {"kit", "notes", "docs", "conformance"} & set(plain)
+    # A version the engine cannot use is never shown as run end to end, whatever the row says.
+    [claimed] = builder.runtimes(listing(UNUSABLE | {"verified": True}))
+    assert claimed["verified"] is False and claimed["usable"] is False
+
+
+@pytest.mark.parametrize(
+    "docs", ["https://example.com/x", "/etc/passwd", "docs/../../secret", "x" * 201, "a b"]
+)
+def test_a_docs_value_that_is_not_a_relative_path_is_not_passed_on(docs):
+    assert "docs" not in builder.runtimes(listing(runtime_row(docs=docs)))[0]
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        None,
+        {"schema_version": 1},
+        {"schema_version": 1, "runtimes": [runtime_row()] * (builder.MAX_RUNTIMES + 1)},
+        listing(runtime_row(), runtime_row()),  # one ref twice
+        listing("runtime/adk@1.4.0"),
+        listing(runtime_row() | {"ref": "runtime/adk"}),
+        listing(runtime_row() | {"ref": 7}),
+        listing(runtime_row() | {"ref": "tool/adk@1.4.0"}),
+        listing(runtime_row(root_kind="web")),
+        listing(runtime_row(usable="yes")),
+        listing(runtime_row(verified=None)),
+        listing(runtime_row(display_name="")),
+        listing(runtime_row(display_name=7)),
+        listing(runtime_row(framework="Google ADK")),
+        listing(runtime_row(protocol=True)),
+        listing(runtime_row(protocol="1")),
+        listing(runtime_row(profile=None)),
+        listing(runtime_row(kit="latest")),
+        listing(runtime_row(capabilities="mcp")),
+        listing(runtime_row(capabilities=["MCP"])),
+        listing(runtime_row(capabilities=["a"] * (builder.MAX_CAPABILITIES + 1))),
+        listing(runtime_row(limits=[])),
+        listing(runtime_row(limits={"tools": -1})),
+        listing(runtime_row(limits={"tools": True})),
+        listing(runtime_row(limits={"Tools": 1})),
+        listing(runtime_row(reserved_tool_names=["a b"])),
+        listing(runtime_row(notes=7)),
+        listing(runtime_row(docs=7)),
+        listing(runtime_row(conformance={"passed": "yes", "digest": DIGEST, "date": "2026"})),
+        listing(runtime_row(conformance={"passed": True, "digest": "x", "date": "2026"})),
+        listing(runtime_row(conformance={"passed": True, "digest": DIGEST, "date": "a b"})),
+        listing(runtime_row(conformance=[])),
+        listing(UNUSABLE | {"code": "not a code"}),
+        listing(UNUSABLE | {"reason": 7}),
+        listing(UNUSABLE | {"ref": "runtime/Example@0.1.0"}),
+        listing(UNUSABLE | {"ref": "runtime/example@" + "1" * 41}),
+        listing(runtime_row() | {"ref": "runtime/adk@1.4"}),  # usable, but not pinned
+    ],
+)
+def test_runtimes_refuses_an_unexpected_answer(data):
+    with pytest.raises(builder.BadOutput, match="registry runtimes"):
+        builder.runtimes(data)
+
+
+def test_a_directory_that_is_not_a_version_is_listed_as_unusable(tmp_path, monkeypatch):
+    """`runtime/x/1.0` is not an X.Y.Z version: the real CLI lists it as unusable
+    (REF_UNPINNED), and the allow-list keeps that row and every other one, so one stray
+    directory on AGENTBREEDER_REGISTRY_PATH cannot take the Build form down."""
+    from agentbreeder import runtime_profile
+
+    stray = tmp_path / "root" / "runtime" / "x" / "1.0"
+    stray.mkdir(parents=True)
+    (stray / "manifest.yaml").write_text("kind: runtime\nname: x\nversion: 1.0\n")
+    view = runtime_profile.listing([tmp_path / "root", registry.BUILTIN_ROOT])
+    shown = {entry["ref"]: entry for entry in builder.runtimes(view)}
+    assert shown["runtime/x@1.0"]["usable"] is False
+    assert shown["runtime/x@1.0"]["code"] == "REF_UNPINNED" and shown["runtime/x@1.0"]["reason"]
+    assert shown["runtime/adk@1.4.0"]["usable"] is True
+    with pytest.raises(BadRequest) as refused:
+        builder.check_runtime({"runtime": "runtime/x@1.0"}, list(shown.values()))
+    assert refused.value.code == "SPEC_UNSUPPORTED"
+
+
+def test_an_unusable_row_without_a_reason_is_still_listed():
+    [shown] = builder.runtimes(listing(UNUSABLE | {"reason": " \u202e "}))
+    assert shown["reason"] == "no reason given" and shown["code"] == "PROTOCOL_UNSUPPORTED"
+    [shown] = builder.runtimes(listing({k: v for k, v in UNUSABLE.items() if k != "reason"}))
+    assert shown["reason"] == "no reason given"
+
+
+def test_the_runtime_caps_match_the_engines():
+    """builder.py may not import the engine's modules (the server's allowlist); this test can."""
+    from agentbreeder import runtime_profile
+
+    assert builder.RUNTIMES_VERSION == runtime_profile.LISTING_VERSION
+    assert builder.MAX_DISPLAY_NAME == runtime_profile.MAX_DISPLAY_NAME
+    assert builder.MAX_NOTES == runtime_profile.MAX_NOTES
+    assert builder.MAX_DOCS == runtime_profile.MAX_DOCS
+    assert builder.MAX_CAPABILITIES == runtime_profile.MAX_CAPABILITIES
+    assert builder.MAX_RESERVED == runtime_profile.MAX_RESERVED
+    assert builder.DOCS.pattern == runtime_profile.DOCS_PATH.pattern
+    assert max(runtime_profile.ENGINE_LIMITS.values()) <= builder.MAX_LIMIT
+    # Every key the engine's view prints for a usable version is one the allow-list reads.
+    printed = set(runtime_profile.listing([registry.BUILTIN_ROOT])["runtimes"][0])
+    assert printed <= set(builder.runtimes(listing(runtime_row()))[0])
+
+
+def test_a_spec_on_the_default_runtime_is_previewed_as_run_end_to_end(center, cookie, home, calls):
+    """The form sends a version 2 spec with the runtime's ref (console spec §4.3). The files
+    are the ones a version 1 spec writes, and the preview names the runtime."""
+    status, plain, _ = preview(center, cookie)
+    status, data, _ = api(center, "POST", PREVIEW, {"spec": v2(runtime=ADK)}, cookie)
+    assert status == 200, data
+    shown = data["data"]
+    assert shown["runtime"] == ADK and plain["data"]["runtime"] == ADK
+    assert shown["combination"] == {"parts": ["model", "prompt", "evals"], "verified": True}
+    assert [ref["ref"] for ref in shown["refs"]] == [ADK]
+    assert shown["runs_code"] is False  # a built-in runtime ships with AgentBreeder
+    assert shown["files"] == plain["data"]["files"]
+    agent = next(e for e in shown["files"] if e["path"] == "agent.yaml")
+    assert f"runtime: {ADK}" in agent["content"]
+    # The runtimes read comes first, then the dry run.
+    assert [call["argv"][:2] for call in calls[1:]] == [["registry", "runtimes"], ["new", "agent"]]
+    assert calls[2]["spec"]["runtime"] == ADK
+
+
+def test_a_run_runtime_version_is_not_a_run_combination(center, cookie, home):
+    """`runtime/adk@1.3.0` is "run end to end" in the list (Northwind), but every `new agent`
+    combination ran on the default version, so Create stays off for it (console spec §4.3)."""
+    spec_ = v2(runtime="runtime/adk@1.3.0")
+    status, data, _ = api(center, "POST", PREVIEW, {"spec": spec_}, cookie)
+    assert status == 200, data
+    assert data["data"]["runtime"] == "runtime/adk@1.3.0"
+    assert data["data"]["combination"]["verified"] is False
+    body = {"spec": spec_, "digest": data["data"]["plan_sha256"], "code_confirmed": True}
+    status, refused, _ = api(center, "POST", CREATE, body, cookie)
+    assert status == 400 and refused["error"]["code"] == "COMBINATION_UNVERIFIED", refused
+    assert not (home / "agentbreeder-projects" / "helper").exists()
+
+
+def test_a_runtime_without_mcp_shows_the_clis_refusal(center, cookie, home):
+    spec_ = v2(runtime="runtime/adk@1.0.4", mcp=[{"ref": "mcp/github@1.0.0", "tools": ["get_me"]}])
+    status, data, _ = api(center, "POST", PREVIEW, {"spec": spec_}, cookie)
+    assert status == 400 and data["error"]["code"] == "MCP_RUNTIME_UNSUPPORTED", data
+
+
+@pytest.mark.parametrize(
+    ("rows", "ref", "message"),
+    [
+        ([runtime_row()], "runtime/langgraph@1.0.0", "is not a runtime version in the registries"),
+        (
+            [runtime_row(), UNUSABLE],
+            "runtime/example@0.1.0",
+            "runtime/example@0.1.0 cannot be used: protocol 3 is not supported by this "
+            "AgentBreeder (PROTOCOL_UNSUPPORTED)",
+        ),
+    ],
+)
+def test_a_runtime_that_is_not_listed_and_usable_runs_no_new_agent(
+    center, cookie, home, calls, scripted_runtimes, rows, ref, message
+):
+    """`SPEC_UNSUPPORTED`, on preview and on create, before any `new agent` child."""
+    scripted_runtimes["result"] = {"data": listing(*rows), "error": None, "stale": False}
+    for path, body in (
+        (PREVIEW, {"spec": v2(runtime=ref)}),
+        (CREATE, {"spec": v2(runtime=ref), "digest": DIGEST, "code_confirmed": True}),
+    ):
+        status, data, _ = api(center, "POST", path, body, cookie)
+        assert status == 400 and data["error"]["code"] == "SPEC_UNSUPPORTED", data
+        assert message in data["error"]["message"]
+    assert [call["argv"][:2] for call in calls] == []  # `calls` wraps the scripted read
+    assert not (home / "agentbreeder-projects" / "helper").exists()
+
+
+def test_a_failed_runtimes_read_refuses_the_spec_with_its_code(
+    center, cookie, home, scripted_runtimes
+):
+    scripted_runtimes["result"] = {
+        "data": None,
+        "error": {"code": "TIMEOUT", "message": "The command timed out"},
+        "stale": False,
+    }
+    status, data, _ = api(center, "POST", PREVIEW, {"spec": v2(runtime=ADK)}, cookie)
+    assert status == 400 and data["error"]["code"] == "TIMEOUT", data
+
+
+def test_a_spec_without_a_runtime_reads_no_runtimes(center, cookie, home, scripted_runtimes):
+    """A version 1 spec (and a version 2 one that names no runtime) is the CLI's default."""
+    status, data, _ = preview(center, cookie)
+    assert status == 200 and data["data"]["runtime"] == ADK, data
+    assert scripted_runtimes["calls"] == []
+
+
+def test_create_on_the_default_runtime_writes_and_registers_it(center, cookie, home, calls):
+    data, [(status, added, _)] = preview_then_create(
+        center, cookie, False, calls=calls, schema_version=2, runtime=ADK
+    )
+    assert status == 200, added
+    destination = home / "agentbreeder-projects" / "helper"
+    assert f"runtime: {ADK}" in (destination / "agent.yaml").read_text()
+    assert (destination / "agent.lock").is_file()
+    assert [p["path"] for p in center.state.projects()] == [str(destination)]
+
+
+@pytest.fixture
+def path_runtime(tmp_path, monkeypatch):
+    """`runtime/adk@9.9.0` on AGENTBREEDER_REGISTRY_PATH: the built-in 1.4.0's files under
+    another version, so it is code from outside the built-in registry."""
+    source = tmp_path / "adk-src"
+    shutil.copytree(registry.BUILTIN_ROOT / "runtime" / "adk" / "1.4.0", source)
+    manifest = source / "manifest.yaml"
+    manifest.write_text(manifest.read_text().replace("version: 1.4.0", "version: 9.9.0", 1))
+    root = tmp_path / "runtime-registry"
+    registry.publish(source, root)
+    monkeypatch.setenv(registry.PATH_ENV, str(root))
+    return "runtime/adk@9.9.0"
+
+
+def test_a_path_runtime_is_listed_from_its_root_and_previewed_as_code(
+    center, cookie, home, path_runtime
+):
+    """The code confirm lists a runtime from outside the built-in registry, as for a tool
+    (console spec §4.3)."""
+    status, data, _ = api(center, "GET", PARTS, None, cookie)
+    listed = {entry["ref"]: entry for entry in data["data"]["runtimes"]}
+    assert listed[path_runtime]["root_kind"] == "path" and listed[path_runtime]["usable"] is True
+    assert listed[path_runtime]["verified"] is False
+    spec_ = v2(runtime=path_runtime)
+    status, data, _ = api(center, "POST", PREVIEW, {"spec": spec_}, cookie)
+    assert status == 200, data
+    shown = data["data"]
+    assert shown["runs_code"] is True and shown["combination"]["verified"] is False
+    [ref] = shown["refs"]
+    assert (ref["ref"], ref["root_kind"], ref["runs_code"]) == (path_runtime, "path", True)

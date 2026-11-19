@@ -102,10 +102,17 @@ upstream, with a fake gateway asking for the tools (`tests/test_mcp_builtins_liv
 `skills:` (optional, at most 10, on `main`, not in a published preview) lists skills by registry
 ref, one version per name: `- {ref: skill/refund-policy@1.0.0}` (see
 [registry.md](registry.md#skills-on-main-not-in-a-published-preview)). The refs are locked like
-any other. **No runtime loads skills yet**, so `build` refuses an agent with `skills:`
-(`RUNTIME_NO_SKILLS`) before the image is built or the lock is written; a later runtime version
-adds them (#1059). An agent file without `skills:` builds exactly as before; `validate --json`
-now prints `"skills": []` for it (and `"guardrails": []` when it has no `guardrails:`).
+any other. `build` refuses an agent with `skills:` on a runtime whose manifest does not list
+the `skills` capability (`RUNTIME_NO_SKILLS`), before the image is built or the lock is written.
+`runtime/adk@1.5.0` lists it and loads instruction packs (skills without scripts); see
+[`runtime/adk@1.5.0`](#runtimeadk150) for what it does and what has been checked. On such a
+runtime `build` checks each skill again, refuses a skill with scripts
+(`RUNTIME_NO_SKILL_SCRIPTS`; no runtime runs skill scripts), places the skill at
+`artifacts/skill/<name>/` without any `scripts/` directory, and writes `skills: [{name, version,
+dir, sha256}]` into `agent.config.json`. That `sha256` is the hash of the placed files, which
+the runtime checks at start; `agent.lock` keeps the hash of the whole registry version, so the
+two differ on purpose. An agent file without `skills:` builds exactly as before; `validate
+--json` now prints `"skills": []` for it (and `"guardrails": []` when it has no `guardrails:`).
 
 ## Sub-agents (on `main`, not in a published preview)
 
@@ -154,8 +161,9 @@ Rules (`validate` and `build` check them; messages name the field, never the val
   function, MCP or built-in tool names, or the agent's own ADK name (`ask-billing` is
   `ask_billing`); inside one sub-agent, two tools may not share a name.
 - **Runtime.** `build` refuses `subagents:` on a runtime whose `manifest.yaml` does not list the
-  `subagents` capability (`RUNTIME_NO_SUBAGENTS`), before the image is built. **No runtime runs
-  sub-agents yet**; a later `runtime/adk` version adds them.
+  `subagents` capability (`RUNTIME_NO_SUBAGENTS`), before the image is built.
+  `runtime/adk@1.5.0` lists it; see [`runtime/adk@1.5.0`](#runtimeadk150) for what it does and
+  what has been checked.
 
 `build` writes `subagents` and `limits` into `agent.config.json` and `subagents` (names and
 aliases) into `deploy/<name>.build.json`, only when the file has sub-agents: an agent file
@@ -397,6 +405,127 @@ evals were not run on `1.4.0`. `1.4.0` is `1.3.0` plus:
   |---|---|---|---|
   | `MODEL_BLOCKED` | 422 | a gateway guardrail blocked the message or the model's answer | rephrase without the blocked content; sending it again won't help |
 
+### `runtime/adk@1.5.0`
+
+On `main`, not in a published preview (#1058, #1059, #1106). **Checked only by the runtime's own tests**
+(a scripted model, a fake gateway, the real relay in process) and stub-builder build tests: no
+Docker, no real provider and no deployment has run it, Northwind's 61 evals were not run on it,
+and the `new agent` starter and Northwind stay on their current runtime. `1.5.0` is `1.4.0` plus:
+
+- **Sub-agents (#1058).** Each `subagents:` entry is a child agent in the same process. The
+  agent's model gets one tool per sub-agent, `ask_<name>(request)`, after its own tools; the
+  description is the sub-agent's `description`. A call runs the sub-agent on that request and
+  returns its final text; the agent always writes the reply.
+  - *What a sub-agent sees.* Its own prompt and the request, at most 4,000 characters. Not the
+    conversation, not the session state, not the customer's saved notes, not the passages
+    retrieved for the agent, and nothing from an earlier call: every call starts a new in-memory
+    session. Its tools act as the turn's customer, which the server sets; a customer id the model
+    writes into a request or a tool argument is only text. With `knowledge: true` it may search
+    the knowledge set once per turn itself.
+  - *One turn.* Every event, ticket and request row a sub-agent's tools write carries the turn's
+    id, session and customer. A callback that cannot find its turn fails instead of being
+    skipped: in a sub-agent the agent's model gets a fixed tool error and the turn has a
+    `subagent_turn_unknown` event; in the agent the turn ends with the fixed "couldn't put an
+    answer together" reply, a `turn_failed` event and a `turn lost` log line.
+  - *Caps, per turn.* Each agent counts its own `max_model_calls` across the whole turn, and
+    `limits.turn_model_calls` counts every agent's together; at either, the call runs with tools
+    off, so the model must answer. Sub-agent calls of one turn run one at a time, also when the
+    model asks for several at once. A sub-agent is not started when the turn's calls or its own
+    are used up, or past its `max_calls_per_turn`: the model gets a tool error instead. A turn
+    therefore makes at most `turn_model_calls` + 2 model calls. The reply's `model_calls`, and the
+    `turns` row, count every agent's calls.
+  - *The reply.* `tools` lists every tool any agent called, unqualified, so an eval's
+    `tools_exclude` catches a sub-agent's tool. `subagents` has one entry per sub-agent that ran
+    (not one that was asked and refused), in first-call order: `name`, `calls`, `model_calls`, `tools`, `cost_usd` (the cost of
+    its calls the gateway priced, `null` when it priced none), `cost_unknown` (how many of its
+    calls had no price) and `served_by`. `cost_usd` at the top level stays the turn's total. An
+    agent without sub-agents has no `subagents` key.
+  - *Events.* `model_called` gains `agent` (the deployed agent) and, for a sub-agent's call,
+    `subagent`; its `model` is the calling agent's alias. A sub-agent's tool rows have
+    `subagent`, and a `writes_requests` row also has `request_sha256`, the SHA-256 of the request
+    the sub-agent was answering (never the text). With sub-agents, a tool row lists only what
+    that call recorded itself through `rt.record`.
+  - *Traces.* The `ask_<name>` call is a TOOL span and the sub-agent's agent, model and tool
+    spans are under it, all with `agentbreeder.subagent`; they reach the turn's root span.
+    `agentbreeder traces` does not read the attribute yet.
+  - *Cost.* Each agent's model requests carry a tag in the request body
+    (`metadata.tags: ["agentbreeder-subagent:<name>"]`, the agent itself `agentbreeder-subagent:-`),
+    only when the agent has sub-agents. The probe recorded in
+    `docs/superpowers/verification/1058-S0-litellm-tags.md` found that LiteLLM keeps such tags on
+    its spend rows (`request_tags`), also behind the request filter of `service/litellm@1.3.0`.
+    That probe sent raw HTTP; the runtime's own requests are checked against a fake gateway only,
+    and `agentbreeder cost` does not group by the tag yet. A tag is the caller's claim: billing
+    follows the key.
+  - *A failed model call in a sub-agent* ends the turn with its code, as the agent's own does.
+    Any other failure inside a sub-agent is a fixed tool error to the agent's model; its text
+    goes, redacted, to one log line.
+  - *MCP.* A sub-agent with `mcp:` gets its own relay session per server, offering only the
+    tools it lists; `SIGTERM` closes them with the agent's.
+  - **Not isolation.** Each agent is offered only its own tools, and ADK refuses a call to a tool
+    an agent does not have. Tool code still runs in one process with the deployment's privileges.
+- **Skills, instruction packs (#1059).** At start the runtime re-hashes each placed skill and
+  refuses to start when the files are not the ones `build` recorded (`SKILL_TAMPERED`), and it
+  re-applies the publish rules (layout, sizes, front-matter and manifest keys, a one-line
+  description equal to the manifest's; `SKILL_INVALID`, never quoting the file), so a skill put
+  into an image another way is refused too. Requests then answer 503 with that reason, and the log
+  has one `runtime start failed:` line.
+  - *What the model gets.* Each skill's name and description in the system instruction, after
+    the prompt and the customer notes, with markup escaped; and two tools, `load_skill` (the
+    `SKILL.md` body) and `load_skill_resource` (one file under `references/`). Nothing else: no
+    script tool, and a path that is not exactly `references/<file name>` is refused
+    (`scripts/…`, `assets/…`, `..`). Only the agent has skills; sub-agents do not.
+  - *Caps, per turn.* 3 `load_skill` and 3 `load_skill_resource` calls (`SKILL_LOAD_LIMIT`).
+    Loading a skill whose same version (by hash) the session already loaded answers "already
+    loaded" instead of the text; after a redeploy with another version, the new text is
+    returned. This rests on ADK's session state, and is tested with an in-memory session store
+    only. Each load is a tool call inside the agent's `max_model_calls`.
+  - *The reply.* `skills` lists each skill whose body was loaded or a reference file of which
+    was read in this turn: `name`, `version` and the `resources` read. "Already loaded" adds
+    nothing. An agent without skills has no `skills` key.
+  - *Events and traces.* `tool:load_skill` and `tool:load_skill_resource` rows and a
+    `skill_loaded` event carry `skill`, `version`, `sha256` and `resource`, never the text
+    (the row's `args` are cut to 100 characters, with an exact copy of loaded skill text
+    replaced). The
+    tool span has `agentbreeder.skill.name`, `.version`, `.sha256` and `.resource`, and its output
+    is `{"chars": n}`. ADK also records tool results and model requests on its own spans, so the
+    exporter replaces a loaded text with `[skill NAME@VERSION FILE withheld]` where a span holds
+    the exact text or its JSON-escaped form. A part of the text, another serialisation of it (a
+    Python `repr`, say), or the model's own rewording of it is not recognised, and text shorter
+    than 16 characters is not replaced. The loaded text is in the
+    conversation the model sees, and so in the stored session, like any tool result.
+  - **Skill text steers the model as the prompt does**, and its description is in every turn. It
+    cannot add tools, read session state or secrets, or run code; it can steer the model to call
+    the agent's own tools. Review a skill as you would a prompt.
+- **A blocked turn keeps none of its text (#1106).** When a gateway guardrail blocks a turn
+  (`MODEL_BLOCKED`), the gateway does not say which text matched: the message, a tool's result
+  or the model's answer. So for that turn:
+  - the `turns` row has `[blocked by a gateway guardrail]` as its message and empty `sources`
+    and `evidence`; the tool names, counts and token counts stay. Its `error`, the
+    `turn_failed` event and the log line hold `MODEL_BLOCKED: ENTITY by guardrail NAME`, the two
+    names parsed from the gateway's text, not the text itself;
+  - a failed model call whose HTTP 400 text holds `Blocked entity detected` anywhere other than
+    where the gateway puts it (behind another prefix, say) keeps its code
+    (`MODEL_REQUEST_REFUSED`, with no `guardrail_blocked` event) but is stored the same way, with
+    `CODE: gateway text withheld (it names a guardrail block)` as its error;
+  - every span of the turn is exported without content: only its ids and times, the first word
+    of its name, `openinference.span.kind`, `session.id`, `user.id`, `agent.*`, the model name,
+    token counts, `retrieval.mode` and a fixed list of `agentbreeder.*` attributes (deployment
+    id, error code, fallback count, cached tokens, sub-agent name, guardrail and skill labels;
+    not `unknown_tool` or `unknown_tools`, which hold names a model made up); no input, output,
+    tool name or arguments, documents or exception text. To make that possible, a turn's
+    spans are now sent to the collector when the turn ends, not as each span finishes, for every
+    turn. A turn with more than 2,000 spans sends the rest without content. A span is
+    matched to its turn by trace id: one started outside the turn's trace (none is known in this
+    runtime or ADK 2.12, and none was looked for beyond the tests) would not be held.
+  - **Still stored:** the conversation in the ADK session (the message stays there and is sent
+    with the session's next turn), the audit rows of tool calls made before the block, with
+    their arguments, and whatever a tool wrote itself. `session.id` and `user.id` are the
+    caller's values.
+  Checked by the runtime's tests (a fake gateway returning the block; the exported spans read
+  from an in-memory exporter). Not run with Presidio or Phoenix on Docker.
+- A tool's module may no longer be named `turns`, `subagents`, `skills` or `skill_hash` (the
+  runtime's own new modules); `registry publish` and the runtime both refuse it.
+
 Agents built from `agent.yaml` can't yet run behind the opt-in MCP egress sidecar
 (`runtime_enforcement: mcp_http`): the deploy is refused with `MODEL_ACCESS_UNSUPPORTED`, because
 the sidecar's network has no route to the gateway.
@@ -429,9 +558,9 @@ A case's `expect` takes `sources_any`, `tools_include`, `tools_exclude`, `must_m
 `subagents_include`, `subagents_exclude`, `subagent_tools_include` (`{billing: [refund_request]}`),
 `skills_loaded` and `skills_not_loaded`. Any other `expect` key is refused when the eval set is
 loaded (`EVAL_INVALID`), so a misspelt rule no longer passes silently. The sub-agent and skill
-rules read the reply's `subagents` and `skills` fields, which no runtime sends yet; until one
-does, a case using them fails (`reply_reports:subagents` or `reply_reports:skills`), never
-passes. Child tools stay in `tools`, so `tools_exclude` catches a forbidden tool whichever agent
+rules read the reply's `subagents` and `skills` fields, which `runtime/adk@1.5.0` sends; on an
+earlier runtime a case using them fails (`reply_reports:subagents` or `reply_reports:skills`),
+never passes. Child tools stay in `tools`, so `tools_exclude` catches a forbidden tool whichever agent
 called it. A case may carry `tags` (at most 5, `^[a-z][a-z0-9_-]{0,31}$`): the report gains a
 per-tag pass rate (`tags`, only when a case is tagged; `eval` and `release` also print one
 `Tag NAME: passed/cases passed (rate)` line per tag), and `evals.tag_threshold` (0-1, off by

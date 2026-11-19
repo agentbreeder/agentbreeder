@@ -771,6 +771,36 @@ Each slice gets:
    - `deploy agent/… --cluster`: image push, artifact push, the three checks of §8.3, and a
      second deploy and a `cluster down`/`up` run.
    - Acceptance 2 on kind.
+   - *As built, slice 4a (2026-11-18), the parts that need neither Docker nor the slice-0
+     result:*
+     - `package_artifact.py`: `loopback_registry` (§8.1), `build` (the manifest and the layer
+       of §8.2 step 2, `subject` optional), `push` (blob and manifest upload over `urllib`, tag
+       read back and compared, a refused `subject` pushed again without it) and `describe` (the
+       image manifest's descriptor, for `subject`). No command calls it.
+     - It lives in M13's own module, not `sources/oci.py`: M9b has no `sources/` package yet,
+       and lane C has not agreed a location. M9b's pull half can import or move it.
+     - §12.5's leak scan runs on the packed layer: the home directory, `/Users/`, `/home/`, `~/`
+       and `..` as a path segment give `PACKAGE_LEAK` (new code, exit 2). A bare `..` or `~`
+       inside prose and the user name are not refused at run time, because a description may
+       hold them; the §12.3 test still checks them on the fixture.
+     - An upload `Location` on another host or scheme is refused (`REGISTRY_NOT_LOCAL`), and
+       no redirect is followed.
+     - Tests use an in-process registry. `tests/test_package_artifact_kind.py` pushes to kind's
+       `registry:2` and reports whether `subject` is kept and whether the referrers API lists
+       the artifact (half of slice 0); it is opt-in and has not been run.
+     - Review (Sonnet, 2026-11-18): `push` checks a hand-built `Artifact` again; a subject is
+       dropped only on 400, 404, 405, 415 or 422; path-like boundaries on the `/Users/`,
+       `/home/` and home-directory checks; the repository path follows the OCI grammar.
+       Round 2: a link or a non-directory where a directory belongs in the layer is refused; a
+       failure while reading an error reply is `REGISTRY_UNREADABLE`; the port is normalised.
+     - **Open for the owner before 4b:** `cluster up` writes `registry: localhost:5001/…` into
+       the operator config (`cluster.py`, `block_for`) and names the node's `certs.d` directory
+       after it, but §8.1 accepts only `127.0.0.1`. As written, 4b would refuse the default
+       kind environment. Either `cluster up` writes `127.0.0.1:5001` (the node's pull path must
+       be checked on kind), or deploy maps `localhost` to `127.0.0.1` for its own HTTP calls.
+     - 4b maps `PackageError` with a `REGISTRY_*` code to exit 1, as §15 says.
+   - *Left for slice 4b, after slice 0:* `imageID` in `Kubernetes.pod()`, `deploy(push_event=)`
+     with the `deploy/pushed` event, the §8.3 checks, and `deploy agent/… --cluster` itself.
 5. **Verification** from a wheel built from `main` in a clean sandbox, recorded in
    `docs/superpowers/verification/M13.md`:
    - the acceptance script and timings;
@@ -836,6 +866,7 @@ the launcher prefix (guided path §4). `--json` errors carry `code`.
 | `PACKAGE_IMAGE_MISSING` (exit 1) | local image gone | `image sha256:6f1c… of agent/support-bot@1.4.0 is not in this Docker engine (pruned?). Released images cannot be rebuilt bit for bit.` Next: `release agent.yaml` |
 | `PACKAGE_RELEASE_ONLY` | `registry publish` or `scaffold` for `agent` | `agent/ versions are written by release` |
 | `REGISTRY_NOT_LOCAL`, `REGISTRY_MISMATCH`, `REGISTRY_UNREADABLE` (exit 1) | §8 | as `promote`, plus the pod `imageID` case |
+| `PACKAGE_LEAK` (slice 4a) | §12.5, the packed layer holds a home directory, a `/Users/` or `/home/` path, `~/` or a `..` segment | `agent.yaml of agent/support-bot@1.4.0 holds a /home/ path; it is not pushed.` Next: release a new version without it |
 
 ## 16. Cross-repo sync and files
 

@@ -82,7 +82,10 @@ Cannot be used: runtime/example@0.1.0: protocol 3 is not supported by this Agent
   with `aria-describedby`, so the radios' accessible names stay short.
 - **One Version select** under the group, for the chosen framework. It is a labelled `<select>`
   ("Version of LangGraph") that becomes static text when there is one version. Each framework starts
-  on its newest version. Status and the second line follow the selected version. A change is
+  on its newest version run end to end, else on its newest (amended 2026-11-19: with
+  `runtime/adk@1.5.0` on `main` and not run end to end, starting on the newest left every new form
+  an unverified combination with Create off; composition spec §4.1 keeps forms without sub-agents or
+  skills on the verified default). Status and the second line follow the selected version. A change is
   announced once through `#announce` ("LangGraph 1.0.0: Not run end to end").
 - **Status uses the console's existing vocabulary** (`unverifiedText`, the provider select). There
   are four values, as words, with any glyph `aria-hidden`:
