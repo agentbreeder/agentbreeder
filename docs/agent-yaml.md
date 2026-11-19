@@ -407,10 +407,16 @@ evals were not run on `1.4.0`. `1.4.0` is `1.3.0` plus:
 
 ### `runtime/adk@1.5.0`
 
-On `main`, not in a published preview (#1058, #1059, #1106). **Checked only by the runtime's own tests**
-(a scripted model, a fake gateway, the real relay in process) and stub-builder build tests: no
-Docker, no real provider and no deployment has run it, Northwind's 61 evals were not run on it,
-and the `new agent` starter and Northwind stay on their current runtime. `1.5.0` is `1.4.0` plus:
+On `main`, not in a published preview (#1058, #1059, #1106). Checked by the runtime's own tests
+(a scripted model, a fake gateway, the real relay in process) and stub-builder build tests, and
+**run end to end once on Docker Desktop with Gemini** (#1058, #1059 AC, from a wheel of `main`;
+`docs/superpowers/verification/1058-subagents.md` and `1059-skills-a.md`): an agent with two
+sub-agents (one with a registry tool) and an agent with two instruction packs were built,
+released through their evals and invoked, and Northwind released 61/61 on it with a
+byte-identical `agent.config.json`. Northwind now pins `1.5.0`; the `new agent` starter stays on
+`1.4.0`. What those runs did not cover is listed in the records (another provider, MCP or
+knowledge on a sub-agent, the caps against a real model, skill reference files, Linux).
+`1.5.0` is `1.4.0` plus:
 
 - **Sub-agents (#1058).** Each `subagents:` entry is a child agent in the same process. The
   agent's model gets one tool per sub-agent, `ask_<name>(request)`, after its own tools; the
@@ -453,9 +459,10 @@ and the `new agent` starter and Northwind stay on their current runtime. `1.5.0`
     only when the agent has sub-agents. The probe recorded in
     `docs/superpowers/verification/1058-S0-litellm-tags.md` found that LiteLLM keeps such tags on
     its spend rows (`request_tags`), also behind the request filter of `service/litellm@1.3.0`.
-    That probe sent raw HTTP; the runtime's own requests are checked against a fake gateway only,
-    and `agentbreeder cost` does not group by the tag yet. A tag is the caller's claim: billing
-    follows the key.
+    In the #1058 acceptance run the runtime's own requests carried the tags to LiteLLM's spend
+    rows, and each sub-agent's `cost_usd` in the reply equalled its rows' spend exactly;
+    `agentbreeder cost --by subagent` groups by the tag inside each key. A tag is the caller's
+    claim: billing follows the key.
   - *A failed model call in a sub-agent* ends the turn with its code, as the agent's own does.
     Any other failure inside a sub-agent is a fixed tool error to the agent's model; its text
     goes, redacted, to one log line.
@@ -522,7 +529,11 @@ and the `new agent` starter and Northwind stay on their current runtime. `1.5.0`
     their arguments, and whatever a tool wrote itself. `session.id` and `user.id` are the
     caller's values.
   Checked by the runtime's tests (a fake gateway returning the block; the exported spans read
-  from an in-memory exporter). Not run with Presidio or Phoenix on Docker.
+  from an in-memory exporter), and run once on Docker Desktop (macOS) with Presidio and Phoenix
+  (2026-11-19, `docs/superpowers/verification/1106-blocked-turn-live.md`): a blocked turn with a
+  US SSN left the value in no `turns` row, audit row, Phoenix span or container log, only in the
+  ADK session; the same turn on `1.4.0` kept it in `turns.message` and the `agent_turn` and
+  `retrieve_knowledge` span inputs.
 - A tool's module may no longer be named `turns`, `subagents`, `skills` or `skill_hash` (the
   runtime's own new modules); `registry publish` and the runtime both refuse it.
 

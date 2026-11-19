@@ -151,8 +151,9 @@ agentbreeder services start|stop|restart [DIR] NAME [--yes] [--json]   # one con
   and reported (`Kept network …`, `networks_left` in `--json`), never forced; `docker network
   inspect NAME` shows what holds it. This is checked with unit tests against a fake Docker; the
   real-Docker assertions (`tests/test_mcp_relay_docker.py`, `tests/test_services_docker.py`) are
-  opt-in and have not been run yet. If the network cannot be listed, `down` carries on with
-  volumes, images and state.
+  opt-in and passed on macOS + Docker Desktop on 2026-11-18
+  (`docs/superpowers/verification/1048-network-live-assert.md`). If the network cannot be
+  listed, `down` carries on with volumes, images and state.
 
   Networks left by earlier versions are not pruned automatically. To clean them up by hand, list
   them, check that no container uses them, then remove them one at a time:
@@ -509,7 +510,7 @@ guardrail also checks the model's reply. Blocked turns reach the agent as the ga
 `runtime/adk@1.4.0` answers such a turn `MODEL_BLOCKED` (422) with a `guardrail_blocked` event
 ([agent-yaml.md](agent-yaml.md#runtimeadk140)). One live run (2026-11-16, Northwind, macOS) showed
 this for a message with a US SSN, including the gateway blocking the turn's embedding call; the
-agent still stored that message in its own `turns` table and trace spans. `runtime/adk@1.5.0` (#1106, runtime tests only) keeps a blocked turn's text out of the `turns` row and its spans, not out of the session. The rest of G2 (reconcile drift, the
+agent still stored that message in its own `turns` table and trace spans. `runtime/adk@1.5.0` (#1106) keeps a blocked turn's text out of the `turns` row and its spans, not out of the session; one live run with Presidio and Phoenix (2026-11-19, macOS, `docs/superpowers/verification/1106-blocked-turn-live.md`) confirmed it, with `1.4.0` as the control. The rest of G2 (reconcile drift, the
 runtime capability check) is still to come. On `main`, not in a published preview.
 
 ## Writing a service

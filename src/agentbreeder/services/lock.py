@@ -39,10 +39,11 @@ class StackLock(Lock):
 
     @classmethod
     def load(cls, path: Path) -> StackLock:
-        base = Lock.load(path)
+        # Version 1 only until stack.yaml gains `registries:` (#829 slice 4); strict like
+        # agent.lock, with the two keys read here.
+        base, data = Lock.parse(path, versions=(LOCK_VERSION,), extra_keys=("imports", "mcp"))
         imports: dict[str, list[str]] = {}
         if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
             raw = data.get("imports", {})
             if not isinstance(raw, dict) or not all(
                 isinstance(v, list) and all(isinstance(n, str) for n in v) for v in raw.values()
@@ -60,8 +61,8 @@ class StackLock(Lock):
                 for v in mcp.values()
             ):
                 raise RegistryError("LOCK_INVALID", f"{path}: mcp must map servers to pins")
-            return cls(base.entries, imports, mcp)
-        return cls(base.entries, imports)
+            return cls(entries=base.entries, imports=imports, mcp=mcp)
+        return cls(entries=base.entries, imports=imports)
 
     def save(self, path: Path) -> None:
         body = {

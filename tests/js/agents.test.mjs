@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  STEP_WORDS, TABS, agentName, candidateOf, gateStrip, identityText, identityTone, lastReleaseCell, latestRun, listRows, releasedImage, localDate, projectStatus,
+  STEP_WORDS, TABS, agentName, candidateOf, gateStrip, identityNote, identityText, identityTone, identityUnchecked, lastReleaseCell, latestRun, listRows, releasedImage, localDate, projectStatus,
   releaseText, releaseTone, releasesFor, shortImage, tabHref,
 } from "../../src/agentbreeder/center/static/lib/agents.js";
 
@@ -36,11 +36,29 @@ test("a row's project is registered, the default state, or not registered", () =
 test("identity words and tone never rely on colour alone", () => {
   assert.equal(identityText("compliant"), "compliant");
   assert.equal(identityText("noncompliant:PRINCIPAL_BLOCKED:cleanup_failed"), "noncompliant: PRINCIPAL_BLOCKED, cleanup_failed");
-  assert.equal(identityText(null), "not checked");
+  assert.equal(identityText(null), "not checked since deploy");
+  assert.equal(identityText(""), "not checked since deploy");
   assert.equal(identityText("unbound"), "unbound (no principal)");
   assert.equal(identityTone("compliant"), "passed");
   assert.equal(identityTone("noncompliant:X"), "failed");
   assert.equal(identityTone("unverifiable:PROVIDER_ERROR"), "unknown");
+});
+
+test("a row no status or reconcile has checked says why status can differ (#1078)", () => {
+  for (const missing of [null, undefined, "", 7]) {
+    assert.equal(identityUnchecked(missing), true);
+    assert.match(identityNote(missing), /A deploy records no result here/);
+    assert.match(identityNote(missing), /For a deployment bound to a principal, status and reconcile check the identity again and record the result, so agentbreeder status can say compliant while this does not/);
+    assert.match(identityNote(missing), /The identity of a deployment with no principal is never checked again\.$/);
+    assert.equal(identityTone(missing), "unknown");
+  }
+  for (const recorded of ["compliant", "noncompliant:REVIEW_EXPIRED", "unverifiable:PROVIDER_ERROR", "unbound"]) {
+    assert.equal(identityUnchecked(recorded), false);
+    assert.equal(identityNote(recorded), "recorded by the last status or reconcile");
+  }
+  const strip = gateStrip({ run: null, production: { state: "ready", target: "local", compliance: null }, candidate: null });
+  const identity = strip.find((step) => step.key === "identity");
+  assert.deepEqual([identity.state, identity.detail], ["none", "not checked since deploy"]);
 });
 
 test("images are shortened for tables", () => {

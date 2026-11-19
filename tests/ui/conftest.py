@@ -106,8 +106,21 @@ def console(tmp_path, console_env):
 def sign_in(page, console, project: bool = True) -> None:
     """Open the one-time link; with `project`, add the fixture project from Home (which opens its
     Services screen)."""
+    # #1047: a rare 30 s wait for Home under load, with the page still on the `#t=` link (the app
+    # never booted), has not been reproduced since. If it comes back, say what failed to load.
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    seen: list[str] = []
+    page.on("requestfailed", lambda r: seen.append(f"request failed: {r.url} ({r.failure})"))
+    page.on("pageerror", lambda error: seen.append(f"page error: {error}"))
     page.goto(console.login)
-    page.get_by_role("heading", level=1, name="Home").wait_for()
+    try:
+        page.get_by_role("heading", level=1, name="Home").wait_for()
+    except PlaywrightTimeoutError as error:
+        raise AssertionError(
+            f"no Home after sign-in; page at {page.url.split('#')[0]}, "
+            f"booted: {'#t=' not in page.url}; {seen or 'no failed request or page error'}"
+        ) from error
     if project:
         page.get_by_label("Absolute path").fill(str(console.project()))
         page.get_by_role("button", name="Add project").click()

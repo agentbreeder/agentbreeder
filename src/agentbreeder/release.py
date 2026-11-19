@@ -41,7 +41,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from agentbreeder import __version__, evals, evidence, hints, package, registry
+from agentbreeder import __version__, evals, evidence, hints, package, registry, sources
 from agentbreeder.agentfile import load_agent_file
 from agentbreeder.build import BuildError, build, docker_build, docker_platform
 from agentbreeder.deployer import Deployer
@@ -85,12 +85,19 @@ def _eval_set(agent, project: Path, where: hints.Where | None = None) -> evals.E
     ref = registry.Ref.parse(agent.evals.ref)
     lock = Lock.load(project / "agent.lock")
     locked = lock.entries.get(str(ref))
+    build_command = (where or hints.Where()).command("build", project / "agent.yaml")
     if locked is None:
-        build_command = (where or hints.Where()).command("build", project / "agent.yaml")
         raise ReleaseError(
             "LOCK_STALE", f"{ref} is not in agent.lock; run `{build_command}` first"
         )
-    hit = registry.resolve(ref, registry.roots(project))
+    # #829 D6: only from the locked root (configured now), as `build --locked` reads it.
+    root = sources.locate(
+        str(ref),
+        locked,
+        registry.configured_roots(project),
+        refresh=f"run `{build_command}` to re-lock it",
+    )
+    hit = registry.resolve(ref, [root.path])
     with tempfile.TemporaryDirectory(prefix="agentbreeder-eval-") as temporary:
         copy = Path(temporary) / "eval"
         digest = registry.copy_and_hash(hit.path, copy)

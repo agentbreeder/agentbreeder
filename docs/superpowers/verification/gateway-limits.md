@@ -1,8 +1,10 @@
 # #1019 verification: gateway budget, rpm, retries and fallback on a live LiteLLM
 
-Status: **partial, verified from `main`** (89cf804, after #1016 merged, 2026-11-15, macOS 13.7.8
-x86_64, Docker Desktop engine 27.5.1, LiteLLM 1.106.2 from `service/litellm@1.0.0`). Results on a
-live gateway with real provider calls:
+Status: **partial, verified from `main`.** First run: 89cf804, after #1016 merged, 2026-11-15.
+Re-check: 3f13edb4 and 310fc6f6, after #1034 and #1039, 2026-11-19 (S3 and S4 below). Both on
+macOS 13.7.8 x86_64 with Docker Desktop engine 27.5.1. The 2026-11-15 results below are from a live
+gateway (LiteLLM 1.106.2 from `service/litellm@1.0.0`) with real provider calls; the
+2026-11-19 update follows them:
 - **Budget:** a deployment key with `max_budget` 0.0001 was refused (LiteLLM `422 budget_exceeded`)
   after its first turn. **`invoke` and the console do not show this as a budget error.** Both
   report `502 The model service is unavailable; please try again`.
@@ -17,9 +19,14 @@ live gateway with real provider calls:
   real `invoke` turn. That key gets **403** when it asks for `support-model-openrouter` directly.
   So a fallback reaches an alias the key is not granted (**#1033**).
 
-The opt-in Docker test the issue asks for was **not added**. This PR is a record only, and the
-test belongs in a code PR. The leak scan found 0 hits, and Docker was torn down to the pre-run
-snapshot, with one exception: a pre-existing image was removed (see Leak scan and teardown).
+On 2026-11-15 the opt-in Docker test was not added; it came in the 2026-11-19 PR. In that first
+run the leak scan found 0 hits, and Docker was torn down to the pre-run snapshot, with one
+exception: a pre-existing image was removed (see Leak scan and teardown).
+
+**Update, 2026-11-19:** after #1034 and #1039, budget and rpm reach `invoke` as coded errors
+(`MODEL_BUDGET_EXCEEDED` 402, `MODEL_RATE_LIMITED` 429), live with Gemini (S3). The opt-in Docker
+test now exists and passed (S4). The console was not re-checked, and cooldown is still not seen
+consistently.
 
 This is on `main`, not in a published preview.
 
@@ -201,21 +208,81 @@ project was `new agent fb --model gemini` (aliases `chat` and `judge`), edited i
   daemon restart does; no command in this run restarts Docker. It was reported to the
   coordinator.
 
+## Re-check after #1034 and #1039, and the opt-in Docker test (2026-11-18/19)
+
+After #1033 (fallback inside the grant), #1034 (runtime `adk@1.3.0`+ turns budget and rpm
+refusals into coded errors) and #1039 (`fallbacks` and `served_by` on a turn) merged.
+
+### S3: live Gemini, budget and rpm through `invoke`
+
+A wheel of `main` (3f13edb4, `agentbreeder-3.0.0a3-py3-none-any.whl`), installed and run as
+above (fresh Python 3.12 venv, `env -i`, fresh `HOME` and `TMPDIR` in `/tmp`, `USER=demo`, a sandbox
+Docker context, only `GEMINI_API_KEY` in a 0600 env file). The project was the #1111 step-cap
+agent (`new agent cap --model gemini`, `runtime/adk@1.4.0`, `gemini/gemini-3.8-flash`, LiteLLM
+1.106.2 from `service/litellm@1.0.0`; see `1111-adk-step-cap-gemini.md`), redeployed with a
+budget and then with an rpm cap. Each limit was set in `agent.yaml`, then `build`, `remove` of the
+running deployment and `deploy --local`.
+
+| Step | Command (UTC, 2026-11-19) | Result |
+|---|---|---|
+| 1 | `model.budget_usd: 0.0001`; build, remove, deploy (00:24) | `a587a3f8…` ready |
+| 2 | `invoke cap "When is support open?" --json`, 3 times, new session each (00:25–00:26) | 200 with a correct reply (`cost_usd` 0.0002205, over the budget); then **402 `MODEL_BUDGET_EXCEEDED`** twice, `retry_after_s: null`, "Sending it again won't help: raise model.budget_usd …" |
+| 3 | `rpm: 2` instead of the budget; build, remove, deploy (00:26) | `42cd12bd…` ready |
+| 4 | 4 direct calls with that key | 200, 200, then **429** `throttling_error` twice, `retry-after: 60` |
+| 5 | `invoke … --json`, twice, straight after step 4 (00:26–00:27) | **429 `MODEL_RATE_LIMITED`** both times, `retry_after_s: 60`, "Wait and send the message again, or raise model.rpm …" |
+
+Both limits now reach `invoke` as coded errors. On 2026-11-15 they were a generic 502 and a
+67.6 s wait. The console's Try it was not re-checked.
+
+### S4: the opt-in Docker test
+
+`tests/test_gateway_limits_docker.py` (new in this PR) runs postgres, `service/litellm@1.3.0` and two
+scripted providers. `provider-ok` answers every call and reports 200,000 prompt tokens, so each
+call has a price. `provider-bad` answers 500. No provider key is needed. It mints keys the way
+`deploy` does and checks each limit twice: with a direct gateway call, and with a real
+`runtime/adk@1.4.0` turn (the agent image is built by `build` and run on the stack's agents
+network). The one test-only change is the config review accepting `api_base`, as in
+`tests/test_guardrails_docker.py`.
+
+`AGENTBREEDER_DOCKER_TEST=1 pytest tests/test_gateway_limits_docker.py --no-cov -s`, on this
+branch (`main` 310fc6f6 plus the test), 2026-11-19: **1 passed in 220.26 s** on the first run.
+After the review edits (snapshot-aware image teardown, a stronger body assertion), the final file
+was run again: **1 passed in 196.82 s**, with the same results.
+
+| Limit | Direct call | Runtime turn |
+|---|---|---|
+| budget (`max_budget` 0.001, first call costs more) | 422 "Budget has been exceeded!" | **402 `MODEL_BUDGET_EXCEEDED`**; the body has no LiteLLM budget text and no `sk-` key fragment |
+| rpm 2 | 200, 200, 429 | **429 `MODEL_RATE_LIMITED`**, `retry_after_s` 60, after 17.0 s |
+| fallback `main` (provider-bad) → `backup`, key granted both | 200 "from OK", and provider-bad's log shows it was tried | 200, reply "from OK", `fallbacks` ≥ 1, `served_by` includes `backup` |
+| a key granted only `chat` asks for `backup` by name | refused (the test asserts 401 or 403; the code was not printed) | n/a |
+
+Docker was snapshotted before the first run and after each run (`docker ps -a`, `network ls`,
+`volume ls`, `images`, the default `bridge` ID). After both runs, the lists matched the snapshot,
+apart from one image another session built between the runs (`agentbreeder-cloud:gate-check`).
+That image was left alone. The test's teardown removes only
+agent images that were not present before it ran.
+
+S3's saved outputs (the build, deploy and remove output, the `invoke --json` results and the
+direct-call results) were scanned for the two key values in the sandbox env file (Gemini and
+OpenRouter; OpenRouter was imported by the gateway but no alias used it), plain, base64 and
+URL-encoded, and for `/Users/`. There were **0 hits**. The S3 stack's teardown is in the #1111
+record (`1111-adk-step-cap-gemini.md`).
+
 ## Acceptance (from the issue)
 
 | Check | Result |
 |---|---|
-| A key with a tiny budget is refused once spent (coded error surfaced by invoke/console) | **Partial.** Refused once spent: PASS (LiteLLM 422 `budget_exceeded` after the first turn). Coded error in invoke and the console: **FAIL**: both show a generic 502 "model service is unavailable" (`AGENT_ERROR` in the console) |
-| An rpm cap returns 429 | **PASS** for direct calls (429, `retry-after: 60`). Through `invoke`, the cap delays the turn (67.6 s) rather than returning 429 |
+| A key with a tiny budget is refused once spent (coded error surfaced by invoke/console) | **Partial.** Refused once spent: PASS (LiteLLM 422 `budget_exceeded` after the first turn). Coded error in invoke and the console: **FAIL**: both show a generic 502 "model service is unavailable" (`AGENT_ERROR` in the console). **Now PASS for invoke** (S3: 402 `MODEL_BUDGET_EXCEEDED`, live Gemini; S4: the opt-in test). The console was not re-checked |
+| An rpm cap returns 429 | **PASS** for direct calls (429, `retry-after: 60`). Through `invoke`, the cap delays the turn (67.6 s) rather than returning 429. **Now PASS through invoke** (S3 and S4: 429 `MODEL_RATE_LIMITED` with `retry_after_s` 60) |
 | A retry/cooldown actually happens | **Partial.** Retry: PASS (`x-litellm-attempted-retries: 1`, then success). Cooldown: not seen consistently |
-| A forced primary failure falls back to the second alias under the deployment's scoped key | **PASS** (real OpenRouter key; 6 direct calls and one `invoke` turn), with the finding that the key is not granted that alias (#1033) |
+| A forced primary failure falls back to the second alias under the deployment's scoped key | **PASS** (real OpenRouter key; 6 direct calls and one `invoke` turn), with the finding that the key is not granted that alias (#1033). The opt-in test (S4) covers it with scripted providers, and the turn reports `fallbacks` and `served_by` (#1039) |
 | Decide and fix the Northwind `environment.models` grant (or document why not) | **Cause found, not fixed** in this run: the fallback worked without the grant. **Fixed by #1033 (PR #1046):** Northwind grants `support-model-openrouter`, `services up` refuses an ungranted fallback target, and keys are minted with granted targets. Re-checked live with a starter; see "Re-check after the #1033 fix" |
-| Opt-in Docker test | **Not added** (this PR is a record; the test belongs in a code PR) |
+| Opt-in Docker test | **PASS.** `tests/test_gateway_limits_docker.py` (S4) covers budget, rpm and fallback, both direct and through a real `runtime/adk@1.4.0` turn. On 2026-11-19 it passed on the first run (220 s) and on the final file (197 s) |
 | Verification record `docs/superpowers/verification/gateway-limits.md` | This file |
 
 Flows that need a model key ran here: Northwind with `gemini/gemini-3.8-flash` and
 `openrouter/google/gemini-3.8-flash` through LiteLLM, and the starter with
-`gemini/gemini-3.8-flash`.
+`gemini/gemini-3.8-flash`. On 2026-11-19, S3 used `gemini/gemini-3.8-flash`; S4 needs no key.
 
 ## Browser click-through
 

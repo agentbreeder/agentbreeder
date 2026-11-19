@@ -696,3 +696,39 @@ def test_row_remove_is_off_while_a_job_runs(page, console):
         assert removes.nth(n).evaluate(look) == reverify.evaluate(look)
     removes.first.focus()
     expect(removes.first).not_to_be_focused()  # a disabled button takes no focus
+
+
+def test_sign_in_does_not_wait_for_the_first_doctor_read(page, console):
+    """#1047: Home appeared only after `/api/overview`, which runs the `doctor --json` child, so
+    a slow first CLI child (a loaded machine, a slow Docker) held the whole console on "Loading
+    the console…" for up to the read's 30 seconds. The shell now needs only the projects; the
+    version and Home's doctor card arrive with the overview."""
+    gate = console.state / "doctor-may-answer"
+    compose = {
+        "name": "Docker Compose (services)",
+        "passed": False,
+        "message": "Docker Compose v2 is not installed.",
+        "required": False,
+        "info": False,
+    }
+    docker = {"name": "Docker", "passed": True, "message": "ok", "required": True, "info": False}
+    console.scenario(doctor=[docker, compose], doctor_waits_for=str(gate))
+    answered = []
+    page.on(
+        "requestfinished",
+        lambda request: (
+            answered.append(request.url) if request.url.endswith("/api/overview") else None
+        ),
+    )
+    sign_in(page, console, project=False)
+    # Home is up, usable, and doctor has not answered: nothing here waited for it.
+    assert answered == []
+    expect(page.get_by_label("Absolute path")).to_be_editable()
+    expect(page.get_by_text("Docker Compose v2 is not installed.")).to_have_count(0)
+    brand = page.locator("header.top .brand")
+    expect(brand).to_have_text(re.compile(r"^AgentBreeder console\s*this machine only$"))
+    expect(brand).not_to_contain_text("preview")  # no empty "preview ," before doctor answers
+    gate.write_text("")
+    expect(page.get_by_text("Docker Compose v2 is not installed.")).to_be_visible(timeout=15000)
+    expect(brand).to_contain_text(re.compile(r"preview \d+\.\d+"))
+    assert len(answered) == 1

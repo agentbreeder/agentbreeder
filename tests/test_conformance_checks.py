@@ -339,7 +339,8 @@ def test_the_command_page_lists_every_check_and_whether_it_is_built():
     built = sum(1 for check in checks.CHECKS if check.run)
     assert f"{len(checks.CHECKS)} checks, {built} built." in page
     record = _doc("superpowers/verification/F2a-adk-baseline.md")
-    assert "Status: **not run.**" in record  # a run replaces this line and this assertion
+    # The run (#1058 AC session) replaced "Status: **not run.**" and this assertion.
+    assert "Status: **run**" in record and "22 pass, 4 fail, 8 not run, 5 not applicable" in record
     assert f"The {built} built checks" in record
     assert f"{len(checks.CHECKS) - built} of the {len(checks.CHECKS)} checks" in record
 

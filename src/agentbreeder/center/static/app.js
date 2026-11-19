@@ -160,9 +160,18 @@ function App({ initial }) {
   const finished = useRef(0);
   const scoped = projects.find((p) => p.id === scope) || null;
   // Docker going down or coming back re-reads the overview, so Home's doctor card follows it.
-  const [docker, retryDocker] = useDocker(client, phase.name === "ready", () => {
-    client.get("/api/overview").then(setOverview, () => {});
-  });
+  // The newest overview read wins (#1047): sign-in no longer waits for its own, so a slow one
+  // must not replace the answer of a later read (Docker flipped, or the unreachable page's retry),
+  // and its failure must not show an error once a later read has started.
+  const overviewRead = useRef(0);
+  const readOverview = (onError = () => {}) => {
+    const read = (overviewRead.current += 1);
+    client.get("/api/overview").then(
+      (over) => { if (read === overviewRead.current) setOverview(over); },
+      (error) => { if (read === overviewRead.current) onError(error); },
+    );
+  };
+  const [docker, retryDocker] = useDocker(client, phase.name === "ready", () => readOverview());
   const [guide, reloadGuide] = useGuide(scoped ? scoped.id : null, scoped ? jobs.version(scoped.id) : 0, phase.name === "ready");
 
   bus.phase = (next) => {
@@ -176,11 +185,23 @@ function App({ initial }) {
     return data.projects || [];
   }
 
+  /**
+   * The shell needs only the projects, which the server reads in its own process. The overview
+   * runs the `doctor --json` child, so it is read beside them and never awaited (#1047): a slow
+   * first CLI child held the whole page on "Loading the console…". The version and Home's doctor
+   * card appear when it answers.
+   */
   async function load() {
+    let failed = null; // this load's overview error, shown above the page as before
+    readOverview((error) => {
+      if (error.kind === "session" || error.kind === "unreachable") return; // the phase is already set
+      failed = error.message;
+      // Once ready, show it unless the projects' own error is already there.
+      setPhase((now) => (now.name === "ready" && !now.error ? { name: "ready", error: failed } : now));
+    });
     try {
-      const [over] = await Promise.all([client.get("/api/overview"), loadProjects()]);
-      setOverview(over);
-      setPhase({ name: "ready" });
+      await loadProjects();
+      setPhase(failed ? { name: "ready", error: failed } : { name: "ready" });
       jobs.begin();
     } catch (error) {
       if (error.kind === "session" || error.kind === "unreachable") return; // the phase is already set

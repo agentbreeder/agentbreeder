@@ -11,7 +11,7 @@ import { reportHref } from "../lib/evals.js";
 import { gateFailedRun } from "../lib/gate.js";
 import { auditTime, isCandidate } from "../lib/format.js";
 import {
-  STEP_WORDS, TABS, agentName, candidateOf, gateStrip, identityText, identityTone, lastReleaseCell, latestRun, listRows, releasedImage, localDate, projectStatus,
+  STEP_WORDS, TABS, agentName, candidateOf, gateStrip, identityNote, identityText, identityTone, identityUnchecked, lastReleaseCell, latestRun, listRows, releasedImage, localDate, projectStatus,
   releaseText, releaseTone, releasesFor, shortImage, tabHref,
 } from "../lib/agents.js";
 import { capabilitiesText, countText, filterEmptyText, filterLabel, filterOptions, filterRows, protocolText, runtimeEntry } from "../lib/framework.js";
@@ -177,7 +177,7 @@ export function Agents({ query = {} }) {
           <//>`
         : null}
       <${ViewState} view=${view} empty=${!all.length && !framework && !view.loading && !view.error ? "No agent is deployed in any stack on this machine." : null} />
-      <p class="muted small">Every stack on this machine, read without changing anything. The identity check is the one recorded at deploy or by the last <code>reconcile</code>; its time is when the deployment last changed. Local endpoints are unauthenticated.</p>
+      <p class="muted small">Every stack on this machine, read without changing anything. The identity check is the result the last <code>status</code> or <code>reconcile</code> recorded. A deploy records none, so a deployment says "not checked since deploy" until one of them runs (Deployments has Re-verify); the identity of one with no principal is never checked again. The time is when the deployment last changed. Local endpoints are unauthenticated.</p>
     <//>
     ${skipped.length
       ? html`<${Card} title="Not read">
@@ -208,7 +208,7 @@ function IdentityStrip({ name, identity, production, loading = false }) {
     <div><dt>Principal</dt><dd>${declared ? html`<code><${Text} value=${name} /></code> <span class="muted small">declared in stack.yaml: the static demo principal <code>services up</code> writes</span>` : missing}</dd></div>
     <div><dt>Sponsor</dt><dd>${declared ? html`<${Text} value=${declared.sponsor} />` : missing}</dd></div>
     <div><dt>Review by</dt><dd>${declared ? html`<${Text} value=${declared.review_by} />${declared.review_by < localDate() ? html` <span class="identity failed">review date has passed: the gate refuses deploys</span>` : null}` : missing}</dd></div>
-    <div><dt>Identity check</dt><dd>${production ? html`<span class=${`identity ${identityTone(production.compliance)}`}>${identityTone(production.compliance) === "passed" ? html`<${GateCheck} /> ` : null}<${Text} value=${identityText(production.compliance)} /></span> <span class="muted small">recorded at deploy or by the last reconcile; deployment changed <${Text} value=${auditTime(production.updated)} /></span>` : html`<span class="muted">${loading ? "Loading deployments…" : "no production deployment"}</span>`}</dd></div>
+    <div><dt>Identity check</dt><dd>${production ? html`<span class=${`identity ${identityTone(production.compliance)}`}>${identityTone(production.compliance) === "passed" ? html`<${GateCheck} /> ` : null}<${Text} value=${identityText(production.compliance)} /></span> <span class="muted small"><${Text} value=${identityNote(production.compliance)} />${identityUnchecked(production.compliance) ? html` <a href=${href("/deployments")}>Re-verify on Deployments</a>.` : null} Deployment changed <${Text} value=${auditTime(production.updated)} />.</span>` : html`<span class="muted">${loading ? "Loading deployments…" : "no production deployment"}</span>`}</dd></div>
     ${identity.error ? html`<div><dt>stack.yaml</dt><dd class="muted"><${Text} value=${identity.error.message} /></dd></div>` : null}
   </dl>`;
 }
