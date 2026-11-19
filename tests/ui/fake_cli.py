@@ -57,6 +57,9 @@ DEFAULT = {
     "doctor": [
         {"name": "Docker", "passed": True, "message": "ok", "required": True, "info": False}
     ],
+    # The full `doctor --json` (Home's read, not the blocker's `--only docker`) answers only once
+    # this file exists, or after 25 seconds: a slow first CLI child at sign-in (#1047).
+    "doctor_waits_for": None,
     "job_lines": {},
     "job_exit": {},
     "job_seconds": 0.6,
@@ -892,6 +895,10 @@ def main(argv: list[str]) -> int:
         checks = data["doctor"]
         if "--only" in argv:  # `--only docker`: the blocker's check
             checks = [check for check in checks if check["name"] == "Docker"]
+        elif data.get("doctor_waits_for"):
+            deadline = time.monotonic() + 25
+            while not Path(data["doctor_waits_for"]).exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
         print(json.dumps(checks))
         if not all(check["passed"] or not check["required"] for check in checks):
             return 1  # as the real doctor: a required check failed

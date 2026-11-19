@@ -1347,6 +1347,13 @@ Before this, the console read `doctor --json` as a failure when a required check
 exits 1 then), so it kept showing the last passing answer, or nothing, and Home's Docker notice
 never appeared. `/api/overview` now keeps doctor's exit-1 answer too.
 
+Signing in does not wait for doctor (#1047). The shell and Home appear once the projects are read
+(in the console's own process, no CLI child). `/api/overview`, which runs the `doctor --json`
+child, is read beside them: the version in the top bar and Home's doctor card appear when it
+answers. Before this the whole page stayed on "Loading the console…" until that child ended (up
+to the read's 30 seconds on a loaded machine or with a slow Docker). If the overview read fails,
+an error notice says so above the page, as before.
+
 The service controls, the usage child and the Home services table follow below. The M6 acceptance (stop Docker with Northwind running: the blocker within 15 s; start it:
 the blocker clears without a reload) is batched with the milestone verifications; the UI tests run
 it against the fake CLI.
