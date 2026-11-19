@@ -1337,13 +1337,16 @@ previous filter. A status line counts what is shown
   badge), **Protocol** ("1 (v1 profile, before the kit)" for a `v1` runtime, such as every
   `runtime/adk` version; the spec's "1 (ADK, before the kit)" would put a framework name in the
 console, so the profile is named instead) and **Capabilities**. The spec's Conformance row for a
-code-mode agent waits for code mode (F8). A ref not in the registries says so.
+code-mode agent waits for code mode (F8). A version the registries do not list as usable says so. Until
+  `/api/runtimes` answers (a CLI child that hashes every runtime version), a badge shows the ref
+  itself and then changes to the framework's name.
 - **Try it.** Turn details gains **Runtime** and **Framework** rows, from the reply's `runtime` and
   `framework` (agent protocol v1; the server caps `framework` at 100 characters). The Cost row's
   "Not measured" text no longer names `runtime/adk` versions: "Not measured: the runtime did not
   report it for this turn." `MODEL_STEP_LIMIT` (a kit runtime's step cap, agent protocol
   "Profiles") is a coded failure with its own line: the agent reached its limit on model calls for
-  one turn while the model still asked for tools, and tools ran, so sending again is a second turn.
+  one turn while the model still asked for tools, so there is no reply, and sending it again starts
+  a new turn.
 
 Tested with Playwright against the fake CLI (`tests/ui/test_framework_badge.py`, axe in light and
 dark), with node unit tests (`tests/js/framework.test.mjs`, the router's query) and on the server

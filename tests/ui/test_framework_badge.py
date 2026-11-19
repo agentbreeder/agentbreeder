@@ -217,7 +217,7 @@ def test_an_overview_runtime_not_in_the_registries_says_so(page, console):
     page.goto(f"{console.origin}/#/agents/demo")
     facts = page.get_by_role("region", name="agent.yaml").locator("dl.facts")
     expect(facts.locator(".badge.framework")).to_have_text("runtime/adk@1.1.0")
-    expect(facts).to_contain_text("Protocol" + "Not in the registries")
+    expect(facts).to_contain_text("Protocol" + "This version is not usable in the registries here")
 
 
 def test_try_it_shows_the_runtime_and_framework_rows(page, console):

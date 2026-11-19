@@ -79,6 +79,8 @@ test("a hash's query is read with only allowed keys and values (#1085 S2)", () =
   assert.deepEqual(queryFrom("#/agents?framework=adk&framework=crewai"), { framework: "adk" });
   assert.deepEqual(queryFrom("#/agents?Framework=adk&a%20b=1&framework=%3Cb%3E"), {});
   assert.deepEqual(queryFrom("#/agents?framework="), {});
+  // A key named like an Object property is kept as any other.
+  assert.deepEqual(queryFrom("#/agents?constructor=x"), { constructor: "x" });
   assert.deepEqual(queryFrom(`#/agents?framework=${"a".repeat(129)}`), {});
   // The path is unchanged by a query.
   assert.equal(pathFrom("#/agents?framework=adk"), "/agents");

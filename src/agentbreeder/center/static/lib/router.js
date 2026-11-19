@@ -43,7 +43,7 @@ export function queryFrom(hash) {
     return query;
   }
   for (const [key, value] of params) {
-    if (key in query || !QUERY_KEY.test(key) || !value || !QUERY_VALUE.test(value)) continue;
+    if (Object.hasOwn(query, key) || !QUERY_KEY.test(key) || !value || !QUERY_VALUE.test(value)) continue;
     query[key] = value;
   }
   return query;

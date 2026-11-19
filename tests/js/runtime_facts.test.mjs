@@ -114,6 +114,7 @@ test("MODEL_STEP_LIMIT has its own plain-language line (#1085 S2)", () => {
   const text = failureText(problem);
   assert.match(text, /^The agent reached its limit on model calls for one turn while the model still asked for tools, so there is no reply: /);
   assert.match(text, /\[MODEL_STEP_LIMIT\]/);
-  assert.match(text, /second turn/);
+  assert.match(text, /Sending it again starts a new turn\.$/);
+  assert.doesNotMatch(text, /Tools ran|shorter request/); // nothing has shown either
   assert.doesNotMatch(text, /The model call failed/);
 });

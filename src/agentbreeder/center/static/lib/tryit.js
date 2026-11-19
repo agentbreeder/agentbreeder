@@ -119,9 +119,9 @@ function problemOf(error, data) {
 export function failureText(problem) {
   const why = `${problem.message} [${problem.code}]`;
   if (problem.code === "MODEL_STEP_LIMIT") {
-    // Not a failed call: the agent made as many model calls as its limit allows and the model was
-    // still asking for tools (#1085 S2). Tools ran on the way, so sending it again is a second turn.
-    return `The agent reached its limit on model calls for one turn while the model still asked for tools, so there is no reply: ${why}. Tools ran in this turn, so sending it again is a second turn; a shorter request may fit in the limit.`;
+    // Not a failed call: the turn reached its model-call limit with the model still asking for tools
+    // (agent protocol "Profiles", #1085 S2). Only that is said: no kit runtime has sent it yet.
+    return `The agent reached its limit on model calls for one turn while the model still asked for tools, so there is no reply: ${why}. Sending it again starts a new turn.`;
   }
   if (MODEL_CODES.includes(problem.code)) {
     // The runtime's 1.3.0 message already names the wait ("retry in 7 s"); say it only if not.

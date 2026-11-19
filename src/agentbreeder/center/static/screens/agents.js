@@ -109,7 +109,7 @@ function FrameworkFilter({ id, value, options }) {
   return html`<div class="row filter">
     <label for=${id}>Framework</label>
     <select id=${id} value=${value} onChange=${change}>
-      ${options.map((option) => html`<option key=${option.value} value=${option.value}>${option.label}</option>`)}
+      ${options.map((option) => html`<option key=${option.value} value=${option.value}>${visible(option.label)}</option>`)}
     </select>
   </div>`;
 }
@@ -176,7 +176,7 @@ export function Agents({ query = {} }) {
             </tr>`)}
           <//>`
         : null}
-      <${ViewState} view=${view} empty=${!all.length && !view.loading && !view.error ? "No agent is deployed in any stack on this machine." : null} />
+      <${ViewState} view=${view} empty=${!all.length && !framework && !view.loading && !view.error ? "No agent is deployed in any stack on this machine." : null} />
       <p class="muted small">Every stack on this machine, read without changing anything. The identity check is the one recorded at deploy or by the last <code>reconcile</code>; its time is when the deployment last changed. Local endpoints are unauthenticated.</p>
     <//>
     ${skipped.length
@@ -224,7 +224,9 @@ function Tabs({ name, tab }) {
 function RuntimeRows({ runtime }) {
   const { runtimes, loading, error, stale } = useRuntimes();
   const entry = runtimeEntry(runtimes, runtime);
-  const missing = loading ? "Reading the registries…" : error ? `Not read: ${error.message || error.code}` : "Not in the registries";
+  // No usable entry for this exact version: the badge may still name the framework from another
+  // version, so these rows say the version is not usable here rather than "unknown".
+  const missing = loading ? "Reading the registries…" : runtimes ? "This version is not usable in the registries here" : `Not read: ${(error && (error.message || error.code)) || "no answer"}`;
   return html`
     <dt>Framework</dt><dd><${FrameworkBadge} runtime=${runtime} runtimes=${runtimes} /></dd>
     <dt>Protocol</dt><dd>${entry ? html`<${Text} value=${protocolText(entry)} />` : html`<span class="muted"><${Text} value=${missing} /></span>`}</dd>
