@@ -4,7 +4,7 @@ annotated-types==0.8.0
     # via pydantic
 psycopg==3.3.6
     # via agentbreeder (pyproject.toml)
-psycopg-binary==3.3.6 ; implementation_name != 'pypy'
+psycopg-binary==3.3.8 ; implementation_name != 'pypy'
     # via psycopg
 pydantic==2.14.3
     # via agentbreeder (pyproject.toml)
