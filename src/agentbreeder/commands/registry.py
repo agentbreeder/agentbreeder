@@ -92,6 +92,10 @@ def register(commands) -> None:
         "runtimes",
         help="List runtime versions with what each supports (framework, capabilities, limits)",
     )
+    reg_conformance = reg_commands.add_parser(
+        "conformance", help="Show the newest conformance report of a runtime version"
+    )
+    reg_conformance.add_argument("ref", help="runtime/name@X.Y.Z")
     reg_verify = reg_commands.add_parser("verify", help="Re-check every version's integrity")
     reg_show = reg_commands.add_parser("show", help="Show one version's manifest and files")
     reg_show.add_argument("ref", help="kind/name@X.Y.Z")
@@ -139,7 +143,8 @@ def register(commands) -> None:
     reg_trust.add_argument("--yes", action="store_true", help="Do not ask for confirmation")
     reg_trust.add_argument("--json", action="store_true")
     placing = (reg_publish, reg_import, reg_fork, reg_edit)
-    for command in (*placing, reg_list, reg_runtimes, reg_verify, reg_show, reg_diff, reg_used):
+    listing = (reg_list, reg_runtimes, reg_conformance, reg_verify, reg_show, reg_diff, reg_used)
+    for command in (*placing, *listing):
         command.add_argument("--json", action="store_true")
     for command in (reg_list, reg_runtimes, reg_verify, reg_show, reg_diff):
         command.add_argument("--project", type=Path, default=Path("."))
@@ -161,6 +166,8 @@ def run(args) -> int:
 
 def _run(args) -> int:
     try:
+        if args.registry_command == "conformance":  # reads no registry root
+            return _conformance(args)
         if args.registry_command == "new":
             path = registry.scaffold(args.kind, args.name, args.dir, scripts=args.scripts)
             print(f"Created {path}. Edit it, then: agentbreeder registry publish {path}")
@@ -445,6 +452,25 @@ _BUCKETS = ("declared", "locked", "deployed", "recorded_not_running", "deployed_
 
 
 _CONFORMANCE = {"pass": "passed", "fail": "failed", "incomplete": "incomplete"}
+
+
+def _conformance(args) -> int:
+    """`registry conformance REF`: the newest report for an image built on a runtime version
+    (#1085 S3, console spec §6.3), read from `~/.agentbreeder/conformance`. `--json` prints
+    `{schema_version, ref, report}`, `report` null when there is none."""
+    from agentbreeder.conformance import report
+
+    ref = registry.Ref.parse(args.ref)
+    if ref.kind != "runtime":
+        raise registry.RegistryError("REF_INVALID", f"{args.ref!r} is not a runtime/ ref")
+    found = report.newest_report(str(ref))
+    if args.json:
+        print(json.dumps({"schema_version": 1, "ref": str(ref), "report": found}, indent=2))
+    elif found is None:
+        print(f"No conformance report for {ref}.")
+    else:
+        print(report.text(found))
+    return 0
 
 
 def _with_conformance(view: dict) -> dict:
