@@ -340,6 +340,16 @@ def test_the_other_tables_are_unchanged_by_tags(gateway_env, spend, state_dir, c
     assert "the gateway does not check" not in tagged_out
 
 
+def test_the_tag_note_is_only_printed_when_a_call_is_tagged(gateway_env, spend, state_dir, capsys):
+    seed(spend)
+    for item in spend.rows:
+        item.pop("request_tags", None)
+    code, out, _ = run_cli(capsys, "--state-dir", str(state_dir), "--by", "subagent")
+    assert code == 0
+    assert "(not tagged)" in out
+    assert "the gateway does not check" not in out
+
+
 def test_cost_table_shows_the_other_row_and_a_mixed_local_row(
     gateway_env, spend, state_dir, capsys, monkeypatch
 ):
@@ -357,7 +367,7 @@ def test_cost_table_shows_the_other_row_and_a_mixed_local_row(
     assert lines[2].split() == [REMOVED, "old", "billing", "1", "0", "10/20", "0", "0.500000"]
     # One local call and one with no price: no priced call, so unknown (never 0.000000).
     assert lines[3].split() == [DEPLOYED, "hello", "billing", "2", "0", "20/40", "0", "unknown"]
-    assert lines[4].split() == [DEPLOYED, "hello", "(other", "tags)", "1", "0", "10/20", "0",
+    assert lines[4].split() == [DEPLOYED, "hello", "(other", "sub-agents)", "1", "0", "10/20", "0",
                                 "0.002000"]  # fmt: skip
     assert "1 call(s) went to a local model" in out and "1 call(s) had no price" in out
 

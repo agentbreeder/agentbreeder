@@ -121,7 +121,7 @@ first, then by calls, then by name; a row with no priced call counts as 0 here),
 with no tag. The rows add up to the key. Rows are per key: the same sub-agent name under two keys
 is two rows, one in each key's list. At most 50 sub-agent names are listed per key (an agent file
 has at most 5); calls with any further name are added up in one row with `role` `other`
-(`(other tags)` in the table), before `untagged`. A key with no
+(`(other sub-agents)` in the table), before `untagged`. A key with no
 tagged call has no `subagents` field, so the answer for an agent without sub-agents is what it was
 before, and `total` and `models` never depend on tags. `schema_version` stays 1.
 
@@ -130,7 +130,9 @@ or `(not tagged)`; a key with no tagged call is one `(not tagged)` row.
 
 - **A tag is the caller's claim.** The gateway does not check it: any key can send any tag. So a
   tag only splits the spend of the key that sent it. It never moves spend from one key to
-  another, and the per-key numbers do not depend on tags.
+  another, and the per-key numbers do not depend on tags. The split inside a key is only as
+  trustworthy as whoever holds the key: it could send many names to push a real sub-agent's
+  calls into the `other` row.
 - **A call with two different `agentbreeder-subagent:` tags is not attributed**; it is counted
   under `untagged`.
 - **An unknown cost is shown as unknown, never as zero.** A call with no usable price is counted

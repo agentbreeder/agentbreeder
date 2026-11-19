@@ -162,7 +162,7 @@ def _price_or_unknown(bucket: dict) -> str:
 def _agent(row: dict) -> str:
     if row["role"] == "subagent":
         return row["name"]
-    return {"parent": "(parent)", "other": "(other tags)"}.get(row["role"], UNTAGGED)
+    return {"parent": "(parent)", "other": "(other sub-agents)"}.get(row["role"], UNTAGGED)
 
 
 def _tokens(bucket: dict) -> str:
@@ -268,6 +268,6 @@ def _print(result: dict, by: str) -> None:
         print(
             f"{total['unpriced']} call(s) had no price from LiteLLM and are not in the USD total."
         )
-    if by == "subagent" and len(rows) > 1:
-        print(TAG_NOTE)
+    if by == "subagent" and any(key.get("subagents") for key in result["keys"]):
+        print(TAG_NOTE)  # only when some call is tagged
     print(NOTE)
