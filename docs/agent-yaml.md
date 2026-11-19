@@ -529,7 +529,11 @@ knowledge on a sub-agent, the caps against a real model, skill reference files, 
     their arguments, and whatever a tool wrote itself. `session.id` and `user.id` are the
     caller's values.
   Checked by the runtime's tests (a fake gateway returning the block; the exported spans read
-  from an in-memory exporter). Not run with Presidio or Phoenix on Docker.
+  from an in-memory exporter), and run once on Docker Desktop (macOS) with Presidio and Phoenix
+  (2026-11-19, `docs/superpowers/verification/1106-blocked-turn-live.md`): a blocked turn with a
+  US SSN left the value in no `turns` row, audit row, Phoenix span or container log, only in the
+  ADK session; the same turn on `1.4.0` kept it in `turns.message` and the `agent_turn` and
+  `retrieve_knowledge` span inputs.
 - A tool's module may no longer be named `turns`, `subagents`, `skills` or `skill_hash` (the
   runtime's own new modules); `registry publish` and the runtime both refuse it.
 
