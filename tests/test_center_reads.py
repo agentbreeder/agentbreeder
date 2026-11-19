@@ -221,6 +221,32 @@ def test_lock_entries_match_lock_load(project):
     assert Reads().lock(str(project))["error"]["code"] == "LOCK_INVALID"
 
 
+def test_a_v2_lock_is_read_with_the_lock_rules(project):
+    """#829 slice 1b: the console accepts lock v2 by `Lock.parse`'s own rules (the follow-up from
+    #1156), and refuses what they refuse."""
+    from agentbreeder import lock as lock_module
+
+    source = {
+        "type": "git",
+        "url": "https://github.com/acme/reg.git",
+        "pin": {"commit": "a" * 40},
+    }
+    entries = {"tool/geo@1.0.0": {"sha256": "sha256:" + "b" * 64, "source": "remote:acme"}}
+    body = {"lock_version": 2, "sources": {"acme": source}, "entries": entries}
+    (project / "agent.lock").write_text(json.dumps(body))
+    answer = Reads().lock(str(project))
+    assert answer["data"] == entries == lock_module.Lock.load(project / "agent.lock").entries
+    for bad in (
+        {**body, "extra": 1},
+        {**body, "sources": {"acme": {**source, "url": "https://GitHub.com/acme/reg.git"}}},
+        {**body, "entries": {"tool/geo@1.0.0": {**entries["tool/geo@1.0.0"], "x": 1}}},
+        {"lock_version": 1, "entries": entries},
+        {"lock_version": 3, "entries": {}},
+    ):
+        (project / "agent.lock").write_text(json.dumps(bad))
+        assert Reads().lock(str(project))["error"]["code"] == "LOCK_INVALID", bad
+
+
 def _ready(read, timeout: float = 120) -> dict:
     """Ask until the answer is neither VERIFYING nor stale."""
     deadline = time.monotonic() + timeout

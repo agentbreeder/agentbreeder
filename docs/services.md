@@ -510,7 +510,7 @@ guardrail also checks the model's reply. Blocked turns reach the agent as the ga
 `runtime/adk@1.4.0` answers such a turn `MODEL_BLOCKED` (422) with a `guardrail_blocked` event
 ([agent-yaml.md](agent-yaml.md#runtimeadk140)). One live run (2026-11-16, Northwind, macOS) showed
 this for a message with a US SSN, including the gateway blocking the turn's embedding call; the
-agent still stored that message in its own `turns` table and trace spans. `runtime/adk@1.5.0` (#1106, runtime tests only) keeps a blocked turn's text out of the `turns` row and its spans, not out of the session. The rest of G2 (reconcile drift, the
+agent still stored that message in its own `turns` table and trace spans. `runtime/adk@1.5.0` (#1106) keeps a blocked turn's text out of the `turns` row and its spans, not out of the session; one live run with Presidio and Phoenix (2026-11-19, macOS, `docs/superpowers/verification/1106-blocked-turn-live.md`) confirmed it, with `1.4.0` as the control. The rest of G2 (reconcile drift, the
 runtime capability check) is still to come. On `main`, not in a published preview.
 
 ## Writing a service

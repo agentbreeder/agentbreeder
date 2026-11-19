@@ -42,7 +42,7 @@ NEEDS_FIXTURE = (
     "content), which is not built yet"
 )
 NEEDS_DATABASE = "needs a read of the agent's audit rows in the test database, not built yet"
-NEEDS_KIT = "a kit-profile check; it arrives with the runtime kit (slice F2b)"
+NEEDS_KIT = "a kit-profile check, not built yet (the runtime kit itself exists, #1083 F2b)"
 NEEDS_NETWORK_LOG = (
     "needs the DNS and TCP log on the test network, which waits for the egress network of "
     "slice F1b"

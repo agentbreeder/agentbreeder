@@ -48,3 +48,8 @@ environment:
       sponsor: support-lead@example.com
       review_by: "2027-06-30"
       candidate: true
+    # The LangGraph port (../northwind-langgraph, #1083 F3): same registry, same stack.
+    northwind-support-langgraph:
+      sponsor: support-lead@example.com
+      review_by: "2027-06-30"
+      candidate: true

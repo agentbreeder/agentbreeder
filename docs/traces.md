@@ -118,8 +118,10 @@ exported (see [agent-yaml.md](agent-yaml.md#runtimeadk150)).
 `runtime/adk@1.5.0` also sends a turn's spans when the turn ends, and sends the spans of a turn a
 gateway guardrail blocked without content (#1106): `traces --trace` then shows the span tree with
 kinds, times and token counts, and no input, output or error text; a span's name is cut to its
-first word (`execute_tool`, not the tool's name). Not run against
-Phoenix.
+first word (`execute_tool`, not the tool's name). One live run against Phoenix (2026-11-19,
+macOS, `docs/superpowers/verification/1106-blocked-turn-live.md`) read Phoenix's stored spans:
+the blocked turn's spans had no input or output, and `agent_turn` kept the guardrail and entity
+labels. `traces --trace` was not run on it.
 
 ## `--json` (schema_version 1)
 

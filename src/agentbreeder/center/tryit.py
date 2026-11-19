@@ -77,6 +77,7 @@ MODEL_CODES = frozenset(
         "MODEL_ACCESS_DENIED",
         "MODEL_REQUEST_REFUSED",
         "MODEL_UNAVAILABLE",
+        "MODEL_STEP_LIMIT",  # a kit runtime's step cap (#1083 F2b)
     }
 )
 MAX_MODEL_ERROR = 600  # the runtime's fixed messages are about 250 characters

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from agentbreeder import registry
 from agentbreeder import sources as remote
-from agentbreeder.registry import Ref, RegistryError, copy_and_hash, resolve
+from agentbreeder.registry import Ref, RegistryError, copy_and_hash, read_manifest, resolve
 
 LOCK_VERSION = 1  # written when agent.yaml (or stack.yaml) declares no `registries:`
 LOCK_VERSION_SOURCES = 2  # written with a `sources` table (#829 spec §7)
@@ -61,10 +61,27 @@ class Lock:
         if not path.exists():
             return cls(), {}
         try:
-            data = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique)
+            raw = path.read_bytes()
+        except OSError as error:
+            raise RegistryError("LOCK_INVALID", f"{path} is not a valid lock file") from error
+        return cls.parse_bytes(raw, str(path), versions, extra_keys)
+
+    @classmethod
+    def parse_bytes(
+        cls,
+        raw: bytes,
+        path: str,
+        versions: tuple[int, ...] = LOCK_VERSIONS,
+        extra_keys: tuple[str, ...] = (),
+    ) -> tuple[Lock, dict]:
+        """`parse` on bytes the caller already read (the console reads a lock through
+        `registry.read_project_file`; `package` reads the bytes it packages). `path` names the
+        file in messages."""
+        try:
+            data = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique)
         except RecursionError as error:
             raise RegistryError("LOCK_INVALID", f"{path} is too deeply nested") from error
-        except (OSError, ValueError) as error:
+        except (UnicodeDecodeError, ValueError) as error:
             raise RegistryError("LOCK_INVALID", f"{path} is not a valid lock file") from error
         if not isinstance(data, dict):
             raise RegistryError("LOCK_INVALID", f"{path} is not a valid lock file")
@@ -160,6 +177,7 @@ def materialise(
     locked_paths: bool = False,
     lock_file: str = "agent.lock",
     update_command: str = "build --update",
+    remotes: remote.RemoteSet | None = None,
 ) -> tuple[list[Materialised], bool]:
     """Copy every ref/path into `context`, hash the copies and reconcile with `lock`.
 
@@ -167,6 +185,12 @@ def materialise(
     mismatch the mode does not allow. `prune=False` leaves unused entries for the caller (a
     stack locks in two passes). `locked_paths=True` lets --locked accept path entries whose
     hash matches the lock (stack file params), instead of refusing every path.
+
+    `remotes` (#829 slice 1b) are the sources `registries:` declares. With them the lock is
+    version 2 and its `sources` table is theirs; without them it is version 1, byte for byte as
+    before. A plain build searches ./registry, AGENTBREEDER_REGISTRY_PATH, each source in order,
+    then the built-in registry, and a ref with different content in two of them is
+    REF_CONFLICT. `--locked` reads each ref from its locked root only (D6).
     """
     if mode not in MODES:
         raise ValueError(mode)
@@ -176,12 +200,21 @@ def materialise(
         )
     names = (lock_file, update_command)
     configured = registry.as_roots(search, project_dir)
-    by_path: dict[Path, registry.Root] = {}
-    for root in configured:
-        by_path.setdefault(root.path, root)
+    declared = remotes.table() if remotes is not None else None
+    previous = lock.sources
+    if mode == "locked" and declared != previous:
+        raise RegistryError(
+            "LOCK_STALE",
+            f"{lock_file}: {remote.sources_difference(previous, declared)}; " + _refresh(*names),
+        )
+    # Sources whose pin and URL are unchanged since the lock: their locked entries may come
+    # from the cache (checked against the lock's hash). A changed source is fetched again and
+    # each of its entries must keep its hash (spec §7).
+    stable = {n for n in declared or {} if previous is not None and previous.get(n) == declared[n]}
+    changed = declared != previous
+    lock.sources = None if declared is None else dict(declared)
     results: list[Materialised] = []
     seen: set[str] = set()
-    changed = False
     for text in refs:
         ref = Ref.parse(text)
         key = str(ref)
@@ -189,20 +222,39 @@ def materialise(
             continue
         seen.add(key)
         locked = lock.entries.get(key)
+        target = context / ref.kind / ref.name
         if mode == "locked" and locked:
             # #829 D6: load only from the locked root, which must be configured now; no
             # cross-root check, so a shadowing copy elsewhere is never read (or needed).
-            root = remote.locate(
-                key, locked, configured, lock_file=lock_file, refresh=_refresh(*names)
-            )
-            hit = resolve(ref, [root.path])
+            if remote.is_remote(locked.get("source")):
+                name = remote.locked_name(key, locked, remotes, lock_file, _refresh(*names))
+                if ref.kind not in remote.REMOTE_KINDS:  # also refused when the lock is read
+                    raise RegistryError(
+                        "REMOTE_KIND_REFUSED",
+                        f"{key} is locked from source '{name}': {remote.KIND_REFUSED}",
+                    )
+                version = remotes.version(name, ref, locked)
+                read_manifest(version, ref)
+                digest = copy_and_hash(version, target)
+            else:
+                root = remote.locate(
+                    key, locked, configured, lock_file=lock_file, refresh=_refresh(*names)
+                )
+                digest = copy_and_hash(resolve(ref, [root.path]).path, target)
+            source = locked["source"]
         else:
-            hit = resolve(ref, [root.path for root in configured])
-            root = by_path[hit.root]
-        target = context / ref.kind / ref.name
-        digest = copy_and_hash(hit.path, target)
-        source = root.label
-        changed |= _reconcile(lock, key, digest, source, locked, mode, update, names)
+            if mode == "locked":  # not in the lock: refuse before reading (or fetching) anything
+                raise RegistryError(
+                    "LOCK_STALE", f"{key} is not in {lock_file}; {_refresh(*names)}"
+                )
+            path, source = _find(ref, configured, remotes, locked, stable)
+            digest = copy_and_hash(path, target)
+        if remote.is_remote(source):
+            remotes.remember(remote.remote_name(source), ref, digest, target)
+        old_pin = previous.get(remote.remote_name(source)) if previous else None
+        changed |= _reconcile(
+            lock, key, digest, source, locked, mode, update, names, remotes, old_pin
+        )
         results.append(Materialised(key, target, digest, source))
     for text in paths:
         relative = Path(text)
@@ -247,7 +299,74 @@ def _refresh(lock_file: str, update_command: str) -> str:
     return f"run `{hints.command(*words)}` (without --locked) to update it"
 
 
-def _reconcile(lock, key, digest, source, locked, mode, update, names) -> bool:
+def _find(
+    ref: Ref,
+    configured: list[registry.Root],
+    remotes: remote.RemoteSet | None,
+    locked: dict | None,
+    stable: set[str],
+) -> tuple[Path, str]:
+    """The version directory and root label a plain build uses for `ref` (#829 spec §4.2).
+
+    Search order: the local roots before the built-in registry, then each declared source,
+    then the built-in registry. The first holder wins, but every holder is compared by hash:
+    different content in two roots is REF_CONFLICT, so a source never silently shadows a local
+    version and a local copy never silently shadows a source's. A source is only consulted
+    for the kinds it may provide; a ref only a source holds, of a refused kind, is
+    REMOTE_KIND_REFUSED."""
+    local = [root for root in configured if root.label != registry.BUILTIN_LABEL]
+    builtin = [root for root in configured if root.label == registry.BUILTIN_LABEL]
+    found: list[tuple[str, Path]] = []
+    for root in local:
+        found += [(root.label, hit.path) for hit in registry.hits(ref, [root.path])]
+    refused = []
+    for name in remotes.table() if remotes is not None else ():
+        label = remote.REMOTE_PREFIX + name
+        mine = locked if locked and locked.get("source") == label and name in stable else None
+        if not remotes.provides(name, ref, mine):
+            continue
+        if ref.kind not in remote.REMOTE_KINDS:
+            refused.append(name)
+            continue
+        found.append((label, remotes.version(name, ref, mine)))
+    for root in builtin:
+        found += [(root.label, hit.path) for hit in registry.hits(ref, [root.path])]
+    if not found:
+        if refused:
+            raise RegistryError(
+                "REMOTE_KIND_REFUSED",
+                f"{ref} is only in source '{refused[0]}': {remote.KIND_REFUSED}",
+            )
+        searched = [root.label for root in local + builtin]
+        searched += [f"source '{n}'" for n in (remotes.table() if remotes else ())]
+        raise RegistryError(
+            "REF_NOT_FOUND", f"{ref} not found in {', '.join(map(registry._shown, searched))}"
+        )
+    if len(found) > 1:
+        digests = [copy_and_hash(path) for _, path in found]
+        for (label, _), digest in zip(found[1:], digests[1:], strict=True):
+            if digest != digests[0]:
+                first = _where(found[0][0], remotes)
+                raise RegistryError(
+                    "REF_CONFLICT",
+                    f"{ref} differs between {first} ({digests[0][:15]}…) and "
+                    f"{_where(label, remotes)} ({digest[:15]}…). Versions are immutable: delete "
+                    "the local copy to use the source's, or publish yours as a new version",
+                )
+    label, path = found[0]
+    read_manifest(path, ref)
+    return path, label
+
+
+def _where(label: str, remotes: remote.RemoteSet | None) -> str:
+    if remote.is_remote(label) and remotes is not None:
+        return remotes.describe(remote.remote_name(label))
+    return registry._shown(label)
+
+
+def _reconcile(
+    lock, key, digest, source, locked, mode, update, names, remotes=None, old_pin=None
+) -> bool:
     lock_file, update_command = names
     if locked is None:
         if mode == "locked":
@@ -268,6 +387,21 @@ def _reconcile(lock, key, digest, source, locked, mode, update, names) -> bool:
         and mode == "update"
         and (update is None or not update or key in update)
     )
+    if (
+        not allowed
+        and remote.is_remote(source)
+        and locked.get("source") == source
+        and old_pin is not None
+        and remotes is not None
+        and old_pin != remotes.table().get(remote.remote_name(source))
+    ):
+        name = remote.remote_name(source)
+        raise RegistryError(
+            "HASH_MISMATCH",
+            f"{key} changed between {name}@{remote.short_pin(old_pin)} and "
+            f"{name}@{remote.short_pin(remotes.table()[name])}. A published version must not "
+            "change; ask the registry maintainers to publish a new version, or keep the old pin",
+        )
     if not allowed:
         raise RegistryError(
             "HASH_MISMATCH",

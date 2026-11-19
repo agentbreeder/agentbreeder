@@ -2,7 +2,7 @@
   "lock_version": 1,
   "entries": {
     "path:stack/db/commerce.sql": {
-      "sha256": "sha256:886472a94da2a24cbb38f4798e640e4e728aed083b7629de7b6e6b8d5892e74a",
+      "sha256": "sha256:369fc0c81a2ed0ca83baa5aa42c390a0f4843ab8d5098f9991b262121a312045",
       "source": "stack/db/commerce.sql"
     },
     "path:stack/litellm/config.yaml": {

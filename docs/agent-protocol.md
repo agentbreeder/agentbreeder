@@ -109,7 +109,7 @@ A tool may add its own list to the reply; it cannot replace a field above.
 | 415 | The `Content-Type` is not `application/json` |
 | 429 | `MODEL_RATE_LIMITED` |
 | 500 | The turn failed for another reason (a fixed message) |
-| 502 | `MODEL_ACCESS_DENIED`, `MODEL_REQUEST_REFUSED` or `MODEL_UNAVAILABLE` |
+| 502 | `MODEL_ACCESS_DENIED`, `MODEL_REQUEST_REFUSED` or `MODEL_UNAVAILABLE`; on a `kit` runtime also `MODEL_STEP_LIMIT` (profile `kit`, below) |
 | 503 | The agent's database is unavailable, or the agent is misconfigured |
 | 504 | The turn took longer than the runtime's deadline (170 seconds for `runtime/adk@1.3.0`) |
 
@@ -175,7 +175,8 @@ A runtime manifest's `profile` says which additions the runtime serves on top of
 
 - **`v1`:** this page, as `runtime/adk@1.3.0` serves it. `runtime/adk@1.4.0` also answers
   `MODEL_BLOCKED` (422), which this page does not list and no check covers yet.
-- **`kit`** (multi-framework spec §10.2; no runtime has it yet): `GET /health` is 503 until the
+- **`kit`** (multi-framework spec §10.2; served by `runtime/langgraph@1.0.0`, run end to end on macOS
+  x86_64 and not verified, see [runtimes/langgraph.md](runtimes/langgraph.md)): `GET /health` is 503 until the
   agent is built and after a failed start, and 200 only when it is ready; on SIGTERM the turn in
   flight finishes or times out within the stop grace; a turn that reaches its model-call limit
   with the model still asking for tools fails with `MODEL_STEP_LIMIT`. A `kit` runtime still
