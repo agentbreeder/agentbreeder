@@ -1100,8 +1100,10 @@ own note when its manifest has one; both are tied to the radio with `aria-descri
 text when there is one), and a change of framework or version is announced once ("Google ADK
 1.3.0: Run end to end (Northwind)"). The form starts on Google ADK's newest version, and each
 framework starts on its newest version. Frameworks with a version run end to end come first, then
-by name. **Only `runtime/adk` exists today, so the group shows Google ADK alone**; other frameworks
-appear when their runtimes land, with no console change. There are no logos.
+by name. **The built-in registry has Google ADK and, since #1163, LangGraph
+(`runtime/langgraph@1.0.0`)**. LangGraph is listed but has not been run end to end from the console:
+it is not in `agentspec.VERIFIED`, so Create stays off for it and no LangGraph agent was built here.
+Other frameworks appear when their runtimes land, with no console change. There are no logos.
 
 - **Where the list comes from.** `GET /api/builder/parts` gains `runtimes`: the engine's resolved
   view of every `runtime/` version, read by a CLI child (`agentbreeder registry runtimes --json`,
