@@ -257,6 +257,14 @@ conformance IMAGE` (`conformance/`: 26 of 39 checks built, reports under
 Website: no change until a framework passes its acceptance. Cloud: a `CLAUDE.md` note only; it
 has no code that reads `list --json`, a conformance report or the agent's `/invoke` reply.
 
+**Console sign-in, #818 M2 (epic #1054), per side.** OSS (on `main`): `up --set-password`,
+`--reset-password` and `--link`; `center.sqlite3` schema 4 (`users` with scrypt hashes, and
+`security_events`); new console routes (`/api/auth`, `/api/setup`, `/api/password`,
+`/api/signout`, `/api/signout-everywhere`, `/api/settings`) and `POST /api/session` taking
+`{email, password}`. No manifest, JSON Schema, `agent.yaml` or `agent.lock` change. Website: no
+change until release R. Cloud: a `CLAUDE.md` note only; it has no code that runs `up`, calls the
+console API or reads `center.sqlite3` (the console API is private and unversioned).
+
 ## 🎯 When Adding a New Feature
 
 1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?

@@ -32,6 +32,10 @@ def parse(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--expect-package", default=None)
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--yes", action="store_true")
+    parser.add_argument("--link", action="store_true")
+    passwords = parser.add_mutually_exclusive_group()
+    passwords.add_argument("--set-password", action="store_true")
+    passwords.add_argument("--reset-password", action="store_true")
     return parser.parse_args(argv)
 
 
