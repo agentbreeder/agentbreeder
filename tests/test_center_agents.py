@@ -298,7 +298,13 @@ def test_identity_view_shows_what_stack_yaml_declares(center, project, cookie, p
                 "sponsor": "support-lead@example.com",
                 "review_by": "2027-06-30",
                 "candidate": True,
-            }
+            },
+            # The LangGraph port's identity (#1083 F3) lives in Northwind's stack too.
+            "northwind-support-langgraph": {
+                "sponsor": "support-lead@example.com",
+                "review_by": "2027-06-30",
+                "candidate": True,
+            },
         },
     }
 

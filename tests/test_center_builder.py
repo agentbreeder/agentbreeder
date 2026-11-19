@@ -920,7 +920,16 @@ def test_parts_lists_every_runtime_version_through_the_cli(center, cookie, calls
         assert "transfer_to_agent" in entry["reserved_tool_names"]
     assert [listed[f"runtime/adk@1.{n}.0"]["verified"] for n in (2, 3, 4)] == [False, True, True]
     assert "mcp" not in listed["runtime/adk@1.0.4"]["capabilities"]
-    assert {entry["name"] for entry in listed.values()} == {"adk"}  # the only framework so far
+    # runtime/langgraph@1.0.0 (#1083 F3): a kit runtime, listed but never run end to end.
+    assert {entry["name"] for entry in listed.values()} == {"adk", "langgraph"}
+    langgraph = listed["runtime/langgraph@1.0.0"]
+    assert langgraph["usable"] is True and langgraph["verified"] is False
+    assert (langgraph["display_name"], langgraph["profile"], langgraph["kit"]) == (
+        "LangGraph",
+        "kit",
+        "1.0.0",
+    )
+    assert "mcp" not in langgraph["capabilities"]
 
 
 def test_the_runtimes_read_is_uncached(center, cookie, scripted_runtimes):

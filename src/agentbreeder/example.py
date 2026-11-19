@@ -45,6 +45,11 @@ def _manifest() -> dict[str, dict]:
         raise ExampleError(error.code, str(error)) from error
 
 
+# Shipped examples that are not copied on their own: a framework port of Northwind (#1083 F3)
+# uses Northwind's registry and stack from `../northwind`, so it is run from a checkout.
+PORTS = frozenset({"northwind-langgraph"})
+
+
 def names() -> list[str]:
     return sorted(
         {
@@ -52,6 +57,7 @@ def names() -> list[str]:
             for key in _manifest()
             if key.startswith("examples/") and "/" in key[9:]
         }
+        - PORTS
     )
 
 

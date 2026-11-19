@@ -183,6 +183,10 @@ GRANT INSERT (id, order_id, customer_id, reason, session, turn_id)
   ON cancellation_requests TO support_agent;
 GRANT SELECT, INSERT ON notes TO support_agent;
 GRANT INSERT ON tickets, turns, audit_events TO support_agent;
+-- A kit runtime (runtime/langgraph, #1083 F3) replays a conversation's history from `turns`
+-- (multi-framework spec §7.5): these columns only. ADK keeps its own sessions in adk_sessions,
+-- which this role owns, so the agent could already read every customer's conversation.
+GRANT SELECT (session, customer, message, reply, error, created) ON turns TO support_agent;
 GRANT USAGE ON SEQUENCE notes_id_seq, audit_events_id_seq TO support_agent;
 
 -- Staff (the ops dashboard): reads everything it shows, decides requests, resets the eval
