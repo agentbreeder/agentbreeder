@@ -1160,8 +1160,10 @@ own note when its manifest has one; both are tied to the radio with `aria-descri
 text when there is one), and a change of framework or version is announced once ("Google ADK
 1.3.0: Run end to end (Northwind)"). The form starts on Google ADK's newest version, and each
 framework starts on its newest version. Frameworks with a version run end to end come first, then
-by name. **Only `runtime/adk` exists today, so the group shows Google ADK alone**; other frameworks
-appear when their runtimes land, with no console change. There are no logos.
+by name. **The built-in registry has Google ADK and, since #1163, LangGraph
+(`runtime/langgraph@1.0.0`)**. LangGraph is listed but has not been run end to end from the console:
+it is not in `agentspec.VERIFIED`, so Create stays off for it and no LangGraph agent was built here.
+Other frameworks appear when their runtimes land, with no console change. There are no logos.
 
 - **Where the list comes from.** `GET /api/builder/parts` gains `runtimes`: the engine's resolved
   view of every `runtime/` version, read by a CLI child (`agentbreeder registry runtimes --json`,
@@ -1378,6 +1380,98 @@ light and dark, and on the server against a fake CLI (argv, linking rows to proj
 listings, pairing release rows, rollbacks, the 1,000-row cut, `stack.yaml` errors that never echo
 values, a symlinked `stack.yaml`). Not yet run against real deployments; that is the M7
 verification.
+
+### The framework badge and filter (#1085 S2): on `main`, not in a published preview
+
+Wherever an agent appears outside Build, the framework it runs is one neutral text badge with the
+framework's own name (owner decisions C4 and C8: no logos), from `GET /api/runtimes`. That route
+reads `agentbreeder registry runtimes --json` in a CLI child and passes on the same allow-listed
+view as Build's `parts.runtimes`. It only names things, so a failed read keeps the last good
+answer, which the Overview marks as from the last read. The page shares one good read for a
+minute; a failed or stale one is asked again by the next screen.
+
+- **Agents list.** The badge sits under the agent's name, with the ref beside it as text
+  (`Google ADK runtime/adk@1.4.0`). Its source is the row's `runtime` from `list --all --json`
+  (#1083 F2a). A ref the registries do not hold shows the ref itself, and a row with no runtime
+  shows "Not recorded"; a runtime recorded in another shape is shown as recorded (cut to 100
+characters) and filed under "Other runtime". `list` gives a default-state row a runtime only when it runs in the agent's
+  project, so those rows usually show "Not recorded".
+- **Framework filter** (C7: on the Agents list only). A select of "All frameworks", each framework
+  in the list and "Not recorded". The choice is kept in the address (`#/agents?framework=adk`,
+  `_none` for Not recorded): the router now reads a query, keeping only short keys and values of
+  letters, digits, dot, underscore and dash. So the filter survives a reload, a sign-in again and
+  the 3-second refresh, and choosing keeps focus on the select. Each choice is a history entry, so Back returns to the
+previous filter. A status line counts what is shown
+  ("1 of 4 agents"). A framework no agent runs shows "No agents on CrewAI." and **Show all
+  frameworks**.
+- **Overview** keeps the **Runtime** row (the ref in `agent.yaml`) and adds **Framework** (the
+  badge), **Protocol** ("1 (v1 profile, before the kit)" for a `v1` runtime, such as every
+  `runtime/adk` version; the spec's "1 (ADK, before the kit)" would put a framework name in the
+console, so the profile is named instead) and **Capabilities**. The spec's Conformance row for a
+code-mode agent waits for code mode (F8). A version the registries do not list as usable says so. Until
+  `/api/runtimes` answers (a CLI child that hashes every runtime version), a badge shows the ref
+  itself and then changes to the framework's name.
+- **Try it.** Turn details gains **Runtime** and **Framework** rows, from the reply's `runtime` and
+  `framework` (agent protocol v1; the server caps `framework` at 100 characters). The Cost row's
+  "Not measured" text no longer names `runtime/adk` versions: "Not measured: the runtime did not
+  report it for this turn." `MODEL_STEP_LIMIT` (a kit runtime's step cap, agent protocol
+  "Profiles") is a coded failure with its own line: the agent reached its limit on model calls for
+  one turn while the model still asked for tools, so there is no reply, and sending it again starts
+  a new turn.
+
+Tested with Playwright against the fake CLI (`tests/ui/test_framework_badge.py`, axe in light and
+dark), with node unit tests (`tests/js/framework.test.mjs`, the router's query) and on the server
+(`/api/runtimes`, `framework` in a turn). The LangGraph and CrewAI rows in these tests are a
+scripted `registry runtimes` answer. `runtime/langgraph@1.0.0` is on `main` (#1163, not run end to
+end in the console), but no LangGraph deployment was listed, opened or tried here, and no
+`MODEL_STEP_LIMIT` reached Try it from a real runtime. Not run against real deployments.
+
+### Registry ▸ Runtimes and conformance (#1085 S3): on `main`, not in a published preview
+
+**Registry ▸ Runtimes** lists every `runtime/` version in the project's search roots, one row per
+version, from `agentbreeder registry runtimes --project DIR --json` (`GET
+/api/projects/ID/runtimes`, allow-listed as Build's `parts.runtimes`): the framework's badge, the
+ref (a link to that version's detail, `#/registry/runtimes/NAME?version=X.Y.Z`), the protocol and
+profile, the kit version and the status in Build's words. A report whose result is `incomplete`
+(a check that applies did not run, which is every report while checks are unbuilt) now reads
+"Conformance incomplete; not run end to end", here and on Build, instead of "Conformance failed".
+A version the CLI cannot use is a text line with its code. A failed read shows its code and **Try
+again**.
+
+A runtime version's detail (the registry's version card) adds:
+
+- **Runtime**: the framework, status, protocol, capabilities, limits, reserved tool names, notes
+  and docs path, from the same view.
+- **Packages**: what the version's `requirements.in` names with its specifiers (the build installs
+  the hash-locked `requirements.lock`).
+- **Conformance**: the newest report for an image built on this version, from the new CLI read
+  `agentbreeder registry conformance REF --json` (`GET /api/projects/ID/conformance?ref=`, never
+  cached). It shows the result ("Incomplete: not a pass" for `incomplete`), the counts, the image
+  digest, its agent and when it finished, and "not the current build" when this project's build of
+  the version is another image. Checks are grouped; a group with a failed check is open, and each
+  check's status is a word, its detail text. "Not run for this runtime version." when there is no
+  report.
+- **Run conformance**: a job, `agentbreeder conformance IMAGE --project DIR`, on this project's
+  built image of the version. The image comes from the project's build record
+  (`deploy/<agent>.build.json`, read like `agent.yaml`: the record file itself must be a regular
+  file, not a link; its label's time is when the record was last written) and the server
+  refuses any other (`CONFORMANCE_IMAGE_UNKNOWN`), so the browser never names a free image. It is
+  off, with its reason, when the project has no build of the version ("No declared-mode image of
+  this runtime version in this project. Build an agent from agent.yaml on it first."), when
+  Docker is not reachable, and while a job runs in the project. A run that wrote a failed or
+  incomplete report (exit 1) ends as a warning, not a failed command, and the card reads the new
+  report when the job ends.
+
+Not in this slice, because code mode (#1083 F8) is not on `main`: **Registry ▸ Code** (there is no
+`code/` registry kind), code-mode reports on an agent's detail, and the guided path's Conformance
+step. Every report shown is a declared-mode one.
+
+Tested with Playwright against the fake CLI (`tests/ui/test_registry_runtimes.py`: the list, an
+incomplete status, a failed read, the detail with no report, a failing report expanded, a report
+for another image, Run conformance as a job, the version in the address, axe in light and dark),
+node unit tests (`tests/js/conformance.test.mjs`), the server (`tests/test_center_conformance.py`)
+and the CLI (`registry conformance`). The reports are scripted: **no conformance run has happened
+on a real Docker engine**, and none was started from the console.
 
 ### Traces (#907, console half): on `main`, not in a published preview
 

@@ -47,7 +47,7 @@ export function Shell({ match }) {
       <${Sidebar} current=${section} />
       <main id="main">
         <h1 tabindex="-1" ref=${h1}>${route ? routeTitle(route, match.params) : "Not found"}${route && route.scoped && project ? html` <span class="scope-chip"><${Text} value=${`${project.name} · ${project.environment}`} /></span>` : null}</h1>
-        ${!route ? html`<p>There is no screen at this address. <a href="#/">Go to Home</a>.</p>` : needsProject ? html`<${ChooseProject} />` : html`<${Screen} project=${project} params=${match.params} key=${project ? project.id : "all"} />`}
+        ${!route ? html`<p>There is no screen at this address. <a href="#/">Go to Home</a>.</p>` : needsProject ? html`<${ChooseProject} />` : html`<${Screen} project=${project} params=${match.params} query=${match.query || {}} key=${project ? project.id : "all"} />`}
       </main>
     </div>
     ${dockOpen

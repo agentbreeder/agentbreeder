@@ -52,6 +52,7 @@ from agentbreeder.center import (
     toollog,
     tryit,
 )
+from agentbreeder.center import conformance as conformance_reads
 from agentbreeder.center import cost as cost_reads
 from agentbreeder.center import evals as eval_reads
 from agentbreeder.center import traces as trace_lists
@@ -109,6 +110,7 @@ OPTIONS = {
     "services-up": ("digest", "allow_project_mcp", "pins_digest"),
     "remove": ("deployment", "target"),
     "build": ("lock",),
+    "conformance": ("image", "runtime"),
 }
 # A console session is code execution as the owner (console spec §10.1 I1), so the browser-side
 # guards are a primary control: scripts and styles from this origin only, no inline code, and
@@ -635,6 +637,65 @@ class Center:
             return builder.runtimes(result["data"])
         except builder.BadOutput as problem:
             raise BadRequest(str(problem), "BAD_OUTPUT") from problem
+
+    def runtimes_view(self) -> dict:
+        """`GET /api/runtimes` (#1085 S2, console spec §8): the same resolved view as
+        `parts.runtimes`, on its own, for the framework badge on the Agents list, the agent's
+        Overview and Try it. It only names things, so a failed read keeps the last good answer
+        (shown as stale); nothing is checked against it, unlike a spec's runtime."""
+        result = self.runner.read(
+            list(builder.RUNTIMES_ARGV),
+            timeout=builder.RUNTIMES_TIMEOUT,
+            track=True,
+            max_bytes=builder.MAX_RUNTIMES_BYTES,
+        )
+        if result["data"] is None:
+            return result
+        try:
+            shown = builder.runtimes(result["data"])
+        except builder.BadOutput as problem:
+            return envelope(None, error("BAD_OUTPUT", str(problem)))
+        return envelope(shown, result["error"], result["stale"])
+
+    def project_runtimes(self, project: dict) -> dict:
+        """Registry ▸ Runtimes (#1085 S3): `registry runtimes --project DIR --json`, the
+        project's search roots, allow-listed like `parts.runtimes`. Re-read when a job in the
+        project ends (a conformance run changes a status)."""
+        result = self.runner.read(
+            ["registry", "runtimes", "--project", project["path"], "--json"],
+            timeout=builder.RUNTIMES_TIMEOUT,
+            track=True,
+            max_bytes=builder.MAX_RUNTIMES_BYTES,
+        )
+        if result["data"] is None:
+            return result
+        try:
+            shown = builder.runtimes(result["data"])
+        except builder.BadOutput as problem:
+            return envelope(None, error("BAD_OUTPUT", str(problem)))
+        return envelope(shown, result["error"], result["stale"])
+
+    def _project_agent(self, project: dict) -> str | None:
+        data = self.reads.agent(project["path"]).get("data")
+        return data.get("name") if isinstance(data, dict) else None
+
+    def conformance_view(self, project: dict, ref: registry.Ref) -> dict:
+        """A runtime version's newest conformance report (`registry conformance REF --json`,
+        never cached: a run writes a new one) and this project's built image of it, for Run
+        conformance (#1085 S3, console spec §6.3 and §8)."""
+        if ref.kind != "runtime":
+            raise BadRequest("Conformance is reported for runtime/ versions", "REF_INVALID")
+        result = self.runner.read(
+            ["registry", "conformance", str(ref), "--json"], cache=False, track=True
+        )
+        if result["data"] is None:
+            return result
+        try:
+            report = conformance_reads.report(result["data"], str(ref))
+        except conformance_reads.BadOutput as problem:
+            return envelope(None, error("BAD_OUTPUT", str(problem)))
+        images = conformance_reads.images(project["path"], self._project_agent(project))
+        return envelope({"report": report, "images": images})
 
     def builder_parts(self) -> dict:
         """The builder's pickers (#833): the `tool/` and `mcp/` versions a new project resolves
@@ -1386,6 +1447,8 @@ class Center:
             keys = {str(k): str(v) for k, v in keys.items() if v}
             if len(keys) > 16 or not all(KEY_NAME.fullmatch(name) for name in keys):
                 raise BadRequest("Invalid key name")
+        if kind == "conformance":
+            self._check_conformance_image(project, options)
         pins = None
         if kind == "services-up" and "pins_digest" in options:
             pins = self._take_pins_review(project, options["pins_digest"])
@@ -1395,6 +1458,18 @@ class Center:
             if pins is not None:
                 self._restore_pins_review(project, pins)
             raise
+
+    def _check_conformance_image(self, project: dict, options: dict) -> None:
+        """A conformance run checks only this project's built image of the runtime version it
+        names (#1085 S3): never a free string from the browser (console spec §8)."""
+        built = conformance_reads.images(project["path"], self._project_agent(project))
+        image, runtime = options.get("image"), options.get("runtime")
+        if not any(row["image"] == image and row["runtime"] == runtime for row in built):
+            raise BadRequest(
+                "That image is not this project's build of the runtime version; build the "
+                "agent, then choose its image again",
+                "CONFORMANCE_IMAGE_UNKNOWN",
+            )
 
     def _start_checked(self, project: dict, kind: str, options: dict, keys) -> str:
         """`start_job` after the repin review was taken: the pre-launch checks, then the job."""
@@ -1843,6 +1918,18 @@ def _preview_stack_for(request: Request) -> dict:
     return envelope(request.center.preview_stack_for(request.body))
 
 
+def _runtimes(request: Request) -> dict:
+    return request.center.runtimes_view()
+
+
+def _project_runtimes(request: Request) -> dict:
+    return request.center.project_runtimes(request.project())
+
+
+def _conformance(request: Request) -> dict:
+    return request.center.conformance_view(request.project(), _query_ref(request, "ref"))
+
+
 def _builder_parts(request: Request) -> dict:
     return request.center.builder_parts()
 
@@ -1883,6 +1970,7 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", r"/api/projects", _projects, "/api/projects"),
     Route("GET", r"/api/agents", _agents, "/api/agents"),
     Route("GET", r"/api/builder/parts", _builder_parts, "/api/builder/parts"),
+    Route("GET", r"/api/runtimes", _runtimes, "/api/runtimes"),
     # Before the generic view route, which would match it too. A poll: it does not keep a
     # session alive.
     Route(
@@ -1898,6 +1986,18 @@ ROUTES: tuple[Route, ...] = (
         _watch,
         "/api/projects/0123456789ab/watch",
         poll=True,
+    ),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/runtimes",
+        _project_runtimes,
+        "/api/projects/0123456789ab/runtimes",
+    ),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/conformance",
+        _conformance,
+        "/api/projects/0123456789ab/conformance",
     ),
     Route(
         "GET",

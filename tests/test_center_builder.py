@@ -962,6 +962,59 @@ def test_parts_fails_with_the_runtimes_reads_own_code(
     assert data["error"]["code"] == code
 
 
+RUNTIMES_ROUTE = "/api/runtimes"
+
+
+def test_the_runtimes_route_is_the_same_view_on_its_own(center, cookie, scripted_runtimes):
+    """`GET /api/runtimes` (#1085 S2): the allow-listed view for the framework badge. It only
+    names things, so the last good answer is kept (no `cache=False`)."""
+    full = runtime_row(secret="dropped")
+    scripted_runtimes["result"] = {"data": listing(full, UNUSABLE), "error": None, "stale": False}
+    status, data, _ = api(center, "GET", RUNTIMES_ROUTE, None, cookie)
+    assert status == 200 and data["error"] is None, data
+    assert data["data"] == builder.runtimes(listing(full, UNUSABLE))
+    assert "secret" not in data["data"][0]
+    [call] = scripted_runtimes["calls"]
+    assert "cache" not in call and call["timeout"] == builder.RUNTIMES_TIMEOUT
+    assert call["track"] is True and call["max_bytes"] == builder.MAX_RUNTIMES_BYTES
+
+
+def test_the_runtimes_route_keeps_a_stale_answer(center, cookie, scripted_runtimes):
+    problem = {"code": "REF_CONFLICT", "message": "two roots"}
+    scripted_runtimes["result"] = {"data": listing(runtime_row()), "error": problem, "stale": True}
+    status, data, _ = api(center, "GET", RUNTIMES_ROUTE, None, cookie)
+    assert status == 200 and data["stale"] is True and data["error"] == problem, data
+    assert [entry["ref"] for entry in data["data"]] == [ADK]
+
+
+@pytest.mark.parametrize(
+    ("result", "code"),
+    [
+        (
+            {"data": None, "error": {"code": "REF_CONFLICT", "message": "two roots"}},
+            "REF_CONFLICT",
+        ),
+        ({"data": {"schema_version": 2, "runtimes": []}, "error": None}, "BAD_OUTPUT"),
+        ({"data": [], "error": None}, "BAD_OUTPUT"),
+    ],
+)
+def test_the_runtimes_route_fails_with_the_reads_code(
+    center, cookie, scripted_runtimes, result, code
+):
+    scripted_runtimes["result"] = result | {"stale": False}
+    status, data, _ = api(center, "GET", RUNTIMES_ROUTE, None, cookie)
+    assert status == 200 and data["data"] is None and data["error"]["code"] == code, data
+
+
+def test_the_runtimes_route_reads_the_real_command(center, cookie, calls):
+    status, data, _ = api(center, "GET", RUNTIMES_ROUTE, None, cookie)
+    assert status == 200 and data["error"] is None, data
+    assert [call["argv"] for call in calls] == [RUNTIMES_ARGV]
+    names = {entry["ref"]: entry["display_name"] for entry in data["data"] if entry["usable"]}
+    # Every built-in runtime, named from its manifest: ADK and, since #1163, LangGraph.
+    assert names[ADK] == "Google ADK" and names["runtime/langgraph@1.0.0"] == "LangGraph"
+
+
 def test_parts_shows_a_tools_function_names(center, cookie, path_registry):
     """What a runtime's reserved names are compared with (console spec §4.2)."""
     status, data, _ = api(center, "GET", PARTS, None, cookie)
@@ -989,6 +1042,36 @@ def test_a_linked_tool_yaml_is_not_read(tmp_path):
     assert builder._functions(tmp_path) == ["echo"]
 
 
+@pytest.mark.parametrize(
+    ("conformance", "result"),
+    [
+        ({"passed": False, "result": "incomplete"}, "incomplete"),
+        ({"passed": False, "result": "fail"}, "fail"),
+        ({"passed": True, "result": "pass"}, "pass"),
+        ({"passed": False}, "fail"),
+    ],
+)
+def test_a_reports_result_is_kept(conformance, result):
+    """An incomplete report is not a failure (#1085 S3): the status names it as incomplete."""
+    found = conformance | {"digest": DIGEST, "date": "2026-11-18T10:05:00Z"}
+    [shown] = builder.runtimes(listing(runtime_row(conformance=found)))
+    assert shown["conformance"]["result"] == result
+
+
+@pytest.mark.parametrize(
+    "conformance",
+    [
+        {"passed": True, "result": "fail"},
+        {"passed": False, "result": "pass"},
+        {"passed": False, "result": "maybe"},
+    ],
+)
+def test_a_result_that_contradicts_passed_is_refused(conformance):
+    found = conformance | {"digest": DIGEST, "date": "2026-11-18T10:05:00Z"}
+    with pytest.raises(builder.BadOutput):
+        builder.runtimes(listing(runtime_row(conformance=found)))
+
+
 def test_runtimes_keeps_what_the_framework_group_shows():
     full = runtime_row(
         "runtime/langgraph@1.0.0",
@@ -1010,7 +1093,13 @@ def test_runtimes_keeps_what_the_framework_group_shows():
     assert shown["notes"].startswith("Needs an Anthropic-shaped gateway route. y")
     assert len(shown["notes"]) == builder.MAX_NOTES and shown["notes"].endswith("…")
     assert shown["docs"] == "docs/runtimes/langgraph.md"
-    assert shown["conformance"] == {"passed": True, "digest": DIGEST, "date": "2026-11-18"}
+    # Without `result` it follows `passed` (#1085 S3); the CLI always sends it.
+    assert shown["conformance"] == {
+        "passed": True,
+        "result": "pass",
+        "digest": DIGEST,
+        "date": "2026-11-18",
+    }
     assert "secret" not in shown
     assert unusable == {
         "ref": "runtime/example@0.1.0",

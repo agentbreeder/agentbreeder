@@ -93,8 +93,9 @@ export function settle(conversation, id, envelope) {
   return { ...conversation, turns, session };
 }
 
-// A failed model call's code (runtime/adk@1.3.0; MODEL_BLOCKED from 1.4.0): `tryit.MODEL_CODES`.
-export const MODEL_CODES = ["MODEL_BLOCKED", "MODEL_BUDGET_EXCEEDED", "MODEL_RATE_LIMITED", "MODEL_ACCESS_DENIED", "MODEL_REQUEST_REFUSED", "MODEL_UNAVAILABLE"];
+// A failed model call's code (runtime/adk@1.3.0; MODEL_BLOCKED from 1.4.0; MODEL_STEP_LIMIT from a
+// kit runtime, agent protocol "Profiles"): `tryit.MODEL_CODES`.
+export const MODEL_CODES = ["MODEL_BLOCKED", "MODEL_BUDGET_EXCEEDED", "MODEL_RATE_LIMITED", "MODEL_ACCESS_DENIED", "MODEL_REQUEST_REFUSED", "MODEL_UNAVAILABLE", "MODEL_STEP_LIMIT"];
 const HEX32 = /^[0-9a-f]{32}$/;
 // The codes whose next step is to send the message again (the others say it won't help).
 const RETRYABLE = ["MODEL_RATE_LIMITED", "MODEL_UNAVAILABLE"];
@@ -117,6 +118,11 @@ function problemOf(error, data) {
  * its next step; the rest says whether the turn may have run. */
 export function failureText(problem) {
   const why = `${problem.message} [${problem.code}]`;
+  if (problem.code === "MODEL_STEP_LIMIT") {
+    // Not a failed call: the turn reached its model-call limit with the model still asking for tools
+    // (agent protocol "Profiles", #1085 S2). Only that is said: no kit runtime has sent it yet.
+    return `The agent reached its limit on model calls for one turn while the model still asked for tools, so there is no reply: ${why}. Sending it again starts a new turn.`;
+  }
   if (MODEL_CODES.includes(problem.code)) {
     // The runtime's 1.3.0 message already names the wait ("retry in 7 s"); say it only if not.
     const named = Number.isInteger(problem.retryAfter) && problem.message.includes(`retry in ${problem.retryAfter} s`);

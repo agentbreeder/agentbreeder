@@ -224,6 +224,13 @@ dialog::backdrop { background: var(--scrim); }
 
 /* Registry browser (#824): the verify state is an icon and a word, never colour alone. */
 .badge { display: inline-block; padding: 0 6px; border: 1px solid var(--control-border); border-radius: 4px; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+/* The framework an agent runs (#1085 S2): a neutral text badge, with its ref beside it as text. A
+ * long framework name wraps instead of widening a table cell at 320 px. */
+.badge.framework { white-space: normal; overflow-wrap: anywhere; }
+.framework-line code { overflow-wrap: anywhere; }
+.list-head { justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.list-head p { margin: 0; }
+.row.filter { align-items: center; }
 .verify.passed { color: var(--success); }
 .verify.failed { color: var(--destructive); font-weight: 600; }
 .verify.verifying, .verify.unknown { color: var(--text-muted); }
@@ -342,6 +349,10 @@ a.action.ghost { text-decoration: underline; text-underline-offset: 3px; }
 .identity-strip dd { margin: 0; overflow-wrap: anywhere; }
 .identity.failed, .gated.failed { color: var(--destructive); font-weight: 600; }
 .identity.passed, .gated.passed { color: var(--success); font-weight: 600; }
+/* The identity strip's check result (#1085 S2, CI axe on the Overview): the words use the card's
+ * text colour, AA on every surface in both themes; a passed check keeps its gate-check icon, so the
+ * state is the word and the icon, never colour alone. */
+.identity-strip .identity .text { color: var(--card-foreground); }
 /* Eval report viewer (#932): a case's reply and explanation, opened on request. */
 .case-content { margin-top: 6px; min-width: 16rem; }
 .case-content summary { cursor: pointer; font-size: 12.5px; }

@@ -143,10 +143,10 @@ def _read(path: Path) -> dict | None:
     return data
 
 
-def newest(runtime: str, base: Path | None = None) -> dict | None:
-    """The newest report for an image built on this runtime version, as the summary
-    `registry runtimes --json` shows: {passed, result, digest, date}. None when there is none
-    (or the directory is not a private one you own)."""
+def newest_report(runtime: str, base: Path | None = None) -> dict | None:
+    """The newest report for an image built on this runtime version, whole, as
+    `registry conformance --json` prints it. None when there is none (or the directory is not a
+    private one you own)."""
     try:
         target = directory(runtime, base)
         info = os.lstat(target)
@@ -171,6 +171,14 @@ def newest(runtime: str, base: Path | None = None) -> dict | None:
             continue
         if best is None or data["finished"] > best["finished"]:
             best = data
+    return best
+
+
+def newest(runtime: str, base: Path | None = None) -> dict | None:
+    """The newest report for an image built on this runtime version, as the summary
+    `registry runtimes --json` shows: {passed, result, digest, date}. None when there is none
+    (or the directory is not a private one you own)."""
+    best = newest_report(runtime, base)
     if best is None:
         return None
     return {

@@ -34,7 +34,7 @@ test("a failed model call keeps its code, the runtime's next step and its correl
 
 test("every model code is a model failure, MODEL_BLOCKED included", () => {
   assert.ok(MODEL_CODES.includes("MODEL_BLOCKED"));
-  for (const code of MODEL_CODES) {
+  for (const code of MODEL_CODES.filter((item) => item !== "MODEL_STEP_LIMIT")) {
     const problem = failed({ code, message: "m" }, { sent: true, correlation_id: CORRELATION, retry_after_s: null });
     assert.equal(problem.correlation, CORRELATION);
     assert.equal(problem.retryAfter, undefined);
@@ -105,4 +105,16 @@ test("an agent's cached prompt tokens add up, and are unknown when any key did n
   assert.equal(both.total.cached_prompt_tokens, 10);
   const one = agentCost({ keys: [key("a".repeat(32), 4), key("b".repeat(32), null)] }, "hello");
   assert.equal(one.total.cached_prompt_tokens, null);
+});
+
+test("MODEL_STEP_LIMIT has its own plain-language line (#1085 S2)", () => {
+  assert.ok(MODEL_CODES.includes("MODEL_STEP_LIMIT"));
+  const problem = failed({ code: "MODEL_STEP_LIMIT", message: "The agent answered 502: step limit" }, { sent: true, correlation_id: CORRELATION, retry_after_s: 3 });
+  assert.equal(problem.correlation, CORRELATION);
+  const text = failureText(problem);
+  assert.match(text, /^The agent reached its limit on model calls for one turn while the model still asked for tools, so there is no reply: /);
+  assert.match(text, /\[MODEL_STEP_LIMIT\]/);
+  assert.match(text, /Sending it again starts a new turn\.$/);
+  assert.doesNotMatch(text, /Tools ran|shorter request/); // nothing has shown either
+  assert.doesNotMatch(text, /The model call failed/);
 });
