@@ -521,7 +521,10 @@ so a reader such as the local console needs no knowledge of profiles:
   `runtime/adk@1.3.0` (Northwind 61/61, #1095) and `runtime/adk@1.4.0` (the starter and the
   3.0.0a3 public-registry runs). It is about the version, not a `new agent` combination: those
   all ran on the starter's default, `runtime/adk@1.4.0`, so a spec or `--runtime` that pins
-  `1.3.0` still has `verified: false` in `new agent`'s output.
+  `1.3.0` still has `verified: false` in `new agent`'s output. `runtime/adk@1.5.0` has also been
+  run end to end (Northwind 61/61 and the sub-agents and skills acceptance runs, #1058 and
+  #1059, on `main`) but is not labelled so yet: the label would make the console start new forms
+  on it, where only sub-agent and skill combinations are verified.
 - A version the engine cannot use is still listed, with `usable: false`, a `code` and a
   `reason` and without the profile fields: an invalid manifest or a missing `modules.json`
   (`ARTIFACT_INVALID`), an unknown protocol (`PROTOCOL_UNSUPPORTED`), a version under a
@@ -539,7 +542,8 @@ so a reader such as the local console needs no knowledge of profiles:
 A `skill` version is an [Agent Skills](https://agentskills.io)-style folder: instructions the
 model loads when it needs them (#1059). You can author, publish, verify, show, diff, lock and
 find them (`used-by`). `runtime/adk@1.5.0` loads skills without scripts (instruction packs; see
-[agent-yaml.md](agent-yaml.md#runtimeadk150), checked by its runtime tests only); `build` refuses
+[agent-yaml.md](agent-yaml.md#runtimeadk150); run end to end once with two instruction packs on
+Docker and Gemini, `docs/superpowers/verification/1059-skills-a.md`); `build` refuses
 `skills:` in `agent.yaml` on an earlier runtime (`RUNTIME_NO_SKILLS`) and a skill with scripts on
 every runtime (`RUNTIME_NO_SKILL_SCRIPTS`).
 

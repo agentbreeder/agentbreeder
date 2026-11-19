@@ -109,9 +109,32 @@ MCP_TOOL = r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$"  # services.schema.MCP_TOOL
 # `openai/text-embedding-3-small`); MCP was not, so any combination with MCP stays unverified.
 # Every run had one tool, so a spec with more tools is unverified too (`VERIFIED_TOOLS`).
 VERIFIED: dict[str, frozenset[tuple[str, ...]]] = {
-    "adk": frozenset({(), ("knowledge",), ("tools",), ("knowledge", "tools")}),
+    "adk": frozenset(
+        {
+            (),
+            ("knowledge",),
+            ("tools",),
+            ("knowledge", "tools"),
+            # #1058 and #1059 AC: docs/superpowers/verification/1058-subagents.md and
+            # 1059-skills-a.md, on `PART_RUNTIMES`' version only.
+            ("subagents",),
+            ("subagents", "tools"),
+            ("skills",),
+        }
+    ),
 }
-VERIFIED_TOOLS = 1  # the most tools a verified spec has
+VERIFIED_TOOLS = 1  # the most tools a verified spec has, its sub-agents' included
+# Parts the starter's runtime (`newagent.RUNTIME`) does not run, with the one version each was
+# run end to end on. A spec with such a part is verified only when it pins that version; every
+# other combination still needs the starter's.
+PART_RUNTIMES = {"subagents": "runtime/adk@1.5.0", "skills": "runtime/adk@1.5.0"}
+# The providers each part ran with (#1058, #1059 AC: gemini only), as `TOOL_PROVIDERS`; every
+# sub-agent's provider counts too. The runs had two sub-agents and two skills, so a spec with
+# more is unverified.
+SUBAGENT_PROVIDERS = frozenset({"gemini"})
+SKILL_PROVIDERS = frozenset({"gemini"})
+VERIFIED_SUBAGENTS = 2
+VERIFIED_SKILLS = 2
 # Runtime versions that were run end to end, each with its run (owner decision 2026-11-17).
 # This is what `registry runtimes` labels (`runtime_verified`). It says nothing about a
 # `new agent` combination: those all ran on `newagent.RUNTIME`, so `verified` does not read it.
@@ -1045,7 +1068,7 @@ def combination(spec: Spec) -> tuple[str, ...]:
     parts = (
         ("knowledge", spec.knowledge),
         ("tools", tools),
-        ("mcp", spec.mcp),
+        ("mcp", spec.mcp or any(sub.mcp for sub in spec.subagents)),
         ("subagents", spec.subagents),
         ("skills", spec.skills),
     )
@@ -1065,14 +1088,42 @@ def verified(spec: Spec) -> bool:
     provider is verified, and for a spec with tools there are at most `VERIFIED_TOOLS` of them
     on a `TOOL_PROVIDERS` provider. Every combination ran on the default runtime version, so a
     spec that pins another is not verified, even one `registry runtimes` shows as run end to
-    end (`runtime_verified`, e.g. `runtime/adk@1.3.0`)."""
+    end (`runtime_verified`, e.g. `runtime/adk@1.3.0`).
+
+    Sub-agents and skills need a newer version than the default: a spec with either is
+    verified only on the version in `PART_RUNTIMES`, with the agent and every sub-agent on a
+    `SUBAGENT_PROVIDERS` (or `SKILL_PROVIDERS`) provider, at most `VERIFIED_SUBAGENTS`
+    sub-agents and `VERIFIED_SKILLS` skills, each provider's default model (no `model_id`),
+    and `VERIFIED_TOOLS` counting every agent's tools, each on a `TOOL_PROVIDERS` provider. A
+    sub-agent's `mcp:` counts as MCP. The caps (`limits`, `max_model_calls`,
+    `max_calls_per_turn`) are not part of the claim."""
+    parts = combination(spec)
+    wanted = {PART_RUNTIMES[part] for part in parts if part in PART_RUNTIMES}
+    if len(wanted) > 1:
+        return False
     runtime = spec.runtime or RUNTIME
     name = runtime.removeprefix("runtime/").partition("@")[0]
-    if runtime != RUNTIME or name not in VERIFIED:
+    if runtime != (wanted.pop() if wanted else RUNTIME) or name not in VERIFIED:
         return False
-    if combination(spec) not in VERIFIED[name] or not PROVIDERS[spec.model].verified:
+    if parts not in VERIFIED[name] or not PROVIDERS[spec.model].verified:
         return False
-    return not spec.tools or (len(spec.tools) <= VERIFIED_TOOLS and spec.model in TOOL_PROVIDERS)
+    models = [spec.model, *(sub.model for sub in spec.subagents)]
+    # the runs used each provider's default model; another model id was not run with either part
+    if (spec.subagents or spec.skills) and any(
+        model_id is not None for model_id in (spec.model_id, *(s.model_id for s in spec.subagents))
+    ):
+        return False
+    if spec.subagents and (
+        len(spec.subagents) > VERIFIED_SUBAGENTS
+        or any(model not in SUBAGENT_PROVIDERS for model in models)
+    ):
+        return False
+    if spec.skills and (len(spec.skills) > VERIFIED_SKILLS or spec.model not in SKILL_PROVIDERS):
+        return False
+    tooled = [(spec.model, spec.tools), *((sub.model, sub.tools) for sub in spec.subagents)]
+    if sum(len(tools) for _, tools in tooled) > VERIFIED_TOOLS:
+        return False
+    return all(model in TOOL_PROVIDERS for model, tools in tooled if tools)
 
 
 SUBAGENT_PROMPT_MANIFEST = """\
