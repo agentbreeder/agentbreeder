@@ -89,10 +89,17 @@ export const runtimeOf = (runtimes, ref) => (runtimes || []).find((entry) => ent
 /** "LangGraph 1.0.0": the framework's own name (C8) and the version. */
 export const runtimeLabel = (entry) => `${entry.display_name} ${entry.version}`;
 
-/** The ref a new form starts on: the newest version of the default framework, or null. */
+/**
+ * The version a framework starts on: its newest version run end to end, else its newest. A newer
+ * version that has not been run (runtime/adk@1.5.0 today) stays one pick away, so a new form is not
+ * an unverified combination that Create refuses (composition console spec §4.1).
+ */
+const startingVersion = (group) => (group.versions.find((entry) => entry.verified) || group.versions[0]).ref;
+
+/** The ref a new form starts on: the default framework's starting version, or null. */
 export function defaultRuntime(runtimes) {
   const group = frameworks(runtimes).find((item) => item.name === DEFAULT_RUNTIME);
-  return group ? group.versions[0].ref : null;
+  return group ? startingVersion(group) : null;
 }
 
 /**
@@ -174,10 +181,10 @@ export function invalidProblem(invalid, runtime) {
   return text ? `${text} Remove ${invalid.length === 1 ? "it" : "them"} or choose another framework.` : null;
 }
 
-/** The form on the newest version of framework `name` (each framework starts there). */
+/** The form on framework `name`'s starting version (`startingVersion`). */
 export function pickFramework(form, name, runtimes) {
   const group = frameworks(runtimes).find((item) => item.name === name);
-  return group ? { ...form, runtime: group.versions[0].ref } : form;
+  return group ? { ...form, runtime: startingVersion(group) } : form;
 }
 
 /** The form without pick `{kind, name}` (an invalid pick's Remove control). */
@@ -244,7 +251,7 @@ export function grantTool(form, name, tool, granted, entries) {
 /**
  * The form without picks `parts` no longer offers (a version gone, or one that cannot be picked
  * now) and without grants of tools the picked version no longer declares; a runtime that is gone
- * or cannot be used now, and a form with none yet, gets the default framework's newest version.
+ * or cannot be used now, and a form with none yet, gets the default framework's starting version.
  * The same form object when nothing changed. This is for registry changes only: a pick that does
  * not fit the chosen framework stays, with a reason (`invalidPicks`).
  */
