@@ -176,12 +176,17 @@ def test_adk_1_2_0_and_1_3_0_are_usable_google_adk_through_the_legacy_profile(pa
     expect(adk).to_have_count(1)  # the only framework with a runtime today
     expect(adk).to_have_accessible_name("Google ADK")
     expect(adk).to_be_checked()
-    expect(adk).to_have_accessible_description("runtime/adk@9.9.0 · Not run end to end")
+    # The form starts on the newest version run end to end, not on a newer one that was not
+    # (the path registry's 9.9.0, and runtime/adk@1.5.0).
+    expect(adk).to_have_accessible_description("runtime/adk@1.4.0 · Run end to end (Northwind)")
     version = page.get_by_label("Version of Google ADK")
+    expect(version).to_have_value(ADK)
     expect(version.locator("option")).to_have_text(
-        ["9.9.0 (AGENTBREEDER_REGISTRY_PATH)", "1.4.0", "1.3.0", "1.2.0", "1.1.0"]
+        ["9.9.0 (AGENTBREEDER_REGISTRY_PATH)", "1.5.0", "1.4.0", "1.3.0", "1.2.0", "1.1.0"]
         + ["1.0.6", "1.0.5", "1.0.4"]
     )
+    version.select_option(PATH_RUNTIME)
+    expect(adk).to_have_accessible_description("runtime/adk@9.9.0 · Not run end to end")
     for number, status in (("1.2.0", "Not run end to end"), ("1.3.0", "Run end to end")):
         version.select_option(f"runtime/adk@{number}")
         expect(adk).to_have_accessible_description(
@@ -199,7 +204,7 @@ def test_the_version_select_changes_the_status_and_says_so_once(page, console):
     langgraph = group(page).get_by_role("radio", name="LangGraph")
     langgraph.check()
     version = page.get_by_label("Version of LangGraph")
-    expect(version).to_have_value("runtime/langgraph@1.0.0")  # each framework starts on its newest
+    expect(version).to_have_value("runtime/langgraph@1.0.0")  # none run: it starts on its newest
     expect(page.locator("#announce")).to_have_text(
         "LangGraph 1.0.0: Conformance passed; not run end to end"
     )
@@ -425,8 +430,10 @@ def test_a_runtime_without_mcp_does_not_offer_mcp_servers(page, console):
 def test_the_code_confirm_lists_a_runtime_from_outside_the_built_ins(page, console):
     open_builder(page, console)
     fill(page)
-    # The newest version is the path registry's, so the form starts on it.
-    expect(page.get_by_label("Version of Google ADK")).to_have_value(PATH_RUNTIME)
+    # The path registry's version is the newest but was not run end to end, so the form starts
+    # on runtime/adk@1.4.0 and the path version is one pick away.
+    expect(page.get_by_label("Version of Google ADK")).to_have_value(ADK)
+    page.get_by_label("Version of Google ADK").select_option(PATH_RUNTIME)
     pane = preview(page)
     parts = pane.get_by_role("table", name="Parts the agent uses")
     expect(parts).to_contain_text(PATH_RUNTIME)
