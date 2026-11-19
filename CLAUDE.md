@@ -224,6 +224,16 @@ runtime takes (`RUNTIME_LIMIT`). No runtime other than ADK exists. Website: no c
 framework passes its acceptance. Cloud: a `CLAUDE.md` note only; it has no code that reads the
 manifest's `runtime` or a runtime manifest.
 
+**Agent packages, #763 M13 (slices 1 to 4a), per side.** OSS (on `main`, not in a published
+preview): the `agent` registry kind, `release` writing an immutable `agent/<name>@X.Y.Z` package
+(strict `package.json`, `package_version` 1, unknown keys refused), `deploy agent/<name>@X.Y.Z
+--local`, store schema v4 (`package` column), and a library-only OCI artifact
+(`application/vnd.agentbreeder.agent.v1`, pushed to `127.0.0.1` only; no command uses it yet, and
+`--cluster` by ref still refuses). No `agent.yaml`, deploy manifest, JSON Schema or `agent.lock`
+format change. Website: no change until release R. Cloud: a `CLAUDE.md` note only (the `agent`
+kind and the strict `package.json`); a grep of its tracked files on 2026-11-18 for the package,
+artifact and registry codes found nothing.
+
 ## 🎯 When Adding a New Feature
 
 1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?
