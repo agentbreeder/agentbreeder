@@ -618,6 +618,33 @@ lock file:
 A changed byte in a locked version fails with `HASH_MISMATCH`. Hashes detect tampering after a
 version is first locked; they don't vouch for that first lock.
 
+Changes on `main`, not in a published preview (#829 slice 1a, the groundwork for remote
+registry sources):
+
+- **`--locked` reads only the locked root.** `build --locked`, `services up --locked` and
+  `release` (for the eval set) read each locked ref only from the root its entry names, with
+  no check across the other roots, so a copy of the same version in another root is neither
+  read nor a `REF_CONFLICT`. The named root must be configured now: `registry` (the project's
+  `./registry`), an `AGENTBREEDER_REGISTRY_PATH` entry (recorded relative to the project) or
+  `builtin`. Any other `source` (for example an absolute path you never configured) is
+  `LOCK_STALE`; run a plain `build` to re-lock. A plain build still resolves across all roots
+  and refuses a `REF_CONFLICT`.
+- **Strict lock files.** `agent.lock` and `stack.lock` refuse unknown top-level or entry keys,
+  a malformed `sha256` (`sha256:` and 64 hex digits) and an empty `source` (`LOCK_INVALID`); a
+  newer `lock_version` says to upgrade AgentBreeder. A local registry root whose label would
+  start with `remote:` is `REGISTRY_ROOT_INVALID`.
+- **Lock format version 2.** Reserved for projects that declare remote sources, which no
+  command can do yet: version 2 adds a `sources` table (name → `type` `git`, `oci` or `http`,
+  canonical `url`, `pin`, and a git `path`), `remote:<name>` entry sources and an optional
+  per-entry `pin`. Without remote sources the lock stays version 1, byte for byte as before.
+  `stack.lock` stays version 1. A version 2 entry from a remote source gives `SOURCE_OFFLINE`:
+  this version cannot fetch remote sources. Design:
+  `docs/superpowers/specs/2026-11-11-remote-registry-sources-design.md`.
+- **No empty directories in a version.** `registry publish`, `import`, `fork` and `edit` refuse
+  a version with an empty directory, and `registry verify` reports one (`ENTRY_UNSAFE`, "add a
+  .keep file"): git cannot store an empty directory, so the same version would hash differently
+  from a directory and from a remote copy. No shipped version has one.
+
 ## Agent packages (in progress, on `main`, not in a published preview)
 
 M13 (#763) adds an `agent` registry kind: a released agent kept as an immutable version at

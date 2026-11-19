@@ -134,7 +134,7 @@ def test_tampered_service_version_is_refused(project, tmp_path):
 
 def test_unused_entries_pruned_or_refused(project, tmp_path):
     _, lock = run(project, tmp_path)
-    lock.entries["service/gone@1.0.0"] = {"sha256": "x", "source": "registry"}
+    lock.entries["service/gone@1.0.0"] = {"sha256": "sha256:" + "0" * 64, "source": "registry"}
     path = tmp_path / "stack.lock"
     lock.save(path)
     with pytest.raises(RegistryError) as caught:

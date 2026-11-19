@@ -198,6 +198,8 @@ def test_registry_reads_stay_pure():
         "agentbreeder._version",
         "agentbreeder.registry",
         "agentbreeder.lock",
+        "agentbreeder.sources",
+        "agentbreeder.sources.url",
         "agentbreeder.strict_yaml",
     }, loaded
 

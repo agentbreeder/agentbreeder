@@ -109,6 +109,57 @@ class Resolved:
     root: Path
 
 
+BUILTIN_LABEL = "builtin"
+REMOTE_LABEL_PREFIX = "remote:"
+
+
+@dataclass(frozen=True)
+class Root:
+    """A registry root and the label `agent.lock` records for it (#829 spec §4.1).
+
+    `label` is `builtin`, a path relative to the project (`registry`) or an absolute path for a
+    local root; `remote:<name>` is reserved for remote sources. `source` is the remote source
+    name (None for a local root) and `kinds` the kinds the root may provide."""
+
+    path: Path
+    label: str
+    source: str | None = None
+    kinds: frozenset[str] = frozenset(KINDS)
+
+
+def root_label(root: Path, project_dir: Path | None) -> str:
+    """The lock label of a local root. Built-in versions ship inside AgentBreeder, so their
+    install path (which differs per machine) is never recorded."""
+    if root.resolve() == BUILTIN_ROOT.resolve():
+        return BUILTIN_LABEL
+    if project_dir is None:
+        return str(root)
+    try:
+        label = os.path.relpath(root, project_dir)
+    except ValueError:
+        label = str(root)
+    if label.startswith(REMOTE_LABEL_PREFIX):
+        raise RegistryError(
+            "REGISTRY_ROOT_INVALID",
+            f"{_shown(root)}: a local registry root's label must not start with "
+            f"{REMOTE_LABEL_PREFIX!r}; use another directory name",
+        )
+    return label
+
+
+def as_roots(search: list[Path | Root], project_dir: Path | None) -> list[Root]:
+    """`search` as labelled roots (paths get their local label)."""
+    return [
+        item if isinstance(item, Root) else Root(item, root_label(item, project_dir))
+        for item in search
+    ]
+
+
+def configured_roots(project_dir: Path | None = None) -> list[Root]:
+    """The local roots configured now (`roots`), labelled as `agent.lock` records them."""
+    return as_roots(roots(project_dir), project_dir)
+
+
 def roots(project_dir: Path | None = None) -> list[Path]:
     result = []
     if project_dir is not None:
@@ -256,6 +307,21 @@ def _entries(source: Path) -> list[tuple[str, Path, os.stat_result]]:
     if shipped is not None:
         _check_shipped_complete(manifest, shipped, found)
     return sorted(found, key=lambda item: item[0])
+
+
+def check_no_empty_dirs(source: Path) -> None:
+    """Refuse an empty directory in a version (#829 D7, spec §6.5): git cannot store one, so the
+    same version would hash differently from a directory and from a remote copy of it.
+    `publish` (and import, fork, edit) and `verify` check it; hashing itself is unchanged."""
+    found = _entries(source)
+    parents = {Path(relative).parent.as_posix() for relative, _, _ in found}
+    for relative, _, info in found:
+        if stat.S_ISDIR(info.st_mode) and relative not in parents:
+            raise RegistryError(
+                "ENTRY_UNSAFE",
+                f"empty directory {_shown(relative)}/: registry versions cannot hold empty "
+                "directories (git does not store them); add a .keep file",
+            )
 
 
 _HASH_HEADER = b"agentbreeder-registry-v1\0"
@@ -537,6 +603,7 @@ def place(
                 from agentbreeder import skill_check  # skill_check imports this module
 
                 skill_check.check(staged, ref)
+            check_no_empty_dirs(staged)
             items, digest = _read_version(staged)
             code = runs_code(ref.kind, staged)
             if edit is not None:
@@ -941,6 +1008,7 @@ def verify(search: list[Path]) -> list[dict]:
 
                 with _reads():
                     skill_check.check(Path(row["path"]), ref)
+            check_no_empty_dirs(Path(row["path"]))
         except RegistryError as error:
             problems.append({"ref": row["ref"], "path": row["path"], "error": str(error)})
     return problems
@@ -1975,7 +2043,9 @@ def usage(ref: Ref, project_dir: Path) -> dict:
             # Checked first (regular file, size) so Lock.load never opens a FIFO or device.
             if read_project_file(lock_path, LOCK_FILE_LIMIT) is None:
                 continue
-            entries = Lock.load(lock_path).entries
+            # stack.lock carries `imports` and `mcp` (services.lock.StackLock reads them).
+            extra = ("imports", "mcp") if kind == "stack" else ()
+            entries = Lock.load(lock_path, extra_keys=extra).entries
         except (RegistryError, RecursionError) as error:
             row["errors"].append(_usage_error(lock_name, error))
             continue
