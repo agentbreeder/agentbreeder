@@ -38,7 +38,7 @@ MODULE_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}")
 # Tool src dirs go on sys.path; a tool module must not shadow a runtime or stdlib module.
 RESERVED = {
     "agent", "config", "mcp_client", "memory", "rag", "redaction", "server", "telemetry", "tools",
-    "skills", "subagents", "turns",
+    "skill_hash", "skills", "subagents", "turns",
 } | set(sys.stdlib_module_names)  # fmt: skip
 # sys.path before any tool's src/ is inserted: what a tool's top-level names must not shadow.
 ORIGINAL_PATH = list(sys.path)
@@ -74,6 +74,9 @@ class ToolRuntime:
     config: dict
     services: dict
     trace: dict = field(default_factory=dict)
+    # What this one call recorded (1.5.0): its own audit row's additions, kept apart from
+    # what a tool running at the same time recorded.
+    added: dict = field(default_factory=dict)
 
     def evidence(self, source: str, title: str, text: str, **extra) -> None:
         """Record what the reply may be grounded in (online evals read it)."""
@@ -84,6 +87,7 @@ class ToolRuntime:
     def record(self, key: str, value: Any) -> None:
         """Append to a per-turn list returned in the response (e.g. tickets, web)."""
         self.trace.setdefault(key, []).append(value)
+        self.added.setdefault(key, []).append(value)
 
 
 @dataclass(frozen=True)

@@ -4,8 +4,9 @@ decides from a version's files whether it is code.
 
 A skill is an instruction pack (kind (a): `manifest.yaml`, `SKILL.md`, optional `references/`) or a
 script skill (kind (b): the same plus `scripts/`, every file declared in the manifest). Nothing
-here runs, imports or parses a script, and no runtime loads skills yet: the checks fail early, so a
-name or description that passes publish never fails at runtime start.
+here runs, imports or parses a script. `runtime/adk@1.5.0` loads instruction packs and applies
+these rules again at start; no runtime runs scripts. The checks fail early, so a name or
+description that passes publish does not fail at runtime start.
 
 `SKILL.md`'s front matter is the model's always-on text (L1: name and description, in every turn
 of every agent that pins the skill), so it is parsed with the strict YAML loader and limited to

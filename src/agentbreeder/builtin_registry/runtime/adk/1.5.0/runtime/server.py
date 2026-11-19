@@ -232,6 +232,14 @@ def warm() -> None:
         import agent
 
         agent.runtime()
+    except cfg.ConfigError as error:
+        # Why the agent cannot start (a tampered skill, a bad config), redacted; every request
+        # answers 503 with the same reason until it is fixed.
+        import redaction
+
+        print(
+            redaction.one_line(f"runtime start failed: {redaction.redact(str(error))}"), flush=True
+        )
     except Exception as error:  # noqa: BLE001 - logged, retried lazily
         print(f"runtime warm-up failed: {type(error).__name__}", flush=True)
 

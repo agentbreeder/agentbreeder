@@ -42,6 +42,7 @@ PARENT_TAG = TAG + "-"
 ALREADY_CONSULTED = (
     "This specialist was already consulted as often as one turn allows. Answer with what you have."
 )
+OUT_OF_STEPS = "This turn has no steps left for a specialist. Answer with what you have."
 COULD_NOT_FINISH = "The specialist could not finish. Answer with what you have."
 COULD_NOT_RUN = "The specialist could not run. Answer without it."
 
@@ -151,17 +152,28 @@ class SubAgentTool(BaseTool):
         # One sub-agent call at a time per turn, so every model call of a turn is sequential
         # and the per-call cost and route slots stay correct.
         async with turn["subagent_lock"]:
+            # Checked here, with every earlier call of the turn finished: a sub-agent never
+            # starts once the turn's model calls, or its own, are used up. Without this,
+            # several asks in one model response would each still run a model call.
+            if self.runtime.spent(turn, self.child):
+                usage["calls"] -= 1
+                raise ValueError(OUT_OF_STEPS)
             usage["request_sha256"] = hashlib.sha256(request.encode()).hexdigest()
             try:
                 return await self._run(turn, request)
             except Exception as failure:
-                if not caused_by(failure, TurnUnknown):
-                    raise
-                # A callback of the child found no turn: nothing it did was counted or
-                # audited, so its work is not used. The parent's model gets a tool error.
-                await self.runtime.audit(
-                    turn, "system", "subagent_turn_unknown", {"subagent": self.child.name}
-                )
+                if self.runtime.model_failed(failure):
+                    raise  # ends the whole turn with its code, as the parent's does
+                if caused_by(failure, TurnUnknown):
+                    # A callback of the child found no turn: nothing it did was counted or
+                    # audited, so its work is not used.
+                    await self.runtime.audit(
+                        turn, "system", "subagent_turn_unknown", {"subagent": self.child.name}
+                    )
+                else:
+                    # Anything else: its text stays in the log, redacted; the parent's model
+                    # and the audit row get a fixed message.
+                    self.runtime.log_failure(turn, f"sub-agent {self.child.name}", failure)
                 raise ValueError(COULD_NOT_RUN) from None
 
     async def _run(self, turn: dict, request: str) -> str:

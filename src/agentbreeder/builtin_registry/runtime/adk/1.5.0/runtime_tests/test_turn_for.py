@@ -47,6 +47,10 @@ def live(runtime, turn="t1", customer="cust-001", session="s1"):  # noqa: F811
         "started": {},
         "failed": set(),
         "cost": agent_module.new_tally(),
+        "added": {},
+        "agent_calls": {},
+        "kb": {},
+        "subagents": {},
     }
     runtime.turns[turn] = entry
     return entry

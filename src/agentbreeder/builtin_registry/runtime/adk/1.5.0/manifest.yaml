@@ -31,11 +31,31 @@ description: >-
   `agentbreeder.subagent` span attribute, and an `agentbreeder-subagent:<name>` request tag for
   the gateway's spend log. Tool separation between agents is not a security boundary: all tool
   code runs in one process. A callback that finds no running turn now fails instead of being
-  skipped.
+  skipped; a tool module may no longer be named `turns`, `subagents`, `skills` or
+  `skill_hash`. 1.5.0 also loads an agent's `skills:` (instruction packs, no scripts): each placed
+  skill is re-hashed at start (SKILL_TAMPERED fails start) and re-checked against the publish
+  rules; the model gets the skills' names and descriptions in its system instruction and two
+  tools, `load_skill` and `load_skill_resource` (reference files only), capped at 3 calls each
+  per turn (SKILL_LOAD_LIMIT). The reply lists `skills[]`; events and spans carry the skill's
+  name, version and hash, never its text. Skill text steers the model as the prompt does.
+  A turn a gateway guardrail blocked keeps none of its text in its `turns` row (the message is
+  replaced by a fixed label) or in its spans, which are exported without content; every turn's
+  spans are now exported when the turn ends. The ADK session still holds the message.
+  1.5.0 is the first version to declare the agent protocol keys below; nothing is implied.
+# The agent protocol this runtime serves and what the engine may build for it (#1083 F1). With
+# `protocol` set, the engine reads every fact from here and from runtime/modules.json.
+protocol: 1
+profile: v1
 framework: google-adk
+display_name: Google ADK
 port: 8080
 health_path: /health
-capabilities: [mcp, subagents]
+capabilities: [knowledge, notes, mcp, subagents, skills]
+limits: {knowledge: 1, tools: 50, mcp_servers: 10}
+# ADK skips a tool with one of the first five names; the last two are the skill tools the
+# runtime adds itself (it refuses to start when an agent with skills has a tool named so).
+reserved_tool_names: [transfer_to_agent, adk_request_credential, adk_request_confirmation,
+  adk_request_input, set_model_response, load_skill, load_skill_resource]
 # The memory schema version this runtime writes (M16 refuses unknown ones; 1 = every earlier
 # version, implied).
 memory_schema: 2

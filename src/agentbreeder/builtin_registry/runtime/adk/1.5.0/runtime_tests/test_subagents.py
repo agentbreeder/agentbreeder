@@ -650,6 +650,145 @@ def test_the_reply_lists_sub_agents_in_first_call_order(team):
     ]
 
 
+def test_asks_in_one_response_cannot_run_past_the_turn_cap(app, monkeypatch):  # noqa: F811
+    # Review r1 (A-M1): three asks arrive together when one step is left.
+    subagent_config(app, limits={"turn_model_calls": 3})
+    team = build(monkeypatch)
+    Parent.script = [
+        text(""),  # replaced below: the first response is the three asks
+        text("Out of steps."),
+    ]
+    Parent.script[0] = many(
+        ("ask_billing", {"request": "one"}),
+        ("ask_returns", {"request": "two"}),
+        ("ask_billing", {"request": "three"}),
+    )
+    Billing.script = [call("file_refund", order="1"), text("filed"), text("never")]
+    Returns.script = [text("never")]
+    result = chat(team)
+    # Parent 1, billing 2 and 3 (the cap): the other two asks never start a model call.
+    assert result["model_calls"] == 4 <= 3 + 2
+    assert len(Billing.requests) == 2 and Returns.requests == []
+    replies = [
+        p.function_response.response
+        for c in Parent.requests[1].contents
+        for p in (c.parts or [])
+        if p.function_response
+    ]
+    assert replies[1] == {"error": subagents.OUT_OF_STEPS} == replies[2]
+    # Only a sub-agent that ran is listed: an eval's subagents_include must not pass for one
+    # that was asked and refused (review r1, M2).
+    assert [(e["name"], e["calls"]) for e in result["subagents"]] == [("billing", 1)]
+    assert [event[5]["ok"] for event in events("tool:ask_returns")] == [False]
+
+
+def test_a_sub_agent_out_of_its_own_calls_does_not_start_again(team):
+    # Review r1 (A-L1): billing's three model calls are spent in its first call.
+    Parent.script = [
+        call("ask_billing", request="one"),
+        call("ask_billing", request="two"),
+        text("Done."),
+    ]
+    Billing.script = [
+        call("file_refund", order="1"),
+        call("file_refund", order="2"),
+        text("both filed"),
+        text("never"),
+    ]
+    result = chat(team)
+    assert len(Billing.requests) == 3 and result["subagents"][0]["model_calls"] == 3
+    response = Parent.requests[2].contents[-1].parts[0].function_response.response
+    assert response == {"error": subagents.OUT_OF_STEPS}
+    assert result["subagents"][0]["calls"] == 1
+
+
+def test_a_sibling_tools_row_holds_only_what_it_recorded_itself(team):
+    # Review r1 (A-M2): the parent's whoami runs while billing's file_refund records.
+    Parent.script = [
+        many(("ask_billing", {"request": "refund"}), ("whoami", {"label": "x"})),
+        text("Done."),
+    ]
+    Billing.script = [call("file_refund", order="A-17"), text("filed")]
+    result = chat(team)
+    (whoami,) = [event[5] for event in events("tool:whoami")]
+    (refund,) = [event[5] for event in events("tool:file_refund")]
+    (ask,) = [event[5] for event in events("tool:ask_billing")]
+    assert whoami["seen"] == ["cust-001"] and "requests" not in whoami
+    assert refund["requests"] == result["requests"] and "seen" not in refund
+    assert "requests" not in ask and "seen" not in ask
+    assert "subagent" not in whoami and refund["subagent"] == "billing"
+
+
+def test_another_failure_in_a_sub_agent_is_a_fixed_tool_error(team, capsys):
+    class Broken(ScriptedModel):
+        async def generate_content_async(self, llm_request, stream=False):
+            raise RuntimeError("internal detail sk-secretsecret12345 /srv/app/agent.py")
+            yield  # pragma: no cover
+
+    team.children["ask_billing"].agent.model = Broken()
+    Parent.script = [call("ask_billing", request="refund"), text("I could not check.")]
+    result = chat(team)
+    assert result["reply"] == "I could not check."
+    response = Parent.requests[1].contents[-1].parts[0].function_response.response
+    assert response == {"error": subagents.COULD_NOT_RUN}
+    (row,) = events("tool:ask_billing")
+    assert row[5]["error"] == subagents.COULD_NOT_RUN and "internal detail" not in json.dumps(row)
+    line = capsys.readouterr().out
+    assert "sub-agent billing failed" in line and "internal detail" in line
+    assert "secretsecret" not in line
+
+
+def test_a_turn_cancelled_inside_a_sub_agent_leaves_nothing_behind(app, monkeypatch):  # noqa: F811
+    subagent_config(app)
+    started = asyncio.Event()
+
+    class Stuck(ScriptedModel):
+        async def generate_content_async(self, llm_request, stream=False):
+            started.set()
+            await asyncio.sleep(30)
+            yield text("never")
+
+    team = build(monkeypatch, billing=Stuck())
+    Parent.script = [call("ask_billing", request="refund"), text("never")]
+    locks = []
+
+    async def cancelled():
+        turn = asyncio.create_task(team.chat_async("s1", "cust-001", "hi"))
+        await started.wait()
+        locks.append(next(iter(team.turns.values()))["subagent_lock"])
+        assert locks[0].locked()
+        turn.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await turn
+        before = len(FakeMemory.events)
+        await asyncio.sleep(0.05)
+        return before
+
+    before = asyncio.run(cancelled())
+    assert team.turns == {} and not locks[0].locked()
+    assert len(FakeMemory.events) == before  # nothing is written after the turn ended
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda c: c.update(limits={"turn_model_calls": 0}), "turn_model_calls must be 1 to 40"),
+        (lambda c: c.update(limits={"turn_model_calls": -1}), "turn_model_calls must be 1 to 40"),
+        (lambda c: c.update(limits={"turn_model_calls": 41}), "turn_model_calls must be 1 to 40"),
+        (lambda c: c["subagents"][0]["model"].update(max_model_calls=0), "max_model_calls"),
+        (lambda c: c["subagents"][0]["model"].update(max_model_calls=21), "max_model_calls"),
+        (lambda c: c["model"].update(max_model_calls=0), "at least 1"),
+    ],
+)
+def test_caps_out_of_range_fail_start(app, monkeypatch, change, message):  # noqa: F811
+    config = subagent_config(app)
+    change(config)
+    (app / "agent.config.json").write_text(json.dumps(config))
+    cfg.config.cache_clear()
+    with pytest.raises(cfg.ConfigError, match=message):
+        build(monkeypatch)
+
+
 # -- cost and tags, through the real model client -------------------------------------------
 
 
@@ -666,7 +805,10 @@ class Gateway:
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
                 gateway.bodies.append(body)
-                status, headers, answer = gateway.scripts[body["model"]].pop(0)
+                script = gateway.scripts[body["model"]]
+                # A function answers from the request itself, so concurrent turns cannot take
+                # each other's scripted replies.
+                status, headers, answer = script(body) if callable(script) else script.pop(0)
                 data = json.dumps(answer).encode()
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
@@ -786,6 +928,28 @@ def test_cost_is_counted_in_a_task_without_the_turns_variable(
     result = chat(team)
     # The model client finds the turn's tally through the callback, not an inherited variable.
     assert result["subagents"][0]["cost_usd"] == 0.02 and result["cost_usd"] == 0.025
+
+
+def test_two_customers_costs_stay_in_their_own_turns(app, monkeypatch, gateway):  # noqa: F811
+    team = real_team(app, monkeypatch)
+
+    def parent(body):
+        answered = any(message["role"] == "tool" for message in body["messages"])
+        if answered:
+            return says("Done.", "0.003")
+        return asks("ask_billing", {"request": "refund"}, "0.002")
+
+    gateway.scripts = {"m": parent, "pro": lambda body: says("Filed.", "0.020")}
+
+    async def both():
+        return await asyncio.gather(
+            team.chat_async("sa", "cust-A", "refund please"),
+            team.chat_async("sb", "cust-B", "refund please"),
+        )
+
+    for result in asyncio.run(both()):
+        assert result["cost_usd"] == 0.025 and result["subagents"][0]["cost_usd"] == 0.02
+        assert result["model_calls"] == 3
 
 
 def test_a_call_without_a_cost_makes_that_agent_unknown(app, monkeypatch, gateway):  # noqa: F811
@@ -912,3 +1076,76 @@ def test_a_sub_agents_spans_reach_the_root_span_and_name_it(team, exporter):
         if span.attributes.get("openinference.span.kind") == "CHAIN" and span not in marked
     ]
     assert len(parent_calls) == 2
+
+
+# -- MCP ------------------------------------------------------------------------------------
+
+
+def test_a_sub_agent_reaches_only_its_listed_mcp_tools_through_its_own_session(
+    app,  # noqa: F811
+    monkeypatch,
+    tmp_path,
+):
+    from relay_harness import TOKEN, Relay, Upstream
+
+    upstream = Upstream()
+    relay = Relay(tmp_path / "relay", upstream)
+    try:
+        config = subagent_config(app)
+        config["mcp"] = [
+            {"name": "github", "version": "1.0.0", "tools": ["list_issues", "create_issue"]}
+        ]
+        config["subagents"][0]["mcp"] = [
+            {"name": "github", "version": "1.0.0", "tools": ["list_issues"]}
+        ]
+        (app / "agent.config.json").write_text(json.dumps(config))
+        cfg.config.cache_clear()
+        secret = app / "mcp-github-token"
+        secret.write_text(TOKEN + "\n")
+        monkeypatch.setenv("AGENTBREEDER_MCP_GITHUB_TOKEN_FILE", str(secret))
+        monkeypatch.setenv("AGENTBREEDER_MCP_GITHUB_URL", relay.url)
+        team = build(monkeypatch)
+        billing = team.children["ask_billing"]
+        assert [toolset.server.tools for toolset in billing.toolsets] == [("list_issues",)]
+        assert len(team.mcp_toolsets) == 2  # the parent's session and the sub-agent's
+        assert billing.toolsets[0] is not team.agent.tools[-1]
+        Parent.script = [call("ask_billing", request="open issues?"), text("Two issues.")]
+        Billing.script = [call("github_list_issues", q="open"), text("Two are open.")]
+
+        async def turn_then_close():
+            result = await team.chat_async("s1", "cust-001", "hi")
+            sessions = len(relay.relay.sessions)
+            await team.close_mcp(5)
+            return result, sessions
+
+        result, sessions = asyncio.run(turn_then_close())
+        assert result["reply"] == "Two issues." and upstream.calls == {
+            "list_issues": [{"q": "open"}]
+        }
+        declared = sorted(
+            d.name for tool in Billing.requests[0].config.tools for d in tool.function_declarations
+        )
+        assert declared == ["file_refund", "github_list_issues"]  # never create_issue
+        (row,) = events("tool:github_list_issues")
+        assert row[5]["subagent"] == "billing" and row[5]["mcp"] == "mcp/github@1.0.0"
+        assert row[0] == result["turn_id"] and row[5]["ok"] is True
+        assert sessions >= 1
+    finally:
+        relay.stop()
+        upstream.stop()
+
+
+def test_a_sub_agents_empty_mcp_tool_list_fails_start(app, monkeypatch, tmp_path):  # noqa: F811
+    from relay_harness import TOKEN
+
+    config = subagent_config(app)
+    config["mcp"] = [{"name": "github", "version": "1.0.0", "tools": ["list_issues"]}]
+    config["subagents"][0]["mcp"] = [{"name": "github", "version": "1.0.0", "tools": []}]
+    (app / "agent.config.json").write_text(json.dumps(config))
+    cfg.config.cache_clear()
+    secret = app / "mcp-github-token"
+    secret.write_text(TOKEN + "\n")
+    monkeypatch.setenv("AGENTBREEDER_MCP_GITHUB_TOKEN_FILE", str(secret))
+    monkeypatch.setenv("AGENTBREEDER_MCP_GITHUB_URL", "http://127.0.0.1:9/mcp")
+    with pytest.raises(cfg.ConfigError, match="must list tools the agent has"):
+        build(monkeypatch)

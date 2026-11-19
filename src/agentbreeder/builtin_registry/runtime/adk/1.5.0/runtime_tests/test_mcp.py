@@ -331,6 +331,10 @@ def test_setup_exports_through_the_redacting_exporter(monkeypatch):
 
     captured = []
     monkeypatch.setattr(telemetry.trace, "set_tracer_provider", captured.append)
+    monkeypatch.setattr(telemetry, "_TURNS", None)  # setup sets it; restored after the test
     telemetry.setup("demo", "http://127.0.0.1:1/v1/traces")
     (processor,) = captured[0]._active_span_processor._span_processors
-    assert isinstance(processor.span_exporter, telemetry.RedactingExporter)
+    # 1.5.0: a turn's spans are held until the turn ends (TurnSpans), then batched and redacted.
+    assert processor is telemetry._TURNS and isinstance(processor, telemetry.TurnSpans)
+    assert isinstance(processor.inner.span_exporter, telemetry.RedactingExporter)
+    processor.inner.shutdown()

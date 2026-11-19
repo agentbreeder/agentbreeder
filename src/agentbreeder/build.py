@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
+import stat
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -23,7 +25,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from agentbreeder import registry, runtime_profile
+from agentbreeder import registry, runtime_profile, skill_check
 from agentbreeder.agentfile import AgentFile, load_agent_file
 from agentbreeder.lock import Lock, materialise
 from agentbreeder.manifest import IdentityReference, Manifest
@@ -82,7 +84,64 @@ def _knowledge_alias(directory: Path) -> str:
     return alias
 
 
-def _config(agent: AgentFile, placed: dict[str, Path], context: Path) -> dict:
+# The hash of a placed skill, as the runtime computes it at start (runtime/adk@1.5.0's
+# runtime/skill_hash.py; a test loads that file and checks the two agree). Not the lock's hash:
+# that one covers the whole registry version, this one the copy placed without `scripts/`.
+SKILL_HASH_HEADER = b"agentbreeder-skill-placed-v1\n"
+
+
+def skill_placed_hash(directory: Path) -> str:
+    """`sha256:<hex>` over a fixed header, then for each file under `directory` in path order
+    its POSIX relative path and its bytes, each framed by its length."""
+    files: dict[str, bytes] = {}
+    for parent, dirnames, filenames in os.walk(directory, followlinks=False):
+        for name in sorted(dirnames + filenames):
+            path = Path(parent, name)
+            mode = path.lstat().st_mode
+            if stat.S_ISDIR(mode):
+                continue
+            if not stat.S_ISREG(mode):
+                raise BuildError("ARTIFACT_INVALID", "a placed skill holds only files")
+            files[path.relative_to(directory).as_posix()] = path.read_bytes()
+    digest = hashlib.sha256(SKILL_HASH_HEADER)
+    for relative in sorted(files):
+        name, data = relative.encode(), files[relative]
+        digest.update(b"%d:" % len(name) + name + b"%d:" % len(data) + data)
+    return "sha256:" + digest.hexdigest()
+
+
+def _place_skills(
+    agent: AgentFile, placed: dict[str, Path], capabilities: frozenset[str]
+) -> dict[str, str]:
+    """Each skill's placed copy, checked again, without `scripts/`, and its placed hash by
+    ref (skills spec §7). A script skill is refused unless the runtime runs scripts, before
+    anything is stripped, so a skill's scripts never reach an image that cannot isolate them."""
+    hashes: dict[str, str] = {}
+    for entry in agent.skills:
+        directory = placed[entry.ref]
+        try:
+            skill_check.check(directory, registry.Ref.parse(entry.ref))
+        except registry.RegistryError as error:
+            raise BuildError(error.code, str(error).split("] ", 1)[-1]) from None
+        if skill_check.runs_code(directory) and "skill_scripts" not in capabilities:
+            raise BuildError(
+                "RUNTIME_NO_SKILL_SCRIPTS",
+                f"{entry.ref} has scripts and {agent.runtime} does not run skill scripts; use "
+                "a skill without scripts until a runtime version supports them",
+            )
+        shutil.rmtree(directory / "scripts", ignore_errors=True)
+        if (directory / "scripts").exists() or (directory / "scripts").is_symlink():
+            raise BuildError("ARTIFACT_INVALID", f"could not remove scripts/ from {entry.ref}")
+        hashes[entry.ref] = skill_placed_hash(directory)
+    return hashes
+
+
+def _config(
+    agent: AgentFile,
+    placed: dict[str, Path],
+    context: Path,
+    skill_hashes: dict[str, str] | None = None,
+) -> dict:
     def rel(path: Path) -> str:
         return path.relative_to(context).as_posix()
 
@@ -129,6 +188,16 @@ def _config(agent: AgentFile, placed: dict[str, Path], context: Path) -> dict:
     if agent.subagents:  # only when present, so a file without them builds the same bytes
         config["subagents"] = [_subagent_config(sub, placed, rel) for sub in agent.subagents]
         config["limits"] = {"turn_model_calls": agent.turn_model_calls()}
+    if agent.skills:  # only when present, so a file without them builds the same bytes
+        config["skills"] = [
+            {
+                "name": registry.Ref.parse(s.ref).name,
+                "version": registry.Ref.parse(s.ref).version,
+                "dir": rel(placed[s.ref]),
+                "sha256": (skill_hashes or {})[s.ref],
+            }
+            for s in agent.skills
+        ]
     return config
 
 
@@ -374,9 +443,8 @@ def check_runtime(agent: AgentFile, profile: Profile) -> None:
     count over the runtime's limit. Messages name the runtime ref and the capability or limit."""
     ref = agent.runtime
     if agent.skills and not profile.has("skills"):
-        # No runtime loads skills yet (#1059 RT); refused before docker build, so a skill's
-        # scripts/ never reaches an image. Before a runtime claims `skills`, RT must run
-        # skill_check.check on each placed skill and place it without scripts/ (spec §7).
+        # Refused before docker build, so a skill never reaches an image that would not load
+        # it. A runtime that does (runtime/adk@1.5.0) gets it through _place_skills.
         raise BuildError(
             "RUNTIME_NO_SKILLS",
             f"{ref} does not load skills, so the agent's skills: would never "
@@ -615,7 +683,9 @@ def build(
             _check_shadowing(agent, placed, modules.names())
         _check_mcp_names(agent, placed, profile)
         check_subagent_names(agent, placed, profile)
-        config = _config(agent, placed, context)
+        config = _config(
+            agent, placed, context, _place_skills(agent, placed, profile.capabilities)
+        )
         (context / "agent.config.json").write_text(json.dumps(config, indent=2, sort_keys=True))
         _world_readable(context)  # the image runs as uid 65532; COPY keeps these modes
         # The parent's alias, each sub-agent's, then the knowledge embedding alias (spec §6).

@@ -336,3 +336,390 @@ def test_guardrail_block_parsing():
             raise RuntimeError
 
     assert parse(Broken()) is None
+
+
+# -- #1106: a blocked turn keeps none of its text in `turns` or in spans ------------------------
+
+
+@pytest.fixture
+def exported():
+    """What reaches the collector: the runtime's processor chain (`TurnSpans`, then the
+    redacting exporter) in front of an in-memory exporter, on the global provider."""
+    import telemetry
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    memory = InMemorySpanExporter()
+    provider = trace.get_tracer_provider()
+    if not isinstance(provider, TracerProvider):
+        provider = TracerProvider()
+        trace.set_tracer_provider(provider)
+    turns = telemetry.TurnSpans(SimpleSpanProcessor(telemetry.RedactingExporter(memory)))
+    provider.add_span_processor(turns)
+    telemetry._TURNS = turns
+    yield memory
+    telemetry._TURNS = None
+    turns.inner = SimpleSpanProcessor(InMemorySpanExporter())  # detached from `memory`
+
+
+def everything(span) -> str:
+    """Every piece of text an exported span carries."""
+    return json.dumps(
+        [
+            span.name,
+            dict(span.attributes or {}),
+            span.status.description,
+            [[event.name, dict(event.attributes or {})] for event in span.events],
+        ],
+        default=str,
+    )
+
+
+def blocked_turn(runtime, message=f"my ssn is {SSN}, please update my account"):
+    import asyncio
+
+    with pytest.raises(agent_module.ModelError) as caught:
+        asyncio.run(runtime.chat_async("s1", "cust-001", message))
+    return caught.value
+
+
+def test_a_blocked_turns_record_keeps_none_of_its_text(gateway):  # noqa: F811
+    runtime, fake = gateway
+    fake.script = [error(400, "invalid_request_error", BLOCK)]
+    blocked_turn(runtime)
+    row = FakeMemory.last_turn
+    assert row["message"] == agent_module.BLOCKED_MESSAGE == "[blocked by a gateway guardrail]"
+    assert row["reply"] == "" and row["evidence"] == [] and row["sources"] == []
+    assert SSN not in json.dumps(row, default=str)
+    assert row["error"] == "MODEL_BLOCKED: US_SSN by guardrail pii-block"
+
+
+def test_text_the_gateway_adds_after_the_block_is_not_stored_or_logged(gateway, capsys):  # noqa: F811
+    """Only the entity type and guardrail name are parsed out; the rest is not kept anywhere."""
+    runtime, fake = gateway
+    fake.script = [error(400, "invalid_request_error", f"{BLOCK} Offending text: {SSN}")]
+    blocked_turn(runtime)
+    assert FakeMemory.last_turn["error"] == "MODEL_BLOCKED: US_SSN by guardrail pii-block"
+    assert events("turn_failed") == [{"error": "MODEL_BLOCKED: US_SSN by guardrail pii-block"}]
+    log = capsys.readouterr().out
+    assert SSN not in log and "Offending" not in log
+    assert "detail=MODEL_BLOCKED: US_SSN by guardrail pii-block" in log
+    assert SSN not in json.dumps(FakeMemory.events, default=str)
+
+
+def test_a_block_after_a_tool_call_drops_what_the_turn_gathered(gateway):  # noqa: F811
+    """The gateway does not say what matched: a tool result is as likely as the message."""
+    runtime, fake = gateway
+    fake.script = [tool_call("whoami"), error(400, "invalid_request_error", BLOCK)]
+    blocked_turn(runtime, "who am I?")
+    row = FakeMemory.last_turn
+    assert row["message"] == agent_module.BLOCKED_MESSAGE
+    assert row["evidence"] == [] and row["sources"] == []
+    assert row["tools"] == ["whoami"] and row["model_calls"] == 2  # names and counts stay
+
+
+def test_a_turn_that_is_not_blocked_keeps_its_message(gateway):  # noqa: F811
+    runtime, fake = gateway
+    fake.script = [ok("Hello.")]
+    turn(runtime, message="where is my order?")
+    assert FakeMemory.last_turn["message"] == "where is my order?"
+    fake.script = [error(400, "invalid_request_error", "some other refusal")]
+    assert failed_turn(runtime).code == "MODEL_REQUEST_REFUSED"
+    assert FakeMemory.last_turn["message"] == "hi"  # a failed turn that is not a block
+
+
+@pytest.mark.parametrize(
+    "message",
+    [f"invalid content: {BLOCK} {SSN}", f"x\nlitellm.BadRequestError: OpenAIException - {BLOCK}"],
+)
+def test_a_block_behind_another_prefix_keeps_its_code_but_none_of_its_text(
+    gateway,  # noqa: F811
+    exported,
+    capsys,
+    message,
+):
+    """The phrase not at the start BLOCKED expects (#1106 review): the code stays
+    MODEL_REQUEST_REFUSED, and the row, the event, the log and the spans are stored as a block."""
+    runtime, fake = gateway
+    fake.script = [error(400, "invalid_request_error", message)]
+    assert blocked_turn(runtime).code == "MODEL_REQUEST_REFUSED"
+    row = FakeMemory.last_turn
+    assert row["message"] == agent_module.BLOCKED_MESSAGE
+    assert row["error"] == (
+        "MODEL_REQUEST_REFUSED: gateway text withheld (it names a guardrail block)"
+    )
+    assert events("guardrail_blocked") == []
+    stored = json.dumps([row, events("turn_failed")], default=str) + capsys.readouterr().out
+    stored += "".join(everything(span) for span in exported.get_finished_spans())
+    for absent in (SSN, "my ssn", "Blocked entity"):
+        assert absent not in stored
+
+
+def test_mentions_block_needs_a_400():
+    assert agent_module.mentions_block(Exception(BLOCK)) is False  # no upstream status
+
+
+def test_a_blocked_turns_spans_are_exported_without_content(gateway, exported):  # noqa: F811
+    runtime, fake = gateway
+    fake.script = [tool_call("whoami"), error(400, "invalid_request_error", BLOCK)]
+    failure = blocked_turn(runtime)
+    spans = [
+        s for s in exported.get_finished_spans() if s.context.trace_id == int(failure.trace_id, 16)
+    ]
+    names = {span.name for span in spans}
+    assert {"agent_turn", "retrieve_knowledge", "execute_tool", "call_llm"} <= names
+    for span in spans:
+        text = everything(span)
+        for absent in (SSN, "my ssn", "please update", "whoami", "Blocked entity"):
+            assert absent not in text, (span.name, absent)
+        assert set(span.attributes) <= SKELETON, (span.name, sorted(span.attributes))
+        for key, value in span.attributes.items():
+            if key.startswith(("llm.token_count.", "gen_ai.usage.")):
+                assert not isinstance(value, str)
+        assert all(set(event.attributes) <= {"exception.type"} for event in span.events)
+    (root,) = [span for span in spans if span.name == "agent_turn"]
+    assert root.attributes["agentbreeder.guardrail.action"] == "blocked"
+    assert root.attributes["agentbreeder.guardrail.entity"] == "US_SSN"
+    assert root.attributes["agentbreeder.error_code"] == "MODEL_BLOCKED"
+    assert root.attributes["agent.turn_id"] == failure.turn_id
+    assert root.attributes["user.id"] == "cust-001" and root.attributes["session.id"] == "s1"
+    assert "input.value" not in root.attributes and root.status.description is None
+
+
+def telemetry_module():
+    import telemetry
+
+    return telemetry
+
+
+# Every attribute a blocked turn's spans may carry, written out (not read from the runtime).
+SKELETON = {
+    "openinference.span.kind", "session.id", "user.id", "agent.turn_id", "agent.framework",
+    "agent.name", "llm.model_name", "retrieval.mode", "gen_ai.operation.name", "gen_ai.system",
+    "gen_ai.request.model", "agentbreeder.deployment_id", "agentbreeder.error_code",
+    "agentbreeder.fallbacks", "agentbreeder.cached_prompt_tokens", "agentbreeder.subagent",
+    "agentbreeder.guardrail.action", "agentbreeder.guardrail.name",
+    "agentbreeder.guardrail.entity", "agentbreeder.skill.name", "agentbreeder.skill.version",
+    "agentbreeder.skill.sha256", "agentbreeder.skill.resource",
+    "llm.token_count.prompt", "llm.token_count.completion", "llm.token_count.total",
+    "gen_ai.usage.input_tokens", "gen_ai.usage.output_tokens",
+    "gen_ai.usage.cache_read.input_tokens",
+}  # fmt: skip
+
+
+def test_a_tool_name_the_model_made_up_is_not_on_a_blocked_turns_spans(gateway, exported):  # noqa: F811
+    """A model can copy what matched into a tool name; the turn is blocked on the next call."""
+    runtime, fake = gateway
+    fake.script = [tool_call("jane.doe.536-22-8174"), error(400, "invalid_request_error", BLOCK)]
+    failure = blocked_turn(runtime, "who am I?")
+    spans = [
+        s for s in exported.get_finished_spans() if s.context.trace_id == int(failure.trace_id, 16)
+    ]
+    assert len(spans) >= 4
+    for span in spans:
+        assert "536-22" not in everything(span) and "jane" not in everything(span), span.name
+        assert set(span.attributes) <= SKELETON, (span.name, sorted(span.attributes))
+
+
+def test_an_answered_turns_spans_keep_their_content(gateway, exported):  # noqa: F811
+    runtime, fake = gateway
+    fake.script = [ok("Hello there.")]
+    reply = turn(runtime, message="where is my order?")
+    spans = [
+        s
+        for s in exported.get_finished_spans()
+        if s.context.trace_id == int(reply["trace_id"], 16)
+    ]
+    (root,) = [span for span in spans if span.name == "agent_turn"]
+    assert root.attributes["input.value"] == "where is my order?"
+    assert root.attributes["output.value"] == "Hello there."
+    assert telemetry_module()._TURNS.held == {}  # nothing is kept after a turn
+
+
+def test_a_turns_spans_are_held_until_the_turn_ends(gateway, exported, monkeypatch):  # noqa: F811
+    """A span that ended before the block must not already be on its way out."""
+    runtime, fake = gateway
+    fake.script = [error(400, "invalid_request_error", BLOCK)]
+    seen_before_the_end = []
+    release = telemetry_module().release
+
+    def watched(trace_id, blocked=False):
+        seen_before_the_end.extend(exported.get_finished_spans())
+        release(trace_id, blocked)
+
+    monkeypatch.setattr(agent_module.telemetry, "release", watched)
+    failure = blocked_turn(runtime)
+    mine = int(failure.trace_id, 16)
+    assert [s for s in seen_before_the_end if s.context.trace_id == mine] == []
+    assert [s for s in exported.get_finished_spans() if s.context.trace_id == mine]
+
+
+def _finished(provider, name, trace_of=None, **attributes):
+    tracer = provider.get_tracer("t")
+    with tracer.start_as_current_span(name) as current:
+        for key, value in attributes.items():
+            current.set_attribute(key, value)
+    return current
+
+
+def _chain():
+    import telemetry
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    memory = InMemorySpanExporter()
+    turns = telemetry.TurnSpans(SimpleSpanProcessor(memory))
+    provider = TracerProvider()
+    provider.add_span_processor(turns)
+    return telemetry, provider, turns, memory
+
+
+def test_bare_keeps_only_listed_attributes_and_the_first_word_of_the_name():
+    from opentelemetry.trace import Status, StatusCode
+
+    telemetry, provider, turns, memory = _chain()
+    tracer = provider.get_tracer("t")
+    with tracer.start_as_current_span("execute_tool made_up_536") as current:
+        trace_id = current.get_span_context().trace_id
+        turns.hold(trace_id)
+        current.set_attribute("openinference.span.kind", "TOOL")
+        current.set_attribute("input.value", SSN)
+        current.set_attribute("tool.name", "made_up_536")
+        current.set_attribute("llm.token_count.prompt", 12)
+        current.set_attribute("agentbreeder.subagent", "billing")
+        current.set_attribute("agentbreeder.unknown_tools", ("made_up_536",))
+        current.set_attribute("agentbreeder.unknown_tool", "made_up_536")
+        current.set_attribute("agentbreeder.something_new", "not listed, so not kept")
+        current.set_attribute("agentbreeder.served_by", ("a", "b"))
+        current.set_attribute("llm.token_count.note", "text under a number prefix")
+        current.set_status(Status(StatusCode.ERROR, f"failed with {SSN}"))
+        current.add_event("exception", {"exception.type": "ValueError", "exception.message": SSN})
+    assert memory.get_finished_spans() == ()
+    turns.release(trace_id, blocked=True)
+    (span,) = memory.get_finished_spans()
+    assert span.name == "execute_tool"
+    assert dict(span.attributes) == {
+        "openinference.span.kind": "TOOL",
+        "llm.token_count.prompt": 12,
+        "agentbreeder.subagent": "billing",
+    }
+    assert span.status.status_code is StatusCode.ERROR and span.status.description is None
+    assert [dict(e.attributes) for e in span.events] == [{"exception.type": "ValueError"}]
+    assert span.context.span_id == current.get_span_context().span_id
+    assert SSN not in everything(span)
+
+
+def test_a_span_that_ends_after_its_blocked_turn_is_still_bare():
+    telemetry, provider, turns, memory = _chain()
+    tracer = provider.get_tracer("t")
+    with tracer.start_as_current_span("late") as late:
+        trace_id = late.get_span_context().trace_id
+        turns.hold(trace_id)
+        late.set_attribute("input.value", SSN)
+        turns.release(trace_id, blocked=True)
+    (span,) = memory.get_finished_spans()
+    assert "input.value" not in span.attributes
+    for _ in range(telemetry.MAX_BLOCKED + 1):  # the memory of blocked traces is bounded
+        with tracer.start_as_current_span("other") as other:
+            turns.release(other.get_span_context().trace_id, blocked=True)
+    assert len(turns.blocked) == telemetry.MAX_BLOCKED and trace_id not in turns.blocked
+
+
+def test_spans_outside_a_turn_and_after_an_answered_turn_pass_unchanged():
+    telemetry, provider, turns, memory = _chain()
+    tracer = provider.get_tracer("t")
+    with tracer.start_as_current_span("warm up") as free:
+        free.set_attribute("input.value", "kept")
+    (span,) = memory.get_finished_spans()
+    assert span.name == "warm up" and span.attributes["input.value"] == "kept"
+    memory.clear()
+    with tracer.start_as_current_span("agent_turn") as root:
+        trace_id = root.get_span_context().trace_id
+        turns.hold(trace_id)
+        with tracer.start_as_current_span("child") as child:
+            child.set_attribute("input.value", "kept")
+    assert len(turns.held[trace_id]) == 2 and memory.get_finished_spans() == ()
+    turns.release(trace_id, blocked=False)
+    assert [s.attributes.get("input.value") for s in memory.get_finished_spans()] == ["kept", None]
+    assert turns.held == {} and turns.blocked == {}
+
+
+def test_spans_past_the_cap_go_out_bare(monkeypatch):
+    telemetry, provider, turns, memory = _chain()
+    monkeypatch.setattr(telemetry, "MAX_HELD", 2)
+    tracer = provider.get_tracer("t")
+    with tracer.start_as_current_span("agent_turn") as root:
+        trace_id = root.get_span_context().trace_id
+        turns.hold(trace_id)
+        for _ in range(3):
+            with tracer.start_as_current_span("child") as child:
+                child.set_attribute("input.value", SSN)
+        (early,) = memory.get_finished_spans()  # the third: nobody knows the outcome yet
+        assert "input.value" not in early.attributes
+    turns.release(trace_id, blocked=False)
+    assert len(memory.get_finished_spans()) == 4
+
+
+def test_shutdown_exports_an_unfinished_turns_spans_bare():
+    telemetry, provider, turns, memory = _chain()
+    tracer = provider.get_tracer("t")
+    with tracer.start_as_current_span("agent_turn") as root:
+        turns.hold(root.get_span_context().trace_id)
+        with tracer.start_as_current_span("child") as child:
+            child.set_attribute("input.value", SSN)
+        seen = []
+        turns.inner.on_end = seen.append
+        turns.shutdown()
+        root.set_attribute("input.value", SSN)
+    # The child at shutdown and the root after it: the turn's outcome is unknown, so both bare.
+    assert [span.name for span in seen] == ["child", "agent_turn"] and turns.held == {}
+    assert all("input.value" not in span.attributes for span in seen)
+    assert turns.force_flush() is True
+
+
+def test_hold_and_release_do_nothing_without_tracing(monkeypatch):
+    import telemetry
+
+    monkeypatch.setattr(telemetry, "_TURNS", None)
+    telemetry.hold("0" * 31 + "1")
+    telemetry.release("0" * 31 + "1", True)
+    telemetry.hold(None)
+    telemetry.release(None)
+
+
+def test_setup_puts_the_turn_processor_in_front_of_the_exporter(monkeypatch):
+    import telemetry
+    from opentelemetry import trace
+
+    installed = []
+    monkeypatch.setattr(trace, "set_tracer_provider", installed.append)
+    monkeypatch.setattr(telemetry, "_TURNS", None)
+    telemetry.setup("p", "", enabled=True)
+    assert telemetry._TURNS is None  # no endpoint, no export
+    telemetry.setup("p", "http://127.0.0.1:9/v1/traces")
+    try:
+        assert isinstance(telemetry._TURNS, telemetry.TurnSpans)
+        assert isinstance(telemetry._TURNS.inner, telemetry.BatchSpanProcessor)
+        telemetry.hold("0" * 31 + "1")
+        assert 1 in telemetry._TURNS.held
+        telemetry.release("0" * 31 + "1", True)
+        assert telemetry._TURNS.held == {} and 1 in telemetry._TURNS.blocked
+    finally:
+        telemetry._TURNS.inner.shutdown()
+
+
+def test_a_failed_span_release_still_records_the_turn(gateway, monkeypatch, capsys):  # noqa: F811
+    runtime, fake = gateway
+    fake.script = [error(400, "invalid_request_error", BLOCK)]
+
+    def broken(trace_id, blocked=False):
+        raise OSError("exporter gone")
+
+    monkeypatch.setattr(agent_module.telemetry, "release", broken)
+    FakeMemory.last_turn = None
+    blocked_turn(runtime)
+    assert FakeMemory.last_turn["message"] == agent_module.BLOCKED_MESSAGE
+    assert "span release failed: OSError" in capsys.readouterr().out

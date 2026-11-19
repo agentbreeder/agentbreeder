@@ -11,7 +11,8 @@
            transient failures up to 3 attempts, a rate limit only within RATE_LIMIT_WAIT
   errors:  a failed model call reaches the caller as a fixed code (ModelError, server.py), never
            the gateway's or provider's text; that goes, redacted, to the log and the turn record.
-           A gateway guardrail block is MODEL_BLOCKED, with a guardrail_blocked event (1.4.0)
+           A gateway guardrail block is MODEL_BLOCKED, with a guardrail_blocked event (1.4.0);
+           the blocked turn's `turns` row and spans keep none of its text (1.5.0)
   usage:   cached prompt tokens, as the provider reported them through the gateway (1.4.0)
   tools:   a tool name the model invented is refused and listed under `unknown_tools`, never
            as a tool call (1.4.0)
@@ -21,6 +22,9 @@
   agents:  `subagents:` are child LlmAgents the parent calls as tools, `ask_<name>(request)`
            (subagents.py): one turn id, caps per agent and per turn, cost and spans per
            sub-agent, `subagents[]` in the reply (1.5.0)
+  skills:  `skills:` are instruction packs the model loads with `load_skill` and
+           `load_skill_resource` (skills.py): hash-checked at start, capped per turn, and
+           never copied into an event or a span; `skills[]` in the reply (1.5.0)
 
 Retrieval-augmented generation runs before the model call: the top knowledge passages are added
 to the customer's message. Each turn is recorded in `turns`. The customer is always the Runner's
@@ -47,6 +51,7 @@ import mcp_client
 import psycopg
 import psycopg.sql
 import redaction
+import skills
 import subagents
 import telemetry
 from google.adk.agents import LlmAgent
@@ -58,6 +63,7 @@ from google.adk.plugins.base_plugin import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
 from google.adk.tools.base_tool import BaseTool
+from google.adk.tools.skill_toolset import LoadSkillResourceTool, LoadSkillTool
 from google.adk.tools.tool_context import ToolContext
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -95,7 +101,6 @@ redact = redaction.redact  # MCP tokens, the gateway key and key-shaped strings
 RUNTIME_KEYS = frozenset(
     {"tools", "evidence", "sources", "mcp_unavailable", "unknown_tools"}
     | {"args", "agent", "tool", "mcp", "latency_ms", "ok", "error", "writes_request"}
-    | {"subagents", "subagent", "request_sha256"}
 )
 
 # LiteLLM's SDK keeps the gateway's response headers, prefixed, in `_hidden_params`.
@@ -114,6 +119,11 @@ BLOCKED = re.compile(
     r"(?:litellm\.BadRequestError: )?(?:OpenAIException - )?Blocked entity detected: "
     r"([A-Z][A-Z0-9_]{0,63}) by Guardrail: ([A-Za-z0-9][A-Za-z0-9._-]{0,63}?)\.(?:\s|\Z)"
 )
+# A 400 with this phrase anywhere is stored as a block (no text kept) even when BLOCKED does
+# not match, so a prefix the gateway or a wrapper adds cannot make the turn keep it (#1106).
+BLOCK_PHRASE = "Blocked entity detected"
+# What the `turns` row of a blocked turn holds in place of the customer's message (#1106).
+BLOCKED_MESSAGE = "[blocked by a gateway guardrail]"
 # ADK 2.12 stands a bare BaseTool with this description in for a tool name the model invented
 # (flows/llm_flows/tools/_caller.py), and answers it through on_tool_error_callback (#1074).
 TOOL_NOT_FOUND = "Tool not found"
@@ -356,6 +366,17 @@ def guardrail_block(failure) -> tuple[str, str] | None:
     return (found.group(1), found.group(2)) if found else None
 
 
+def mentions_block(failure) -> bool:
+    """Whether a failed call's text names a guardrail block anywhere (#1106): storage then
+    keeps none of the turn's text even when BLOCKED, anchored at the start, did not match."""
+    if upstream_status(failure) != 400:
+        return False
+    try:
+        return BLOCK_PHRASE in str(failure)
+    except Exception:  # noqa: BLE001 - an exception whose __str__ fails names nothing
+        return False
+
+
 def classify(failure) -> ModelError | None:
     """The coded error for a failed model call, or None when `failure` is not one."""
     status = upstream_status(failure)
@@ -416,6 +437,10 @@ class Runtime:
         )
         self.top_k = max([int(k.get("top_k", 5)) for k in knowledge] or [5])
         self.extra_searches = max([int(k.get("extra_searches", 1)) for k in knowledge] or [0])
+        # Instruction packs first: verified against the build's hashes before any tool code is
+        # imported or anything is served.
+        self.skills = skills.load(config.get("skills") or [], cfg.artifact)
+        self.skill_index = {skill.name: skill for skill in self.skills}
         self.loader = ToolLoader(cfg.artifact)  # one import and shadowing check for all agents
         self.functions = self.loader.functions(config.get("tools") or [])
         tools: list[BaseTool] = [RegistryTool(f, self.tool_runtime) for f in self.functions]
@@ -435,9 +460,13 @@ class Runtime:
         # Every model call of a turn, all agents together (None without sub-agents: the
         # parent's own cap is then the only one, as before 1.5.0).
         self.turn_cap: int | None = None
+        if self.max_steps < 1:
+            raise cfg.ConfigError("model.max_model_calls must be at least 1")
         if declared:
             limit = (config.get("limits") or {}).get("turn_model_calls")
-            self.turn_cap = int(limit) if limit else min(40, self.max_steps + 6)
+            self.turn_cap = int(limit) if limit is not None else min(40, self.max_steps + 6)
+            if not 1 <= self.turn_cap <= 40:  # ADK reads a limit of 0 or less as "no limit"
+                raise cfg.ConfigError("limits.turn_model_calls must be 1 to 40")
         self.children: dict[str, subagents.Child] = {}  # ADK agent name (`ask_<name>`) -> child
         for entry in declared:
             child = self.child(entry, bool(knowledge), (child_models or {}).get(entry["name"]))
@@ -449,6 +478,15 @@ class Runtime:
         if len(self.children) > subagents.MAX_SUBAGENTS:
             raise cfg.ConfigError(f"at most {subagents.MAX_SUBAGENTS} sub-agents")
         tools += [subagents.SubAgentTool(child, self) for child in self.children.values()]
+        self.skill_toolset = skills.toolset(self.skills) if self.skills else None
+        if self.skills:
+            names = {tool.name for tool in tools} | set(
+                mcp_client.tool_index(self.mcp_servers, [])
+            )
+            clash = sorted(names & set(skills.TOOLS))
+            if clash:
+                raise cfg.ConfigError(f"a tool is named {clash[0]}, which loads skills")
+            tools.append(self.skill_toolset)
         self.agent = LlmAgent(
             name=name,
             description=config.get("description", ""),
@@ -506,6 +544,8 @@ class Runtime:
             max_calls_per_turn=calls,
             description=str(entry.get("description", "")),
         )
+        if not 1 <= child.max_model_calls <= 20:
+            raise cfg.ConfigError(f"sub-agent {name}: max_model_calls must be 1 to 20")
         system = (
             (cfg.artifact(entry["prompt"]["dir"]) / "prompt.md").read_text(encoding="utf-8")
         ).strip()
@@ -530,9 +570,10 @@ class Runtime:
             wanted = tuple(listed["tools"])
             if server is None or server.version != listed["version"]:
                 raise cfg.ConfigError(f"sub-agent {name}: mcp/{listed['name']} is not the agent's")
-            if not set(wanted) <= set(server.tools):
+            # An empty list would mean "every tool" to ADK's filter: refused, never widened.
+            if not wanted or not set(wanted) <= set(server.tools):
                 raise cfg.ConfigError(
-                    f"sub-agent {name}: mcp/{listed['name']} lists a tool the agent does not"
+                    f"sub-agent {name}: mcp/{listed['name']} must list tools the agent has"
                 )
             servers.append(dataclasses.replace(server, tools=wanted))
         mcp_client.tool_index(servers, [tool.name for tool in tools])
@@ -545,6 +586,23 @@ class Runtime:
             tools=[*tools, *child.toolsets],
         )
         return child
+
+    def spent(self, turn: dict, child: subagents.Child) -> bool:
+        """Whether a sub-agent may not start (again) in this turn: the turn's model calls,
+        or its own, are used up."""
+        if turn["trace"]["model_calls"] >= self.turn_cap:
+            return True
+        return turn["agent_calls"].get(child.tool, 0) >= child.max_model_calls
+
+    @staticmethod
+    def model_failed(failure) -> bool:
+        return model_failure(failure) is not None
+
+    @staticmethod
+    def log_failure(turn: dict, what: str, failure) -> None:
+        """One redacted log line for a failure whose text goes nowhere else."""
+        detail = redaction.upstream(f"{type(failure).__name__}: {failure}")[:500]
+        print(redaction.one_line(f"{what} failed: turn={turn['id']} detail={detail}"), flush=True)
 
     def child_of(self, context) -> subagents.Child | None:
         """The sub-agent a callback's context belongs to, or None for the parent."""
@@ -586,6 +644,8 @@ class Runtime:
             # Inside a turn ADK always passes the context; without one the memo is skipped.
             return False
         turn = self.turn_for(context)
+        # By server name, for every agent of the turn: the parent's and a sub-agent's sessions
+        # reach one relay with one token, so one failure stands for both.
         down = turn["trace"]["mcp_unavailable"]
         if server.name in down:
             return True
@@ -609,7 +669,9 @@ class Runtime:
     # -- per-call helpers --------------------------------------------------------------------
     def tool_runtime(self, tool_context: ToolContext) -> ToolRuntime:
         turn = self.turn_for(tool_context)
+        added = turn["added"].setdefault(AgentPlugin._call_key(tool_context), {})
         return ToolRuntime(
+            added=added,
             customer=turn["customer"],  # the server-side customer, also for a sub-agent's tool
             session=turn["session"],
             turn=turn["id"],
@@ -686,13 +748,16 @@ class Runtime:
             "started": {},  # function_call_id -> monotonic start, for detail.latency_ms
             "failed": set(),  # function_call_ids already audited by on_tool_error_callback
             "cost": cost,
+            "added": {},  # tool call -> what that call recorded (ToolRuntime.record)
             "lost": False,  # a callback found no turn (run_turn): the fixed reply, and an error
             "agent_calls": {},  # ADK agent name -> model calls this turn
             "kb": {},  # ADK agent name -> knowledge searches this turn
             "subagents": {},  # sub-agent name -> its usage this turn, in first-call order
             "subagent_lock": asyncio.Lock(),  # one sub-agent call at a time
+            "skills": skills.new_usage(),  # load counts and what was loaded, this turn
         }
         reply, error, trace_id, span_id = "", None, None, None
+        blocked = False  # a gateway guardrail blocked the turn (#1106)
         try:
             with span(
                 "agent_turn",
@@ -709,6 +774,7 @@ class Runtime:
                 },
             ) as root:
                 trace_id, span_id = ids(root)
+                telemetry.hold(trace_id)  # the turn's spans go out when it ends (release)
                 await run_to_completion(
                     memory.audit,
                     turn,
@@ -734,11 +800,23 @@ class Runtime:
                 except Exception as failure:
                     # The detail stays here: the turn record, its audit event and one log line.
                     error = redaction.upstream(f"{type(failure).__name__}: {failure}")[:500]
+                    coded = classify(failure)
+                    if coded is not None and coded.guardrail is not None:
+                        # Only the two names the block was parsed into: the rest of the
+                        # gateway's text is not known to be free of what matched (#1106).
+                        blocked = True
+                        error = "MODEL_BLOCKED: {} by guardrail {}".format(*coded.guardrail)
+                    elif mentions_block(failure):
+                        # The phrase, but not at the start BLOCKED expects (a wrapper's
+                        # prefix): the code stays as classified, the storage is as for a
+                        # block, since the text may hold what matched (#1106 review).
+                        blocked = True
+                        code = coded.code if coded is not None else type(failure).__name__
+                        error = f"{code}: gateway text withheld (it names a guardrail block)"
                     await run_to_completion(
                         memory.audit, turn, session, customer, "system", "turn_failed",
                         {"error": error},
                     )  # fmt: skip
-                    coded = classify(failure)
                     if coded is None:
                         raise
                     coded.turn_id, coded.trace_id = turn, trace_id
@@ -780,10 +858,21 @@ class Runtime:
                 "served_by": served_by,
                 "rate_limit_wait_s": round(cost["waited"], 3),
                 **self.subagent_reply(entry["subagents"]),
+                # Skills loaded this turn; no key for an agent without skills.
+                **({"skills": skills.reply_entries(entry["skills"])} if self.skills else {}),
             }
         finally:
             TURN_COST.reset(cost_token)
             self.turns.pop(turn, None)
+            try:
+                telemetry.release(trace_id, blocked)
+            except Exception as failure:  # an export failure never costs the turn its record
+                print(f"span release failed: {type(failure).__name__}", flush=True)
+            if blocked:
+                # The gateway does not say which text matched, so the turn record keeps none
+                # of the turn's text: not the message, not what tools or searches returned.
+                message = BLOCKED_MESSAGE
+                trace["sources"], trace["evidence"] = [], []
             try:
                 await run_to_completion(
                     memory.record_turn,
@@ -810,11 +899,12 @@ class Runtime:
                 await run_to_completion(memory.close)
 
     def subagent_reply(self, used: dict) -> dict:
-        """`subagents` for the reply: one entry per sub-agent that ran, in first-call order.
-        No key at all for an agent without sub-agents."""
+        """`subagents` for the reply: one entry per sub-agent that ran (not one that was only
+        asked and refused), in first-call order. No key for an agent without sub-agents."""
         if not self.children:
             return {}
-        return {"subagents": [subagents.reply_entry(usage) for usage in used.values()]}
+        ran = [usage for usage in used.values() if usage["calls"] > 0]
+        return {"subagents": [subagents.reply_entry(usage) for usage in ran]}
 
     def mark_root(self, root, tally: dict, trace: dict) -> None:
         """The turn's fallbacks (#1039), cached prompt tokens (#1056) and unknown tool names
@@ -1097,7 +1187,96 @@ class AgentPlugin(BasePlugin):
         current.set_attribute("tool.name", tool.name)
         current.set_attribute("tool.parameters", json.dumps(tool_args, default=str))
         current.set_attribute("input.value", json.dumps(tool_args, default=str))
+        if skill_tool(tool):
+            return self._skill_gate(turn, tool, tool_args, tool_context, current)
         return None
+
+    def _skill_call(self, tool, tool_args) -> dict:
+        """Which skill (and reference file) a load names, as validated values: `skill`,
+        `version`, `sha256` when the skill is one of the agent's, and `resource` when the
+        path is one of that skill's reference files. Never anything the model made up."""
+        name = tool_args.get("skill_name")
+        known = self.runtime.skill_index.get(name) if isinstance(name, str) else None
+        if known is None:
+            return {}
+        found = {"skill": known.name, "version": known.version, "sha256": known.sha256}
+        if tool.name == skills.LOAD_RESOURCE:
+            reference = skills.reference_name(tool_args.get("file_path"))
+            if reference in known.references:
+                found["resource"] = reference
+        return found
+
+    def _skill_gate(self, turn, tool, tool_args, tool_context, current) -> dict | None:
+        """The runtime's rules for a skill load, before ADK's tool runs: the per-turn caps,
+        "already loaded", and the reference path rule. A dict answers the model instead of
+        the tool."""
+        usage = turn["skills"]
+        call = self._skill_call(tool, tool_args)
+        wrong = [key for key in ("skill_name", "file_path") if key in tool_args
+                 and not isinstance(tool_args[key], str)]  # fmt: skip
+        if wrong:
+            return skill_refusal("INVALID_ARGUMENTS", f"{wrong[0]} must be text.")
+        for key, value in call.items():
+            current.set_attribute(
+                "agentbreeder.skill." + ("name" if key == "skill" else key), value
+            )
+        if tool.name == skills.LOAD:
+            usage["loads"] += 1
+            if usage["loads"] > skills.MAX_LOADS:
+                return skill_refusal(
+                    skills.LOAD_LIMIT,
+                    f"At most {skills.MAX_LOADS} skills can be loaded in a turn.",
+                )
+            # Only for the text this session already holds: after a redeploy with another
+            # version of the skill, the hash differs and the new body is returned.
+            active = self.runtime.skill_toolset.list_active_skills(tool_context)
+            same = call and skills.loaded_hash(tool_context.state, call["skill"]) == call["sha256"]
+            if same and call["skill"] in active:
+                return {"skill_name": call["skill"], "status": skills.ALREADY_LOADED}
+            return None
+        usage["resource_loads"] += 1
+        if usage["resource_loads"] > skills.MAX_RESOURCE_LOADS:
+            return skill_refusal(
+                skills.LOAD_LIMIT,
+                f"At most {skills.MAX_RESOURCE_LOADS} skill files can be read in a turn.",
+            )
+        path = tool_args.get("file_path")
+        if isinstance(path, str) and path and skills.reference_name(path) is None:
+            return skill_refusal(
+                "INVALID_RESOURCE_PATH",
+                "Only a skill's reference files can be read: references/<file name>.",
+            )
+        return None
+
+    async def _skill_result(self, turn, tool, tool_args, tool_context, result, detail) -> None:
+        """A skill load's span output, row fields and `skill_loaded` event: the skill's name,
+        version and hash and the file's name, never the text that was loaded."""
+        loaded = result if isinstance(result, dict) else {}
+        content = loaded.get("instructions" if tool.name == skills.LOAD else "content")
+        set_output(otel.get_current_span(), {"chars": len(content or "")})
+        call = self._skill_call(tool, tool_args)
+        if loaded.get("error"):
+            code = loaded.get("error_code")
+            detail["ok"] = False
+            detail["error"] = code if isinstance(code, str) and code.isupper() else "SKILL_ERROR"
+            if "resource" in call:
+                del call["resource"]
+        detail.update(call)
+        if loaded.get("status") == skills.ALREADY_LOADED:
+            detail["already_loaded"] = True
+        detail["args"] = skill_args(tool_args)
+        if not call or not isinstance(content, str):
+            return
+        if tool.name == skills.LOAD:
+            skills.remember_loaded(tool_context.state, call["skill"], call["sha256"])
+        entry = turn["skills"]["loaded"].setdefault(
+            call["skill"], {"version": call["version"], "resources": []}
+        )
+        if "resource" in call and call["resource"] not in entry["resources"]:
+            entry["resources"].append(call["resource"])
+        await self._audit(
+            tool_context, "agent", "skill_loaded", {**call, "agent": self.runtime.app}
+        )
 
     def _call_detail(self, tool, tool_args, tool_context) -> dict:
         """What every tool row carries: args, agent, registry tool or MCP server, latency."""
@@ -1122,8 +1301,13 @@ class AgentPlugin(BasePlugin):
         RUNTIME_KEYS."""
         turn = self.runtime.turn_for(tool_context)
         before = turn["recorded"].pop(self._call_key(tool_context), {})
+        own = turn["added"].pop(self._call_key(tool_context), {})
         if isinstance(tool, subagents.SubAgentTool):
             return {}  # what the sub-agent's tools recorded is on their own rows, not this one
+        if self.runtime.children:
+            # With sub-agents, tools of several agents run inside one another's calls, so
+            # the lists cannot be told apart by position: only what this call recorded itself.
+            return {key: list(value) for key, value in own.items() if key not in RUNTIME_KEYS}
         added = {}
         for key, value in turn["trace"].items():
             if isinstance(value, list) and key not in RUNTIME_KEYS:
@@ -1134,7 +1318,8 @@ class AgentPlugin(BasePlugin):
 
     async def after_tool_callback(self, *, tool, tool_args, tool_context, result):
         turn = self.runtime.turn_for(tool_context)
-        set_output(otel.get_current_span(), as_text(result))
+        if not skill_tool(tool):  # a skill's text is never a span attribute (_skill_result)
+            set_output(otel.get_current_span(), as_text(result))
         if self._call_key(tool_context) in turn["failed"]:
             # ADK also runs this callback with the error callback's result; that call is
             # already audited as failed (runtime 1.1.0 wrote a second, "ok" row here).
@@ -1153,6 +1338,8 @@ class AgentPlugin(BasePlugin):
             failed = mcp_client.failure(result)
             if failed:
                 detail["ok"], detail["error"] = False, redact(failed)[:300]
+        if skill_tool(tool):
+            await self._skill_result(turn, tool, tool_args, tool_context, result, detail)
         if spec is not None and spec.writes_requests:
             detail["writes_request"] = True
             child = self.runtime.child_of(tool_context)
@@ -1174,7 +1361,9 @@ class AgentPlugin(BasePlugin):
             await self._audit(
                 tool_context, "agent", "tool_unknown",
                 {"name": name, "agent": self.runtime.app, "unknown": True, "ok": False,
-                 "error": UNKNOWN_TOOL_ERROR},
+                 "error": UNKNOWN_TOOL_ERROR,
+                 **({"subagent": child.name} if (child := self.runtime.child_of(tool_context))
+                    else {})},
             )  # fmt: skip
             return {"error": UNKNOWN_TOOL_REPLY}
         if isinstance(tool, subagents.SubAgentTool) and model_failure(error) is not None:
@@ -1190,6 +1379,8 @@ class AgentPlugin(BasePlugin):
         self._recorded(tool, tool_context)
         detail = self._call_detail(tool, tool_args, tool_context)
         detail.update(ok=False, error=message)
+        if skill_tool(tool):
+            detail["args"] = skill_args(tool_args)
         turn["failed"].add(self._call_key(tool_context))
         await self._audit(tool_context, "agent", f"tool:{tool.name}", detail)
         return {"error": message}
@@ -1199,6 +1390,26 @@ class AgentPlugin(BasePlugin):
         current.set_attribute("openinference.span.kind", "AGENT")
         mark_subagent(current, self.runtime.child_of(callback_context))
         return None
+
+
+def skill_tool(tool) -> bool:
+    """ADK's `load_skill` or `load_skill_resource` (no other tool may have those names)."""
+    return isinstance(tool, (LoadSkillTool, LoadSkillResourceTool))
+
+
+def skill_args(tool_args) -> dict:
+    """A skill load's arguments as an audit row keeps them: bounded text, with an exact copy of
+    any loaded skill text replaced (a model can be steered to copy that into an argument)."""
+    return {
+        key: telemetry.withheld(value)[:100] if isinstance(value, str) else "?"
+        for key, value in (tool_args if isinstance(tool_args, dict) else {}).items()
+        if key in ("skill_name", "file_path")
+    }
+
+
+def skill_refusal(code: str, message: str) -> dict:
+    """The runtime's answer to a skill load it refuses, in the shape of ADK's own errors."""
+    return {"error": message, "error_code": code}
 
 
 def mark_subagent(current, child) -> None:
