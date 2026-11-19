@@ -548,3 +548,9 @@ th[scope="row"] { color: var(--foreground); }
     .glass, .glass-strong { background: Canvas; border-color: CanvasText; -webkit-backdrop-filter: none; backdrop-filter: none; }
   }
 }
+
+/* Sign-in, setup and Settings forms (M2 #818). */
+form.signin input { width: min(360px, 100%); }
+form.signin label { margin-top: 6px; }
+dialog.reauth { max-width: 420px; }
+.menu-link { color: inherit; font-size: 13px; }

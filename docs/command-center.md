@@ -87,9 +87,9 @@ On `main` the walkthrough column is replaced by a console shell (Preact + htm, n
 - **Sign-in states**: the one-time link is consumed before anything else and removed from the
   address bar. "Session ended" and "Sign in" pages say how to get a new link, and signing in again
   returns to the screen you were on. Sessions live in the console's memory, so "Session ended"
-  names both causes: the tab was open 8 hours or idle 1 hour, or the console was restarted
-  (#879). "Console not reachable at this address" (no answer at all) is a separate page that
-  retries every 5 seconds.
+  names every cause, a console restart included (#879). "Console not reachable at this address"
+  (no answer at all) is a separate page that retries every 5 seconds. From #818 the sign-in pages
+  also take the console password (below).
 - **Walkthrough fixes (#811)**:
   - Audit shows each row's time (from `at`), agent deployment, mode, reason codes and whether the
     actor was verified. Verify is one sentence ("Chain intact: 19 rows checked, head 63639e…" or
@@ -135,6 +135,66 @@ wheel built from `main` in a clean sandbox on macOS (2026-11-13), Northwind pass
 Docker and on `kind` through the console's API, every screen was opened in Chrome, and the teardown
 ran from the UI (three leftover Docker objects of the stack were then removed by hand). Onboarding,
 the grant review, a full release and the cluster connect and deploy were not clicked in the browser.
+
+### Sign-in (#818): on `main`, not in a published preview
+
+The console has one user, `admin@localhost`, and a password with no shared default.
+
+- **First run.** `agentbreeder up` prints a one-time setup link and opens it. The setup page asks
+  for the password (at least 12 characters; common passwords are refused). Only a session from
+  that terminal link can set the first password; a request without one gets 401. Headless:
+  `agentbreeder up --set-password` asks on the terminal without echo, or reads exactly one line of
+  stdin (`printf '%s\n' "$PW" | agentbreeder up --set-password`); never pass a password as an
+  argument. Setting it ends the link's session, and you sign in with the password next.
+- **A console from an earlier version** (projects, no password) goes to the same setup at its
+  next start; its projects and job history are kept (`center.sqlite3` moves to schema 4).
+- **Later runs.** `up` prints the address and opens the sign-in page; it prints no link unless you
+  ask: `agentbreeder up --link`, or Enter in the terminal running `up` (the link always works,
+  also during a wait below). A link is printed only to a terminal; when output goes to a file, the
+  link is written to the private `login.html` (mode 0600) in the console directory and only that
+  path is printed.
+- **Sign-in.** Email and password mint this tab's header token, kept in the tab's
+  `sessionStorage`; there is no cookie, because cookies would reach every other `127.0.0.1` port.
+  One sign-in per tab. A wrong email and a wrong password get the same answer after the same
+  scrypt work. After five wrong passwords in a row the console waits 30 seconds before it checks
+  another, doubling each time and never more than 5 minutes, for every caller at once; the page
+  says so and points to the terminal link. A new password (a change, or a reset from the
+  terminal) starts a fresh count. One password check runs at a time.
+- **Sessions.** A session ends after the session length (8 hours by default; 1, 4 or 24 in
+  Settings), after 1 hour idle (log follows, job and activity polls do not count as activity), when
+  the console restarts, when the password changes or is reset, and on "sign out everywhere". The
+  console re-reads its credential version on every request, so `agentbreeder up --reset-password`
+  run in another terminal ends the open sessions of a running console at once.
+- **A session that ends while a page is open** opens a sign-in dialog over the page: the route and
+  anything typed stay. Unsaved registry edits are also kept in the tab's `sessionStorage` and come
+  back when the editor opens again, which happens only after this tab has signed in.
+- **Settings** (user menu): change the password (needs the current one; this tab stays signed in
+  and every other session ends), session length, sign out everywhere, the theme, and the last 20
+  security events (sign-ins, failed sign-ins, waits, password set, change and reset, sign-outs;
+  time, outcome and source only, never a password or link). A forgotten password is reset only in
+  the terminal: `agentbreeder up --reset-password`.
+- `http://localhost:PORT/` redirects to `http://127.0.0.1:PORT/`, the one address the console
+  answers; the API never redirects.
+
+**What the password protects, and what it does not.** It keeps other users of the computer, web
+pages in your browser and local containers out of the console. On Docker Desktop a container can
+reach the console's port through `host.docker.internal`, so it can reach the sign-in form; the
+password and the wait are what stop it. It does not protect against programs running as your own
+OS account: they can read the console's files (`~/.agentbreeder`) and run the CLI directly. Open
+only the address `up` prints: if another program holds the console's usual port, `up` refuses to
+start on another one once a password exists, so a stale tab or bookmark never shows someone
+else's sign-in page.
+
+Stored: the password's scrypt hash (`n=2**15, r=8, p=1`, its parameters and a per-user salt
+stored with it) in `center.sqlite3` (0600), and the last 1000 security events. Sessions are only in
+the console's memory.
+
+Tested: unit and API tests of every refusal (setup without a link's session, a change without the
+current password, the sixth wrong password waiting and never more than 5 minutes, a reset from
+another process ending a running console's sessions), the terminal commands end to end as
+subprocesses, and Playwright with axe in light and dark for setup, sign-in, Settings and the
+re-auth dialog. Not yet run: the container check from inside a Northwind container, a Chrome
+click-through, and a run from a wheel built from `main` in a clean sandbox.
 
 ### Design system v2 (#1116): on `main`, not in a published preview
 
