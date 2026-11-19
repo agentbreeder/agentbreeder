@@ -222,10 +222,12 @@ test("a runtime the CLI cannot use is text, never a choice", () => {
   assert.equal(runtimeOf(RUNTIMES, ADK), RUNTIMES[0]);
 });
 
-test("a new form starts on the default framework's newest version (C1)", () => {
+test("a new form starts on the default framework's newest version run end to end (C1)", () => {
   assert.equal(DEFAULT_RUNTIME, "adk");
   assert.equal(defaultRuntime(RUNTIMES.filter((entry) => entry.version !== "1.10.0")), ADK);
-  assert.equal(defaultRuntime(RUNTIMES), "runtime/adk@1.10.0");
+  assert.equal(defaultRuntime(RUNTIMES), ADK, "a newer version not run end to end is not the start");
+  const unrun = RUNTIMES.map((entry) => ({ ...entry, verified: false }));
+  assert.equal(defaultRuntime(unrun), "runtime/adk@1.10.0", "with none run, the newest");
   assert.equal(defaultRuntime([LANGGRAPH]), null, "no other framework becomes the default");
   assert.equal(pickFramework(form(), "langgraph", RUNTIMES).runtime, "runtime/langgraph@1.0.0");
   const same = form();
