@@ -61,6 +61,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             value: { light: 'light', dark: 'dark' },
             disableTransitionOnChange: true,
           }}
+          // fumadocs mounts its closed search dialog on load by default, which downloads and runs
+          // the search, HTML and Markdown parsers on every page before anyone searches. Load them
+          // on the first open (the search button or ⌘K) instead (#1130).
+          search={{ preload: false }}
         >
           <ThemeColorSync />
           {children}
