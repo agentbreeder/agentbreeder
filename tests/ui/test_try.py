@@ -77,10 +77,10 @@ def test_a_message_goes_by_stdin_and_the_reply_shows_its_inspector(page, console
     expect(facts).to_contain_text("Sources" + "Returns policy")
     expect(facts).to_contain_text("over 2 model calls")
     expect(facts).to_contain_text("ab" * 16)
-    expect(facts).to_contain_text(
-        "Not measured: this runtime did not report it"
-        " (runtime/adk 1.2.0 and later do when every model call had a cost)"
-    )
+    expect(facts).to_contain_text("Not measured: the runtime did not report it for this turn.")
+    # The runtime and its framework (#1085 S2): the ref, and the badge named by the registries.
+    expect(facts).to_contain_text("Runtime" + "runtime/adk@1.0.6")
+    expect(facts.locator(".badge.framework")).to_have_text("Google ADK")
     expect(details.locator("a")).to_have_count(0)  # no trace link: the span tree opens in place
     [call] = calls(console)
     assert call["argv"][:3] == ["invoke", "demo", "-"] and "--json" in call["argv"]
