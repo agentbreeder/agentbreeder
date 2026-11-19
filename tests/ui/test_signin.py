@@ -162,6 +162,13 @@ def test_a_reset_while_signed_in_opens_the_re_auth_dialog_over_the_route(page, c
     page.goto(f"{console.origin}/#/deployments")
     dialog = page.get_by_role("dialog", name="Session ended")
     expect(dialog).to_be_visible()
+    # It cannot be dismissed: Chromium closes a modal on a second Esc even when `cancel` is
+    # prevented, so a close by any route reopens it.
+    page.keyboard.press("Escape")
+    page.keyboard.press("Escape")
+    page.evaluate("document.querySelector('dialog.reauth').close()")
+    expect(dialog).to_be_visible()
+    assert page.evaluate("document.querySelector('dialog.reauth').open")
     fill_sign_in(dialog, console.password)  # the old password no longer works
     expect(dialog.get_by_role("alert")).to_have_text("Wrong email or password")
     fill_sign_in(dialog, NEW)
@@ -205,7 +212,9 @@ def test_a_draft_is_restored_after_a_reload_only_once_signed_in(page, console):
     text.type(f"\n{ADDED}\n")
     console.restart()  # every session ends; the tab keeps its sessionStorage
     page.reload()
-    expect(h1(page)).to_have_text("Session ended")
+    # "Session ended" when the reload is the first to see the 401, "Sign in" when a poll saw it
+    # first (the tab then dropped its token); either way no editor shows before sign-in.
+    expect(h1(page)).to_have_text(re.compile(r"^(Session ended|Sign in)$"))
     expect(page.get_by_label("Text of prompt.md")).to_have_count(0)
     fill_sign_in(page, console.password)
     restored = page.get_by_role("region", name="Edit 1.0.1").get_by_label("Text of prompt.md")
@@ -280,6 +289,19 @@ def test_sign_out_of_this_tab_ends_its_session_on_the_server(page, console):
         headers={"X-AgentBreeder-Center": "1", "X-AgentBreeder-Session": token},
     )
     assert reply.status == 401
+
+
+def test_sign_out_clears_this_tab_s_drafts(page, console):
+    open_prompt(page, console)
+    text = page.get_by_role("region", name="Edit 1.0.1").get_by_label("Text of prompt.md")
+    text.press("ControlOrMeta+End")
+    text.type(f"\n{ADDED}\n")
+    drafts = "Object.keys(sessionStorage).filter((key) => key.startsWith('console-draft:'))"
+    page.wait_for_function(f"{drafts}.length > 0")
+    page.locator("summary", has_text="Owner").click()
+    page.get_by_role("button", name="Sign out of this tab").click()
+    expect(h1(page)).to_have_text("Sign in")
+    assert page.evaluate(drafts) == []
 
 
 def test_localhost_redirects_to_the_one_host_form(page, console):

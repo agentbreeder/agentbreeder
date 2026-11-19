@@ -183,13 +183,20 @@ export function Reauth({ client, onSignedIn }) {
     const dialog = ref.current;
     dialog.showModal();
     const onCancel = (event) => event.preventDefault();
+    // Chromium closes a modal on a second Esc even when `cancel` is prevented; reopen it, since
+    // only a new sign-in (which unmounts this) may end it.
+    const onClose = () => {
+      if (dialog.isConnected && !dialog.open) dialog.showModal();
+    };
     dialog.addEventListener("cancel", onCancel);
+    dialog.addEventListener("close", onClose);
     client.get("/api/auth").then(
       (data) => setState(data || {}),
       () => setState({ password_set: true }),
     );
     return () => {
       dialog.removeEventListener("cancel", onCancel);
+      dialog.removeEventListener("close", onClose);
       if (dialog.open) dialog.close();
       const back = opener.current;
       requestAnimationFrame(() => {

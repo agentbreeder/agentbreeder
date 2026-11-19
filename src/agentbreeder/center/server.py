@@ -2411,6 +2411,12 @@ def in_use(port: int) -> bool:
         return True  # a timeout (a full accept queue) or a reset: something holds it
 
 
+class _Server(ThreadingHTTPServer):
+    # The page loads its ~65 ES modules at once; the stdlib default backlog of 5 made one of them
+    # fail with a connection reset now and then, and the page never booted (#1047).
+    request_queue_size = 128
+
+
 def make_server(center: Center, port: int | None) -> ThreadingHTTPServer:
     handler = type("BoundHandler", (Handler,), {"center": center})
     candidates, scanned = port_candidates(center, port)
@@ -2418,7 +2424,7 @@ def make_server(center: Center, port: int | None) -> ThreadingHTTPServer:
         if in_use(candidate):
             continue
         try:
-            server = ThreadingHTTPServer(("127.0.0.1", candidate), handler)
+            server = _Server(("127.0.0.1", candidate), handler)
             break
         except OSError as problem:
             if problem.errno != errno.EADDRINUSE:

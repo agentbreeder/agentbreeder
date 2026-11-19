@@ -196,14 +196,20 @@ function App({ initial }) {
     setReauth(false);
     setPhase(next);
   };
+  // Set from a deliberate sign-out until the next sign-in: a poll still in flight then gets a
+  // 401, which must not turn "Signed out" into "Session ended" or open the re-auth dialog.
+  const leaving = useRef(false);
   bus.sessionEnded = () => {
     jobs.halt();
+    if (leaving.current || phase.name === "signed-out") return;
     if (phase.name === "ready") setReauth(true);
     else setPhase({ name: "signed-out", reason: "ended" });
   };
 
   /** A new session from the sign-in form (the page) or the re-auth dialog (over the page). */
   function signedIn(data, overPage) {
+    leaving.current = false;
+    setReauth(false);
     session.set(data.session);
     sessionKind.set(data.kind || "password");
     if (overPage) {
@@ -224,6 +230,8 @@ function App({ initial }) {
   }
 
   function signedOut(reason) {
+    leaving.current = true;
+    jobs.halt();
     session.set(null);
     sessionKind.set(null);
     drafts.clearAll(); // a deliberate sign-out leaves no editor text behind in this tab
@@ -396,6 +404,8 @@ function App({ initial }) {
     sessionKind: sessionKind.get(),
     async signOut() {
       rememberRoute();
+      leaving.current = true;
+      jobs.halt();
       await quiet.post("/api/signout").catch(() => {});
       signedOut("none");
     },
