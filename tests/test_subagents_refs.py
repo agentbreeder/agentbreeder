@@ -39,7 +39,7 @@ def _northwind(tmp_path: Path, subagents: list) -> Path:
     for name in ("agent.yaml", "agent.lock", "stack.yaml", "stack.lock"):
         shutil.copy(NORTHWIND / name, project / name)
     text = (project / "agent.yaml").read_text()
-    text = text.replace("runtime/adk@1.3.0", "runtime/adk@1.9.0")
+    text = text.replace("runtime/adk@1.5.0", "runtime/adk@1.9.0")
     text += yaml.safe_dump({"subagents": subagents}, sort_keys=False)
     (project / "agent.yaml").write_text(text)
     load_agent_file(project / "agent.yaml")  # the fixture is a valid agent file

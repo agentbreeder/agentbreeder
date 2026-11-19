@@ -257,6 +257,16 @@ conformance IMAGE` (`conformance/`: 26 of 39 checks built, reports under
 Website: no change until a framework passes its acceptance. Cloud: a `CLAUDE.md` note only; it
 has no code that reads `list --json`, a conformance report or the agent's `/invoke` reply.
 
+**Remote registry sources, #829 M9b slice 1a, per side.** OSS (on `main`, not in a published
+preview): `registry.Root` and labelled roots, a strict `Lock.load` (unknown keys and malformed
+hashes are `LOCK_INVALID`), `agent.lock` v2 read/write (a `sources` table, `remote:<name>`
+entries, per-entry `pin`; nothing writes it yet, v1 is byte-identical), `--locked` reading only
+the locked, currently configured root, `sources/` (canonical URL form, `locate`; no network),
+and empty directories refused in registry versions. `stack.lock` stays v1. No `agent.yaml`,
+manifest or JSON Schema change. Website: no change until release R. Cloud: a `CLAUDE.md` note
+only; a grep of its tracked files on 2026-11-19 found no reader of `agent.lock` or
+`stack.lock`. Any future Cloud reader must accept v1 and v2 and refuse unknown keys.
+
 **Console sign-in, #818 M2 (epic #1054), per side.** OSS (on `main`): `up --set-password`,
 `--reset-password` and `--link`; `center.sqlite3` schema 4 (`users` with scrypt hashes, and
 `security_events`); new console routes (`/api/auth`, `/api/setup`, `/api/password`,

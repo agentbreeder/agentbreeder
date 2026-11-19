@@ -440,6 +440,7 @@ class Center:
             raise BadRequest("Enter your current password", "CURRENT_REQUIRED")
         if len(current) > auth.MAX_LENGTH:
             raise SignInRefused(403, "WRONG_PASSWORD", "The current password is wrong", None)
+        version = self.state.credential_version()  # before the row: see set_password below
         row = self.state.user(auth.EMAIL)
         if row is None:
             raise SignInRefused(409, "NO_PASSWORD", "No password is set yet", None)
@@ -447,8 +448,15 @@ class Center:
         if not self._checked(lambda: auth.verify(current, row), "password-change-check"):
             raise SignInRefused(403, "WRONG_PASSWORD", "The current password is wrong", None)
         record = auth.hash_password(password)  # type: ignore[arg-type]
-        self.state.set_password(auth.EMAIL, record, "password-change", "browser")
-        return self._new_session("password")
+        # Only if nothing replaced the password since it was read: a reset from the terminal
+        # during this check wins, and this change is refused rather than undoing it.
+        if not self.state.set_password(
+            auth.EMAIL, record, "password-change", "browser", expect_version=version
+        ):
+            raise SignInRefused(
+                409, "PASSWORD_CHANGED", "The password was changed meanwhile; sign in again", None
+            )
+        return self._new_session("password", version + 1)
 
     def settings(self) -> dict:
         return {

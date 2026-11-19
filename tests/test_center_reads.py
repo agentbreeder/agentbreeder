@@ -28,6 +28,10 @@ ALLOWED = {
     # `next --json`'s models (#820), checked in process; pure pydantic, no state or Docker.
     "agentbreeder.guide",
     "agentbreeder.lock",
+    # Remote registry sources (#829): lock-side rules and URL canonical form only; no
+    # network code, sockets or subprocesses.
+    "agentbreeder.sources",
+    "agentbreeder.sources.url",
     "agentbreeder.manifest",
     "agentbreeder.redaction",
     "agentbreeder.registry",
@@ -204,7 +208,7 @@ def test_lock_entries_match_lock_load(project):
 
     body = {
         "lock_version": lock_module.LOCK_VERSION,
-        "entries": {"prompt/x@1.0.0": {"sha256": "a"}},
+        "entries": {"prompt/x@1.0.0": {"sha256": "sha256:" + "a" * 64, "source": "registry"}},
     }
     (project / "agent.lock").write_text(json.dumps(body))
     assert (

@@ -704,14 +704,14 @@ def _sha(path: Path) -> str | None:
 
 def _lock_entries(path: Path) -> dict[str, dict]:
     """`agent.lock`'s entries, read as `_read_file` reads; empty when missing or invalid."""
-    from agentbreeder.lock import LOCK_VERSION
+    from agentbreeder.lock import LOCK_VERSIONS
 
     data = _read_file(path)
     try:
         value = json.loads(data) if data is not None else None
     except ValueError:
         return {}
-    if not isinstance(value, dict) or value.get("lock_version") != LOCK_VERSION:
+    if not isinstance(value, dict) or value.get("lock_version") not in LOCK_VERSIONS:
         return {}
     entries = value.get("entries")
     return entries if isinstance(entries, dict) else {}

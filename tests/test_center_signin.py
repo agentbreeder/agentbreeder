@@ -906,3 +906,25 @@ def test_setup_loses_a_race_with_the_terminal(center, monkeypatch):
     status, data = call(center, "POST", "/api/setup", {"password": GOOD}, session)
     assert status == 409 and data["error"]["code"] == "PASSWORD_SET"
     assert auth.verify(OTHER, center.state.user(auth.EMAIL))
+
+
+def test_a_change_racing_a_terminal_reset_loses_and_mints_nothing(center, monkeypatch):
+    with_password(center)
+    session = sign_in(center)[1]["data"]["session"]
+    real = auth.verify
+
+    def verify_then_reset(password, row):
+        good = real(password, row)
+        center.state.set_password(
+            auth.EMAIL, auth.hash_password("the owner's reset pass"), "password-reset", "terminal"
+        )
+        return good
+
+    monkeypatch.setattr(auth, "verify", verify_then_reset)
+    status, data = call(
+        center, "POST", "/api/password", {"current": GOOD, "password": OTHER}, session
+    )
+    assert status == 409 and data["error"]["code"] == "PASSWORD_CHANGED"
+    monkeypatch.setattr(auth, "verify", real)
+    assert auth.verify("the owner's reset pass", center.state.user(auth.EMAIL))
+    assert call(center, "GET", "/api/projects", session=session)[0] == 401

@@ -300,15 +300,29 @@ class CenterState:
         return int(value) if value.isdigit() else 0
 
     def set_password(
-        self, email: str, record: dict, event: str, source: str, *, only_if_none: bool = False
+        self,
+        email: str,
+        record: dict,
+        event: str,
+        source: str,
+        *,
+        only_if_none: bool = False,
+        expect_version: int | None = None,
     ) -> bool:
         """Store `record` (from `auth.hash_password`) for `email`, raise the credential version
-        and record `event`, in one transaction. With `only_if_none`, nothing is written (and False
-        returned) when a password already exists: the first password is set once (S-28)."""
+        and record `event`, in one transaction. Nothing is written (and False returned) when
+        `only_if_none` and a password already exists (the first password is set once, S-28), or
+        when the credential version is no longer `expect_version` (a change checked against a
+        password that a reset from the terminal has replaced meanwhile)."""
         with self.lock:
             self.db.execute("BEGIN IMMEDIATE")
             try:
-                if only_if_none and self.db.execute("SELECT 1 FROM users LIMIT 1").fetchone():
+                stale = expect_version is not None and self._version_locked() != expect_version
+                taken = (
+                    only_if_none
+                    and self.db.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
+                )
+                if stale or taken:
                     self.db.execute("ROLLBACK")
                     return False
                 self.db.execute(
@@ -355,11 +369,14 @@ class CenterState:
             limit,
         )
 
-    def _bump_locked(self) -> None:
+    def _version_locked(self) -> int:
         row = self.db.execute(
             "SELECT value FROM settings WHERE key='credential_version'"
         ).fetchone()
-        current = int(row[0]) if row and str(row[0]).isdigit() else 0
+        return int(row[0]) if row and str(row[0]).isdigit() else 0
+
+    def _bump_locked(self) -> None:
+        current = self._version_locked()
         self.db.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES ('credential_version', ?)",
             (str(current + 1),),
