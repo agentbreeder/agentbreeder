@@ -314,7 +314,65 @@ def test_environment_drops_every_other_git_variable(monkeypatch, tmp_path):
         "LD_PRELOAD",
     ):
         assert name not in env
-    assert env["LC_ALL"] == "C" and env["HTTPS_PROXY"] == "http://proxy:3128"
+    assert env["HTTPS_PROXY"] == "http://proxy:3128"
+    # LC_ALL would override LC_MESSAGES; its value is kept for the character set only.
+    assert "LC_ALL" not in env and env["LC_CTYPE"] == "C" and env["LC_MESSAGES"] == "C"
+
+
+def test_git_messages_are_english_in_any_locale(monkeypatch, tmp_path):
+    """The stderr markers are git's English messages; several are gettext-translated."""
+    monkeypatch.setenv("LANG", "de_DE.UTF-8")
+    monkeypatch.setenv("LC_ALL", "fr_FR.UTF-8")
+    monkeypatch.setenv("LC_CTYPE", "en_US.UTF-8")
+    monkeypatch.setenv("LC_MESSAGES", "de_DE.UTF-8")
+    monkeypatch.setenv("LANGUAGE", "de")
+    env = git_source.environment(tmp_path)
+    assert env["LC_MESSAGES"] == "C" and "LC_ALL" not in env and "LANGUAGE" not in env
+    assert env["LC_CTYPE"] == "en_US.UTF-8"  # an explicit LC_CTYPE wins over LC_ALL's
+    assert env["LANG"] == "de_DE.UTF-8"
+    monkeypatch.delenv("LC_ALL")
+    monkeypatch.delenv("LC_CTYPE")
+    env = git_source.environment(tmp_path)
+    assert "LC_CTYPE" not in env and env["LC_MESSAGES"] == "C"
+
+
+# git's stderr for each failure, verbatim from git's source (credential.c, prompt.c,
+# remote-curl.c, http.c) as the versions CI (2.56.1, Ubuntu) and macOS (Apple 2.39.2) print it.
+@pytest.mark.parametrize(
+    ("stderr", "code"),
+    [
+        # git >= 2.47: credential.interactive=false skips the prompt (CI's message)
+        ("fatal: unable to get password from user", "SOURCE_AUTH_FAILED"),
+        # git < 2.47 ignores credential.interactive; GIT_TERMINAL_PROMPT=0 stops the prompt
+        (
+            "fatal: could not read Username for 'https://127.0.0.1:1': terminal prompts disabled",
+            "SOURCE_AUTH_FAILED",
+        ),
+        # a credential helper answered and the server still said 401
+        (
+            "fatal: Authentication failed for 'https://127.0.0.1:1/acme/x.git/'",
+            "SOURCE_AUTH_FAILED",
+        ),
+        ("git@github.com: Permission denied (publickey).", "SOURCE_AUTH_FAILED"),
+        (
+            "fatal: unable to access 'https://h/x.git/': The requested URL returned error: 403",
+            "SOURCE_AUTH_FAILED",
+        ),
+        (
+            "fatal: unable to access 'https://h/x.git/': Could not resolve host: h",
+            "SOURCE_UNREACHABLE",
+        ),
+        (
+            "fatal: unable to access 'https://h/x.git/': The requested URL returned error: 500",
+            "SOURCE_UNREACHABLE",
+        ),
+    ],
+)
+def test_git_failures_are_classified_across_versions(stderr, code):
+    checked = trust.Checked("https://h/x.git", "h", 443, ("203.0.113.1",))
+    with git_source.Repo("acme") as repo:
+        error = repo._failure("https://h/x.git", checked, git_source.clean_stderr(stderr))
+    assert error.code == code
 
 
 def test_stderr_is_redacted_and_one_line():

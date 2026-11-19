@@ -241,8 +241,11 @@ responses at 64 KB.
   - stderr captured, control characters stripped, any URL userinfo redacted before display.
   - The user's `~/.gitconfig` credential helpers still apply (that is how private org repos work);
     `GIT_CONFIG_NOSYSTEM` is not set, but the `-c` options above override system and global config.
-- Auth failures (`Authentication failed`, `Permission denied (publickey)`, HTTP 401/403) map to
-  `SOURCE_AUTH_FAILED`; DNS, TCP and TLS failures to `SOURCE_UNREACHABLE` (§12).
+- Auth failures (`Authentication failed`, `Permission denied (publickey)`, HTTP 401/403, and the
+  no-credentials messages: `unable to get password from user` from git ≥ 2.47, which honours
+  `credential.interactive=false`, and `terminal prompts disabled` from older git) map to
+  `SOURCE_AUTH_FAILED`; DNS, TCP and TLS failures to `SOURCE_UNREACHABLE` (§12). Git runs with
+  `LC_MESSAGES=C` (`LC_ALL` moved to `LC_CTYPE`) so its translated messages match in any locale.
 
 ### 6.2 OCI at a digest
 
@@ -896,3 +899,11 @@ Open:
   Claude Sonnet security review (CHANGES REQUESTED, minor). Folded: "fail closed" reworded as
   "refused until the console passes `SERVER@pin`"; the MCP slice's console tasks listed (consent
   text for `auth: none` remote origins, parity test, a bare-name refusal test).
+- CI fix (2026-11-19, PR #1167, slice 1b): Ubuntu CI (git 2.56.1) reported a 401 as
+  `SOURCE_UNREACHABLE`. Since git 2.47, `credential.interactive=false` skips the prompt and git
+  dies with `unable to get password from user` (credential.c), not `terminal prompts disabled`
+  (Apple git 2.39). That marker was added, and git now runs with `LC_MESSAGES=C` (`LC_ALL` moved to
+  `LC_CTYPE`) because `Authentication failed` and the ref-refusal messages are gettext-translated.
+  Claude Sonnet delta and `/security` review: **APPROVED** (two Low comment corrections, applied).
+  Not done (optional, noted): ignoring `remote:` sideband lines when classifying; a server could
+  already steer the label before this change.

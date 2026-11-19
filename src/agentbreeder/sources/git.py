@@ -86,8 +86,14 @@ _REFUSED_SHA = (
     "no such remote ref",
     "couldn't find remote ref",
 )
+# Matched against stderr with git's own messages in English (environment() sets LC_MESSAGES=C):
+# "Authentication failed for", "no such remote ref", "unadvertised object" and "couldn't find
+# remote ref" are gettext-translated otherwise. "not our ref" is the server's upload-pack text.
 _AUTH = (
     "authentication failed",
+    # git >= 2.47 honours credential.interactive=false: no prompt, then this die() in
+    # credential_fill(). Older git ignores the key and prints "terminal prompts disabled".
+    "unable to get password from user",
     "permission denied (publickey",
     "could not read username",
     "could not read password",
@@ -107,8 +113,14 @@ def environment(home: Path | None = None) -> dict[str, str]:
         for key, value in os.environ.items()
         if key in ENV_ALLOW or key.startswith("LC_")
     }
+    # Git's messages in English, so the stderr markers above match in any locale. LC_ALL would
+    # override LC_MESSAGES, so its value moves to LC_CTYPE (the character set it chose).
+    lc_all = env.pop("LC_ALL", None)
+    if lc_all and "LC_CTYPE" not in env:
+        env["LC_CTYPE"] = lc_all
     env.update(
         {
+            "LC_MESSAGES": "C",
             "GIT_TERMINAL_PROMPT": "0",
             "GIT_LITERAL_PATHSPECS": "1",
             "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
