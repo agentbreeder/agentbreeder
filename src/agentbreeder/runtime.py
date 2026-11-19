@@ -450,8 +450,10 @@ class Docker:
         mounts=(),
         host_gateway: bool = False,
         agents_network: str | None = None,
+        labels: dict[str, str] | None = None,
     ):
-        """Create the agent container. With `network` (runtime boundary) the agent joins only
+        """Create the agent container, with `labels` added to the fixed ones. With `network`
+        (runtime boundary) the agent joins only
         that internal network, publishes nothing and is reached through its sidecar. With
         `agents_network` (a `services up` stack) it keeps the default bridge for its published
         port and is also connected to that network, where the stack's `expose: agents` services
@@ -481,6 +483,11 @@ class Docker:
             "io.agentbreeder.spec=" + record["digest"],
             "--label",
             "io.agentbreeder.role=agent",
+            *[
+                part
+                for key, value in (labels or {}).items()
+                for part in ("--label", f"{key}={value}")
+            ],
             *(
                 ["--network", network, "--network-alias", "agent"]
                 if network

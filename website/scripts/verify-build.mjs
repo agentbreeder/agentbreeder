@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -38,8 +38,41 @@ export async function verifyHomepageBuild(buildDir) {
   }
 }
 
+// A link inside a link is invalid HTML: the parser closes the outer one early, so the server HTML no
+// longer matches what React renders and every affected page throws hydration error #418 (#1129:
+// fumadocs wraps the docs nav title in its own home link). Check every prerendered page.
+export function findNestedAnchor(html) {
+  const body = html.replace(/<(script|style|template)\b[\s\S]*?<\/\1\s*>/gi, '');
+  let depth = 0;
+  for (const [tag] of body.matchAll(/<\/?a(?=[\s>\/])[^>]*>/gi)) {
+    if (tag.startsWith('</')) depth = Math.max(0, depth - 1);
+    else if (++depth > 1) return tag;
+  }
+  return null;
+}
+
+async function htmlFiles(dir) {
+  if (!existsSync(dir)) return [];
+  const entries = await readdir(dir, { withFileTypes: true, recursive: true });
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.html'))
+    .map((entry) => path.join(entry.parentPath, entry.name));
+}
+
+export async function verifyNoNestedLinks(buildDir) {
+  const files = [...(await htmlFiles(path.join(buildDir, 'server/app'))), ...(await htmlFiles(path.join(buildDir, 'output')))];
+  assert(files.length > 0, 'No prerendered HTML found to check for nested links');
+  for (const file of files) {
+    const nested = findNestedAnchor(await readFile(file, 'utf8'));
+    assert(!nested, `${path.relative(buildDir, file)} nests a link inside a link (${nested}); this breaks hydration (#1129)`);
+  }
+  return files.length;
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const buildDir = process.argv[2] ?? fileURLToPath(new URL('../.next', import.meta.url));
   await verifyHomepageBuild(buildDir);
   console.log('Homepage build verified: current layout, buttons, themes and code panels.');
+  const pages = await verifyNoNestedLinks(buildDir);
+  console.log(`No nested links in ${pages} prerendered pages.`);
 }

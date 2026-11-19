@@ -6,7 +6,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { verifyHomepageBuild } from './verify-build.mjs';
+import { findNestedAnchor, verifyHomepageBuild, verifyNoNestedLinks } from './verify-build.mjs';
 
 const run = promisify(execFile);
 const script = fileURLToPath(new URL('./verify-build.mjs', import.meta.url));
@@ -120,4 +120,44 @@ test('rejects missing emitted HTML even when the raw homepage exists', async (t)
   const buildDir = await adapterFixture(t, currentCss);
   await rm(path.join(buildDir, 'output/functions'), { recursive: true });
   await assert.rejects(verifyHomepageBuild(buildDir), /ENOENT/);
+});
+
+test('finds a link nested inside a link, the #1129 docs nav title', () => {
+  const docsNav = '<a href="/" class="nav-title"><a class="flex" href="/"><svg></svg><span>agentbreeder</span></a></a>';
+  assert.match(findNestedAnchor(docsNav), /^<a class="flex"/);
+});
+
+test('finds a nested link after a closed sibling link', () => {
+  assert.match(findNestedAnchor('<a href="/">x</a><a href="/b"><a href="/c">y</a></a>'), /href="\/c"/);
+});
+
+for (const [name, html] of [
+  ['sibling links', '<a href="/">x</a><a href="/b"><span>z</span></a>'],
+  ['abbr, article and aside tags', '<a href="/"><abbr>y</abbr></a><article><aside>z</aside></article>'],
+  ['an area tag', '<a href="/">x</a><map><area href="/c"></map>'],
+  ['link markup inside scripts and styles', '<script>"<a><a>"</script><style>a::after{content:"<a>"}</style>'],
+  ['upper-case tags', '<A HREF="/d">w</A><A HREF="/e">v</A>'],
+]) {
+  test(`accepts ${name}`, () => assert.equal(findNestedAnchor(html), null));
+}
+
+async function pages(t, files) {
+  const buildDir = await mkdtemp(path.join(tmpdir(), 'agentbreeder-links-test-'));
+  t.after(() => rm(buildDir, { recursive: true, force: true }));
+  for (const [name, html] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(buildDir, name)), { recursive: true });
+    await writeFile(path.join(buildDir, name), html);
+  }
+  return buildDir;
+}
+
+test('checks every prerendered page, including the docs and Vercel output', async (t) => {
+  const ok = '<a href="/">home</a>';
+  assert.equal(await verifyNoNestedLinks(await pages(t, { 'server/app/index.html': ok, 'server/app/docs/install.html': ok })), 2);
+  const bad = await pages(t, { 'server/app/index.html': ok, 'output/static/docs/install.html': '<a href="/"><a href="/">x</a></a>' });
+  await assert.rejects(verifyNoNestedLinks(bad), /docs\/install\.html nests a link/);
+});
+
+test('refuses to pass when no HTML was built', async (t) => {
+  await assert.rejects(verifyNoNestedLinks(await pages(t, {})), /No prerendered HTML/);
 });

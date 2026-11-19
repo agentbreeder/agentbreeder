@@ -25,6 +25,7 @@ Run `agentbreeder COMMAND --help` for flags; see the root README for the demo.
 - [`audit`](commands/audit.md): Inspect and verify the local audit chain.
 - [`build`](commands/build.md): Build an agent file into an image and a deploy manifest (never deploys).
 - [`cluster`](commands/cluster.md): A local kind cluster for one stack (preview).
+- [`conformance`](commands/conformance.md): Check a built agent image against agent protocol v1 (local Docker, preview).
 - [`cost`](commands/cost.md): Show LLM cost per deployment or per model from the gateway's spend logs (read-only).
 - [`deploy`](commands/deploy.md): Gate and deploy a manifest, or a released agent/NAME@X.Y.Z package.
 - [`disable`](commands/disable.md): Persist a principal blocker and stop its workloads.
