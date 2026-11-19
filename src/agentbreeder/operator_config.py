@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import os
 import re
 import stat
@@ -96,6 +97,29 @@ class McpRelay(_Strict):
 _CIDR = r"^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$"
 
 
+def agents_range(cidr: str) -> bool:
+    """Whether `cidr` may be a kit deployment's egress (#1083 F1b): a Docker network's range,
+    private and /12 or longer (Docker's own pools are /16 and smaller). Never loopback,
+    link-local (metadata), multicast, reserved, 0.0.0.0/8, public or a whole LAN."""
+    try:
+        network = ipaddress.ip_network(cidr) if re.fullmatch(_CIDR, cidr) else None
+    except ValueError:
+        return False
+    return (
+        network is not None
+        and network.prefixlen >= 12
+        and network.is_private
+        and not (
+            network.network_address.packed[0] == 0  # "this network" (0.0.0.0/8)
+            or network.is_loopback
+            or network.is_link_local
+            or network.is_multicast
+            or network.is_unspecified
+            or network.is_reserved
+        )
+    )
+
+
 class KubernetesTarget(_Strict):
     """The cluster agents in this environment deploy to. `KUBECONFIG` and `current-context` are
     never used, and `cluster_uid` (the UID of `kube-system`) must match the cluster."""
@@ -107,12 +131,23 @@ class KubernetesTarget(_Strict):
     registry: str = Field(pattern=r"^[a-z0-9.-]+(:[0-9]{1,5})?(/[a-z0-9._-]+)+$", max_length=256)
     # Pod, service and node ranges, and metadata: egress the agent's NetworkPolicy denies.
     blocked_cidrs: list[str] = Field(min_length=1, max_length=32)
+    # The stack's agents network (`cluster up` writes it). A deployment whose manifest says
+    # `runtime.profile: kit` may reach only these ranges and cluster DNS (#1083 F1b); without
+    # them such a deployment is refused. Other deployments never read it.
+    agents_cidrs: list[str] = Field(default_factory=list, max_length=8)
 
     @field_validator("blocked_cidrs")
     @classmethod
     def cidrs(cls, value: list[str]) -> list[str]:
         if any(not re.fullmatch(_CIDR, cidr) for cidr in value):
             raise ValueError("blocked_cidrs are IPv4 CIDR blocks")
+        return value
+
+    @field_validator("agents_cidrs")
+    @classmethod
+    def agents_ranges(cls, value: list[str]) -> list[str]:
+        if not all(agents_range(cidr) for cidr in value):
+            raise ValueError("agents_cidrs are private IPv4 network blocks of /12 or longer")
         return value
 
 

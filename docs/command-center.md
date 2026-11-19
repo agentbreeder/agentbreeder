@@ -1701,6 +1701,11 @@ Local clusters only. `kind` is the verified path.
   no service account token. Secrets are mounted read-only and go to `kubectl` on stdin. Images are
   referenced by digest.
 - Refused rather than weakened: `mcp_access` and runtime enforcement.
+- A manifest with `runtime: {profile: kit}` (none is built today) gets a default-deny
+  NetworkPolicy: cluster DNS and the stack's agents network (`kubernetes.agents_cidrs`, which
+  `cluster up` records) only. Written and unit-tested, not yet run on a cluster; see
+  [Kit egress](local-deployment.md#kit-egress) (#1083 F1b, on `main`, not in a published
+  preview).
 
 ### Measured on the 2026-11-10 run
 
