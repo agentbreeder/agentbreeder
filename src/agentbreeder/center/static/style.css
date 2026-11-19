@@ -349,6 +349,10 @@ a.action.ghost { text-decoration: underline; text-underline-offset: 3px; }
 .identity-strip dd { margin: 0; overflow-wrap: anywhere; }
 .identity.failed, .gated.failed { color: var(--destructive); font-weight: 600; }
 .identity.passed, .gated.passed { color: var(--success); font-weight: 600; }
+/* The identity strip's check result (#1085 S2, CI axe on the Overview): the words use the card's
+ * text colour, AA on every surface in both themes; a passed check keeps its gate-check icon, so the
+ * state is the word and the icon, never colour alone. */
+.identity-strip .identity .text { color: var(--card-foreground); }
 /* Eval report viewer (#932): a case's reply and explanation, opened on request. */
 .case-content { margin-top: 6px; min-width: 16rem; }
 .case-content summary { cursor: pointer; font-size: 12.5px; }

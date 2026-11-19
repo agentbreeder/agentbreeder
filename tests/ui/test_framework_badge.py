@@ -258,12 +258,10 @@ def test_the_agents_filter_and_badges_have_no_serious_axe_findings(scheme_page, 
     for query in ("", "?framework=langgraph", "?framework=crewai"):
         scheme_page.goto(f"{console.origin}/#/agents{query}")
         framework_filter(scheme_page).wait_for()
-        scheme_page.wait_for_function("document.getAnimations().length === 0", timeout=10000)
+        scheme_page.wait_for_timeout(400)
         found += blocking(scheme_page, f"Agents{query}")
     scheme_page.goto(f"{console.origin}/#/agents/demo")
     scheme_page.locator("dl.facts .badge.framework").wait_for()
-    # Colour transitions settle first: under load 400 ms was not always enough, and axe read a
-    # colour mid-transition (a false contrast finding).
-    scheme_page.wait_for_function("document.getAnimations().length === 0", timeout=10000)
+    scheme_page.wait_for_timeout(400)  # as test_a11y waits
     found += blocking(scheme_page, "Agent overview, framework rows")
     assert found == []
