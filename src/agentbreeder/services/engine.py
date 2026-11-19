@@ -20,7 +20,7 @@ from pathlib import Path
 
 from agentbreeder import env_import, hints, registry, relay_audit, safe_text, secret_files
 from agentbreeder import mcp as mcp_kind
-from agentbreeder.gateway_providers import GATEWAY_ONLY
+from agentbreeder.gateway_providers import GATEWAY_ONLY, vertex_key
 from agentbreeder.lock import BUILTIN_LABEL
 from agentbreeder.registry import RegistryError
 from agentbreeder.services import mcp_stack
@@ -1193,25 +1193,16 @@ class Engine:
         ]
 
 
-VERTEX_KEY_LIMIT = 16 * 1024  # the launcher's one-line secret file limit
-
-
 def _vertex_key_project(data: bytes | None) -> str:
-    """The `project_id` of a service-account key JSON. The full checks (type, token_uri,
-    universe_domain, canonical form) are the launcher's, in the gateway version that ships
-    Vertex; this reads only what binding the project needs. Never echoes the value."""
-    invalid = ServiceError(
-        "VERTEX_KEY_INVALID", "VERTEX_SERVICE_ACCOUNT_JSON is not a service-account key"
-    )
-    if not data or len(data) > VERTEX_KEY_LIMIT:
-        raise invalid
+    """The `project_id` of the service-account key `up` is about to hand the gateway, after
+    the same checks the launcher applies to the file (`gateway_providers.vertex_key`: one line
+    of JSON, type `service_account`, Google's own token endpoint, the canonical fields). Never
+    echoes the value."""
     try:
-        key = json.loads(data)
-    except (ValueError, RecursionError):
-        raise invalid from None
-    if not isinstance(key, dict) or key.get("type") != "service_account":
-        raise invalid
-    project = key.get("project_id")
-    if not isinstance(project, str) or not project:
-        raise invalid
-    return project
+        return vertex_key(data)["project_id"]
+    except ValueError:
+        raise ServiceError(
+            "VERTEX_KEY_INVALID",
+            "VERTEX_SERVICE_ACCOUNT_JSON is not a service-account key on one line (minify the "
+            "key file, e.g. `jq -c . key.json`; see docs/services.md)",
+        ) from None

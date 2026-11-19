@@ -10,9 +10,10 @@ The four key-only providers (Gemini, OpenRouter, OpenAI, Anthropic) behave as be
 included, so their grant digests do not change. Ollama, Vertex AI, Bedrock and Azure OpenAI
 are in the table, but a provider is accepted only when the stack's gateway imports every
 credential it needs (`GatewayCaps`) and, for Ollama, can reach the host port. Each provider
-slice adds its own `service/litellm` version after a real run (spec §6, D12): 1.2.0 reaches
-host port 11434, so it serves Ollama (#1025 O1); no version imports the Vertex, Bedrock or
-Azure credentials yet, so those are refused with `GATEWAY_PROVIDER_UNSUPPORTED`.
+slice adds its own `service/litellm` version (spec §6, D12): 1.2.0 reaches host port 11434, so
+it serves Ollama (#1025 O1); 1.4.0 imports the Vertex service-account key (#1025 V1, config-only:
+not yet run against Vertex AI); no version imports the Bedrock or Azure credentials yet, so
+those are refused with `GATEWAY_PROVIDER_UNSUPPORTED`.
 
 Every check is literal (`re.fullmatch` with `\\Z`-anchored patterns, no DNS) and no config value
 is echoed in an error: messages name the location only.
@@ -20,6 +21,7 @@ is echoed in an error: messages name the location only.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 
@@ -79,6 +81,65 @@ AZURE_ENDPOINT = _pattern(
     r"https://(?!xn--)[a-z0-9](?:[a-z0-9]|-(?!-)){1,62}[a-z0-9]\.openai\.azure\.com/?\Z"
 )
 MODEL_MODES = frozenset({"chat", "embedding"})
+
+# The Vertex AI service-account key rules (spec §3.2, D6). `services up` applies them to the
+# value it is about to store, and the launcher of the gateway version that imports the key
+# applies its own copy to the file it reads (a test checks the two agree).
+VERTEX_KEY_NAME = "VERTEX_SERVICE_ACCOUNT_JSON"
+VERTEX_KEY_LIMIT = 16 * 1024  # the launcher's one-line secret file limit
+# The canonical key: these fields, in this order, each a non-empty string. Everything else in
+# the file (auth_uri, the certificate URLs, universe_domain, anything unknown) is dropped.
+VERTEX_KEY_FIELDS = (
+    "type",
+    "project_id",
+    "private_key_id",
+    "private_key",
+    "client_email",
+    "client_id",
+    "token_uri",
+)
+VERTEX_KEY_TYPE = "service_account"  # never authorized_user or external_account
+VERTEX_TOKEN_URI = "https://oauth2.googleapis.com/token"
+VERTEX_UNIVERSE = "googleapis.com"
+
+
+def _no_duplicates(pairs: list) -> dict:
+    result = dict(pairs)
+    if len(result) != len(pairs):
+        raise ValueError("duplicate key")
+    return result
+
+
+def vertex_key(data: bytes | None) -> dict[str, str]:
+    """The canonical form of a Vertex service-account key, or ValueError (with a fixed message:
+    the value is never echoed). One line of JSON, an object with no duplicate keys, type
+    `service_account`, Google's own token endpoint and universe, and every canonical field a
+    non-empty string; `project_id` is a project id, since it is compared with a printed one."""
+    refused = ValueError("not a service-account key")
+    if not data or len(data) > VERTEX_KEY_LIMIT or b"\0" in data or b"\n" in data.rstrip(b"\n"):
+        raise refused
+    try:
+        key = json.loads(data.decode("utf-8", "strict"), object_pairs_hook=_no_duplicates)
+    except (ValueError, RecursionError):
+        raise refused from None
+    if not isinstance(key, dict):
+        raise refused
+    if key.get("type") != VERTEX_KEY_TYPE or key.get("token_uri") != VERTEX_TOKEN_URI:
+        raise refused
+    if key.get("universe_domain", VERTEX_UNIVERSE) != VERTEX_UNIVERSE:
+        raise refused
+    if any(not isinstance(key.get(name), str) or not key[name] for name in VERTEX_KEY_FIELDS):
+        raise refused
+    if not VERTEX_PROJECT.fullmatch(key["project_id"]):
+        raise refused
+    return {name: key[name] for name in VERTEX_KEY_FIELDS}
+
+
+def vertex_canonical(key: dict[str, str]) -> str:
+    """The one-line JSON LiteLLM receives: the canonical fields only, ASCII, no spaces."""
+    return json.dumps(
+        {name: key[name] for name in VERTEX_KEY_FIELDS}, separators=(",", ":"), ensure_ascii=True
+    )
 
 
 class EntryRefused(ValueError):

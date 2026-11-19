@@ -1,9 +1,10 @@
 """#1025 slice P1: the provider table, model patterns, `model_info` allow-list, `GatewayCaps`,
 `required_env`/`routes`, and the gateway-only import names.
 
-No `service/litellm` version declares the new providers' imports yet (each provider slice adds
-its own after a real run), so these tests review configs for a fixture gateway (`FULL`) that
-does, and check that today's built-in 1.0.0 refuses every new provider.
+When P1 shipped no `service/litellm` version declared the new providers' imports (each provider
+slice adds its own), so these tests review configs for a fixture gateway (`FULL`) that does,
+and check that the built-in 1.0.0 refuses every new provider. The Vertex rules are re-run on
+the real built-in 1.4.0 in tests/test_vertex_gateway.py (#1025 V1).
 """
 
 from __future__ import annotations
@@ -642,7 +643,17 @@ def test_engine_import_passes_the_flag_only_for_the_builtin_gateway(monkeypatch)
 
 
 def service_account(project="my-project-1", **extra):
-    return json.dumps({"type": "service_account", "project_id": project, **extra}).encode()
+    """A key with every field `gateway_providers.vertex_key` requires (#1025 V1)."""
+    key = {
+        "type": "service_account",
+        "project_id": project,
+        "private_key_id": "k1",
+        "private_key": "not-a-real-key",
+        "client_email": f"gateway@{project}.iam.gserviceaccount.com",
+        "client_id": "1",
+        "token_uri": "https://oauth2.googleapis.com/token",
+    }
+    return json.dumps({**key, **extra}).encode()
 
 
 def check(tmp_path, *entries, secrets=None, imports=VERTEX_IMPORT):

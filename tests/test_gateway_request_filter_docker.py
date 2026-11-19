@@ -171,7 +171,7 @@ def _stack(version: str) -> dict:
     }
 
 
-@pytest.fixture(params=["1.3.0", "1.2.0"])
+@pytest.fixture(params=["1.4.0", "1.3.0", "1.2.0"])
 def stack(request, tmp_path, monkeypatch):
     monkeypatch.delenv(registry.PATH_ENV, raising=False)
     monkeypatch.setenv(ROOT_ENV, str(tmp_path / "stacks"))
@@ -466,7 +466,7 @@ def test_a_key_reaches_only_its_aliases_provider(stack, tmp_path):
     results = {}
     for label, path, body, headers in _attempts():
         results[label] = _post(base, open_key, path, body, headers)
-    if version == "1.3.0":  # on 1.2.0 these would leave for the providers' real endpoints
+    if version != "1.2.0":  # on 1.2.0 these would leave for the providers' real endpoints
         for method, path, body in ROUTES:
             results[f"{method} {path}"] = _send(base, open_key, method, path, body, {})
     seen_a = _log(instance, "provider-a")[baseline_a:]

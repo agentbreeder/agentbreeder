@@ -1,0 +1,29 @@
+kind: service
+name: litellm
+version: 1.4.0
+description: >-
+  LiteLLM proxy 1.106.2 (litellm-database, digest-pinned) as the stack's model gateway
+  (provides gateway/litellm): read-only root, no capabilities, uid 65532. Its config is a file
+  param; provider keys are optional imports (Gemini, OpenRouter, OpenAI, Anthropic) and the
+  master key is generated (`sk-…`) and operator-only. A locked launcher (files/start.py) copies
+  the mounted secret files into LiteLLM's own process environment, which its `os.environ/…`
+  config references read; they never enter the container config.
+  1.1.0 adds two optional url inputs, `presidio-analyzer` and `presidio-anonymizer` (wire
+  service/presidio-analyzer and service/presidio-anonymizer), for Presidio PII guardrails in
+  the config's `guardrails:` list (#1024). Same image and launcher as 1.0.0.
+  1.2.0 adds Ollama on the operator's host (`ollama_chat/…` and `ollama/…` entries with
+  `api_base: http://host.docker.internal:11434`, no key; `reaches_host: [11434]`) and a
+  stricter launcher: LiteLLM gets an allow-list of variables, never the container's whole
+  environment, with cloud metadata lookups and credential files turned off (#1025 O1).
+  Same image as 1.0.0 and 1.1.0.
+  1.3.0 adds a request filter (files/agentbreeder_request_filter.py) that the launcher loads as
+  LiteLLM's only callback: the gateway refuses provider-routing, endpoint and credential
+  parameters in requests (`GATEWAY_PARAM_REFUSED`) and serves chat completions and embeddings
+  only (`GATEWAY_ROUTE_REFUSED`), so a key reaches only its aliases' configured providers
+  (#1105). Same image as 1.0.0 to 1.2.0.
+  1.4.0 adds Vertex AI (`vertex_ai/gemini-…` and Vertex embedding entries): an optional
+  gateway-only import, VERTEX_SERVICE_ACCOUNT_JSON (a service-account key as one line of
+  JSON). The launcher accepts only a `service_account` key with Google's own token
+  endpoint, passes LiteLLM a re-serialised copy with seven known fields, and stops unless
+  every `vertex_ai/` entry reads that key and names the key's own project (#1025 V1).
+  Config-only: not yet run against Vertex AI. Same image as 1.0.0 to 1.3.0.

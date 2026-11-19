@@ -520,6 +520,22 @@
    "exec": false,
    "sha256": "a39352987f077ad49dcf26c682bcc6ff204b8148742c20e3f629f51266070980"
   },
+  "builtin_registry/service/litellm/1.4.0/files/agentbreeder_request_filter.py": {
+   "exec": false,
+   "sha256": "2d10f8b63f44f9c1900e0938b58e4254cd786b7dc63a949cf1f7868fbe7861ff"
+  },
+  "builtin_registry/service/litellm/1.4.0/files/start.py": {
+   "exec": true,
+   "sha256": "28e3646ec279742bb8f6647d0df37a1f83b8bb53922205d397447005cea60001"
+  },
+  "builtin_registry/service/litellm/1.4.0/manifest.yaml": {
+   "exec": false,
+   "sha256": "562745f1871d19cfd246b4164ad801117ba6ae96005fb8ed90b6f1b724b8d6d0"
+  },
+  "builtin_registry/service/litellm/1.4.0/service.yaml": {
+   "exec": false,
+   "sha256": "03522c2b84301fda248a5e80063ffe34126bd0c02d2b42bfd45c178b73bed9a1"
+  },
   "builtin_registry/service/mcp-relay/1.0.0/Dockerfile": {
    "exec": false,
    "sha256": "7f15ae2e1870646cf1b5fca7831051a218b7302cc4178e1a9bf715d27bbaf6c3"

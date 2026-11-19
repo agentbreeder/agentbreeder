@@ -11,6 +11,13 @@ suffix behind. Independently of the values, the password of any `scheme://user:p
 (the user may be empty) is replaced. All of it runs in time linear in the text for a given set
 of values.
 
+Since #1025 (spec §5.1) a value that is a service-account key (one JSON object with a
+`private_key`) also gives its `private_key` (each PEM line on its own) and `private_key_id`,
+because a library may print the key and not the JSON that carried it. And three shapes are
+replaced whatever the values, since a provider SDK derives them from an imported credential
+and they are never an imported value themselves: a PEM private-key block, a JWT
+(`eyJ….eyJ….…`), and a bearer token (the token after `Bearer `, and Google's `ya29.…`).
+
 It is best effort: a value transformed another way (hashed, split across lines, compressed,
 re-encoded twice) is not found. Known limits of the URL rule: only `scheme://` URLs (not
 `user:password@host` without a scheme, nor DSNs like `host=... password=...`); the authority
@@ -56,6 +63,19 @@ _SLASH = re.compile("/")
 _HOSTISH = re.compile(r"[A-Za-z0-9\[]")
 _HOST_PORT = re.compile(r"[A-Za-z0-9.-]+(?::[0-9]{1,5})?")  # ASCII digits only
 _HOST_MAX = 260
+# Shapes (#1025 §5.1), each linear in the text: no quantifier is nested, a JWT or bearer
+# attempt starts only at the start of a run of its own alphabet (the lookbehind), so a run is
+# read once, and a PEM attempt stops at the first `-`.
+_PEM = re.compile(
+    r"-----BEGIN (?:[A-Z0-9]+ ){0,4}PRIVATE KEY-----[^-]{1,16384}"
+    r"-----END (?:[A-Z0-9]+ ){0,4}PRIVATE KEY-----"
+)
+_JWT = re.compile(
+    r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
+)
+_BEARER = re.compile(r"(?<![A-Za-z0-9])(?i:bearer)[ \t]{1,8}([A-Za-z0-9._~+/-]{16,}={0,2})")
+_GOOGLE_TOKEN = re.compile(r"(?<![A-Za-z0-9._-])ya29\.[A-Za-z0-9._-]{16,}")
+_KEY_FIELDS = ("private_key", "private_key_id")  # of a service-account key stored as JSON
 _IPV6_HOST = re.compile(r"\[[0-9A-Fa-f:.]+\](?::[0-9]{1,5})?")
 
 
@@ -87,21 +107,49 @@ def _forms(value: str) -> set[str]:
     )
 
 
+def _key_fields(text: str) -> list[str]:
+    """The secret fields of a service-account key stored as one JSON object: its private key
+    and key id are secrets on their own."""
+    if not text.startswith("{") or '"private_key"' not in text:
+        return []
+    try:
+        data = json.loads(text)
+    except (ValueError, RecursionError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    return [data[name] for name in _KEY_FIELDS if isinstance(data.get(name), str)]
+
+
 def patterns(values: Iterable[bytes | str]) -> list[str]:
     """Every string `redact` replaces for these values, longest first."""
     found: set[str] = set()
     for item in values:
-        text = item.decode("utf-8", "replace") if isinstance(item, bytes) else str(item)
-        text = text.strip()
-        if len(text) < MIN_LITERAL:
-            continue
-        found |= _forms(text)
-        lines = [line.strip() for line in text.splitlines()]
-        if len(lines) > 1:
-            for line in lines:
-                if len(line) >= MIN_LINE:
-                    found |= _forms(line)
+        whole = item.decode("utf-8", "replace") if isinstance(item, bytes) else str(item)
+        for text in (whole.strip(), *(field.strip() for field in _key_fields(whole.strip()))):
+            if len(text) < MIN_LITERAL:
+                continue
+            found |= _forms(text)
+            lines = [line.strip() for line in text.splitlines()]
+            if len(lines) > 1:
+                for line in lines:
+                    if len(line) >= MIN_LINE:
+                        found |= _forms(line)
     return sorted((p for p in found if len(p) >= MIN_LITERAL), key=len, reverse=True)
+
+
+def _shape_spans(text: str) -> list[tuple[int, int]]:
+    """Spans of the credential shapes replaced whatever the values (module docstring)."""
+    spans: list[tuple[int, int]] = []
+    if "PRIVATE KEY-----" in text:
+        spans += [match.span() for match in _PEM.finditer(text)]
+    if "eyJ" in text:
+        spans += [match.span() for match in _JWT.finditer(text)]
+    if "bearer" in text.lower():
+        spans += [match.span(1) for match in _BEARER.finditer(text)]
+    if "ya29." in text:
+        spans += [match.span() for match in _GOOGLE_TOKEN.finditer(text)]
+    return spans
 
 
 def _positions(pattern: re.Pattern, text: str) -> list[int]:
@@ -201,7 +249,7 @@ class Redactor:
 
 
 def _apply(text: str, compiled: list[str]) -> str:
-    spans = _url_password_spans(text)
+    spans = _url_password_spans(text) + _shape_spans(text)
     for pattern in compiled:
         start = text.find(pattern)
         while start >= 0:

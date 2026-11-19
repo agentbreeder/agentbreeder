@@ -182,6 +182,7 @@ agentbreeder services start|stop|restart [DIR] NAME [--yes] [--json]   # one con
 | `service/postgres-pgvector@1.2.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | as 1.1.0, plus `console_database` | as 1.1.0, plus `console` (operator only): a URL for `agentbreeder_console`, which can connect only to `console_database` and has no rights until `init_sql` grants them. |
 | `service/postgres-pgvector@1.1.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | as 1.0.0, plus `roles` (list) and `roles_database` | as 1.0.0, plus `roles.<name>`: a URL for a role that can connect only to `roles_database`, owns only a schema of its own name and has no other rights until `init_sql` grants them. `postgres` and `template1` are closed to applications. |
 | `service/postgres-pgvector@1.0.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | `databases` (list), `init_sql` (file, ≤ 64 KiB, no `\` meta-commands), `init_sql_database` | `databases.<name>`: a URL with that database's own role (never the superuser) |
+| `service/litellm@1.4.0` | as 1.3.0, plus Vertex AI: an optional gateway-only import, `VERTEX_SERVICE_ACCOUNT_JSON` (a service-account key on one line), checked and re-serialised by the launcher (#1025 V1; see "Vertex AI" below). **Config-only: not run against Vertex AI** | as 1.3.0 | as 1.3.0 |
 | `service/litellm@1.3.0` | as 1.2.0, plus a request filter: the gateway refuses provider-routing, endpoint and credential parameters in requests, and call types other than chat completions and embeddings (#1105; see "Request parameters" below) | as 1.2.0 | as 1.2.0 |
 | `service/litellm@1.2.0` | as 1.1.0, plus Ollama on the operator's host (`reaches_host: [11434]`, #1025 O1) and a stricter launcher: LiteLLM gets only an allow-list of variables, with cloud metadata lookups and credential files turned off | as 1.1.0 | as 1.1.0 |
 | `service/litellm@1.1.0` | as 1.0.0, plus two optional url inputs, `presidio-analyzer` and `presidio-anonymizer`, for Presidio guardrails (#1024) | as 1.0.0 | as 1.0.0 |
@@ -217,9 +218,11 @@ Phoenix's UI: sign in as `admin@localhost` with the password in the stack state 
 - The config is reviewed for the gateway that runs it. Ollama (`ollama/`, `ollama_chat/`), Vertex
   AI (`vertex_ai/`), Bedrock (`bedrock/`) and Azure OpenAI (`azure/`) have review rules (per
   provider model patterns, required explicit credentials, and endpoint rules; see the #1025 spec).
-  Each provider is added in its own gateway version after a real run. Ollama is served by
-  `service/litellm@1.2.0` (see "Ollama on this machine" below); an Ollama entry on 1.0.0 or 1.1.0,
-  and any Vertex, Bedrock or Azure entry, is refused with `GATEWAY_PROVIDER_UNSUPPORTED`.
+  Each provider is added in its own gateway version. Ollama is served by
+  `service/litellm@1.2.0` and later (see "Ollama on this machine" below) and Vertex AI by
+  `service/litellm@1.4.0` (see "Vertex AI" below; config-only, not run against Vertex AI). An
+  Ollama entry on 1.0.0 or 1.1.0, a Vertex entry before 1.4.0, and any Bedrock or Azure entry,
+  is refused with `GATEWAY_PROVIDER_UNSUPPORTED`.
 - Their credentials (`VERTEX_SERVICE_ACCOUNT_JSON`, `BEDROCK_ACCESS_KEY_ID`,
   `BEDROCK_SECRET_ACCESS_KEY`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`) are gateway-only
   imports: `secret set --from-env`, MCP versions and every service other than the built-in
@@ -311,6 +314,83 @@ parsed or names a gateway-only credential it did not import. In a test with fake
 services on 169.254.169.254 and 169.254.170.2, the launcher's environment sent them nothing
 while the raw environment reached both. These matter on a cloud VM, not on a laptop. Nothing
 blocks the gateway's network egress to metadata addresses (residual R3).
+
+### Vertex AI (preview, config-only)
+
+On `main`, not in a published preview (#1025 V1). **Not run against Vertex AI:** no real
+service-account key was available, so no model call, embedding, `release` or `cost` line has
+been seen for a Vertex alias, and `new agent --model vertex` reports `verified: false`. What ran
+is the config review, `services up` with a fake Docker, and the launcher's checks, all in unit
+tests with a made-up key. The pinned-image checks for Vertex (redirects, client-side
+parameters, credential readback, logs; `tests/test_vertex_gateway_docker.py`) are written and
+**have not been run**. Treat everything below as how it is built, not as observed behaviour.
+
+`service/litellm@1.4.0` can serve aliases from Gemini and embedding models on Vertex AI:
+
+```yaml
+# stack.yaml
+    ref: service/litellm@1.4.0
+# stack/litellm/config.yaml
+  - model_name: chat
+    litellm_params:
+      model: vertex_ai/gemini-3.8-flash
+      vertex_credentials: os.environ/VERTEX_SERVICE_ACCOUNT_JSON
+      vertex_project: my-project-1
+      vertex_location: us-central1
+```
+
+`new agent NAME --model vertex --vertex-project PROJECT --vertex-location LOCATION` writes this
+for `chat` and `judge`.
+
+- **Model.** `vertex_ai/` followed by `gemini-…`, `gemini-embedding-…`, `text-embedding-…` or
+  `text-multilingual-embedding-…`. Other publishers' models (`…@…`), numeric endpoint ids,
+  `vertex_ai/openai/…` and `vertex_ai_beta/` are refused.
+- **All three params are required**, and `vertex_credentials` must be exactly
+  `os.environ/VERTEX_SERVICE_ACCOUNT_JSON` (never a path, so LiteLLM never looks for
+  application default credentials). `vertex_project` is a project id (a domain-scoped id such
+  as `example.com:project` is not accepted) and `vertex_location` is
+  `global` or a region such as `us-central1`. `api_base` and every other endpoint key are
+  refused: LiteLLM derives the endpoint from the location.
+- **The key.** A service-account key, on one line. `jq -c . key.json` prints a key file on one
+  line; put it in the env file as `VERTEX_SERVICE_ACCOUNT_JSON='…'` (single quotes), mode 0600.
+  The key file is at most 16 KiB. Only the built-in gateway may import this name.
+- **What is accepted.** `"type": "service_account"` only. A gcloud user credential
+  (`authorized_user`) and workload identity federation (`external_account`) are refused; so
+  are a `token_uri` other than `https://oauth2.googleapis.com/token`, a `universe_domain` other
+  than `googleapis.com`, duplicate keys, and a key missing `project_id`, `private_key_id`,
+  `private_key`, `client_email` or `client_id`. When an alias uses Vertex, `services up` checks
+  this before any container starts (`VERTEX_KEY_INVALID`; the value is never printed), and the
+  launcher checks the file again and passes LiteLLM a re-serialised copy with those seven
+  fields and nothing else. In a stack with no Vertex alias the value is not passed to LiteLLM at
+  all, key or not. Nothing but a Vertex entry's `vertex_credentials` may read it.
+- **The project is bound to the key.** `up` (`VERTEX_PROJECT_MISMATCH`) and the launcher both
+  refuse a config whose `vertex_project` is not the key's own `project_id`, so a repo cannot
+  point your service account at another project it can reach. The grant shows
+  `vertex (VERTEX_SERVICE_ACCOUNT_JSON, project <project>, <location>)` per alias.
+- **Give the service account as little as possible.** Create one for the gateway alone, with
+  `roles/aiplatform.user` on that project and no other role:
+
+  ```bash
+  gcloud iam service-accounts create agentbreeder-gateway --project PROJECT
+  gcloud projects add-iam-policy-binding PROJECT \
+    --member serviceAccount:agentbreeder-gateway@PROJECT.iam.gserviceaccount.com \
+    --role roles/aiplatform.user
+  gcloud iam service-accounts keys create key.json \
+    --iam-account agentbreeder-gateway@PROJECT.iam.gserviceaccount.com
+  jq -c . key.json   # one line, for the env file; then delete key.json
+  ```
+
+  These commands were not run for this page. The Vertex AI API must be enabled on the project.
+- **Residuals.** The key is long-lived and sits in the gateway container's process environment,
+  as provider keys do (R1). A key you revoke stays stored in the stack's state until you import
+  a new one or run `services down --volumes` (R7). Workload identity is not supported. The
+  gateway's network egress is not restricted (R3). `set_verbose: true` is refused in every
+  gateway config, so LiteLLM's debug logging cannot be turned on beside the key.
+- **Embeddings.** `vertex_ai/text-embedding-005` (768 dimensions in LiteLLM 1.106.2's model
+  map, read from the wheel, not observed) and `vertex_ai/gemini-embedding-2` pass the review;
+  neither has been called. `--from-spec`,
+  `--stack-for` and the console do not offer Vertex yet.
+- **Cost.** LiteLLM prices Vertex models from its own model map; not observed.
 
 ### Request parameters (`service/litellm@1.3.0`)
 

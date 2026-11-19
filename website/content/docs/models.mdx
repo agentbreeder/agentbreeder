@@ -33,9 +33,10 @@ operator environment grants. The key is mounted as a file and revoked on remove.
 
 "Run end to end" means `services up`, `release` through the eval gate (the judge needs strict
 JSON-schema output) and `invoke`, with the default model. Another `--model-id` uses the same
-path, but only the default has been run. Vertex AI, Bedrock and Azure OpenAI have config review
-rules, but no gateway version serves them yet: `services up` refuses them
-(`GATEWAY_PROVIDER_UNSUPPORTED`).
+path, but only the default has been run. Bedrock and Azure OpenAI have config review rules, but
+no gateway version serves them yet: `services up` refuses them
+(`GATEWAY_PROVIDER_UNSUPPORTED`). Vertex AI is config only on `main` (`service/litellm@1.4.0`,
+not in a published preview): it has not been run against Vertex AI.
 
 ### Ollama on your machine
 

@@ -181,6 +181,15 @@ guardrails floor. 1.0.0 to 1.2.0 unchanged (they still honour `custom_llm_provid
 Northwind not relocked. No manifest, JSON Schema or `agent.lock` format change. Website: no change
 until release R. Cloud: a `CLAUDE.md` note only.
 
+**Vertex AI, #1025 V1, per side.** OSS (on `main`): built-in `service/litellm@1.4.0` (1.3.0 plus
+the gateway-only import `VERTEX_SERVICE_ACCOUNT_JSON`; the launcher accepts only a
+`service_account` key, re-serialises it and binds `vertex_project` to the key's project),
+`VERTEX_KEY_INVALID` at `services up`, and `new agent --model vertex --vertex-project
+--vertex-location` (plain starter only; not `--stack-for`, `--from-spec` or the console).
+**Config-only: not run against Vertex AI, `verified` false.** No manifest, JSON Schema or
+`agent.lock` format change; 1.0.0 to 1.3.0 unchanged. Website: no change until a recorded run.
+Cloud: a `CLAUDE.md` note only.
+
 **Agent guardrails, #1053, per side.** OSS (on `main`): `agent.yaml` and the manifest gain an
 optional `guardrails` list (JSON Schema updated; digests, revisions and package bytes are unchanged
 when it is unset), `services up` writes `guardrails.optional`, and deploy attaches a LiteLLM policy
