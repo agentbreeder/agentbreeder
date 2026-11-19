@@ -5,7 +5,7 @@ On `main`, not in a published preview (#906).
 ```
 agentbreeder cost [--stack DIR [--environment ENV] | --state-dir DIR]
                   [--since YYYY-MM-DD] [--until YYYY-MM-DD]
-                  [--by deployment|model] [--json]
+                  [--by deployment|model|subagent] [--json]
 ```
 
 `cost` reports what the model calls of your deployments cost, per deployment and per model,
@@ -56,7 +56,9 @@ model, and the same counts), with a total. A key that names no deployment in thi
 with `not in this state` (another state directory, or history that was deleted); an eval judge
 key as `eval run <run>`.
 
-`--json` prints both groupings:
+`--by subagent` splits each key by sub-agent; see [Per sub-agent](#per-sub-agent---by-subagent).
+
+`--json` prints both groupings (and, for a key with tagged calls, the sub-agent rows):
 
 ```json
 {
@@ -87,6 +89,60 @@ above its own prompt tokens counts 0. Nothing is estimated, and the USD is LiteL
 already prices cached tokens if LiteLLM knows the provider's cache price. Keys and models are sorted by cost, highest first. Text fields come from the gateway
 and are passed on as they are in JSON; the table shows them on one line with control characters
 replaced and the counts and USD right-aligned (USD to 6 decimals in the table, 8 in JSON).
+
+### Per sub-agent (`--by subagent`)
+
+On `main`, not in a published preview (#1058). **Tested on fixture spend rows only**: no runtime
+sends the tag yet, so this has not been run against a real agent with sub-agents. The
+`runtime/adk` version that runs sub-agents is a later slice, and so is the run that compares these
+numbers with the reply's per-sub-agent cost.
+
+A runtime that runs sub-agents is to tag each model call with `agentbreeder-subagent:<name>`, and
+the parent's own calls with `agentbreeder-subagent:-` (sub-agents spec §10.2). LiteLLM keeps a
+request's `metadata.tags` in the spend row's `request_tags`; a probe on LiteLLM 1.106.2 with raw
+HTTP requests showed that
+([record](superpowers/verification/1058-S0-litellm-tags.md)). `cost` reads that field and keeps
+only tags of exactly that form (the name is a sub-agent name, `^[a-z][a-z0-9_]{0,31}$`); LiteLLM's
+own tags (`User-Agent: ...`) and anything else are dropped as the rows are read. Only the first 64
+tags of a row are read; in the probe the caller's tags came before the ones LiteLLM adds.
+
+A key with at least one tagged call gets a `subagents` list in `--json`, after `models`:
+
+```json
+"subagents": [
+  {"role": "parent",   "name": null,      "calls": 4, "cost_usd": 0.0021, "unpriced": 0, "...": "..."},
+  {"role": "subagent", "name": "billing", "calls": 2, "cost_usd": 0.0009, "unpriced": 1, "...": "..."},
+  {"role": "untagged", "name": null,      "calls": 1, "cost_usd": 0.0001, "unpriced": 0, "...": "..."}
+]
+```
+
+Each row has the same counts as a key. The parent is first, then the sub-agents by cost (highest
+first, then by calls, then by name; a row with no priced call counts as 0 here), then the calls
+with no tag. The rows add up to the key. Rows are per key: the same sub-agent name under two keys
+is two rows, one in each key's list. At most 50 sub-agent names are listed per key (an agent file
+has at most 5); calls with any further name are added up in one row with `role` `other`
+(`(other sub-agents)` in the table), before `untagged`. A key with no
+tagged call has no `subagents` field, so the answer for an agent without sub-agents is what it was
+before, and `total` and `models` never depend on tags. `schema_version` stays 1.
+
+`--by subagent` prints one row per key and agent, with `AGENT` `(parent)`, the sub-agent's name
+or `(not tagged)`; a key with no tagged call is one `(not tagged)` row.
+
+- **A tag is the caller's claim.** The gateway does not check it: any key can send any tag. So a
+  tag only splits the spend of the key that sent it. It never moves spend from one key to
+  another, and the per-key numbers do not depend on tags. The split inside a key is only as
+  trustworthy as whoever holds the key: it could send many names to push a real sub-agent's
+  calls into the `other` row.
+- **A call with two different `agentbreeder-subagent:` tags is not attributed**; it is counted
+  under `untagged`.
+- **An unknown cost is shown as unknown, never as zero.** A call with no usable price is counted
+  in the row's `unpriced`. In the `--by subagent` table the USD cell is `unknown` when no call of
+  the row has a price (also when its other calls went to a local model), and
+  `0.002000 + 1 unknown` when some do. The other two tables are unchanged.
+- Embedding calls (knowledge search) are not model calls of a sub-agent; whether a runtime tags
+  them is the runtime's choice and is not decided here.
+- The console does not show the per-sub-agent rows yet: `center/cost.py` passes on known fields
+  only.
 
 Errors are `[CODE] message` on stderr, exit 2; with `--json` also
 `{"schema_version": 1, "error": {"code", "message"}}` on stdout:
