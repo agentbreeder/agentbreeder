@@ -163,6 +163,7 @@ def test_a_reply_is_allow_listed_with_latency_and_seams(center, project, cookie)
         "turn": "b" * 32,
         "model": "chat",
         "runtime": "runtime/adk@1.0.6",
+        "framework": "google-adk",
         "tools": ["orders"],
         "sources": ["Returns policy"],
         "model_calls": 2,
@@ -271,6 +272,30 @@ def test_the_model_codes_are_invokes():
 
     assert tryit.MODEL_CODES >= invoke.MODEL_CODES
     assert "MODEL_BLOCKED" in tryit.MODEL_CODES  # runtime/adk@1.4.0, before invoke learns it
+    assert "MODEL_STEP_LIMIT" in tryit.MODEL_CODES  # a kit runtime's step cap (#1085 S2)
+
+
+@pytest.mark.parametrize(
+    ("value", "shown"),
+    [
+        ("langgraph", "langgraph"),
+        ("x" * 150, "x" * 100),
+        (None, None),
+        (7, None),
+        (["google-adk"], None),
+    ],
+)
+def test_the_framework_is_passed_on_capped(center, project, cookie, tmp_path, value, shown):  # noqa: F811
+    """The reply's `framework` (agent protocol v1) for Try it's Framework row (#1085 S2)."""
+    answer(tmp_path, dict(ANSWER, response=dict(REPLY, framework=value)))
+    assert send(center, project, cookie, {"message": "hi"})[1]["data"]["framework"] == shown
+
+
+def test_model_step_limit_is_a_coded_failure(center, project, cookie, tmp_path):  # noqa: F811
+    answer(tmp_path, model_error("MODEL_STEP_LIMIT", 502))
+    status, data, _ = send(center, project, cookie, {"message": "hi"})
+    assert status == 200 and data["error"]["code"] == "MODEL_STEP_LIMIT", data
+    assert data["data"]["correlation_id"] == "e" * 32
 
 
 @pytest.mark.parametrize(

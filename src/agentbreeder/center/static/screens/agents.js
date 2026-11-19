@@ -14,10 +14,12 @@ import {
   STEP_WORDS, TABS, agentName, candidateOf, gateStrip, identityText, identityTone, lastReleaseCell, latestRun, listRows, releasedImage, localDate, projectStatus,
   releaseText, releaseTone, releasesFor, shortImage, tabHref,
 } from "../lib/agents.js";
-import { href } from "../lib/router.js";
+import { capabilitiesText, countText, filterEmptyText, filterLabel, filterOptions, filterRows, protocolText, runtimeEntry } from "../lib/framework.js";
+import { href, withQuery } from "../lib/router.js";
 import { visible } from "../lib/text.js";
 import { productionRow } from "../lib/tryit.js";
-import { Card, Table, Text, ViewState, useConsole } from "../ui/components.js";
+import { Card, Table, Text, ViewState, nextId, useConsole } from "../ui/components.js";
+import { FrameworkBadge, useRuntimes } from "../ui/framework.js";
 import { GateCheck } from "../ui/icons.js";
 import { useView } from "../ui/data.js";
 import { AgentCost } from "./cost.js";
@@ -94,8 +96,28 @@ function LastRelease({ row, views }) {
   return html`<span class=${`gated ${cell.tone}`} title=${cell.title}><${Text} value=${cell.text} /></span>${cell.at ? html` <span class="muted small"><${Text} value=${auditTime(cell.at)} /></span>` : null}`;
 }
 
-export function Agents() {
+/**
+ * The framework filter (#1085 S2, C7: on this list only). Its value is kept in the URL query
+ * (`#/agents?framework=adk`), so it survives a reload and the 3-second refresh, and changing it
+ * keeps focus on the select (the route does not change).
+ */
+function FrameworkFilter({ id, value, options }) {
+  const change = (event) => {
+    const next = event.currentTarget.value;
+    location.hash = withQuery(href("/agents"), next ? { framework: next } : {});
+  };
+  return html`<div class="row filter">
+    <label for=${id}>Framework</label>
+    <select id=${id} value=${value} onChange=${change}>
+      ${options.map((option) => html`<option key=${option.value} value=${option.value}>${option.label}</option>`)}
+    </select>
+  </div>`;
+}
+
+export function Agents({ query = {} }) {
   const { jobsEnded, jobsRunning } = useConsole();
+  const [filterId] = useState(() => nextId("framework-filter"));
+  const { runtimes } = useRuntimes();
   const ended = jobsEnded();
   const running = jobsRunning() > 0;
   const [view, reload] = useView("/api/agents", null, ended);
@@ -119,16 +141,31 @@ export function Agents() {
     return () => clearInterval(timer);
   }, [running]);
   const data = view.data || {};
-  const rows = listRows(data.deployments);
+  const all = listRows(data.deployments);
+  const framework = typeof query.framework === "string" ? query.framework : "";
+  const options = filterOptions(all, runtimes);
+  // A value no row has (an address kept from earlier) stays selectable, so the select shows it.
+  if (framework && !options.some((option) => option.value === framework)) options.push({ value: framework, label: filterLabel(framework, all, runtimes) });
+  const rows = filterRows(all, framework);
   const skipped = Array.isArray(data.skipped) ? data.skipped : [];
-  const ids = [...new Set(rows.filter((row) => row.console_project && !row.candidate).map((row) => row.console_project))].sort();
+  const ids = [...new Set(all.filter((row) => row.console_project && !row.candidate).map((row) => row.console_project))].sort();
   const views = useProjectReleases(ids, ended);
   return html`
     <${Card} title="Deployed agents" busy=${view.loading && !view.data}>
+      ${all.length || framework
+        ? html`<div class="row list-head">
+            <${FrameworkFilter} id=${filterId} value=${framework} options=${options} />
+            <p class="muted small" role="status"><${Text} value=${countText(rows.length, all.length, Boolean(framework))} /></p>
+          </div>`
+        : null}
+      ${framework && !rows.length && view.data
+        ? html`<p class="muted"><${Text} value=${filterEmptyText(framework, all, runtimes)} /> <button type="button" class="action secondary small" onClick=${() => { location.hash = href("/agents"); requestAnimationFrame(() => document.getElementById(filterId)?.focus()); }}>Show all frameworks</button></p>`
+        : null}
       ${rows.length
         ? html`<${Table} label="Agents" columns=${["Agent", "Project", "Target", "State", "Image", "Identity check", "Endpoint", "Last release"]}>
             ${rows.map((row) => html`<tr key=${`${row.stack || ""} ${row.environment || ""} ${row.id}`}>
-              <td>${row.console_project ? html`<${AgentLink} row=${row} />` : html`<${Text} value=${row.name} />`}${row.candidate ? html` <span class="badge candidate" title="Removed when its release ends">candidate, temporary</span>` : null}</td>
+              <td>${row.console_project ? html`<${AgentLink} row=${row} />` : html`<${Text} value=${row.name} />`}${row.candidate ? html` <span class="badge candidate" title="Removed when its release ends">candidate, temporary</span>` : null}
+                <div class="small"><${FrameworkBadge} runtime=${row.runtime} runtimes=${runtimes} showRef /></div></td>
               <td><${ProjectCell} row=${row} /></td>
               <td><${Text} value=${row.target} /></td>
               <td><${Text} value=${row.state} />${row.error ? html`: <${Text} value=${row.error} />` : null}</td>
@@ -139,7 +176,7 @@ export function Agents() {
             </tr>`)}
           <//>`
         : null}
-      <${ViewState} view=${view} empty=${!rows.length && !view.loading && !view.error ? "No agent is deployed in any stack on this machine." : null} />
+      <${ViewState} view=${view} empty=${!all.length && !view.loading && !view.error ? "No agent is deployed in any stack on this machine." : null} />
       <p class="muted small">Every stack on this machine, read without changing anything. The identity check is the one recorded at deploy or by the last <code>reconcile</code>; its time is when the deployment last changed. Local endpoints are unauthenticated.</p>
     <//>
     ${skipped.length
@@ -182,6 +219,18 @@ function Tabs({ name, tab }) {
   </nav>`;
 }
 
+/** The agent's runtime as the registries resolve it (#1085 S2): Framework, Protocol and
+ * Capabilities rows beside the Runtime ref, all from `GET /api/runtimes`. */
+function RuntimeRows({ runtime }) {
+  const { runtimes, loading, error, stale } = useRuntimes();
+  const entry = runtimeEntry(runtimes, runtime);
+  const missing = loading ? "Reading the registries…" : error ? `Not read: ${error.message || error.code}` : "Not in the registries";
+  return html`
+    <dt>Framework</dt><dd><${FrameworkBadge} runtime=${runtime} runtimes=${runtimes} /></dd>
+    <dt>Protocol</dt><dd>${entry ? html`<${Text} value=${protocolText(entry)} />` : html`<span class="muted"><${Text} value=${missing} /></span>`}</dd>
+    <dt>Capabilities</dt><dd>${entry ? html`<${Text} value=${capabilitiesText(entry)} />` : html`<span class="muted"><${Text} value=${missing} /></span>`}${stale ? html` <span class="muted small">(from the last registries read; the newest failed)</span>` : null}</dd>`;
+}
+
 function Overview({ project, name, agent, production, candidate, failedRun, loading = false }) {
   const file = agent.data;
   return html`
@@ -205,6 +254,7 @@ function Overview({ project, name, agent, production, candidate, failedRun, load
         ? html`<dl class="facts">
             ${file.description ? html`<dt>Description</dt><dd><${Text} value=${file.description} /></dd>` : null}
             <dt>Runtime</dt><dd><code><${Text} value=${file.runtime} /></code></dd>
+            <${RuntimeRows} runtime=${file.runtime} />
             <dt>Model</dt><dd><code><${Text} value=${file.model.alias} /></code></dd>
             <dt>Prompt</dt><dd><code><${Text} value=${file.prompt.ref || file.prompt.path || "inline"} /></code></dd>
             <dt>Tools</dt><dd>${file.tools.length ? html`<${Text} value=${file.tools.map((t) => t.ref).join(", ")} />` : html`<span class="muted">none</span>`}</dd>

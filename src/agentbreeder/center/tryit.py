@@ -77,6 +77,9 @@ MODEL_CODES = frozenset(
         "MODEL_ACCESS_DENIED",
         "MODEL_REQUEST_REFUSED",
         "MODEL_UNAVAILABLE",
+        # A kit runtime's step cap (agent protocol "Profiles", #1085 S2): the turn reached its
+        # model-call limit with the model still asking for tools.
+        "MODEL_STEP_LIMIT",
     }
 )
 MAX_MODEL_ERROR = 600  # the runtime's fixed messages are about 250 characters
@@ -267,6 +270,8 @@ def turn_answer(data: object, latency_ms: int) -> tuple[dict | None, dict | None
         "turn": _id(response.get("turn_id"), HEX32),
         "model": _text(response.get("model"), MAX_SHORT),
         "runtime": _text(response.get("runtime"), MAX_SHORT),
+        # The runtime's framework, as its manifest names it (agent protocol v1, #1085 S2).
+        "framework": _text(response.get("framework"), MAX_SHORT),
         "tools": _names(response.get("tools")),
         "sources": _names(response.get("sources")),
         "model_calls": _count(response.get("model_calls")),

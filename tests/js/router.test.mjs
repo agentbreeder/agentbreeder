@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createRouter, href, pathFrom, routeTitle, titleFor, tokenFrom } from "../../src/agentbreeder/center/static/lib/router.js";
+import { createRouter, href, pathFrom, queryFrom, routeTitle, titleFor, tokenFrom, withQuery } from "../../src/agentbreeder/center/static/lib/router.js";
 
 const TOKEN = "A".repeat(43);
 
@@ -67,4 +67,27 @@ test("a route title can name the page from its parameters", () => {
   assert.equal(titleFor(route, { name: "greet" }), "Prompt greet · AgentBreeder console");
   assert.equal(routeTitle({ title: "Audit" }), "Audit");
   assert.equal(routeTitle(null), "");
+});
+
+test("a hash's query is read with only allowed keys and values (#1085 S2)", () => {
+  assert.deepEqual(queryFrom("#/agents?framework=adk"), { framework: "adk" });
+  assert.deepEqual(queryFrom("#/agents?framework=_none&x=1"), { framework: "_none", x: "1" });
+  assert.deepEqual(queryFrom("#/agents"), {});
+  assert.deepEqual(queryFrom(""), {});
+  assert.deepEqual(queryFrom(undefined), {});
+  // The first of a repeated key; bad keys and values are dropped, empty values too.
+  assert.deepEqual(queryFrom("#/agents?framework=adk&framework=crewai"), { framework: "adk" });
+  assert.deepEqual(queryFrom("#/agents?Framework=adk&a%20b=1&framework=%3Cb%3E"), {});
+  assert.deepEqual(queryFrom("#/agents?framework="), {});
+  assert.deepEqual(queryFrom(`#/agents?framework=${"a".repeat(129)}`), {});
+  // The path is unchanged by a query.
+  assert.equal(pathFrom("#/agents?framework=adk"), "/agents");
+});
+
+test("a query is added to a route's hash", () => {
+  assert.equal(withQuery("#/agents", { framework: "adk" }), "#/agents?framework=adk");
+  assert.equal(withQuery("#/agents?framework=adk", {}), "#/agents");
+  assert.equal(withQuery("#/agents", { framework: "", b: "2", a: "1" }), "#/agents?a=1&b=2");
+  assert.equal(withQuery("#/agents", { framework: "<b>" }), "#/agents");
+  assert.deepEqual(queryFrom(withQuery("#/agents", { framework: "_none" })), { framework: "_none" });
 });

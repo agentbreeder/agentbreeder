@@ -224,6 +224,13 @@ dialog::backdrop { background: var(--scrim); }
 
 /* Registry browser (#824): the verify state is an icon and a word, never colour alone. */
 .badge { display: inline-block; padding: 0 6px; border: 1px solid var(--control-border); border-radius: 4px; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+/* The framework an agent runs (#1085 S2): a neutral text badge, with its ref beside it as text. A
+ * long framework name wraps instead of widening a table cell at 320 px. */
+.badge.framework { white-space: normal; overflow-wrap: anywhere; }
+.framework-line code { overflow-wrap: anywhere; }
+.list-head { justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.list-head p { margin: 0; }
+.row.filter { align-items: center; }
 .verify.passed { color: var(--success); }
 .verify.failed { color: var(--destructive); font-weight: 600; }
 .verify.verifying, .verify.unknown { color: var(--text-muted); }

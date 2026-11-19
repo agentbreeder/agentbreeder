@@ -4,7 +4,7 @@
 import { createClient } from "./lib/api.js";
 import { jobLabel, jobOutcome } from "./lib/format.js";
 import { createJobs } from "./lib/jobs.js";
-import { createRouter, pathFrom, titleFor, tokenFrom } from "./lib/router.js";
+import { createRouter, pathFrom, queryFrom, titleFor, tokenFrom } from "./lib/router.js";
 import { visible } from "./lib/text.js";
 import { ROUTES } from "./screens/index.js";
 import { Console, Text } from "./ui/components.js";
@@ -13,7 +13,8 @@ import { html, render, useEffect, useReducer, useRef, useState } from "./ui/prea
 import { Shell, SignedOut, Unreachable } from "./ui/shell.js";
 
 const router = createRouter(ROUTES);
-const RETURN_TO = /^#\/[A-Za-z0-9/._-]{0,200}$/;
+// A route, and the query a screen keeps in it (#1085 S2), so re-auth returns to both.
+const RETURN_TO = /^#\/[A-Za-z0-9/._-]{0,200}(\?[A-Za-z0-9=&._%-]{0,300})?$/;
 
 // Per-tab storage (sessionStorage, gone with the tab); memory if storage is unavailable.
 const memory = {};
@@ -148,6 +149,7 @@ function useGuide(projectId, version, ready) {
 function App({ initial }) {
   const [phase, setPhase] = useState(initial);
   const [path, setPath] = useState(pathFrom(location.hash));
+  const [query, setQuery] = useState(() => queryFrom(location.hash));
   const [overview, setOverview] = useState(null);
   const [projects, setProjects] = useState([]);
   const [scope, setScopeState] = useState(tab.get("console-scope"));
@@ -204,6 +206,7 @@ function App({ initial }) {
       }
       rememberRoute();
       setPath(pathFrom(location.hash));
+      setQuery(queryFrom(location.hash));
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -246,7 +249,9 @@ function App({ initial }) {
     [],
   );
 
-  const match = router.match(path);
+  const found = router.match(path);
+  // The query is the screen's own state (a filter), never part of which route matched.
+  const match = found ? { ...found, query } : null;
   useEffect(() => {
     document.title = phase.name === "ready" ? titleFor(match && match.route, match ? match.params : {}) : titleFor(null);
   }, [path, phase.name]);

@@ -460,6 +460,25 @@ class Center:
         except builder.BadOutput as problem:
             raise BadRequest(str(problem), "BAD_OUTPUT") from problem
 
+    def runtimes_view(self) -> dict:
+        """`GET /api/runtimes` (#1085 S2, console spec §8): the same resolved view as
+        `parts.runtimes`, on its own, for the framework badge on the Agents list, the agent's
+        Overview and Try it. It only names things, so a failed read keeps the last good answer
+        (shown as stale); nothing is checked against it, unlike a spec's runtime."""
+        result = self.runner.read(
+            list(builder.RUNTIMES_ARGV),
+            timeout=builder.RUNTIMES_TIMEOUT,
+            track=True,
+            max_bytes=builder.MAX_RUNTIMES_BYTES,
+        )
+        if result["data"] is None:
+            return result
+        try:
+            shown = builder.runtimes(result["data"])
+        except builder.BadOutput as problem:
+            return envelope(None, error("BAD_OUTPUT", str(problem)))
+        return envelope(shown, result["error"], result["stale"])
+
     def builder_parts(self) -> dict:
         """The builder's pickers (#833): the `tool/` and `mcp/` versions a new project resolves
         (AGENTBREEDER_REGISTRY_PATH, which CLI children inherit, and the built-ins), and the
@@ -1622,6 +1641,10 @@ def _preview_stack_for(request: Request) -> dict:
     return envelope(request.center.preview_stack_for(request.body))
 
 
+def _runtimes(request: Request) -> dict:
+    return request.center.runtimes_view()
+
+
 def _builder_parts(request: Request) -> dict:
     return request.center.builder_parts()
 
@@ -1662,6 +1685,7 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", r"/api/projects", _projects, "/api/projects"),
     Route("GET", r"/api/agents", _agents, "/api/agents"),
     Route("GET", r"/api/builder/parts", _builder_parts, "/api/builder/parts"),
+    Route("GET", r"/api/runtimes", _runtimes, "/api/runtimes"),
     # Before the generic view route, which would match it too. A poll: it does not keep a
     # session alive.
     Route(

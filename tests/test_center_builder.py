@@ -953,6 +953,57 @@ def test_parts_fails_with_the_runtimes_reads_own_code(
     assert data["error"]["code"] == code
 
 
+RUNTIMES_ROUTE = "/api/runtimes"
+
+
+def test_the_runtimes_route_is_the_same_view_on_its_own(center, cookie, scripted_runtimes):
+    """`GET /api/runtimes` (#1085 S2): the allow-listed view for the framework badge. It only
+    names things, so the last good answer is kept (no `cache=False`)."""
+    full = runtime_row(secret="dropped")
+    scripted_runtimes["result"] = {"data": listing(full, UNUSABLE), "error": None, "stale": False}
+    status, data, _ = api(center, "GET", RUNTIMES_ROUTE, None, cookie)
+    assert status == 200 and data["error"] is None, data
+    assert data["data"] == builder.runtimes(listing(full, UNUSABLE))
+    assert "secret" not in data["data"][0]
+    [call] = scripted_runtimes["calls"]
+    assert "cache" not in call and call["timeout"] == builder.RUNTIMES_TIMEOUT
+    assert call["track"] is True and call["max_bytes"] == builder.MAX_RUNTIMES_BYTES
+
+
+def test_the_runtimes_route_keeps_a_stale_answer(center, cookie, scripted_runtimes):
+    problem = {"code": "REF_CONFLICT", "message": "two roots"}
+    scripted_runtimes["result"] = {"data": listing(runtime_row()), "error": problem, "stale": True}
+    status, data, _ = api(center, "GET", RUNTIMES_ROUTE, None, cookie)
+    assert status == 200 and data["stale"] is True and data["error"] == problem, data
+    assert [entry["ref"] for entry in data["data"]] == [ADK]
+
+
+@pytest.mark.parametrize(
+    ("result", "code"),
+    [
+        (
+            {"data": None, "error": {"code": "REF_CONFLICT", "message": "two roots"}},
+            "REF_CONFLICT",
+        ),
+        ({"data": {"schema_version": 2, "runtimes": []}, "error": None}, "BAD_OUTPUT"),
+        ({"data": [], "error": None}, "BAD_OUTPUT"),
+    ],
+)
+def test_the_runtimes_route_fails_with_the_reads_code(
+    center, cookie, scripted_runtimes, result, code
+):
+    scripted_runtimes["result"] = result | {"stale": False}
+    status, data, _ = api(center, "GET", RUNTIMES_ROUTE, None, cookie)
+    assert status == 200 and data["data"] is None and data["error"]["code"] == code, data
+
+
+def test_the_runtimes_route_reads_the_real_command(center, cookie, calls):
+    status, data, _ = api(center, "GET", RUNTIMES_ROUTE, None, cookie)
+    assert status == 200 and data["error"] is None, data
+    assert [call["argv"] for call in calls] == [RUNTIMES_ARGV]
+    assert {entry["display_name"] for entry in data["data"] if entry["usable"]} == {"Google ADK"}
+
+
 def test_parts_shows_a_tools_function_names(center, cookie, path_registry):
     """What a runtime's reserved names are compared with (console spec §4.2)."""
     status, data, _ = api(center, "GET", PARTS, None, cookie)
