@@ -246,6 +246,17 @@ JSON Schema, digest or `agent.lock` change. Website: no change until a framework
 acceptance. Cloud: a `CLAUDE.md` note only; it has no code that reads the operator config or
 deploys through these paths.
 
+**Agent protocol and conformance, #1083 F2a (multi-framework), per side.** OSS (on `main`):
+`docs/agent-protocol.md` (protocol v1, what `runtime/adk@1.3.0` serves) and `agentbreeder
+conformance IMAGE` (`conformance/`: 26 of 39 checks built, reports under
+`~/.agentbreeder/conformance/`). **Never run on a real Docker engine**: the ADK baseline
+(`docs/superpowers/verification/F2a-adk-baseline.md`) is recorded as not run, and a report is
+`incomplete` at best, so no runtime is called conformant. `registry runtimes --json` gains
+`conformance`, and `list --json` and `list --all --json` gain `runtime` per deployment (additive;
+`schema_version` stays 1). No manifest, JSON Schema, `agent.yaml` or `agent.lock` change.
+Website: no change until a framework passes its acceptance. Cloud: a `CLAUDE.md` note only; it
+has no code that reads `list --json`, a conformance report or the agent's `/invoke` reply.
+
 ## 🎯 When Adding a New Feature
 
 1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?

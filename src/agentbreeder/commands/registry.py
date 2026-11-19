@@ -209,7 +209,7 @@ def _run(args) -> int:
         if args.registry_command == "runtimes":
             from agentbreeder import runtime_profile
 
-            view = runtime_profile.listing(search, args.project)
+            view = _with_conformance(runtime_profile.listing(search, args.project))
             print(json.dumps(view, indent=2) if args.json else _runtimes_text(view))
             return 0
         problems = registry.verify(search)
@@ -427,6 +427,22 @@ def _used_by_text(result: dict) -> str:
 _BUCKETS = ("declared", "locked", "deployed", "recorded_not_running", "deployed_undetermined")
 
 
+_CONFORMANCE = {"pass": "passed", "fail": "failed", "incomplete": "incomplete"}
+
+
+def _with_conformance(view: dict) -> dict:
+    """Add `conformance` ({passed, result, digest, date}) to each usable runtime version that
+    has a report: the newest one for an image built on it (#759, console spec §8). Reports are
+    read from the default state directory, `~/.agentbreeder/conformance`."""
+    from agentbreeder.conformance import report
+
+    for entry in view["runtimes"]:
+        newest = report.newest(entry["ref"]) if entry["usable"] else None
+        if newest is not None:
+            entry["conformance"] = newest
+    return view
+
+
 def _runtimes_text(view: dict) -> str:
     """One block per runtime version. Every value from a manifest is cleaned: a project or
     path registry is not trusted text."""
@@ -445,6 +461,8 @@ def _runtimes_text(view: dict) -> str:
             continue
         kit = f", kit {shown(entry['kit'])}" if "kit" in entry else ""
         status = "run end to end" if entry["verified"] else "not run end to end"
+        if "conformance" in entry:
+            status = f"conformance {_CONFORMANCE[entry['conformance']['result']]}; {status}"
         lines.append(
             f"{entry['ref']}  {shown(entry['display_name'])}  protocol {entry['protocol']} "
             f"({entry['profile']}{kit})  {status}{source}"
