@@ -19,6 +19,7 @@ from agentbreeder import gateway_keys, secret_files
 from agentbreeder import mcp as mcp_relay
 from agentbreeder.audit import AuditError, AuditEvent
 from agentbreeder.deployer import Deployer, os_deployer
+from agentbreeder.egress import kit as kit_egress
 from agentbreeder.egress.boundary import Boundary, BoundaryUnverified
 from agentbreeder.gate import (
     GateDecision,
@@ -89,6 +90,8 @@ class DeploymentService:
         self.gate = gate or IdentityGate(self.operator)
         self.kubernetes = kubernetes if kubernetes is not None else Kubernetes(self.operator)
         self.boundary = Boundary(runtime, store.directory, self.operator)
+        # Default-deny egress for `runtime.profile: kit` manifests on local Docker (#1083 F1b).
+        self.kit = kit_egress.KitBoundary(runtime)
         self.enforcing = self.operator.model.runtime_enforcement.mode == "mcp_http"
         # Secret copies of deployments whose start failed, read just before their cleanup and
         # kept only in this process, so `release` can still redact the failed candidate's log.
@@ -461,8 +464,17 @@ class DeploymentService:
             )
 
         runtime = self._runtime_for(manifest.target)
+        # A kit runtime on local Docker runs on internal networks behind a forwarding sidecar
+        # (egress/kit.py). Every other manifest takes the path below unchanged.
+        kit = kit_egress.applies(manifest)
+        verified = False
         try:
             info = runtime.inspect(record)
+            if kit and info is not None and not info["State"]["Running"]:
+                # A stopped kit container is never started as found: it is recreated on its
+                # internal networks, so nothing runs before the boundary can be verified.
+                runtime.remove(info)
+                info = None
             state = self.store.directory
             minting = self._minting(manifest)
             generated = {GATEWAY_KEY_ENV: "secret://" + GATEWAY_KEY_FILE} if minting else {}
@@ -512,21 +524,39 @@ class DeploymentService:
                 network = self._agents_network((fields.get("context") or {}).get("environment"))
                 if network is not None:
                     options["agents_network"] = network
-                runtime.create(record, manifest, mounts=mounts, **options)
+                if kit:
+                    self.kit.create(
+                        record,
+                        manifest,
+                        environment=environment,
+                        mounts=mounts,
+                        agents_network=network,
+                    )
+                else:
+                    runtime.create(record, manifest, mounts=mounts, **options)
                 info = runtime.inspect(record)
             if info is None:
                 raise DeploymentError(
                     "Container creation could not be verified; retry to reconcile"
                 )
             self.store.transition(identifier, "starting", resource=info["Id"])
+            if kit:
+                self.kit.start_sidecar(record)
             if not info["State"]["Running"]:
                 runtime.start(info)
             info = runtime.inspect(record)
-            if manifest.target != "kubernetes":
+            if manifest.target != "kubernetes" and not kit:
                 info = await_binding(lambda: runtime.inspect(record), info, manifest.port)
             if info is None:
                 raise DeploymentError("Container disappeared before health verification")
-            endpoint = runtime.endpoint(info, manifest)
+            if kit:
+                # Nothing is called ready before the boundary is verified; a failure below
+                # removes the containers and networks.
+                self._verify_kit(record, manifest, context_env)
+                verified = True
+                endpoint = self.kit.endpoint(record)
+            else:
+                endpoint = runtime.endpoint(info, manifest)
             if not runtime.healthy(endpoint, manifest.health_path):
                 raise DeploymentError(
                     "Health check failed; fix the image or remove the deployment"
@@ -536,6 +566,10 @@ class DeploymentService:
             )
         except DeploymentError as error:
             self._retain_copies(identifier)
+            if kit and not verified:
+                # Never leave an unverified boundary running. After verification a failed
+                # agent stays, as on the open path, so its log can still be read.
+                self._teardown_kit_quietly(record)
             secret_files.cleanup(self.store.directory, identifier)
             self._revoke_mcp(identifier)  # best effort here; reconcile retries what remains
             # Always revoke on failure: a key from an earlier generation may still be live even
@@ -574,6 +608,10 @@ class DeploymentService:
                 "MODEL_ACCESS_UNSUPPORTED",
                 "model_access is not yet supported with runtime enforcement",
             )
+        if kit_egress.applies(manifest):
+            problem = kit_egress.requirements(manifest, self.operator.model, environment)
+            if problem is not None:
+                return problem
         if self._minting(manifest) and (
             GATEWAY_KEY_ENV in manifest.secrets
             or f"secret://{GATEWAY_KEY_FILE}" in manifest.secrets.values()
@@ -603,6 +641,21 @@ class DeploymentService:
             )
         if manifest.mcp_access is not None:
             return "KUBERNETES_MCP_UNSUPPORTED", "mcp_access is not supported on Kubernetes yet"
+        if kit_egress.is_kit(manifest) and kit_egress.gateway_on_host(
+            manifest, self.operator.model
+        ):
+            return (
+                kit_egress.UNSUPPORTED,
+                "A kit runtime on Kubernetes has no route to a gateway on the host; put the "
+                "gateway on the stack's agents network",
+            )
+        if kit_egress.is_kit(manifest) and not config.kubernetes.agents_cidrs:
+            # Default-deny egress needs the destinations to allow; never fall back to open.
+            return (
+                "KUBERNETES_KIT_EGRESS_UNCONFIGURED",
+                f"Environment {environment} has no kubernetes.agents_cidrs; run "
+                "`agentbreeder cluster up` again to record the stack's agents network",
+            )
         return None
 
     def _minting(self, manifest: Manifest) -> bool:
@@ -1001,6 +1054,127 @@ class DeploymentService:
         except DeploymentError:
             return False  # reported by the caller's failed state; reconcile retries
 
+    # -- kit egress (#1083 F1b) ------------------------------------------------------------
+
+    def _kit_local(self, record: dict) -> Manifest | None:
+        """The recorded manifest when it is a kit runtime on local Docker, else None."""
+        try:
+            manifest = Manifest.model_validate(self.store.manifest(record["id"]))
+        except (PydanticValidationError, ValueError, DeploymentError):
+            return None  # an unreadable manifest is never trusted as a kit runtime's
+        return manifest if kit_egress.applies(manifest) else None
+
+    def _kit_owned(self, record: dict) -> bool:
+        """Whether removing a local deployment must also tear down kit egress objects: its
+        manifest is a kit runtime, or can no longer be read. The teardown is label-based and
+        idempotent, so an unreadable manifest never leaves a forwarder or network behind."""
+        try:
+            manifest = Manifest.model_validate(self.store.manifest(record["id"]))
+        except (PydanticValidationError, ValueError):
+            return True
+        return kit_egress.applies(manifest)
+
+    def _retry_kit_cleanup(self, record, manifest, attempt, actor) -> str:
+        """A failed kit deployment, or one whose deploy was interrupted before verification,
+        is torn down (label-based, verified) by every reconcile until that succeeds."""
+        if record["state"] == "starting":
+            # Reconcile holds the lifecycle lock: `starting` means an interrupted deploy.
+            secret_files.cleanup(self.store.directory, record["id"])
+            self._revoke_mcp(record["id"])
+            self._revoke_key(manifest, record["id"], attempt, actor)
+            self.store.transition(
+                record["id"],
+                "failed",
+                error="[RUNTIME_BOUNDARY_UNVERIFIED] Interrupted before verification",
+                audit=self._event(
+                    attempt, "transition", "failed", actor, deployment_id=record["id"]
+                ),
+            )
+        try:
+            self.runtime.authorize(record["context"])
+            self.kit.teardown(record)
+        except DeploymentError as error:
+            self._audit(
+                self._event(
+                    attempt,
+                    "boundary_cleanup",
+                    "failed",
+                    actor,
+                    deployment_id=record["id"],
+                    reasons=[{"code": "CLEANUP_FAILED", "message": str(error)}],
+                )
+            )
+            return "noncompliant:RUNTIME_BOUNDARY_UNVERIFIED:cleanup_failed"
+        return "noncompliant:RUNTIME_BOUNDARY_UNVERIFIED"
+
+    def _verify_kit(self, record: dict, manifest: Manifest, environment: str | None) -> None:
+        gateway_url = (self._service_environment(manifest, environment) or {}).get(
+            kit_egress.GATEWAY_URL_ENV
+        )
+        try:
+            self.kit.verify(
+                record,
+                manifest,
+                gateway_url=gateway_url,
+                agents_network=self._agents_network(environment),
+            )
+        except BoundaryUnverified as error:
+            raise DeploymentError(f"[{error.code}] {error}") from error
+
+    def _teardown_kit_quietly(self, record) -> bool:
+        try:
+            self.kit.teardown(record)
+            return True
+        except DeploymentError:
+            return False  # `remove` retries the teardown
+
+    def _ensure_kit(self, record, manifest, attempt, actor) -> str:
+        """Re-verify a ready kit deployment's boundary. The sidecar (never the agent) is
+        started again if it stopped; a boundary that cannot be verified is torn down. When
+        the engine itself cannot be reached nothing can be checked or removed: the deployment
+        is reported unverified and left as recorded."""
+        try:
+            self.runtime.authorize(record["context"])
+        except DeploymentError:
+            return "unreachable"
+        try:
+            self.kit.start_sidecar(record)
+            self._verify_kit(record, manifest, record["environment"])
+            endpoint = self.kit.endpoint(record)
+            if endpoint != record.get("endpoint"):
+                # A restarted sidecar publishes a new loopback port.
+                self.store.transition(
+                    record["id"],
+                    "ready",
+                    endpoint=endpoint,
+                    audit=self._event(
+                        attempt, "transition", "ready", actor, deployment_id=record["id"]
+                    ),
+                )
+            return "verified"
+        except DeploymentError as error:
+            cleaned = self._teardown_kit_quietly(record)
+            secret_files.cleanup(self.store.directory, record["id"])
+            self._revoke_mcp(record["id"])
+            self._revoke_key(manifest, record["id"], attempt, actor)
+            message = str(error)
+            if not message.startswith("[RUNTIME_BOUNDARY_UNVERIFIED]"):
+                message = f"[RUNTIME_BOUNDARY_UNVERIFIED] {message}"
+            self.store.transition(
+                record["id"],
+                "failed",
+                error=message,
+                audit=self._event(
+                    attempt,
+                    "transition",
+                    "failed",
+                    actor,
+                    deployment_id=record["id"],
+                    reasons=[{"code": "RUNTIME_BOUNDARY_UNVERIFIED", "message": str(error)}],
+                ),
+            )
+            return "unverified" if cleaned else "cleanup_failed"
+
     # -- approvals (maker-checker) -----------------------------------------------------------
 
     def _approval_for(self, manifest, decision, deployer, context, record, attempt, fields):
@@ -1313,6 +1487,8 @@ class DeploymentService:
                         runtime.sweep(record)  # a failed create can leave a Secret behind
                     if self.boundary.enforced(record):
                         self.boundary.teardown(record)
+                    elif target == "local" and self._kit_owned(record):
+                        self.kit.teardown(record)
                     if runtime.inspect(record) is not None:
                         raise DeploymentError("Container removal could not be verified; retry")
                     grants_ok = self._revoke_mcp(identifier)
@@ -1455,6 +1631,8 @@ class DeploymentService:
                     runtime.sweep(record)
                 if self.boundary.enforced(record):
                     self.boundary.teardown(record)
+                elif target == "local" and self._kit_owned(record):
+                    self.kit.teardown(record)
                 if runtime.inspect(record) is not None:
                     raise DeploymentError("Container stop could not be verified; retry reconcile")
                 grants_ok = self._revoke_mcp(identifier)
@@ -1667,6 +1845,15 @@ class DeploymentService:
                         {"id": record["id"], "name": record["name"], "compliance": compliance}
                     )
                     continue
+                if record["state"] in ("failed", "starting"):
+                    kit_manifest = self._kit_local(record)
+                    if kit_manifest is not None:
+                        compliance = self._retry_kit_cleanup(record, kit_manifest, attempt, actor)
+                        self.store.set_compliance(record["id"], compliance)
+                        results.append(
+                            {"id": record["id"], "name": record["name"], "compliance": compliance}
+                        )
+                        continue
                 if not record.get("principal_key"):
                     continue
                 key, env = record["principal_key"], record["environment"]
@@ -1679,12 +1866,17 @@ class DeploymentService:
                     compliance = self.verify(record)
                     if compliance == "compliant":
                         compliance = self._guardrail_compliance(record, policy_lists)
+                    outcome = "verified"
                     if record["state"] == "ready" and self.boundary.enforced(record):
                         outcome = self._ensure_boundary(record, attempt, actor)
-                        if outcome != "verified":
-                            compliance = "noncompliant:RUNTIME_BOUNDARY_UNVERIFIED"
-                            if outcome == "cleanup_failed":
-                                compliance += ":cleanup_failed"
+                    elif record["state"] == "ready":
+                        kit_manifest = self._kit_local(record)
+                        if kit_manifest is not None:
+                            outcome = self._ensure_kit(record, kit_manifest, attempt, actor)
+                    if outcome != "verified":
+                        compliance = "noncompliant:RUNTIME_BOUNDARY_UNVERIFIED"
+                        if outcome == "cleanup_failed":
+                            compliance += ":cleanup_failed"
                 self.store.set_compliance(record["id"], compliance)
                 results.append(
                     {"id": record["id"], "name": record["name"], "compliance": compliance}

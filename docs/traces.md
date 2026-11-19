@@ -108,6 +108,19 @@ as `logs`. If one of them can't be read, nothing is printed (`REDACTION_INCOMPLE
 string is then flattened to one line without control characters and cut (200 characters, 300
 for errors).
 
+`runtime/adk@1.5.0` (on `main`, not in a published preview) writes two more groups of span
+attributes, which `traces` does not read out yet: `agentbreeder.subagent` (the sub-agent's name)
+on a sub-agent's agent, model and tool spans and on the `ask_<name>` tool span that started it,
+and `agentbreeder.skill.name`, `.version`, `.sha256` and `.resource` on a `load_skill` or
+`load_skill_resource` tool span. A loaded skill's text is replaced by a label before a span is
+exported (see [agent-yaml.md](agent-yaml.md#runtimeadk150)).
+
+`runtime/adk@1.5.0` also sends a turn's spans when the turn ends, and sends the spans of a turn a
+gateway guardrail blocked without content (#1106): `traces --trace` then shows the span tree with
+kinds, times and token counts, and no input, output or error text; a span's name is cut to its
+first word (`execute_tool`, not the tool's name). Not run against
+Phoenix.
+
 ## `--json` (schema_version 1)
 
 The console's Try it and eval report viewer use `traces --trace TRACE_ID --stack DIR

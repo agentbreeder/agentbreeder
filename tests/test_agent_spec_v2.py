@@ -24,7 +24,7 @@ TODAY = date(2026, 11, 13)
 MARKER = "Private marker kestrel-umbra-71."  # prompt text that must never reach an error
 GOLDEN = Path(__file__).parent / "fixtures" / "agentspec_v1_golden.json"
 ADK = registry.BUILTIN_ROOT / "runtime" / "adk" / "1.4.0"
-CAPABLE = "runtime/adk@1.5.0"
+CAPABLE = "runtime/adk@1.99.0"  # never a built-in version (1.5.0 is one since RT)
 
 
 @pytest.fixture(autouse=True)
@@ -91,17 +91,17 @@ def dry_run_json(tmp_path: Path, data: dict) -> tuple[int, dict]:
 
 @pytest.fixture
 def shared(tmp_path, monkeypatch) -> Path:
-    """A registry on AGENTBREEDER_REGISTRY_PATH with `runtime/adk@1.5.0` (1.4.0's files and
-    `capabilities: [mcp, subagents, skills]`, standing in for RT's version), `tool/echo@0.1.0`,
-    `tool/ask@0.1.0` (its function named `ask_billing`), `skill/refund-policy@0.1.0` (an
-    instruction pack)
-    and `skill/prorate@0.1.0` (with a script)."""
+    """A registry on AGENTBREEDER_REGISTRY_PATH with `runtime/adk@1.99.0` (1.4.0's files and
+    `capabilities: [mcp, subagents, skills]`, a stand-in that cannot clash with a built-in),
+    `tool/echo@0.1.0`, `tool/ask@0.1.0` (its function named `ask_billing`),
+    `skill/refund-policy@0.1.0` (an instruction pack) and `skill/prorate@0.1.0` (with a
+    script)."""
     root = tmp_path / "shared-registry"
     sources = tmp_path / "sources"
     runtime = sources / "runtime-adk"
     shutil.copytree(ADK, runtime)
     manifest = runtime / "manifest.yaml"
-    text = manifest.read_text().replace("version: 1.4.0", "version: 1.5.0", 1)
+    text = manifest.read_text().replace("version: 1.4.0", "version: 1.99.0", 1)
     text = text.replace("capabilities: [mcp]", "capabilities: [mcp, subagents, skills]")
     manifest.write_text(text)
     registry.publish(runtime, root)
