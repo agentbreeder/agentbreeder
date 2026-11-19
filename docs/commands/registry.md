@@ -10,4 +10,6 @@ On `main`, not in a published preview: `publish`, `import`, `fork` and `edit` ch
 
 On `main`, not in a published preview (#1083 F1): `registry runtimes [--project DIR] [--json]` lists every `runtime/` version in the search roots with what the engine reads from it: its framework and display name, protocol and profile, capabilities, limits and reserved tool names, whether the version has been run end to end (today `runtime/adk@1.3.0` and `runtime/adk@1.4.0`), and, for a version the engine cannot use, why. See [Runtime versions](../registry.md#runtime-versions-on-main-not-in-a-published-preview).
 
+On `main`, not in a published preview (#1083 F2a): a runtime version that has a conformance report also shows `conformance: {passed, result, digest, date}` in `registry runtimes --json` (and `conformance passed|failed|incomplete` in the text): the newest report under `~/.agentbreeder/conformance/<name>/<version>/` for an image built on it. `passed` is true only for a report whose `result` is `pass`; an `incomplete` report is not a pass. A version with no report has no `conformance` key. See [`conformance`](conformance.md).
+
 Flags: `agentbreeder registry --help`.

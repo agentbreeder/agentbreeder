@@ -14,6 +14,8 @@ alone; the other stacks are still listed. Names that fail validation are never e
 
 from __future__ import annotations
 
+import functools
+import json
 import os
 import re
 import sqlite3
@@ -43,8 +45,72 @@ STACK_DIRECTORY = re.compile(r"[a-z][a-z0-9-]{0,30}-[0-9a-f]{8}")
 _DB = "deployments.sqlite3"
 
 
-def rows(store: Store) -> list[dict]:
-    """The rows `list` prints for one state directory."""
+RUNTIME_REF = re.compile(r"runtime/[a-z0-9][a-z0-9-]{0,62}@[0-9]+\.[0-9]+\.[0-9]+")
+RECORD_LIMIT = 1024 * 1024
+_PACKAGE_REF = re.compile(r"agent/([a-z0-9][a-z0-9-]{0,62})@([0-9]+\.[0-9]+\.[0-9]+)")
+
+
+@functools.lru_cache(maxsize=256)
+def _json_file(path: Path) -> dict:
+    """A project file as a JSON object; {} when absent, unsafe or not one. Read once per
+    `rows` call, however many rows name it (`rows` clears the cache, so a long-lived caller
+    never sees an old record)."""
+    try:
+        raw = registry.read_project_file(path, RECORD_LIMIT)
+        data = json.loads(raw) if raw else None
+    except (registry.RegistryError, ValueError, RecursionError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _ref(value: object) -> str | None:
+    return value if isinstance(value, str) and RUNTIME_REF.fullmatch(value) else None
+
+
+def runtime_ref(manifest: dict, name: str, package: object, project: Path | None) -> str | None:
+    """The runtime version a deployment's image was built on (multi-framework spec §11), from:
+
+    1. the manifest's `runtime.ref` (`build` writes it for a kit runtime);
+    2. else, with a project, its build record `deploy/<agent>.build.json` when that record is
+       for this image (a `<agent>-candidate` deployment uses `<agent>`'s record);
+    3. else, with a project, the agent package the deployment is linked to
+       (`registry/agent/<name>/<version>/package.json`), when it is for this image;
+    4. else None.
+
+    Only a well-formed `runtime/<name>@X.Y.Z` is returned. The image's own
+    `org.agentbreeder.runtime` label is not read: `list` never calls Docker."""
+    declared = manifest.get("runtime")
+    found = _ref(declared.get("ref")) if isinstance(declared, dict) else None
+    image = manifest.get("image")
+    if found or project is None or not isinstance(image, str):
+        return found
+    agent = name.removesuffix("-candidate")
+    if registry.AGENT_NAME.fullmatch(agent):
+        record = _json_file(project / "deploy" / f"{agent}.build.json")
+        if record.get("image") == image and record.get("name") == agent:
+            found = _ref(record.get("runtime"))
+    linked = _PACKAGE_REF.fullmatch(str(package.get("ref"))) if isinstance(package, dict) else None
+    if found is None and linked:
+        path = project / "registry" / "agent" / linked[1] / linked[2] / "package.json"
+        data = _json_file(path)
+        built, about = data.get("image"), data.get("agent")
+        if isinstance(built, dict) and built.get("id") == image and isinstance(about, dict):
+            found = _ref(about.get("runtime"))
+    return found
+
+
+def _package(text: object) -> dict | None:
+    try:
+        value = json.loads(text) if isinstance(text, str) and text else None
+    except (ValueError, RecursionError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def rows(store: Store, project: Path | None = None) -> list[dict]:
+    """The rows `list` prints for one state directory. `project` is where a build record or a
+    package for the deployments may be (see `runtime_ref`)."""
+    _json_file.cache_clear()
     result = []
     for row in store.active_all():
         manifest = store.manifest(row["id"])
@@ -64,6 +130,9 @@ def rows(store: Store) -> list[dict]:
                 },
                 "target": manifest.get("target", "local"),
                 "image": manifest.get("image"),
+                "runtime": runtime_ref(
+                    manifest, row["name"], _package(row.get("package")), project
+                ),
                 "updated": row["updated"],
             }
         )
@@ -97,9 +166,11 @@ def _read_state(
     environment: str | None,
     deployments: list[dict],
     skipped: list[dict],
+    project: Path | None = None,
 ) -> None:
     """Add the active rows of one state directory (each with `where`), or one `skipped` entry
-    saying why not. A row keeps its own `environment` column."""
+    saying why not. A row keeps its own `environment` column. `project` is where the rows'
+    build records may be."""
     problem = {"stack": where["stack"], "environment": environment}
     if not os.path.lexists(directory / _DB):
         return  # an environment that never deployed anything
@@ -119,7 +190,7 @@ def _read_state(
         skipped.append({**problem, "code": "STATE_UNREADABLE", "reason": "cannot read the state"})
         return
     try:
-        found = rows(store)
+        found = rows(store, project)
     # A damaged manifest: not JSON (ValueError), or JSON that is not an object.
     except (sqlite3.Error, ValueError, KeyError, AttributeError, TypeError):
         skipped.append({**problem, "code": "STATE_UNREADABLE", "reason": "cannot read the state"})
@@ -197,7 +268,14 @@ def _stack(directory: Path, deployments: list[dict], skipped: list[dict]) -> Non
                 }
             )
             continue
-        _read_state(env_dir / "state", where, environment, deployments, skipped)
+        _read_state(
+            env_dir / "state",
+            where,
+            environment,
+            deployments,
+            skipped,
+            Path(project) if project else None,
+        )
 
 
 def collect(default_state: Path, root: Path | None = None) -> dict:
@@ -205,7 +283,8 @@ def collect(default_state: Path, root: Path | None = None) -> dict:
     deployments: list[dict] = []
     skipped: list[dict] = []
     if os.path.lexists(default_state / _DB):
-        _read_state(default_state, {"stack": None, "project": None}, None, deployments, skipped)
+        where = {"stack": None, "project": None}
+        _read_state(default_state, where, None, deployments, skipped, Path.cwd())
     base = root or stacks_root()
     owned = _owned_directory(base)
     if owned is False:
