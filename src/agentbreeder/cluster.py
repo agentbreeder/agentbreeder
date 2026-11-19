@@ -23,6 +23,7 @@ from pathlib import Path
 import yaml
 
 from agentbreeder.kubernetes import MANAGED_BY, POD_SECURITY
+from agentbreeder.operator_config import agents_range
 from agentbreeder.services.schema import ServiceError
 from agentbreeder.services.state import private_dir, write_private
 
@@ -272,6 +273,20 @@ def blocked_cidrs(agents_network: str) -> list[str]:
     return blocked
 
 
+def agents_cidrs(agents_network: str) -> list[str]:
+    """The IPv4 ranges of the stack's agents network: the only egress, besides cluster DNS,
+    of a deployment whose manifest says `runtime.profile: kit` (#1083 F1b)."""
+    ipam = json.loads(
+        _run(
+            ["docker", "network", "inspect", agents_network, "--format", "{{json .IPAM.Config}}"],
+            what="inspecting the agents network",
+        )
+    )
+    # A range the operator config would refuse is left out: a kit deploy is then refused
+    # (KUBERNETES_KIT_EGRESS_UNCONFIGURED) and every other deployment is unaffected.
+    return [item["Subnet"] for item in ipam or [] if agents_range(item.get("Subnet", ""))]
+
+
 def block_for(state, agents_network: str) -> dict:
     """The `kubernetes` block for this stack: cluster prepared, node attached to its network."""
     path = state.directory / "kubeconfig"
@@ -286,6 +301,7 @@ def block_for(state, agents_network: str) -> dict:
         "namespace": NAMESPACE,
         "registry": f"localhost:{REGISTRY_PORT}/{NAME}",
         "blocked_cidrs": blocked_cidrs(agents_network),
+        "agents_cidrs": agents_cidrs(agents_network),
     }
 
 

@@ -1,0 +1,17 @@
+google-adk[db]==2.12.0
+# litellm 1.108.3 (2026-11-07) is newer than the two-week rule allows. Owner decision 2026-11-07:
+# take it, because it is the first release allowing filelock>=4 (fixes 13 filelock CVEs, some High).
+litellm[mcp]==1.108.3
+mcp==2.3.0
+psycopg[binary]==3.3.6
+# google-adk 2.12 caps OpenTelemetry at <=1.42.1 (2.13 at <=1.44). CVE-2026-114603 (CVSS 5.3,
+# unbounded inbound tracestate parsing, fixed in 1.45.1) stays open: the runtime never extracts
+# inbound trace headers. Revisit when ADK allows >=1.45.1.
+opentelemetry-sdk==1.42.1
+opentelemetry-exporter-otlp-proto-http==1.42.1
+# Security (pip-audit, 2026-11-07):
+# - pyasn1 0.6.5 (2026-10-27) fixes CVE-2026-119194..119197. It is newer than the two-week rule
+#   allows; it is the only release with the fix, so it is a recorded exception.
+# - filelock>=4.2.1 fixes CVE-2026-112907..112940 (needs litellm>=1.108.3, above).
+pyasn1==0.6.5
+filelock>=4.2.1

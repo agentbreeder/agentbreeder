@@ -7,10 +7,14 @@
 // edit marks the preview out of date rather than hiding it; Create waits for a new preview.
 // The pickers offer the `tool/` and `mcp/` versions a new project resolves
 // (`GET /api/builder/parts`); the CLI resolves every pick again and refuses what it cannot.
+// The Framework group (#1085 S1) offers that read's `runtimes`, the engine's resolved view of each
+// `runtime/` version: every name, note, capability and limit shown here comes from it. A pick
+// that does not fit the chosen framework stays on the form with a reason and a Remove control.
 
 import {
-  MAX_CASES, SPEC_CHECKS, buildSpec, createBody, createProblem, formProblem, grantTool, initialCases, initialForm, keepOffered, pickGroups, pickServer, pickTool,
-  previewBody, unverifiedText,
+  MAX_CASES, SPEC_CHECKS, buildSpec, createBody, createProblem, formProblem, frameworks, grantTool, hasCapability, initialCases, initialForm, invalidPicks, invalidProblem,
+  invalidText, keepOffered, pickFramework, pickGroups, pickServer, pickTool, previewBody, removePick, runtimeAnnouncement, runtimeLabel, runtimeOf, runtimeStatus,
+  toolBlocked, toolsFull, unusableRuntimes, unverifiedText,
 } from "../lib/builder.js";
 import { CHECKS, parseCases } from "../lib/cases.js";
 import { PROVIDERS, VERIFIED, codeRefs, modelIdNote, rootText } from "../lib/onboard.js";
@@ -29,22 +33,56 @@ function describe(group, picked) {
   return entry ? { entry, prefix: "" } : { entry: group.versions[0], prefix: `Newest, ${group.versions[0].version}: ` };
 }
 
+/**
+ * The picks that do not fit the chosen framework (§4.2), each with its reason and a Remove
+ * control named for the pick; they stay removable when the picker itself is not offered.
+ */
+function InvalidPicks({ picks, label, form, onForm, heading }) {
+  if (!picks.length) return null;
+  const idOf = (pick) => `build-invalid-${pick.kind}-${pick.name}`;
+  // The removed row is gone after the render, so focus moves on: to the next pick's Remove (the
+  // previous one for the last row) when it is still marked, else to the section's heading.
+  const remove = (pick, index) => {
+    const near = picks[index + 1] || picks[index - 1];
+    onForm(removePick(form, pick));
+    requestAnimationFrame(() => ((near && document.getElementById(`${idOf(near)}_remove`)) || document.getElementById(heading))?.focus());
+  };
+  return html`<ul class="invalid-picks" aria-label=${label}>${picks.map((pick, index) => {
+    const id = idOf(pick);
+    return html`<li key=${id}>
+      <span id=${id}><code><${Text} value=${pick.ref} /></code>: <${Text} value=${pick.reason} /></span>
+      <button type="button" class="action secondary small" id=${`${id}_remove`} aria-describedby=${id} onClick=${() => remove(pick, index)}>Remove <${Text} value=${pick.name} /></button>
+    </li>`;
+  })}</ul>`;
+}
+
 /** One select per tool name: Not used, or a version. */
-function ToolPicker({ entries, form, onForm }) {
+function ToolPicker({ entries, form, onForm, runtime }) {
   const groups = pickGroups(entries);
   if (!groups.length) {
     return html`<p class="muted small">No <code>tool/</code> versions were found. None ship with AgentBreeder; publish one with <code>agentbreeder registry publish</code> into a registry on AGENTBREEDER_REGISTRY_PATH, then reload this page.</p>`;
   }
-  return html`<div class="picks">${groups.map((group) => {
+  // At the runtime's limit (`limits.tools`), only a picked tool can still be changed.
+  const full = toolsFull(form, runtime);
+  return html`<div class="picks">
+    ${full && runtime ? html`<p class="muted small" id="build-tools-full"><${Text} value=${`${runtimeLabel(runtime)} takes at most ${runtime.limits.tools} tool${runtime.limits.tools === 1 ? "" : "s"}. Set one to Not used to pick another.`} /></p>` : null}
+    ${groups.map((group) => {
     const id = `build-tool-${group.name}`;
     const picked = form.tools[group.name] || "";
     const { entry, prefix } = describe(group, picked);
+    const blocked = toolBlocked(entry, runtime);
+    const off = !picked && (full || group.versions.every((item) => toolBlocked(item, runtime)));
+    const notes = [blocked && `${id}_why`, entry.description && `${id}-about`, off && full && "build-tools-full"].filter(Boolean).join(" ");
     return html`<div class="pick" key=${group.name}>
       <label for=${id}>Tool <code><${Text} value=${group.name} /></code></label>
-      <select id=${id} value=${picked} aria-describedby=${entry.description ? `${id}-about` : null} onChange=${(event) => onForm(pickTool(form, group.name, event.currentTarget.value))}>
+      <select id=${id} value=${picked} disabled=${off} aria-describedby=${notes || null} onChange=${(event) => onForm(pickTool(form, group.name, event.currentTarget.value))}>
         <option value="">Not used</option>
-        ${group.versions.map((item) => html`<option value=${item.ref}>${versionText(item)}</option>`)}
+        ${group.versions.map((item) => {
+          const reserved = Boolean(toolBlocked(item, runtime));
+          return html`<option value=${item.ref} disabled=${reserved && item.ref !== picked}>${versionText(item)}${reserved ? " (cannot be picked)" : ""}</option>`;
+        })}
       </select>
+      ${blocked ? html`<p class="muted small" id=${`${id}_why`}><${Text} value=${blocked} /></p>` : null}
       ${entry.description ? html`<p class="muted small" id=${`${id}-about`}><${Text} value=${prefix + entry.description} /></p>` : null}
     </div>`;
   })}</div>`;
@@ -79,27 +117,81 @@ function ServerPicker({ entries, form, onForm }) {
   })}</div>`;
 }
 
-function Parts({ form, onForm }) {
-  const [view, reload] = useView("/api/builder/parts");
+/**
+ * The Framework group (#1085 S1, §4.1): one radio per framework, named by the framework alone;
+ * its ref, status and note are lines under it, tied to the radio with `aria-describedby`. One
+ * Version select for the chosen framework (static text when it has one version). A runtime the
+ * CLI cannot use is text under the group, never a disabled radio a keyboard user would skip
+ * along with its reason. The read's loading line and error (with Try again) are shown here.
+ */
+function Framework({ view, reload, form, onRuntime }) {
   const data = view.data;
-  // A pick the newest list no longer offers is dropped (a re-read after "Try again").
-  useEffect(() => {
-    if (!data) return;
-    const kept = keepOffered(form, data);
-    if (kept !== form) onForm(kept);
-  }, [data]);
+  // Made once: a `useRef({...})` argument would bump the shared id counter on every render.
+  const [ids] = useState(() => ({ radio: nextId("build-framework"), version: nextId("build-version"), rule: nextId("build-framework-rule") }));
+  if (!data) {
+    return html`<fieldset class="choices frameworks">
+      <legend>Framework</legend>
+      ${view.error ? html`<p class="notice error" role="alert"><${Text} value=${`${view.error.message} (${view.error.code})`} /> <button type="button" class="action secondary small" onClick=${reload}>Try again</button></p>` : null}
+      <p class="muted small" role="status">${view.loading ? "Reading the registries…" : ""}</p>
+    </fieldset>`;
+  }
+  const groups = frameworks(data.runtimes);
+  const unusable = unusableRuntimes(data.runtimes);
+  const current = runtimeOf(data.runtimes, form.runtime);
+  const group = current ? groups.find((item) => item.name === current.name) : null;
   return html`
-    <h3>Tools</h3>
+    <fieldset class="choices frameworks" aria-describedby=${ids.rule}>
+      <legend>Framework</legend>
+      ${view.error ? html`<p class="notice error" role="alert"><${Text} value=${`${view.error.message} (${view.error.code})`} /> <button type="button" class="action secondary small" onClick=${reload}>Try again</button></p>` : null}
+      ${!groups.length ? html`<p class="notice error" role="alert">No framework can be used: the registries have no runtime version this AgentBreeder can build on. <button type="button" class="action secondary small" onClick=${reload}>Try again</button></p>` : null}
+      ${groups.map((item) => {
+        const chosen = Boolean(current) && item.name === current.name;
+        const entry = chosen ? current : item.versions[0];
+        // "_" is in no registry name, so one framework's ids never spell another's.
+        const id = `${ids.radio}_${item.name}`;
+        return html`<div class="framework" key=${item.name}>
+          <label class="check"><input type="radio" name=${ids.radio} id=${id} value=${item.name} checked=${chosen} aria-describedby=${`${id}_about${entry.notes ? ` ${id}_note` : ""}`} onChange=${() => onRuntime(pickFramework(form, item.name, data.runtimes).runtime)} /> <${Text} value=${entry.display_name} /></label>
+          <p class="muted small" id=${`${id}_about`}><code><${Text} value=${entry.ref} /></code> · ${runtimeStatus(entry)}</p>
+          ${entry.notes ? html`<p class="muted small" id=${`${id}_note`}><${Text} value=${entry.notes} /></p>` : null}
+        </div>`;
+      })}
+    </fieldset>
+    ${group && group.versions.length > 1 ? html`
+      <label for=${ids.version}>Version of <${Text} value=${current.display_name} /></label>
+      <select id=${ids.version} value=${current.ref} onChange=${(event) => onRuntime(event.currentTarget.value)}>
+        ${group.versions.map((entry) => html`<option value=${entry.ref}>${entry.version}${entry.root_kind === "builtin" ? "" : ` (${rootText(entry.root_kind)})`}</option>`)}
+      </select>` : null}
+    ${group && group.versions.length === 1 ? html`<p class="framework-version">Version of <${Text} value=${current.display_name} />: <code><${Text} value=${current.version} /></code></p>` : null}
+    <p class="muted small" id=${ids.rule}>The console creates only combinations that have been run end to end. Preview shows the files for any of them, and <code>agentbreeder new agent --from-spec</code> writes them anyway.</p>
+    ${unusable.map((entry) => html`<p class="muted small framework-unusable" key=${entry.ref}>Cannot be used: <code><${Text} value=${entry.ref} /></code>: <${Text} value=${entry.reason} /> (<${Text} value=${entry.code} />)</p>`)}`;
+}
+
+function Parts({ view, form, onForm, runtime, invalid }) {
+  const data = view.data;
+  const invalidOf = (kind) => invalid.filter((pick) => pick.kind === kind);
+  return html`
+    <h3 id="build-tools-heading" tabindex="-1">Tools</h3>
     <p class="muted">Tools are code that runs inside the agent. A version is pinned and recorded in agent.lock.</p>
-    ${view.error ? html`<p class="notice error" role="alert"><${Text} value=${view.error.message} /> <button type="button" class="action secondary small" onClick=${reload}>Try again</button></p>` : null}
-    ${!data ? html`<p class="muted small" role="status">${view.loading ? "Reading the registries…" : ""}</p>` : html`
-      <${ToolPicker} entries=${data.tools} form=${form} onForm=${onForm} />
-      <h3>MCP servers</h3>
+    ${!data ? html`<p class="muted small">Tools and MCP servers are offered once the registries are read.</p>` : html`
+      <${InvalidPicks} picks=${invalidOf("tool")} label="Tools that do not work with this framework" form=${form} onForm=${onForm} heading="build-tools-heading" />
+      <${ToolPicker} entries=${data.tools} form=${form} onForm=${onForm} runtime=${runtime} />
+      <h3 id="build-mcp-heading" tabindex="-1">MCP servers</h3>
       <p class="muted">The stack runs a picked server behind the relay; the agent can call only the tools granted here.</p>
-      <${ServerPicker} entries=${data.mcp} form=${form} onForm=${onForm} />
+      <${InvalidPicks} picks=${invalidOf("mcp")} label="MCP servers that do not work with this framework" form=${form} onForm=${onForm} heading="build-mcp-heading" />
+      ${runtime && !hasCapability(runtime, "mcp")
+        ? html`<p class="muted small"><${Text} value=${`${runtimeLabel(runtime)} has no MCP client, so MCP servers are not offered.`} /></p>`
+        : html`<${ServerPicker} entries=${data.mcp} form=${form} onForm=${onForm} />`}
       ${data.skipped ? html`<p class="muted small">${data.skipped} version${data.skipped === 1 ? " is" : "s are"} not offered: unreadable or under a symlink (<code>agentbreeder registry verify</code> says why).</p>` : null}
       ${data.truncated ? html`<p class="muted small">Only the first 500 versions of each kind are offered.</p>` : null}
     `}`;
+}
+
+/** Say `text` once through the page's polite live region (`#announce`, index.html). */
+function announce(text) {
+  const region = document.getElementById("announce");
+  if (!region) return;
+  region.textContent = ""; // cleared first, so the same words twice in a row are said twice
+  requestAnimationFrame(() => { region.textContent = text; });
 }
 
 export function Builder() {
@@ -122,6 +214,10 @@ export function Builder() {
   }).current;
   const previewHeading = useRef(null);
   const parsed = useMemo(() => parseCases(casesText), [casesText]);
+  const [view, reload] = useView("/api/builder/parts");
+  const parts = view.data;
+  const runtime = parts ? runtimeOf(parts.runtimes, form.runtime) : null;
+  const invalid = useMemo(() => invalidPicks(form, runtime, parts), [form, runtime, parts]);
 
   const changed = () => {
     latest.current += 1; // an answer still on its way is for the form as it was
@@ -140,6 +236,29 @@ export function Builder() {
     setCasesText(text);
     changed();
   };
+  // A pick the newest list no longer offers is dropped (a re-read after "Try again"), and a
+  // form with no usable runtime gets the default framework's newest version.
+  useEffect(() => {
+    if (!parts) return;
+    const kept = keepOffered(form, parts);
+    if (kept === form) return;
+    editForm(kept);
+    // A runtime that was picked and is no longer offered is replaced: say so, not silently.
+    const entry = runtimeOf(parts.runtimes, kept.runtime);
+    if (form.runtime && kept.runtime !== form.runtime && entry) {
+      announce(`${form.runtime} is no longer offered; ${runtimeAnnouncement(entry)}`);
+    }
+  }, [parts]);
+  // A framework or version change: the form is edited like any other field (the preview goes
+  // out of date), and the new version's status and any picks it does not take are said once.
+  const pickRuntime = (ref) => {
+    const next = { ...form, runtime: ref };
+    const entry = runtimeOf(parts.runtimes, ref);
+    editForm(next);
+    if (!entry) return;
+    const dropped = invalidText(invalidPicks(next, entry, parts), entry);
+    announce(dropped ? `${runtimeAnnouncement(entry)}. ${dropped}` : runtimeAnnouncement(entry));
+  };
 
   const run = async (work) => {
     setBusy(true);
@@ -153,7 +272,7 @@ export function Builder() {
     }
   };
 
-  const problem = formProblem(form, casesText);
+  const problem = formProblem(form, casesText, invalidProblem(invalid, runtime));
   const showPreview = () => run(async () => {
     const spec = buildSpec(form, casesText);
     const request = (latest.current += 1);
@@ -173,7 +292,10 @@ export function Builder() {
 
   const code = codeRefs(preview);
   const file = preview ? preview.files[Math.min(shown, preview.files.length - 1)] : null;
-  const unverified = unverifiedText(preview);
+  // The runtime the preview was made for, by its own name; its ref when the list has changed.
+  const previewRuntime = preview && parts ? runtimeOf(parts.runtimes, preview.runtime) : null;
+  const previewLabel = previewRuntime ? runtimeLabel(previewRuntime) : preview ? preview.runtime : null;
+  const unverified = unverifiedText(preview, VERIFIED, previewLabel);
   // The model id the preview was made for (the form may have changed since).
   const modelNote = preview && previewed.current ? modelIdNote(preview.combination.verified, previewed.current.model, previewed.current.model_id) : null;
   return html`<div class="builder">
@@ -183,6 +305,7 @@ export function Builder() {
         <label for=${ids.name}>Name</label>
         <input id=${ids.name} autocomplete="off" spellcheck="false" maxlength="31" placeholder="helper" value=${form.name} aria-describedby=${`${ids.name}-rule`} onInput=${edit("name")} />
         <p class="muted small" id=${`${ids.name}-rule`}>Lowercase letters, digits and dashes, starting with a letter.</p>
+        <${Framework} view=${view} reload=${reload} form=${form} onRuntime=${pickRuntime} />
         <label for=${ids.model}>Model provider</label>
         <select id=${ids.model} value=${form.model} onChange=${edit("model")}>
           ${PROVIDERS.map((provider) => html`<option value=${provider}>${provider}${VERIFIED.includes(provider) ? "" : " (not run end to end)"}</option>`)}
@@ -194,7 +317,7 @@ export function Builder() {
         <h3>Eval cases</h3>
         <p class="muted">Release runs these and refuses a candidate that fails them. Each case is what a user says and what a correct reply says; a judge model grades the reply against it.</p>
         <${CasesBody} parsed=${parsed} original=${original} onText=${editCases} invalid=${null} fallback=${null} checks=${BUILDER_CHECKS} max=${MAX_CASES} />
-        <${Parts} form=${form} onForm=${editForm} />
+        <${Parts} view=${view} form=${form} onForm=${editForm} runtime=${runtime} invalid=${invalid} />
         <details class="builder-more">
           <summary>Model calls and the eval gate</summary>
           <label for=${ids.calls}>Model calls per turn (1 to 20)</label>
@@ -215,7 +338,7 @@ export function Builder() {
         ? html`<p class="muted">Fill in the form, then Preview: the files appear here exactly as they would be written.</p>`
         : html`
           ${stale ? html`<p class="notice warn" role="status">The form changed since this preview. Preview again before you create.</p>` : null}
-          <p>Writes in <code><${Text} value=${preview.directory} /></code>. Gateway aliases <${Text} value=${preview.aliases.join(", ")} /> call <code><${Text} value=${preview.model_id} /></code>; ${preview.keys.length ? html`the stack needs <code><${Text} value=${preview.keys.join(", ")} /></code>.` : "the stack needs no key."} The gate refuses deploys after review_by <${Text} value=${preview.review_by} />.</p>
+          <p>Writes in <code><${Text} value=${preview.directory} /></code>, on ${previewRuntime ? html`<${Text} value=${previewRuntime.display_name} /> (<code><${Text} value=${preview.runtime} /></code>)` : html`<code><${Text} value=${preview.runtime} /></code>`}. Gateway aliases <${Text} value=${preview.aliases.join(", ")} /> call <code><${Text} value=${preview.model_id} /></code>; ${preview.keys.length ? html`the stack needs <code><${Text} value=${preview.keys.join(", ")} /></code>.` : "the stack needs no key."} The gate refuses deploys after review_by <${Text} value=${preview.review_by} />.</p>
           ${unverified ? html`<p class="notice warn" role="status"><${Text} value=${unverified} /></p>` : html`<p class="muted small">Run end to end: <${Text} value=${preview.combination.parts.join(", ")} />.${modelNote ? html` <${Text} value=${modelNote} />` : null}</p>`}
           <div class="file-tabs" role="group" aria-label="Files">
             ${preview.files.map((entry, index) => html`<button type="button" key=${entry.path} class="file-tab" aria-pressed=${index === shown ? "true" : "false"} aria-controls=${ids.file} onClick=${() => setShown(index)}><${Text} value=${entry.path} /></button>`)}
@@ -235,7 +358,7 @@ export function Builder() {
             <p><${Text} value=${code.map((ref) => ref.ref).join(", ")} /> ${code.length === 1 ? "is" : "are"} not shipped with AgentBreeder. Building and releasing runs ${code.length === 1 ? "it" : "them"} as you, with the stack's model key and database. The eval gate is a quality gate, not a security review.</p>
             <label class="check"><input type="checkbox" id=${ids.code} checked=${confirmed} onChange=${(event) => setConfirmed(event.currentTarget.checked)} /> I trust this code to run in agents</label>
           </fieldset>` : null}
-          <${Action} disabled=${busy ? "Working…" : createProblem(preview, stale, confirmed)} onClick=${create}>Create agent and add project<//>
+          <${Action} disabled=${busy ? "Working…" : createProblem(preview, stale, confirmed, previewLabel)} onClick=${create}>Create agent and add project<//>
         `}
     </aside>
   </div>`;

@@ -467,6 +467,10 @@ knowledge set, 50 tools, 10 MCP servers, and the five MCP tool names ADK skips
 `set_model_response`). For these versions the reserved names are checked against an MCP
 server's own tool names only, as before; a runtime that declares `protocol` also has them
 checked against every name the model would see (a function tool's name and `<server>_<tool>`).
+`runtime/adk@1.5.0` is the first version that declares `protocol` (1, profile `v1`): it lists
+`knowledge`, `notes`, `mcp`, `subagents` and `skills`, the limits 1, 50 and 10, and seven
+reserved names (the five above plus `load_skill` and `load_skill_resource`, its own skill
+tools), and ships `runtime/modules.json`. Checked by unit tests and its runtime tests only.
 A test builds Northwind and the `new agent` starter on `runtime/adk` 1.2.0, 1.3.0 and 1.4.0 and
 compares the build context, the manifests and the deploy template byte for byte with digests
 taken before this change, and checks that the refusals they gave are still given.
@@ -533,9 +537,11 @@ so a reader such as the local console needs no knowledge of profiles:
 ## Skills (on `main`, not in a published preview)
 
 A `skill` version is an [Agent Skills](https://agentskills.io)-style folder: instructions the
-model loads when it needs them (#1059). **No runtime loads skills yet**: today you can author,
-publish, verify, show, diff, lock and find them (`used-by`); `build` refuses `skills:` in
-`agent.yaml` (`RUNTIME_NO_SKILLS`).
+model loads when it needs them (#1059). You can author, publish, verify, show, diff, lock and
+find them (`used-by`). `runtime/adk@1.5.0` loads skills without scripts (instruction packs; see
+[agent-yaml.md](agent-yaml.md#runtimeadk150), checked by its runtime tests only); `build` refuses
+`skills:` in `agent.yaml` on an earlier runtime (`RUNTIME_NO_SKILLS`) and a skill with scripts on
+every runtime (`RUNTIME_NO_SKILL_SCRIPTS`).
 
 ```
 registry/skill/refund-policy/1.2.0/

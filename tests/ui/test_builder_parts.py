@@ -15,7 +15,7 @@ from playwright.sync_api import expect
 from agentbreeder import registry
 
 from .test_a11y import blocking, scheme_page  # noqa: F401  (the fixture)
-from .test_builder import fill, home, open_builder
+from .test_builder import fill, home, open_builder, patient_previews  # noqa: F401
 
 pytestmark = pytest.mark.ui
 
@@ -69,12 +69,18 @@ def test_a_path_tool_needs_the_code_confirm_and_is_not_created(page, console):
     page.get_by_label("MCP server github").select_option("mcp/github@1.0.0")
     page.get_by_role("group", name="Tools granted to github").get_by_label("get_me").check()
     pane = preview(page)
-    expect(pane).to_contain_text("Not run end to end yet: a new agent with MCP servers and tools.")
+    expect(pane).to_contain_text(
+        "Not run end to end yet: Google ADK 1.4.0 with MCP servers and tools."
+    )
     pane.get_by_role("group", name="This code runs in agents").get_by_label(
         "I trust this code to run in agents"
     ).check()
     expect(create).to_be_disabled()
-    expect(page.get_by_text("This combination has not been run end to end.")).to_be_visible()
+    expect(
+        page.get_by_text(
+            "Google ADK 1.4.0 with MCP servers and tools has not been run end to end."
+        )
+    ).to_be_visible()
     assert not (home(console) / "agentbreeder-projects" / "helper").exists()
 
 
@@ -94,7 +100,7 @@ def test_an_mcp_server_grants_the_checked_tools(page, console):
     grants.get_by_label("issue_read").check()
     pane = preview(page)
     expect(pane).to_contain_text("GITHUB_MCP_TOKEN")
-    expect(pane).to_contain_text("Not run end to end yet: a new agent with MCP servers.")
+    expect(pane).to_contain_text("Not run end to end yet: Google ADK 1.4.0 with MCP servers.")
     # A built-in server is shipped code: no "this code runs in agents" confirm.
     expect(pane.get_by_role("group", name="This code runs in agents")).to_have_count(0)
     pane.get_by_role("group", name="Files").get_by_role(

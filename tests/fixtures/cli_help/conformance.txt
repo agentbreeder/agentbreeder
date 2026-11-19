@@ -1,0 +1,10 @@
+usage: agentbreeder conformance [-h] [--project DIR] [--json] IMAGE
+
+positional arguments:
+  IMAGE          The image ID `agentbreeder build` printed (sha256:…)
+
+options:
+  -h, --help     show this help message and exit
+  --project DIR  The agent's project, whose deploy/ holds the image's build
+                 record (default: .)
+  --json

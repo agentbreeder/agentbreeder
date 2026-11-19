@@ -430,6 +430,15 @@ a.action.ghost { text-decoration: underline; text-underline-offset: 3px; }
 .grants legend { padding: 0 4px; font-size: 13px; }
 .grants .check { align-self: flex-start; }
 .builder form .check input { width: auto; }
+/* The builder's Framework group (#1085 S1): a radio per framework, named by the framework alone,
+   with its ref, status and note on lines under it (indented to the label's text), so no row has
+   to fit a long ref on one line. A pick the chosen framework does not take stays on the form in a
+   warning row with its reason and a Remove control. */
+.frameworks .framework { display: flex; flex-direction: column; gap: 2px; padding: 2px 0; }
+.frameworks .framework p { margin: 0 0 0 26px; overflow-wrap: anywhere; }
+.framework-version, .framework-unusable { margin: 0; overflow-wrap: anywhere; }
+.invalid-picks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.invalid-picks li { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: space-between; border: 1px solid var(--warning); border-radius: 6px; padding: 6px 10px; background: var(--warning-subtle); overflow-wrap: anywhere; }
 
 /* Grouped choices (#1043): the MCP grant form's Change and Tools; a radio or checkbox keeps its
    own width (the 440px text-input width made labels drift right), and the border is the theme's. */

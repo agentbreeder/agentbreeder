@@ -152,6 +152,7 @@ def verify(runtime, store, record: dict, where=None) -> None:
     from pydantic import ValidationError
 
     from agentbreeder import hints
+    from agentbreeder.egress import kit as kit_egress
     from agentbreeder.manifest import Manifest
     from agentbreeder.store import DeploymentError
 
@@ -176,7 +177,14 @@ def verify(runtime, store, record: dict, where=None) -> None:
             "STATE_INVALID", f"the recorded manifest of {shown} is invalid"
         ) from error
     try:
-        live = runtime.endpoint(info, manifest)
+        if kit_egress.applies(manifest):
+            # A kit runtime publishes nothing itself: its forwarding sidecar holds the
+            # loopback port (#1083 F1b).
+            if (info.get("State") or {}).get("Running") is not True:
+                raise DeploymentError("Container is not running")
+            live = kit_egress.KitBoundary(runtime).endpoint(record)
+        else:
+            live = runtime.endpoint(info, manifest)
     except DeploymentError as error:
         status = where.command("status", shown)
         raise InvokeError(

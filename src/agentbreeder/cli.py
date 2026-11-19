@@ -58,6 +58,7 @@ COMMAND_MODULES = (
     "evals",
     "knowledge",
     "release",
+    "conformance",
     "registry",
     "tool",
     "agent",
