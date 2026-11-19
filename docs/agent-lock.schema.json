@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentbreeder.io/schemas/agent-lock.schema.json",
+  "title": "agent.lock",
+  "description": "The exact registry content an agent was built from (#829 spec section 7). Version 1 is written when agent.yaml declares no registries:, version 2 (with a sources table) when it does. Readers must accept both and refuse unknown keys. lock.Lock.parse is the reference; it also checks that every source URL is in canonical form (sources.url.canonical), which a schema cannot express.",
+  "oneOf": [
+    {
+      "type": "object",
+      "title": "agent.lock version 1",
+      "additionalProperties": false,
+      "required": ["lock_version", "entries"],
+      "properties": {
+        "lock_version": {"const": 1},
+        "entries": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/localEntry"}
+        }
+      }
+    },
+    {
+      "type": "object",
+      "title": "agent.lock version 2",
+      "additionalProperties": false,
+      "required": ["lock_version", "sources", "entries"],
+      "properties": {
+        "lock_version": {"const": 2},
+        "sources": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/sourceName"},
+          "additionalProperties": {"$ref": "#/$defs/source"}
+        },
+        "entries": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [{"$ref": "#/$defs/localEntry"}, {"$ref": "#/$defs/remoteEntry"}]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "sourceName": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"},
+    "localEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "source"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "source": {
+          "description": "builtin, a path relative to the project (registry), or an absolute path.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "not": {"pattern": "^remote:"}
+        }
+      }
+    },
+    "remoteEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "source"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "source": {
+          "description": "remote:<name>, naming a key of sources.",
+          "type": "string",
+          "pattern": "^remote:[a-z0-9][a-z0-9-]{0,62}$"
+        },
+        "pin": {
+          "description": "Per-entry pins; required for (and only for) http sources.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["archive_sha256"],
+          "properties": {"archive_sha256": {"$ref": "#/$defs/sha256"}}
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "url", "pin"],
+      "properties": {
+        "type": {"enum": ["git", "oci", "http"]},
+        "url": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "pin": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "properties": {
+            "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            "digest": {"$ref": "#/$defs/sha256"},
+            "index_sha256": {"$ref": "#/$defs/sha256"}
+          },
+          "additionalProperties": false
+        },
+        "path": {
+          "description": "git only: the directory holding kind/name/version.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"type": {"const": "git"}}},
+          "then": {"properties": {"pin": {"required": ["commit"]}}}
+        },
+        {
+          "if": {"properties": {"type": {"const": "oci"}}},
+          "then": {"properties": {"pin": {"required": ["digest"]}}, "not": {"required": ["path"]}}
+        },
+        {
+          "if": {"properties": {"type": {"const": "http"}}},
+          "then": {
+            "properties": {"pin": {"required": ["index_sha256"]}},
+            "not": {"required": ["path"]}
+          }
+        }
+      ]
+    }
+  }
+}

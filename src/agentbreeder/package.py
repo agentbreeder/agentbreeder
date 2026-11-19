@@ -38,6 +38,7 @@ from pydantic import (
     model_validator,
 )
 
+from agentbreeder import sources as remote_sources
 from agentbreeder.agentfile import MAX_BYTES as AGENT_YAML_LIMIT
 from agentbreeder.agentfile import NAME_PATTERN
 from agentbreeder.manifest import _ALIAS, _ENVIRONMENT, _GUARDRAIL, McpAccess, RuntimeInfo
@@ -51,6 +52,7 @@ from agentbreeder.registry import (
 )
 
 PACKAGE_VERSION = 1
+MAX_SOURCES = 10  # agentfile.MAX_REGISTRIES
 PACKAGE_LIMIT = 64 * 1024
 LOCK_LIMIT = 1024 * 1024
 FILES = ("agent.lock", "agent.yaml", "manifest.yaml", "package.json")
@@ -95,11 +97,24 @@ class ImageInfo(_Strict):
 class Inputs(_Strict):
     agent_yaml_sha256: str = Field(pattern=_SHA256)
     lock_sha256: str = Field(pattern=_SHA256)
-    lock_version: Literal[1]
-    # The M9b build.json `sources` table, once lock v2 exists; always empty for lock v1.
-    sources: dict[str, dict] = Field(max_length=0)
+    lock_version: Literal[1, 2]
+    # build.json's `sources` table (#829): empty for lock v1; for lock v2, every declared source
+    # with its canonical URL and pin, checked by the lock's own rules.
+    sources: dict[str, dict] = Field(max_length=MAX_SOURCES)
 
     _lock_version = field_validator("lock_version", mode="before")(_exact_int)
+
+    @model_validator(mode="after")
+    def _sources(self):
+        # Lock v2 is written exactly when agent.yaml declares registries: (at least one).
+        if (self.lock_version == 2) != bool(self.sources):
+            raise ValueError("sources must be set exactly for lock_version 2")
+        try:
+            for name, record in self.sources.items():
+                remote_sources.check_source("inputs.sources", name, record)
+        except RegistryError as error:
+            raise ValueError(str(error)) from None
+        return self
 
 
 class Evals(_Strict):
@@ -277,29 +292,21 @@ def safe_label(label: object) -> bool:
 
 
 def redact_lock(data: bytes) -> bytes:
-    """The package's copy of a v1 `agent.lock`: every unsafe `source` label becomes
-    `external:`, hashes are kept, and the result is written canonically. The copy is never a
-    lock input (`lock.Lock.load` is not called on it)."""
+    """The package's copy of an `agent.lock` (v1 or v2): every unsafe `source` label becomes
+    `external:`, hashes, `sources` and per-entry pins are kept, and the result is written
+    canonically (a v1 lock exactly as before #829). The lock is checked by `lock.Lock`'s own
+    strict rules first. The copy is never a lock input."""
+    from agentbreeder.lock import Lock
+
     if len(data) > LOCK_LIMIT:
         raise PackageError("PACKAGE_INVALID", "agent.lock exceeds the 1 MiB limit")
-    value = _json(data, "agent.lock", "PACKAGE_INVALID")
-    if not isinstance(value, dict) or set(value) != {"lock_version", "entries"}:
-        raise PackageError("PACKAGE_INVALID", "agent.lock must hold lock_version and entries")
-    if type(value["lock_version"]) is not int or value["lock_version"] != 1:
-        raise PackageError("PACKAGE_INVALID", "only lock_version 1 can be packaged")
-    entries = value["entries"]
-    if not isinstance(entries, dict):
-        raise PackageError("PACKAGE_INVALID", "agent.lock entries must be an object")
+    try:
+        lock, _ = Lock.parse_bytes(data, "agent.lock")
+    except RegistryError as error:
+        raise PackageError("PACKAGE_INVALID", str(error)) from None
     redacted = {}
-    for key in sorted(entries):
-        entry = entries[key]
-        if (
-            not isinstance(entry, dict)
-            or set(entry) != {"sha256", "source"}
-            or not isinstance(entry["sha256"], str)
-            or not re.fullmatch(_SHA256, entry["sha256"])
-        ):
-            raise PackageError("PACKAGE_INVALID", "agent.lock entries must be {sha256, source}")
+    for key in sorted(lock.entries):
+        entry = lock.entries[key]
         path_entry = key.startswith("path:")
         if not (_path_key(key[5:]) if path_entry else _REF_KEY.fullmatch(key)):
             raise PackageError("PACKAGE_INVALID", "agent.lock has an entry key that is not a ref")
@@ -307,7 +314,9 @@ def redact_lock(data: bytes) -> bytes:
         kept = safe_label(entry["source"]) or (path_entry and entry["source"] == key[5:])
         source = entry["source"] if kept else EXTERNAL
         redacted[key] = {"sha256": entry["sha256"], "source": source}
-    return (json.dumps({"lock_version": 1, "entries": redacted}, indent=2) + "\n").encode()
+        if "pin" in entry:
+            redacted[key]["pin"] = entry["pin"]
+    return (json.dumps(Lock(redacted, lock.sources).body(), indent=2) + "\n").encode()
 
 
 def _sha256(data: bytes) -> str:

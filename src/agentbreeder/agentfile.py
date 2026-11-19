@@ -23,6 +23,7 @@ from pydantic import (
 
 from agentbreeder.manifest import _GUARDRAIL as GUARDRAIL_PATTERN
 from agentbreeder.registry import Ref, RegistryError
+from agentbreeder.sources.url import SourceUrlError, canonical, subpath
 from agentbreeder.strict_yaml import StrictYamlError, load_file
 
 MAX_BYTES = 64 * 1024
@@ -152,6 +153,71 @@ class SubAgent(_Strict):
         return data
 
 
+# Remote registry sources (#829, spec §5): optional; an agent file without them is unchanged and
+# its lock stays version 1. Git sources only in this version; OCI and HTTP index sources each
+# ship after their own end-to-end run.
+MAX_REGISTRIES = 10
+REGISTRY_NAME = r"^[a-z0-9][a-z0-9-]{0,62}$"
+GIT_COMMIT = re.compile(r"[0-9a-f]{40}")
+
+
+class RegistrySource(_Strict):
+    name: str = Field(pattern=REGISTRY_NAME)
+    git: str
+    commit: str
+    path: str = "."
+
+    @model_validator(mode="before")
+    @classmethod
+    def _type(cls, data):
+        if isinstance(data, dict):
+            for other in ("oci", "http"):
+                if other in data:
+                    raise CodedError(
+                        "SOURCE_INVALID",
+                        f"{other} sources are not supported in this version (git only)",
+                    )
+            if "git" not in data:
+                raise CodedError("SOURCE_INVALID", "a source needs a git URL and a commit SHA")
+        return data
+
+    @field_validator("git")
+    @classmethod
+    def _url(cls, value: str) -> str:
+        try:
+            canonical("git", value)
+        except SourceUrlError as error:
+            raise CodedError("SOURCE_INVALID", f"git: {error}") from None
+        return value
+
+    @field_validator("commit")
+    @classmethod
+    def _commit(cls, value: str) -> str:
+        if not GIT_COMMIT.fullmatch(value):
+            raise CodedError(
+                "SOURCE_UNPINNED",
+                "commit must be a full 40-character SHA, not a branch, tag or short SHA "
+                "(find it with: git ls-remote URL BRANCH)",
+            )
+        return value
+
+    @field_validator("path")
+    @classmethod
+    def _path(cls, value: str) -> str:
+        try:
+            subpath(value)
+        except SourceUrlError as error:
+            raise CodedError("SOURCE_INVALID", str(error)) from None
+        return value
+
+    def record(self) -> dict:
+        """This source as `agent.lock` v2 records it (canonical URL; `path` only when set)."""
+        record = {"type": "git", "url": canonical("git", self.git), "pin": {"commit": self.commit}}
+        if subpath(self.path) != ".":
+            record["path"] = subpath(self.path)
+        return record
+
+
 class Limits(_Strict):
     # Model calls per turn, every agent together (spec §7.4).
     turn_model_calls: int = Field(ge=1, le=MAX_TURN_MODEL_CALLS)
@@ -184,6 +250,21 @@ class AgentFile(_Strict):
     # Sub-agents (#1058): optional; an agent file without them is unchanged.
     subagents: list[SubAgent] = Field(default_factory=list, max_length=MAX_SUBAGENTS)
     limits: Limits | None = None
+    registries: list[RegistrySource] = Field(default_factory=list, max_length=MAX_REGISTRIES)
+
+    @field_validator("registries")
+    @classmethod
+    def _registry_names(cls, value: list[RegistrySource]) -> list[RegistrySource]:
+        names = [source.name for source in value]
+        if len(set(names)) != len(names):
+            raise ValueError("duplicate source name")
+        return value
+
+    def sources_table(self) -> dict[str, dict] | None:
+        """The lock's `sources` table, or None when no `registries:` is declared (lock v1)."""
+        if not self.registries:
+            return None
+        return {source.name: source.record() for source in self.registries}
 
     @field_validator("guardrails")
     @classmethod

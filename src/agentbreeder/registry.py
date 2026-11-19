@@ -395,6 +395,23 @@ def read_manifest(version_dir: Path, ref: Ref | None = None, text: str | None = 
 
 
 def resolve(ref: Ref, search: list[Path]) -> Resolved:
+    found = hits(ref, search)
+    if not found:
+        where = ", ".join(_shown(r) for r in search)
+        raise RegistryError("REF_NOT_FOUND", f"{ref} not found in {where}")
+    if len(found) > 1 and len({copy_and_hash(hit.path) for hit in found}) > 1:
+        raise RegistryError(
+            "REF_CONFLICT",
+            f"{ref} exists with different content in {_shown(found[0].root)} and "
+            f"{_shown(found[1].root)}",
+        )
+    read_manifest(found[0].path, ref)
+    return found[0]
+
+
+def hits(ref: Ref, search: list[Path]) -> list[Resolved]:
+    """Every root in `search` holding `ref`, in order, without hashing or reading the manifest
+    (`resolve` and the remote-source conflict check, #829 spec §4.2, build on it)."""
     hits = []
     for root in search:
         candidate = root / ref.relative()
@@ -405,17 +422,7 @@ def resolve(ref: Ref, search: list[Path]) -> Resolved:
                 raise RegistryError("ENTRY_UNSAFE", f"{_shown(part)} must not be a symlink")
         if candidate.is_dir():
             hits.append(Resolved(ref, candidate, root))
-    if not hits:
-        where = ", ".join(_shown(r) for r in search)
-        raise RegistryError("REF_NOT_FOUND", f"{ref} not found in {where}")
-    if len(hits) > 1 and len({copy_and_hash(hit.path) for hit in hits}) > 1:
-        raise RegistryError(
-            "REF_CONFLICT",
-            f"{ref} exists with different content in {_shown(hits[0].root)} and "
-            f"{_shown(hits[1].root)}",
-        )
-    read_manifest(hits[0].path, ref)
-    return hits[0]
+    return hits
 
 
 # Kinds whose versions are code that runs inside agents (or is the agent server): the console asks
