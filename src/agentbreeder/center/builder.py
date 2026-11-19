@@ -390,8 +390,8 @@ def _limits(value: object) -> dict[str, int]:
 
 
 def _conformance(value: object) -> dict:
-    """The newest conformance report of a runtime version (architecture F2a; no CLI prints it
-    yet): whether it passed, the image digest and the date."""
+    """The newest conformance report of a runtime version (`registry runtimes --json`, F2a):
+    whether it passed, its result, the image digest and the date."""
     if not isinstance(value, dict) or not isinstance(value.get("passed"), bool):
         raise BadOutput
     digest, day = value.get("digest"), value.get("date")
@@ -399,7 +399,11 @@ def _conformance(value: object) -> dict:
         raise BadOutput
     if not isinstance(day, str) or not DATE.fullmatch(day):
         raise BadOutput
-    return {"passed": value["passed"], "digest": digest, "date": day}
+    # `result` (F2a): pass, fail or incomplete. Incomplete is not a pass and not a failure.
+    result = value.get("result", "pass" if value["passed"] else "fail")
+    if result not in ("pass", "fail", "incomplete") or (result == "pass") != value["passed"]:
+        raise BadOutput
+    return {"passed": value["passed"], "result": result, "digest": digest, "date": day}
 
 
 def _runtime(entry: object) -> dict:

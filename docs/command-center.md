@@ -1364,6 +1364,53 @@ scripted `registry runtimes` answer. `runtime/langgraph@1.0.0` is on `main` (#11
 end in the console), but no LangGraph deployment was listed, opened or tried here, and no
 `MODEL_STEP_LIMIT` reached Try it from a real runtime. Not run against real deployments.
 
+### Registry ▸ Runtimes and conformance (#1085 S3): on `main`, not in a published preview
+
+**Registry ▸ Runtimes** lists every `runtime/` version in the project's search roots, one row per
+version, from `agentbreeder registry runtimes --project DIR --json` (`GET
+/api/projects/ID/runtimes`, allow-listed as Build's `parts.runtimes`): the framework's badge, the
+ref (a link to that version's detail, `#/registry/runtimes/NAME?version=X.Y.Z`), the protocol and
+profile, the kit version and the status in Build's words. A report whose result is `incomplete`
+(a check that applies did not run, which is every report while checks are unbuilt) now reads
+"Conformance incomplete; not run end to end", here and on Build, instead of "Conformance failed".
+A version the CLI cannot use is a text line with its code. A failed read shows its code and **Try
+again**.
+
+A runtime version's detail (the registry's version card) adds:
+
+- **Runtime**: the framework, status, protocol, capabilities, limits, reserved tool names, notes
+  and docs path, from the same view.
+- **Packages**: what the version's `requirements.in` names with its specifiers (the build installs
+  the hash-locked `requirements.lock`).
+- **Conformance**: the newest report for an image built on this version, from the new CLI read
+  `agentbreeder registry conformance REF --json` (`GET /api/projects/ID/conformance?ref=`, never
+  cached). It shows the result ("Incomplete: not a pass" for `incomplete`), the counts, the image
+  digest, its agent and when it finished, and "not the current build" when this project's build of
+  the version is another image. Checks are grouped; a group with a failed check is open, and each
+  check's status is a word, its detail text. "Not run for this runtime version." when there is no
+  report.
+- **Run conformance**: a job, `agentbreeder conformance IMAGE --project DIR`, on this project's
+  built image of the version. The image comes from the project's build record
+  (`deploy/<agent>.build.json`, read like `agent.yaml`: the record file itself must be a regular
+  file, not a link; its label's time is when the record was last written) and the server
+  refuses any other (`CONFORMANCE_IMAGE_UNKNOWN`), so the browser never names a free image. It is
+  off, with its reason, when the project has no build of the version ("No declared-mode image of
+  this runtime version in this project. Build an agent from agent.yaml on it first."), when
+  Docker is not reachable, and while a job runs in the project. A run that wrote a failed or
+  incomplete report (exit 1) ends as a warning, not a failed command, and the card reads the new
+  report when the job ends.
+
+Not in this slice, because code mode (#1083 F8) is not on `main`: **Registry ▸ Code** (there is no
+`code/` registry kind), code-mode reports on an agent's detail, and the guided path's Conformance
+step. Every report shown is a declared-mode one.
+
+Tested with Playwright against the fake CLI (`tests/ui/test_registry_runtimes.py`: the list, an
+incomplete status, a failed read, the detail with no report, a failing report expanded, a report
+for another image, Run conformance as a job, the version in the address, axe in light and dark),
+node unit tests (`tests/js/conformance.test.mjs`), the server (`tests/test_center_conformance.py`)
+and the CLI (`registry conformance`). The reports are scripted: **no conformance run has happened
+on a real Docker engine**, and none was started from the console.
+
 ### Traces (#907, console half): on `main`, not in a published preview
 
 An agent's detail has a **Traces** tab after Logs. It lists one deployment's recent traces from

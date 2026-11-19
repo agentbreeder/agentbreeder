@@ -1,0 +1,8 @@
+usage: agentbreeder registry conformance [-h] [--json] ref
+
+positional arguments:
+  ref         runtime/name@X.Y.Z
+
+options:
+  -h, --help  show this help message and exit
+  --json

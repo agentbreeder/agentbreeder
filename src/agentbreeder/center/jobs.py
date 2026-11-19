@@ -48,6 +48,7 @@ MAX_CACHED = 256  # last good read answers kept
 ENVIRONMENT = re.compile(r"^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$")
 DEPLOYMENT = re.compile(r"^[0-9a-f]{32}$")
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
+CONFORMANCE_IMAGE = re.compile(r"^sha256:[0-9a-f]{64}$")  # `conformance.report.IMAGE`
 MCP_SERVER = re.compile(r"^[a-z][a-z0-9_]{0,31}$")  # services.schema.MCP_SERVER
 KEY_NAME = re.compile(r"^[A-Z_][A-Z0-9_]{0,127}$")
 CODED = re.compile(r"^\[([A-Z][A-Z0-9_]{2,39})\] (.+)$")
@@ -66,6 +67,7 @@ KINDS = frozenset(
         "promote",
         "remove",
         "reconcile",
+        "conformance",
     }
 )
 _ALLOWED_ENV = {
@@ -419,6 +421,13 @@ def argv_for(kind: str, project: dict, options: dict) -> list[str]:
         return ["remove", identifier, "--local" if where == "local" else "--cluster", *stack]
     if kind == "reconcile":
         return ["reconcile", "--local", *stack]
+    if kind == "conformance":
+        # The image is checked against the project's build record before the job (server
+        # `_check_conformance_image`); here only its shape, at the argv.
+        image = str(options.get("image", ""))
+        if not CONFORMANCE_IMAGE.fullmatch(image):
+            raise BadRequest("Choose a built image", "CONFORMANCE_IMAGE_UNKNOWN")
+        return ["conformance", image, "--project", path]
     raise BadRequest("Unknown job kind")
 
 
