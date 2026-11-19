@@ -372,7 +372,7 @@ def test_runs_code_symlinked_manifest_true(tmp_path):
 
 
 RUNS_CODE_CALLERS = {
-    "registry.py": 2,  # the place result and the listing row
+    "registry.py": 1,  # the place result (the listing row asks skill_check.code)
     "stackfor.py": 1,
     "agentspec.py": 1,
     "center/builder.py": 1,
@@ -415,6 +415,43 @@ def test_listing_has_a_code_column(tmp_path):
     rows = {row["ref"]: row for row in registry.listing([root])}
     assert rows["skill/refund-policy@1.0.0"]["runs_code"] is False
     assert rows["skill/calc@1.0.0"]["runs_code"] is True
+    assert rows["skill/refund-policy@1.0.0"]["code"] == "text"
+    assert rows["skill/calc@1.0.0"]["code"] == "code"
+
+
+def test_listing_code_unknown_for_an_unreadable_or_odd_version(tmp_path):
+    """Unknown (composition console spec §9.1): fail closed, so runs_code stays true."""
+    root = tmp_path / "registry"
+    registry.publish(make_skill(tmp_path / "a"), root)
+    registry.publish(make_skill(tmp_path / "b", name="odd"), root)
+    (root / "skill" / "refund-policy" / "1.0.0" / "manifest.yaml").write_text(": : bad [\n")
+    (root / "skill" / "odd" / "1.0.0" / "notes.md").write_text("x")
+    rows = {row["ref"]: row for row in registry.listing([root])}
+    for ref in ("skill/refund-policy@1.0.0", "skill/odd@1.0.0"):
+        assert rows[ref]["code"] == "unknown"
+        assert rows[ref]["runs_code"] is True
+
+
+def test_listing_code_only_on_skill_rows(tmp_path):
+    root = tmp_path / "registry"
+    registry.publish(make_skill(tmp_path / "a"), root)
+    prompt = tmp_path / "p"
+    prompt.mkdir()
+    (prompt / "manifest.yaml").write_text("kind: prompt\nname: p\nversion: 1.0.0\n")
+    (prompt / "prompt.md").write_text("Hi\n")
+    registry.publish(prompt, root)
+    rows = {row["ref"]: row for row in registry.listing([root])}
+    assert "code" not in rows["prompt/p@1.0.0"]
+    assert rows["prompt/p@1.0.0"]["runs_code"] is False
+
+
+def test_code_scripts_wins_over_an_odd_entry(tmp_path):
+    source = make_skill(tmp_path / "s")
+    (source / "notes.md").write_text("x")
+    assert skill_check.code(source) == "unknown"
+    (source / "scripts").mkdir()
+    assert skill_check.code(source) == "code"
+    assert skill_check.code(tmp_path / "missing") == "unknown"
 
 
 def test_show_has_the_skill_view(tmp_path):
@@ -473,6 +510,45 @@ def test_diff_between_skill_versions(tmp_path):
         Ref.parse("skill/refund-policy@1.0.0"), Ref.parse("skill/refund-policy@1.1.0"), [root]
     )
     assert sorted(change["path"] for change in result["files"]) == ["SKILL.md", "manifest.yaml"]
+    assert result["skill"] == {"description_changed": False, "scripts_changed": False}
+
+
+def test_diff_says_when_the_description_or_scripts_change(tmp_path):
+    """Composition console spec §9.2 and CC5: from the manifests and paths, not the hunks."""
+    root = tmp_path / "registry"
+    registry.publish(make_skill(tmp_path / "a"), root)
+    registry.publish(make_skill(tmp_path / "b", version="1.1.0", description="Other."), root)
+    registry.publish(script_skill(tmp_path / "c", version="1.2.0", description="Other."), root)
+    registry.publish(
+        script_skill(
+            tmp_path / "d",
+            version="1.3.0",
+            description="Other.",
+            files={"scripts/prorate.py": SCRIPT + "# changed\n"},
+        ),
+        root,
+    )
+
+    def changes(a, b):
+        ref = "skill/refund-policy@"
+        return registry.diff(Ref.parse(ref + a), Ref.parse(ref + b), [root])["skill"]
+
+    assert changes("1.0.0", "1.1.0") == {"description_changed": True, "scripts_changed": False}
+    assert changes("1.1.0", "1.2.0") == {"description_changed": False, "scripts_changed": True}
+    assert changes("1.2.0", "1.3.0") == {"description_changed": False, "scripts_changed": True}
+    assert changes("1.0.0", "1.0.0") == {"description_changed": False, "scripts_changed": False}
+
+
+def test_diff_of_another_kind_has_no_skill_key(tmp_path):
+    root = tmp_path / "registry"
+    for version in ("1.0.0", "1.1.0"):
+        source = tmp_path / version
+        source.mkdir()
+        (source / "manifest.yaml").write_text(f"kind: prompt\nname: p\nversion: {version}\n")
+        (source / "prompt.md").write_text(version)
+        registry.publish(source, root)
+    result = registry.diff(Ref.parse("prompt/p@1.0.0"), Ref.parse("prompt/p@1.1.0"), [root])
+    assert "skill" not in result
 
 
 def test_used_by_finds_agent_yaml_skills(tmp_path):
@@ -751,3 +827,10 @@ def test_the_largest_allowed_skill_publishes_and_shows(tmp_path):
     view = registry.show(Ref.parse("skill/big@1.0.0"), [root])
     assert view["skill_error"] is None
     assert len(view["skill"]["scripts"]) == 10 and len(view["skill"]["references"]) == 20
+
+
+def test_scripts_paths_fold_as_the_code_check_does():
+    assert registry._top_is_scripts("scripts/x.py")
+    assert registry._top_is_scripts("Scripts")
+    assert registry._top_is_scripts("ＳＣＲＩＰＴＳ/x")  # fullwidth, NFKC
+    assert not registry._top_is_scripts("references/scripts.md")

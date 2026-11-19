@@ -458,3 +458,47 @@ def test_the_code_confirm_follows_a_skills_files(center, project, cookie, projec
     _, done, _ = post(center, project, cookie, path=scripted, digest=digest, code_confirmed=True)
     assert done["error"] is None, done
     assert version_dir(project_dir, "skill/calc", "1.0.0").is_dir()
+
+
+# -- skills: the review's description and code word (#1059 UI-R, composition console §9.4) -------
+
+
+@pytest.mark.parametrize(
+    ("files", "code"),
+    [
+        ([_manifest(_PACK_MANIFEST)], "text"),
+        ([_manifest(_PACK_MANIFEST), {"path": "scripts", "type": "dir"}], "code"),
+        ([_manifest(_PACK_MANIFEST + "scripts: []\n")], "code"),
+        ([_manifest("kind: [")], "unknown"),
+        ([], "unknown"),
+    ],
+)
+def test_a_skill_dry_run_says_its_code_from_the_files(files, code):
+    answer = registryimport.import_answer(_skill_answer(files, runs_code=True), dry_run=True)
+    assert answer["skill"]["code"] == code
+
+
+def test_a_skill_dry_run_carries_the_manifest_description():
+    answer = registryimport.import_answer(
+        _skill_answer([_manifest(_PACK_MANIFEST)], runs_code=False), dry_run=True
+    )
+    assert answer["skill"] == {"code": "text", "description": "d"}
+
+
+@pytest.mark.parametrize(
+    "description",
+    ['""', '"' + "x" * 1025 + '"', '"a\\u202eb"', '"a\\nb"', "[1, 2]", '"a\\u200bb"'],
+)
+def test_a_skill_description_that_is_not_one_clean_line_is_dropped(description):
+    manifest = f"kind: skill\nname: s\nversion: 1.0.0\ndescription: {description}\n"
+    answer = registryimport.import_answer(
+        _skill_answer([_manifest(manifest)], runs_code=True), dry_run=True
+    )
+    assert answer["skill"]["description"] is None
+
+
+def test_other_kinds_and_writes_have_no_skill_block():
+    written = _skill_answer(None, runs_code=False)
+    del written["files"]
+    written["dry_run"] = False
+    assert "skill" not in registryimport.import_answer(written, dry_run=False)

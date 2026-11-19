@@ -151,22 +151,56 @@ def _file(item: object) -> dict:
     return {key: item[key] for key in FILE_KEYS if key in item}
 
 
-def _skill_has_code(files: object) -> bool:
-    """Fail closed: a listed `scripts` entry, or a manifest that is missing, unreadable or
-    declares `scripts:` (as `skill_check.runs_code`, from the dry run's file list)."""
+SKILL_DESCRIPTION_MAX = 1024  # skills spec §5: one line of 1 to 1024 characters
+
+
+def _skill_manifest(files: object) -> dict | None:
+    """The dry run's `manifest.yaml` as a mapping, or None when it is missing or unreadable."""
     if not isinstance(files, list):
-        return True
+        return None
     by_path = {item.get("path"): item for item in files if isinstance(item, dict)}
-    if any(isinstance(p, str) and (p == "scripts" or p.startswith("scripts/")) for p in by_path):
-        return True
     manifest = by_path.get("manifest.yaml")
     text = manifest.get("text") if isinstance(manifest, dict) else None
     if not isinstance(text, str):
-        return True
+        return None
     try:
-        return "scripts" in strict_yaml.load_text(text)
+        data = strict_yaml.load_text(text)
     except (ValueError, RecursionError):
-        return True
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _skill_code(files: object) -> str:
+    """ "code" for a listed `scripts` entry or a manifest that declares `scripts:`; "unknown" for
+    a manifest that is missing or unreadable (treated as code, as `skill_check.code`); else
+    "text". From the dry run's file list."""
+    if not isinstance(files, list):
+        return "unknown"
+    paths = [item.get("path") for item in files if isinstance(item, dict)]
+    if any(isinstance(p, str) and (p == "scripts" or p.startswith("scripts/")) for p in paths):
+        return "code"
+    manifest = _skill_manifest(files)
+    if manifest is None:
+        return "unknown"
+    return "code" if "scripts" in manifest else "text"
+
+
+def _skill_has_code(files: object) -> bool:
+    """Fail closed (as `skill_check.runs_code`, from the dry run's file list)."""
+    return _skill_code(files) != "text"
+
+
+def _skill_description(files: object) -> str | None:
+    """The manifest's description for the review's "sent on every model call" block
+    (composition console spec §9.4): one line of text within the skills cap, with no control,
+    bidi or invisible character, else None (the files below still show the manifest)."""
+    manifest = _skill_manifest(files)
+    value = manifest.get("description") if manifest else None
+    if not isinstance(value, str) or not 0 < len(value) <= SKILL_DESCRIPTION_MAX:
+        return None
+    if "\n" in value or CONTROLS.search(value) or registry.clean(value, name=True)[1]:
+        return None
+    return value
 
 
 def import_answer(data: object, *, dry_run: bool) -> dict:
@@ -209,4 +243,9 @@ def import_answer(data: object, *, dry_run: bool) -> dict:
             raise BadOutput("the files' text is over the CLI's cap")
     elif files is not None:
         raise BadOutput("a write does not list files")
-    return {**{key: data[key] for key in KEYS}, **({"files": files} if dry_run else {})}
+    answer = {**{key: data[key] for key in KEYS}, **({"files": files} if dry_run else {})}
+    if dry_run and ref.kind == registry.SKILL_KIND:
+        # Composition console spec §9.4: the description before the files, and the code
+        # question in words, both from the files listed (never the kind).
+        answer["skill"] = {"code": _skill_code(files), "description": _skill_description(files)}
+    return answer
