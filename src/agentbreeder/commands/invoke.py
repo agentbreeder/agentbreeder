@@ -32,6 +32,7 @@ MODEL_CODES = frozenset(
         "MODEL_ACCESS_DENIED",
         "MODEL_REQUEST_REFUSED",
         "MODEL_UNAVAILABLE",
+        "MODEL_STEP_LIMIT",  # a kit runtime's step cap (#1083 F2b)
     }
 )
 TURN_ID = re.compile(r"[0-9a-f]{32}")

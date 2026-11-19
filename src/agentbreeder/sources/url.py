@@ -50,6 +50,11 @@ def _host(text: str) -> str:
             address = ipaddress.IPv6Address(text[1:-1])
         except ValueError as error:
             raise SourceUrlError("malformed IPv6 host") from error
+        if address.ipv4_mapped is not None:
+            # A second spelling of an IPv4 host, and Python versions print it differently
+            # (3.12.8 `::ffff:7f00:1`, 3.13 `::ffff:127.0.0.1`), so it has no stable canonical
+            # form: refused (#829 slice 1b).
+            raise SourceUrlError("write an IPv4-mapped IPv6 host as its IPv4 address")
         return f"[{address.compressed}]"
     if not text.isascii():
         raise SourceUrlError("non-ASCII host names are not supported")

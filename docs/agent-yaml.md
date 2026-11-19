@@ -114,6 +114,17 @@ the runtime checks at start; `agent.lock` keeps the hash of the whole registry v
 two differ on purpose. An agent file without `skills:` builds exactly as before; `validate
 --json` now prints `"skills": []` for it (and `"guardrails": []` when it has no `guardrails:`).
 
+`registries:` (optional, at most 10, on `main`, not in a published preview, #829) names git
+repositories that hold registry versions, each pinned to a full commit SHA:
+`- {name: acme, git: https://github.com/acme/agent-registry.git, commit: <40 hex>, path: registry}`.
+Refs stay `kind/name@X.Y.Z`; `build` looks for them in `./registry`, then
+`AGENTBREEDER_REGISTRY_PATH`, then each source in order, then the built-in registry, and a ref
+with different content in two places is `REF_CONFLICT`. A source must be in your trusted list
+first (`registry trust`), and with `registries:` the lock is version 2. Only `git` sources, and
+only `prompt`, `eval`, `knowledge` and `tool` versions, in this version. See
+[Remote registry sources](registry.md#remote-registry-sources-git-on-main-not-in-a-published-preview).
+An agent file without `registries:` builds exactly as before (lock version 1).
+
 ## Sub-agents (on `main`, not in a published preview)
 
 `subagents:` (optional, at most 5) declares specialist agents that run in the **same container,
@@ -315,6 +326,7 @@ and `traces` all showed it), and a sandbox copy redeployed with `budget_usd: 0.0
   | `MODEL_ACCESS_DENIED` | 502 | the gateway refused the key for the model (401/403) | check `environment.models` and deploy again |
   | `MODEL_REQUEST_REFUSED` | 502 | another 4xx: sending it again won't help | the log line under `correlation_id` |
   | `MODEL_UNAVAILABLE` | 502 | a 5xx, timeout or connection error, after retries | try again |
+  | `MODEL_STEP_LIMIT` | 502 | kit runtimes only (`runtime/langgraph`, #1083): the turn used its `model.max_model_calls`, or the last allowed answer still called a tool | ask again, or raise `model.max_model_calls` |
 
 - **Bounded retries.** The OpenAI client under LiteLLM no longer retries on its own: it waited
   out a rate limit's `retry-after` (up to 120 s, twice) unseen. `1.3.0` retries a model call
@@ -529,7 +541,11 @@ knowledge on a sub-agent, the caps against a real model, skill reference files, 
     their arguments, and whatever a tool wrote itself. `session.id` and `user.id` are the
     caller's values.
   Checked by the runtime's tests (a fake gateway returning the block; the exported spans read
-  from an in-memory exporter). Not run with Presidio or Phoenix on Docker.
+  from an in-memory exporter), and run once on Docker Desktop (macOS) with Presidio and Phoenix
+  (2026-11-19, `docs/superpowers/verification/1106-blocked-turn-live.md`): a blocked turn with a
+  US SSN left the value in no `turns` row, audit row, Phoenix span or container log, only in the
+  ADK session; the same turn on `1.4.0` kept it in `turns.message` and the `agent_turn` and
+  `retrieve_knowledge` span inputs.
 - A tool's module may no longer be named `turns`, `subagents`, `skills` or `skill_hash` (the
   runtime's own new modules); `registry publish` and the runtime both refuse it.
 

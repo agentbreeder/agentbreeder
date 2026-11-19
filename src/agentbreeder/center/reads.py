@@ -98,21 +98,10 @@ def _registry_signature(roots: list[Path]) -> tuple | None:
 
 
 def _lock_entries(raw: bytes | None, name: str) -> dict:
-    """The checks of `lock.Lock.load`, on bytes already read safely."""
+    """`lock.Lock.parse`'s own checks (lock v1 and v2, #829), on bytes already read safely."""
     if raw is None:
         return {}
-    try:
-        data = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError, RecursionError) as error:
-        raise registry.RegistryError(
-            "LOCK_INVALID", f"{name} is not a valid agent.lock"
-        ) from error
-    if not isinstance(data, dict) or data.get("lock_version") != lock.LOCK_VERSION:
-        raise registry.RegistryError("LOCK_INVALID", f"{name}: unsupported lock_version")
-    entries = data.get("entries")
-    if not isinstance(entries, dict):
-        raise registry.RegistryError("LOCK_INVALID", f"{name}: missing entries")
-    return entries
+    return lock.Lock.parse_bytes(raw, name)[0].entries
 
 
 MCP_IDENTITY = ("ref", "origin", "upstream", "token_url")  # `mcp_stack.McpEntry.identity`
