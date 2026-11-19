@@ -172,6 +172,57 @@ def test_the_gate_strip_and_identity_strip(page, console):
     expect(page.get_by_role("region", name="Production")).to_contain_text("demo-candidate")
 
 
+def test_an_identity_no_one_has_checked_since_deploy_says_why_status_differs(page, console):
+    """#1078: a deploy records no compliance (the list row has null) and only `status` or
+    `reconcile` do, so `agentbreeder status` said compliant while the console said only "not
+    checked". The console now says where its value comes from and where to re-check it."""
+    path = str(own_project(console).resolve())
+    stack = {"stack": "demo-0123abcd", "project": path, "environment": "dev"}
+    unchecked = {**DEPLOYMENTS[0], "compliance": None, "updated": "2026-11-13T10:01:00Z"}
+    console.scenario(
+        list_all={"deployments": [{**unchecked, **stack}], "skipped": []},
+        deployments=[unchecked],
+        audit_rows=[RELEASE],
+    )
+    open_list(page, console)
+    row = page.get_by_role("table", name="Agents").locator("tbody tr")
+    expect(row).to_have_count(1)
+    expect(row.locator(".identity")).to_have_text("not checked since deploy")
+    expect(row.locator("svg.gate-check")).to_have_count(0)
+    expect(page.get_by_role("region", name="Deployed agents")).to_contain_text(
+        "A deploy records none"
+    )
+    page.get_by_role("link", name="demo", exact=True).click()
+    page.wait_for_url("**/#/agents/demo")
+    steps = page.get_by_role("list", name="Gate").get_by_role("listitem")
+    expect(steps.nth(3)).to_contain_text("Identity: not run.")
+    expect(steps.nth(3)).to_contain_text("not checked since deploy")
+    identity = page.locator("dl.identity-strip")
+    expect(identity.locator(".identity")).to_have_text("not checked since deploy")
+    expect(identity.locator("svg.gate-check")).to_have_count(0)
+    expect(identity).to_contain_text(
+        "For a deployment bound to a principal, status and reconcile check the identity again "
+        "and record the result, so agentbreeder status can say compliant while this does not."
+    )
+    expect(identity).to_contain_text(
+        "The identity of a deployment with no principal is never checked again."
+    )
+    identity.get_by_role("link", name="Re-verify on Deployments").click()
+    page.wait_for_url("**/#/deployments")
+    deployments = page.get_by_role("table", name="Deployments")
+    expect(deployments.locator("tbody tr")).to_contain_text("not checked since deploy")
+    expect(page.get_by_role("button", name="Re-verify (reconcile)")).to_be_visible()
+
+
+def test_a_recorded_identity_says_what_recorded_it(page, console):
+    scenario(console)
+    sign_in(page, console)
+    page.goto(f"{console.origin}/#/agents/demo")
+    identity = page.locator("dl.identity-strip")
+    expect(identity).to_contain_text("recorded by the last status or reconcile")
+    expect(identity.get_by_role("link", name="Re-verify on Deployments")).to_have_count(0)
+
+
 def test_tabs_keep_focus_and_show_releases_and_logs(page, console):
     scenario(console)
     sign_in(page, console)

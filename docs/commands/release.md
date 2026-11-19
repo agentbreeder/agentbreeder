@@ -13,6 +13,6 @@ in [`agent-yaml.md`](../agent-yaml.md#eval-and-release) (on `main`, not in a pub
 
 After the `promoted` row, `release` links production to its package (`deploy/package_linked`; `status --json` shows `package`) (#763, on `main`, not in a published preview). If that link cannot be written, the release still stands: it exits 1 with `PACKAGE_LINK_FAILED`, and running `release` again for the same image repairs the link (`PACKAGE_EXISTS`).
 
-With `evals.tag_threshold` in `agent.yaml`, the gate also fails (exit 5) when any case tag's pass rate is below it, and the report's `tags` gives each tag's rate; see "Eval and release" in [`agent-yaml.md`](../agent-yaml.md#eval-and-release) (#1058, on `main`, not in a published preview).
+With `evals.tag_threshold` in `agent.yaml`, the gate also fails (exit 5) when any case tag's pass rate is below it, and the report's `tags` gives each tag's rate (the text output prints one `Tag NAME: passed/cases passed (rate)` line per tag, only for an eval set with tagged cases); see "Eval and release" in [`agent-yaml.md`](../agent-yaml.md#eval-and-release) (#1058, on `main`, not in a published preview).
 
 Flags: `agentbreeder release --help`.

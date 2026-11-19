@@ -375,6 +375,24 @@ def test_unbound_record_is_not_reverified(identity_env, state, runtime):
     assert svc.status("legacy")["compliance"] is None
 
 
+def test_a_deploy_records_no_compliance_and_status_does(identity_env, state, runtime):
+    """#1078: the console's list row had `compliance: null` while `status --json` said
+    `compliant`. Both read this column; a deploy leaves it NULL and `status` writes it."""
+    from agentbreeder import allstacks
+
+    first = deploy(identity_env, state, runtime)
+    assert [row["compliance"] for row in allstacks.rows(state)] == [None]
+    svc = service(identity_env, state, runtime)
+    assert svc.status(first["id"], verify=False)["compliance"] is None
+    assert svc.status(first["id"])["compliance"] == "compliant"
+    assert [row["compliance"] for row in allstacks.rows(state)] == ["compliant"]
+    # A deployment with no principal is never checked: neither command records a value for it.
+    state.create("legacy", {"name": "legacy"}, "digest", "local-test")
+    assert svc.status("legacy")["compliance"] is None
+    svc.reconcile(OPS)
+    assert state.get("legacy")["compliance"] is None
+
+
 def test_unexpected_adapter_failure_is_unverifiable_not_raised(
     identity_env, state, runtime, monkeypatch
 ):

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 from agentbreeder import cli
 from agentbreeder.safe_text import excerpt
@@ -47,7 +48,8 @@ def run(args) -> int:
 def _list(store: Store, args) -> int:
     from agentbreeder import allstacks
 
-    rows = allstacks.rows(store)
+    # A build record is looked for in the stack's project (`--stack DIR`), else here.
+    rows = allstacks.rows(store, args.stack if args.stack is not None else Path.cwd())
     if args.json:
         print(json.dumps(rows, indent=2))
     else:

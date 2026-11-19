@@ -57,6 +57,9 @@ DEFAULT = {
     "doctor": [
         {"name": "Docker", "passed": True, "message": "ok", "required": True, "info": False}
     ],
+    # The full `doctor --json` (Home's read, not the blocker's `--only docker`) answers only once
+    # this file exists, or after 25 seconds: a slow first CLI child at sign-in (#1047).
+    "doctor_waits_for": None,
     "job_lines": {},
     "job_exit": {},
     "job_seconds": 0.6,
@@ -65,6 +68,12 @@ DEFAULT = {
     "guide": "services",
     # `services plan`: true fails it with SERVICES_BUSY (another services write holds the stack).
     "plan_busy": False,
+    # `registry runtimes --json` (#1085 S1): null hands it to the real command (the built-in
+    # `runtime/adk` versions and any on AGENTBREEDER_REGISTRY_PATH); a list is printed as its
+    # `runtimes` (frameworks that have no runtime yet); {"error": {code, message}} fails it.
+    "runtimes": None,
+    # Seconds `registry runtimes` waits before answering (the Framework group's loading line).
+    "runtimes_seconds": 0,
     # `new agent`: null writes the demo project into --dir; a {code, message} refuses.
     "new_error": None,
     # `registry used-by`: the deployments shown for a project that uses the ref.
@@ -814,6 +823,15 @@ def main(argv: list[str]) -> int:
         return real(argv)  # #826: the real edit and set-ref on the project's files
     elif head == ["registry", "import"]:
         return real(argv)  # #825: the real import into the project's registry
+    elif head == ["registry", "runtimes"]:
+        time.sleep(float(data.get("runtimes_seconds", 0)))
+        if data["runtimes"] is None:
+            return real(argv)
+        if isinstance(data["runtimes"], dict):
+            problem = data["runtimes"]["error"]
+            print(f"[{problem['code']}] {problem['message']}", file=sys.stderr)
+            return 2
+        print(json.dumps({"schema_version": 1, "runtimes": data["runtimes"]}))
     elif argv and argv[0] == "registry":
         print("[]")
     elif argv[:2] == ["list", "--all"]:
@@ -892,6 +910,10 @@ def main(argv: list[str]) -> int:
         checks = data["doctor"]
         if "--only" in argv:  # `--only docker`: the blocker's check
             checks = [check for check in checks if check["name"] == "Docker"]
+        elif data.get("doctor_waits_for"):
+            deadline = time.monotonic() + 25
+            while not Path(data["doctor_waits_for"]).exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
         print(json.dumps(checks))
         if not all(check["passed"] or not check["required"] for check in checks):
             return 1  # as the real doctor: a required check failed

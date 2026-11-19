@@ -15,36 +15,127 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from agentbreeder import registry
+from agentbreeder import sources as remote
 from agentbreeder.registry import Ref, RegistryError, copy_and_hash, resolve
 
-LOCK_VERSION = 1
+LOCK_VERSION = 1  # written when agent.yaml (or stack.yaml) declares no `registries:`
+LOCK_VERSION_SOURCES = 2  # written with a `sources` table (#829 spec §7)
+LOCK_VERSIONS = (LOCK_VERSION, LOCK_VERSION_SOURCES)
 MODES = ("plain", "update", "locked")
+ENTRY_KEYS = frozenset({"sha256", "source"})
+ENTRY_KEYS_V2 = ENTRY_KEYS | {"pin"}
+SHA256 = registry.SHA256
+SOURCE_LIMIT = registry.LOCK_SOURCE_LIMIT
+NEWER = "written by a newer AgentBreeder; upgrade AgentBreeder"
+BUILTIN_LABEL = registry.BUILTIN_LABEL
 
 
 @dataclass
 class Lock:
+    """`entries` maps a lock key to {sha256, source[, pin]}. `sources` is None for a version 1
+    lock and a dict (possibly empty) for version 2, written when `registries:` is declared."""
+
     entries: dict[str, dict] = field(default_factory=dict)
+    sources: dict[str, dict] | None = None
 
     @classmethod
-    def load(cls, path: Path) -> Lock:
+    def load(
+        cls,
+        path: Path,
+        versions: tuple[int, ...] = LOCK_VERSIONS,
+        extra_keys: tuple[str, ...] = (),
+    ) -> Lock:
+        lock, _ = cls.parse(path, versions, extra_keys)
+        return lock
+
+    @classmethod
+    def parse(
+        cls,
+        path: Path,
+        versions: tuple[int, ...] = LOCK_VERSIONS,
+        extra_keys: tuple[str, ...] = (),
+    ) -> tuple[Lock, dict]:
+        """The lock and its raw JSON object, checked strictly (#829 spec §7): unknown top-level,
+        entry, source or pin keys and unsupported versions are LOCK_INVALID. `extra_keys` are
+        the top-level keys a caller reads itself (stack.lock's `imports` and `mcp`)."""
         if not path.exists():
-            return cls()
+            return cls(), {}
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique)
+        except RecursionError as error:
+            raise RegistryError("LOCK_INVALID", f"{path} is too deeply nested") from error
         except (OSError, ValueError) as error:
-            raise RegistryError("LOCK_INVALID", f"{path} is not a valid agent.lock") from error
-        if not isinstance(data, dict) or data.get("lock_version") != LOCK_VERSION:
-            raise RegistryError("LOCK_INVALID", f"{path}: unsupported lock_version")
+            raise RegistryError("LOCK_INVALID", f"{path} is not a valid lock file") from error
+        if not isinstance(data, dict):
+            raise RegistryError("LOCK_INVALID", f"{path} is not a valid lock file")
+        version = data.get("lock_version")
+        if type(version) is not int or version not in versions:
+            newer = isinstance(version, int) and version > max(versions)
+            raise RegistryError(
+                "LOCK_INVALID",
+                f"{path}: unsupported lock_version" + (f"; {NEWER}" if newer else ""),
+            )
+        allowed = {"lock_version", "entries", *extra_keys}
+        if version == LOCK_VERSION_SOURCES:
+            allowed.add("sources")
+        if unknown := sorted(set(data) - allowed):
+            raise RegistryError("LOCK_INVALID", f"{path}: unknown keys {unknown}; {NEWER}")
         entries = data.get("entries")
         if not isinstance(entries, dict):
             raise RegistryError("LOCK_INVALID", f"{path}: missing entries")
-        return cls(entries)
+        sources = None
+        if version == LOCK_VERSION_SOURCES:
+            sources = data.get("sources")
+            if not isinstance(sources, dict):
+                raise RegistryError("LOCK_INVALID", f"{path}: missing sources")
+            for name, record in sources.items():
+                remote.check_source(str(path), name, record)
+        keys = ENTRY_KEYS if sources is None else ENTRY_KEYS_V2
+        for key, entry in entries.items():
+            if (
+                not isinstance(entry, dict)
+                or not ENTRY_KEYS <= set(entry)
+                or not isinstance(entry.get("sha256"), str)
+                or not SHA256.fullmatch(entry["sha256"])
+                or not isinstance(entry.get("source"), str)
+                or not entry["source"]
+                or len(entry["source"]) > SOURCE_LIMIT
+            ):
+                raise RegistryError("LOCK_INVALID", f"{path}: the {key} entry is malformed")
+            if unknown := sorted(set(entry) - keys):
+                raise RegistryError(
+                    "LOCK_INVALID", f"{path}: the {key} entry has unknown keys {unknown}; {NEWER}"
+                )
+            remote.check_entry_source(str(path), key, entry, sources)
+        return cls(entries, sources), data
+
+    def body(self) -> dict:
+        """The JSON object `save` writes: version 1 byte for byte as before #829 when there is
+        no `sources` table, version 2 with sorted `sources` otherwise."""
+        if self.sources is None:
+            return {"lock_version": LOCK_VERSION, "entries": dict(sorted(self.entries.items()))}
+        return {
+            "lock_version": LOCK_VERSION_SOURCES,
+            "sources": dict(sorted(self.sources.items())),
+            "entries": dict(sorted(self.entries.items())),
+        }
 
     def save(self, path: Path) -> None:
-        body = {"lock_version": LOCK_VERSION, "entries": dict(sorted(self.entries.items()))}
-        temporary = path.with_name(f".{path.name}.tmp")
-        temporary.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, path)
+        _write(path, self.body())
+
+
+def _unique(pairs: list) -> dict:
+    """A JSON object without duplicate keys (a duplicate could hide an entry from a review)."""
+    result = dict(pairs)
+    if len(result) != len(pairs):
+        raise ValueError("duplicate key")
+    return result
+
+
+def _write(path: Path, body: dict) -> None:
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
 
 
 @dataclass(frozen=True)
@@ -55,25 +146,12 @@ class Materialised:
     source: str
 
 
-BUILTIN_LABEL = "builtin"
-
-
-def _source_label(root: Path, project_dir: Path) -> str:
-    # Built-in versions ship inside AgentBreeder; their install path differs per machine.
-    if root.resolve() == registry.BUILTIN_ROOT.resolve():
-        return BUILTIN_LABEL
-    try:
-        return os.path.relpath(root, project_dir)
-    except ValueError:
-        return str(root)
-
-
 def materialise(
     *,
     refs: list[str],
     paths: list[str],
     project_dir: Path,
-    search: list[Path],
+    search: list[Path | registry.Root],
     lock: Lock,
     context: Path,
     mode: str = "plain",
@@ -97,6 +175,10 @@ def materialise(
             "REF_UNPINNED", f"--locked refuses path refs: {', '.join(sorted(paths))}"
         )
     names = (lock_file, update_command)
+    configured = registry.as_roots(search, project_dir)
+    by_path: dict[Path, registry.Root] = {}
+    for root in configured:
+        by_path.setdefault(root.path, root)
     results: list[Materialised] = []
     seen: set[str] = set()
     changed = False
@@ -107,19 +189,19 @@ def materialise(
             continue
         seen.add(key)
         locked = lock.entries.get(key)
-        hit = resolve(ref, search)
         if mode == "locked" and locked:
-            # Load only from the locked source; never from a newly shadowing root.
-            wanted = (
-                registry.BUILTIN_ROOT
-                if locked["source"] == BUILTIN_LABEL
-                else project_dir / locked["source"]
-            ).resolve()
-            if hit.root.resolve() != wanted:
-                hit = resolve(ref, [wanted])
+            # #829 D6: load only from the locked root, which must be configured now; no
+            # cross-root check, so a shadowing copy elsewhere is never read (or needed).
+            root = remote.locate(
+                key, locked, configured, lock_file=lock_file, refresh=_refresh(*names)
+            )
+            hit = resolve(ref, [root.path])
+        else:
+            hit = resolve(ref, [root.path for root in configured])
+            root = by_path[hit.root]
         target = context / ref.kind / ref.name
         digest = copy_and_hash(hit.path, target)
-        source = _source_label(hit.root, project_dir)
+        source = root.label
         changed |= _reconcile(lock, key, digest, source, locked, mode, update, names)
         results.append(Materialised(key, target, digest, source))
     for text in paths:

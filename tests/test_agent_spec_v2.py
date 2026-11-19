@@ -24,7 +24,7 @@ TODAY = date(2026, 11, 13)
 MARKER = "Private marker kestrel-umbra-71."  # prompt text that must never reach an error
 GOLDEN = Path(__file__).parent / "fixtures" / "agentspec_v1_golden.json"
 ADK = registry.BUILTIN_ROOT / "runtime" / "adk" / "1.4.0"
-CAPABLE = "runtime/adk@1.5.0"
+CAPABLE = "runtime/adk@1.99.0"  # never a built-in version (1.5.0 is one since RT)
 
 
 @pytest.fixture(autouse=True)
@@ -91,17 +91,17 @@ def dry_run_json(tmp_path: Path, data: dict) -> tuple[int, dict]:
 
 @pytest.fixture
 def shared(tmp_path, monkeypatch) -> Path:
-    """A registry on AGENTBREEDER_REGISTRY_PATH with `runtime/adk@1.5.0` (1.4.0's files and
-    `capabilities: [mcp, subagents, skills]`, standing in for RT's version), `tool/echo@0.1.0`,
-    `tool/ask@0.1.0` (its function named `ask_billing`), `skill/refund-policy@0.1.0` (an
-    instruction pack)
-    and `skill/prorate@0.1.0` (with a script)."""
+    """A registry on AGENTBREEDER_REGISTRY_PATH with `runtime/adk@1.99.0` (1.4.0's files and
+    `capabilities: [mcp, subagents, skills]`, a stand-in that cannot clash with a built-in),
+    `tool/echo@0.1.0`, `tool/ask@0.1.0` (its function named `ask_billing`),
+    `skill/refund-policy@0.1.0` (an instruction pack) and `skill/prorate@0.1.0` (with a
+    script)."""
     root = tmp_path / "shared-registry"
     sources = tmp_path / "sources"
     runtime = sources / "runtime-adk"
     shutil.copytree(ADK, runtime)
     manifest = runtime / "manifest.yaml"
-    text = manifest.read_text().replace("version: 1.4.0", "version: 1.5.0", 1)
+    text = manifest.read_text().replace("version: 1.4.0", "version: 1.99.0", 1)
     text = text.replace("capabilities: [mcp]", "capabilities: [mcp, subagents, skills]")
     manifest.write_text(text)
     registry.publish(runtime, root)
@@ -591,3 +591,73 @@ def test_an_embedding_alias_that_is_a_subagent_alias_is_refused(tmp_path, shared
     data = spec(runtime=CAPABLE, subagents=[sub(model="openai")])
     error = refused(tmp_path, data)
     assert error.code == "ALIAS_UNSUPPORTED" and "knowledge[0]" in str(error)
+
+
+# -- verified combinations with sub-agents and skills (#1058, #1059 AC) --------------------------
+
+RUN = "runtime/adk@1.5.0"  # the version the acceptance runs used
+
+
+def is_verified(**changes) -> bool:
+    return agentspec.verified(agentspec.Spec.model_validate(spec(**changes)))
+
+
+def test_the_acceptance_runs_are_verified_on_their_runtime_only():
+    """docs/superpowers/verification/1058-subagents.md and 1059-skills-a.md: gemini, two
+    sub-agents (one with one tool), or two skills, on runtime/adk@1.5.0."""
+    assert agentspec.PART_RUNTIMES == {"subagents": RUN, "skills": RUN}
+    assert agentspec.SUBAGENT_PROVIDERS == agentspec.SKILL_PROVIDERS == {"gemini"}
+    subagents = [sub(), sub("tickets", tools=["tool/escalate-to-human@1.0.0"])]
+    skills = ["skill/returns-policy@0.1.0", "skill/warranty-policy@0.1.0"]
+    assert is_verified(runtime=RUN, subagents=subagents)
+    assert is_verified(runtime=RUN, subagents=[sub()])
+    assert is_verified(runtime=RUN, skills=skills)
+    # the starter's default runtime does not run either part, and no other version was run
+    for runtime in (None, newagent.RUNTIME, "runtime/adk@1.9.0", "runtime/langgraph@1.5.0"):
+        assert not is_verified(runtime=runtime, subagents=subagents)
+        assert not is_verified(runtime=runtime, skills=skills)
+
+
+def test_a_composition_beyond_the_runs_is_unverified():
+    subagents = [sub(), sub("tickets", tools=["tool/escalate-to-human@1.0.0"])]
+    skills = ["skill/returns-policy@0.1.0"]
+    for changes in (
+        {"subagents": [*subagents, sub("returns")]},  # three sub-agents
+        {"skills": [*skills, "skill/a@0.1.0", "skill/b@0.1.0"]},  # three skills
+        {"subagents": subagents, "skills": skills},  # both parts together
+        {"subagents": [sub(tools=["tool/a@0.1.0", "tool/b@0.1.0"])]},  # two tools
+        {"subagents": [sub(tools=["tool/a@0.1.0"])], "tools": ["tool/b@0.1.0"]},  # one each
+        {"subagents": [sub(model="openai")]},  # a sub-agent on another provider
+        {"subagents": [sub()], "model": "openai"},  # the agent on another provider
+        {"skills": skills, "model": "openai"},
+        {"subagents": [sub()], "knowledge": [{"ref": "knowledge/k@1.0.0"}]},
+        {"subagents": [sub(mcp=[{"ref": "mcp/github@1.0.0", "tools": ["get_me"]}])]},  # MCP
+        {"subagents": [sub(model_id="gemini/gemini-other")]},  # another model
+        {"subagents": [sub()], "model_id": "gemini/gemini-other"},
+        {"skills": skills, "model_id": "gemini/gemini-other"},
+        {"subagents": [sub(model="openai", tools=["tool/a@0.1.0"])]},  # a tool off TOOL_PROVIDERS
+    ):
+        assert not is_verified(runtime=RUN, **changes), changes
+
+
+def test_the_default_combinations_stay_on_the_default_runtime():
+    assert is_verified()
+    assert is_verified(tools=["tool/echo@0.1.0"])
+    assert not is_verified(runtime=RUN)  # 1.5.0 alone was not run through the builder
+    assert not is_verified(runtime=RUN, tools=["tool/echo@0.1.0"])
+
+
+def test_the_builder_reports_a_verified_composition(tmp_path, shared):
+    """End to end through the plan, on the built-in runtime/adk@1.5.0."""
+    data = spec(runtime=RUN, subagents=[sub(), sub("tickets", tools=["tool/echo@0.1.0"])])
+    extra = planned(tmp_path, data)[1]
+    assert extra["combination"] == {
+        "parts": ["model", "prompt", "evals", "subagents", "tools"],
+        "verified": True,
+    }
+    data = spec(runtime=RUN, skills=["skill/refund-policy@0.1.0"])
+    extra = planned(tmp_path, data)[1]
+    assert extra["combination"] == {
+        "parts": ["model", "prompt", "evals", "skills"],
+        "verified": True,
+    }

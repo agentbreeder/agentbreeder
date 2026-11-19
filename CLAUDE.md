@@ -233,6 +233,49 @@ runtime takes (`RUNTIME_LIMIT`). No runtime other than ADK exists. Website: no c
 framework passes its acceptance. Cloud: a `CLAUDE.md` note only; it has no code that reads the
 manifest's `runtime` or a runtime manifest.
 
+**Agent packages, #763 M13 (slices 1 to 4a), per side.** OSS (on `main`, not in a published
+preview): the `agent` registry kind, `release` writing an immutable `agent/<name>@X.Y.Z` package
+(strict `package.json`, `package_version` 1, unknown keys refused), `deploy agent/<name>@X.Y.Z
+--local`, store schema v4 (`package` column), and a library-only OCI artifact
+(`application/vnd.agentbreeder.agent.v1`, pushed to `127.0.0.1` only; no command uses it yet, and
+`--cluster` by ref still refuses). No `agent.yaml`, deploy manifest, JSON Schema or `agent.lock`
+format change. Website: no change until release R. Cloud: a `CLAUDE.md` note only (the `agent`
+kind and the strict `package.json`); a grep of its tracked files on 2026-11-18 for the package,
+artifact and registry codes found nothing.
+
+**Kit egress, #1083 F1b (multi-framework), per side.** OSS (on `main`; unit-tested, the opt-in
+real-engine tests are written and not yet run): a manifest with `runtime.profile: kit` deploys
+with default-deny egress. Local Docker: internal networks only and a forwarding sidecar
+(`egress/kit.py`, `egress/forwarder.py`, the phase-4 boundary's pattern) for ingress and for a
+gateway at `http://host.docker.internal`; `KIT_EGRESS_UNSUPPORTED` for what it cannot reach.
+`kind`: a NetworkPolicy that allows cluster DNS and the new optional operator key
+`kubernetes.agents_cidrs` (written by `cluster up`), else `KUBERNETES_KIT_EGRESS_UNCONFIGURED`.
+No runtime has `profile: kit`, so every existing deployment is unchanged (goldens). No manifest,
+JSON Schema, digest or `agent.lock` change. Website: no change until a framework passes its
+acceptance. Cloud: a `CLAUDE.md` note only; it has no code that reads the operator config or
+deploys through these paths.
+
+**Agent protocol and conformance, #1083 F2a (multi-framework), per side.** OSS (on `main`):
+`docs/agent-protocol.md` (protocol v1, what `runtime/adk@1.3.0` serves) and `agentbreeder
+conformance IMAGE` (`conformance/`: 26 of 39 checks built, reports under
+`~/.agentbreeder/conformance/`). **Never run on a real Docker engine**: the ADK baseline
+(`docs/superpowers/verification/F2a-adk-baseline.md`) is recorded as not run, and a report is
+`incomplete` at best, so no runtime is called conformant. `registry runtimes --json` gains
+`conformance`, and `list --json` and `list --all --json` gain `runtime` per deployment (additive;
+`schema_version` stays 1). No manifest, JSON Schema, `agent.yaml` or `agent.lock` change.
+Website: no change until a framework passes its acceptance. Cloud: a `CLAUDE.md` note only; it
+has no code that reads `list --json`, a conformance report or the agent's `/invoke` reply.
+
+**Remote registry sources, #829 M9b slice 1a, per side.** OSS (on `main`, not in a published
+preview): `registry.Root` and labelled roots, a strict `Lock.load` (unknown keys and malformed
+hashes are `LOCK_INVALID`), `agent.lock` v2 read/write (a `sources` table, `remote:<name>`
+entries, per-entry `pin`; nothing writes it yet, v1 is byte-identical), `--locked` reading only
+the locked, currently configured root, `sources/` (canonical URL form, `locate`; no network),
+and empty directories refused in registry versions. `stack.lock` stays v1. No `agent.yaml`,
+manifest or JSON Schema change. Website: no change until release R. Cloud: a `CLAUDE.md` note
+only; a grep of its tracked files on 2026-11-19 found no reader of `agent.lock` or
+`stack.lock`. Any future Cloud reader must accept v1 and v2 and refuse unknown keys.
+
 ## 🎯 When Adding a New Feature
 
 1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?

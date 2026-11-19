@@ -98,6 +98,15 @@ class EvalSet:
     fixtures_sql: str | None
 
 
+def tag_lines(summary: dict) -> list[str]:
+    """One text line per tag of `EvalReport.summary()`'s `tags`, in name order; none for an
+    untagged run. Tag names were checked when the eval set loaded (`TAG`)."""
+    return [
+        f"Tag {tag}: {row['passed']}/{row['cases']} passed ({row['pass_rate']:.1%})"
+        for tag, row in (summary.get("tags") or {}).items()
+    ]
+
+
 @dataclass
 class EvalReport:
     run_id: str

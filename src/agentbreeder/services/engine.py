@@ -555,6 +555,11 @@ class Engine:
         network = plan.networks["agents"]
         local_cluster.connect(local_cluster.NODE, network)
         cluster["blocked_cidrs"] = local_cluster.blocked_cidrs(network)
+        if "agents_cidrs" in cluster:
+            # Recorded by a `cluster up` that knows kit egress (#1083 F1b): it must follow the
+            # recreated network, or a kit pod's policy would allow a range that is no longer
+            # the stack's. A block without the key is left as it was.
+            cluster["agents_cidrs"] = local_cluster.agents_cidrs(network)
         self.state.put("kubernetes", json.dumps(cluster))
 
     def active_cluster_deployments(self) -> list[str]:

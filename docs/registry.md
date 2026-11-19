@@ -467,6 +467,10 @@ knowledge set, 50 tools, 10 MCP servers, and the five MCP tool names ADK skips
 `set_model_response`). For these versions the reserved names are checked against an MCP
 server's own tool names only, as before; a runtime that declares `protocol` also has them
 checked against every name the model would see (a function tool's name and `<server>_<tool>`).
+`runtime/adk@1.5.0` is the first version that declares `protocol` (1, profile `v1`): it lists
+`knowledge`, `notes`, `mcp`, `subagents` and `skills`, the limits 1, 50 and 10, and seven
+reserved names (the five above plus `load_skill` and `load_skill_resource`, its own skill
+tools), and ships `runtime/modules.json`. Checked by unit tests and its runtime tests only.
 A test builds Northwind and the `new agent` starter on `runtime/adk` 1.2.0, 1.3.0 and 1.4.0 and
 compares the build context, the manifests and the deploy template byte for byte with digests
 taken before this change, and checks that the refusals they gave are still given.
@@ -517,7 +521,10 @@ so a reader such as the local console needs no knowledge of profiles:
   `runtime/adk@1.3.0` (Northwind 61/61, #1095) and `runtime/adk@1.4.0` (the starter and the
   3.0.0a3 public-registry runs). It is about the version, not a `new agent` combination: those
   all ran on the starter's default, `runtime/adk@1.4.0`, so a spec or `--runtime` that pins
-  `1.3.0` still has `verified: false` in `new agent`'s output.
+  `1.3.0` still has `verified: false` in `new agent`'s output. `runtime/adk@1.5.0` has also been
+  run end to end (Northwind 61/61 and the sub-agents and skills acceptance runs, #1058 and
+  #1059, on `main`) but is not labelled so yet: the label would make the console start new forms
+  on it, where only sub-agent and skill combinations are verified.
 - A version the engine cannot use is still listed, with `usable: false`, a `code` and a
   `reason` and without the profile fields: an invalid manifest or a missing `modules.json`
   (`ARTIFACT_INVALID`), an unknown protocol (`PROTOCOL_UNSUPPORTED`), a version under a
@@ -533,9 +540,12 @@ so a reader such as the local console needs no knowledge of profiles:
 ## Skills (on `main`, not in a published preview)
 
 A `skill` version is an [Agent Skills](https://agentskills.io)-style folder: instructions the
-model loads when it needs them (#1059). **No runtime loads skills yet**: today you can author,
-publish, verify, show, diff, lock and find them (`used-by`); `build` refuses `skills:` in
-`agent.yaml` (`RUNTIME_NO_SKILLS`).
+model loads when it needs them (#1059). You can author, publish, verify, show, diff, lock and
+find them (`used-by`). `runtime/adk@1.5.0` loads skills without scripts (instruction packs; see
+[agent-yaml.md](agent-yaml.md#runtimeadk150); run end to end once with two instruction packs on
+Docker and Gemini, `docs/superpowers/verification/1059-skills-a.md`); `build` refuses
+`skills:` in `agent.yaml` on an earlier runtime (`RUNTIME_NO_SKILLS`) and a skill with scripts on
+every runtime (`RUNTIME_NO_SKILL_SCRIPTS`).
 
 ```
 registry/skill/refund-policy/1.2.0/
@@ -612,6 +622,33 @@ lock file:
 A changed byte in a locked version fails with `HASH_MISMATCH`. Hashes detect tampering after a
 version is first locked; they don't vouch for that first lock.
 
+Changes on `main`, not in a published preview (#829 slice 1a, the groundwork for remote
+registry sources):
+
+- **`--locked` reads only the locked root.** `build --locked`, `services up --locked` and
+  `release` (for the eval set) read each locked ref only from the root its entry names, with
+  no check across the other roots, so a copy of the same version in another root is neither
+  read nor a `REF_CONFLICT`. The named root must be configured now: `registry` (the project's
+  `./registry`), an `AGENTBREEDER_REGISTRY_PATH` entry (recorded relative to the project) or
+  `builtin`. Any other `source` (for example an absolute path you never configured) is
+  `LOCK_STALE`; run a plain `build` to re-lock. A plain build still resolves across all roots
+  and refuses a `REF_CONFLICT`.
+- **Strict lock files.** `agent.lock` and `stack.lock` refuse unknown top-level or entry keys,
+  a malformed `sha256` (`sha256:` and 64 hex digits) and an empty `source` (`LOCK_INVALID`); a
+  newer `lock_version` says to upgrade AgentBreeder. A local registry root whose label would
+  start with `remote:` is `REGISTRY_ROOT_INVALID`.
+- **Lock format version 2.** Reserved for projects that declare remote sources, which no
+  command can do yet: version 2 adds a `sources` table (name → `type` `git`, `oci` or `http`,
+  canonical `url`, `pin`, and a git `path`), `remote:<name>` entry sources and an optional
+  per-entry `pin`. Without remote sources the lock stays version 1, byte for byte as before.
+  `stack.lock` stays version 1. A version 2 entry from a remote source gives `SOURCE_OFFLINE`:
+  this version cannot fetch remote sources. Design:
+  `docs/superpowers/specs/2026-11-11-remote-registry-sources-design.md`.
+- **No empty directories in a version.** `registry publish`, `import`, `fork` and `edit` refuse
+  a version with an empty directory, and `registry verify` reports one (`ENTRY_UNSAFE`, "add a
+  .keep file"): git cannot store an empty directory, so the same version would hash differently
+  from a directory and from a remote copy. No shipped version has one.
+
 ## Agent packages (in progress, on `main`, not in a published preview)
 
 M13 (#763) adds an `agent` registry kind: a released agent kept as an immutable version at
@@ -674,3 +711,28 @@ regular files and directories only, no symlinks or hardlinks, and the `MAX_FILES
 limits. Extracting the archive and hashing the version gives the same tree hash as the source.
 The tar bytes are the same on every machine, but the gzip bytes can differ between zlib builds, so
 compare tree hashes, not archive digests.
+
+### OCI artifact (library only, in progress)
+
+`package_artifact.py` builds and pushes a package as an OCI artifact (#763, M13 slice 4a). No
+command calls it yet: `deploy agent/<name>@X.Y.Z --cluster` still refuses with
+`PACKAGE_TARGET_UNSUPPORTED`, and the push has run only against an in-process test registry, not
+against kind's `registry:2`.
+
+- The artifact is one OCI image manifest with `artifactType`
+  `application/vnd.agentbreeder.agent.v1`, the OCI empty config, and exactly one layer of type
+  `application/vnd.agentbreeder.agent.layer.v1.tar+gzip`: the deterministic archive above, rooted
+  at `agent/<name>/<X.Y.Z>/`. It may name the pushed image's manifest as its `subject`.
+- It is pushed to `<registry>/<name>` with the tag `v<X.Y.Z>.agent`. The registry must be
+  `127.0.0.1[:port]/path` exactly; `localhost`, any other address or a look-alike name is refused
+  (`REGISTRY_NOT_LOCAL`). The push uses plain HTTP with no credentials and no proxy, follows no
+  redirect, and refuses an upload location on another host.
+- After the push the tag is read back and compared byte for byte (`REGISTRY_MISMATCH`). If the
+  registry refuses a manifest with a `subject`, the artifact is pushed without one and is found by
+  tag.
+- Before the push the packed layer is checked: it holds the four package files and nothing else,
+  and no file contains the home directory, a `/Users/` or `/home/` path, a `~/` path or a `..`
+  path segment (`PACKAGE_LEAK`, which names the file and not the text). The user name alone is
+  not checked.
+- A tag can be moved by anyone who can reach the registry, so a reader must extract the layer and
+  compare its tree hash, not trust the tag. No command reads the artifact yet.

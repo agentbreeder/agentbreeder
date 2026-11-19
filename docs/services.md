@@ -151,8 +151,9 @@ agentbreeder services start|stop|restart [DIR] NAME [--yes] [--json]   # one con
   and reported (`Kept network …`, `networks_left` in `--json`), never forced; `docker network
   inspect NAME` shows what holds it. This is checked with unit tests against a fake Docker; the
   real-Docker assertions (`tests/test_mcp_relay_docker.py`, `tests/test_services_docker.py`) are
-  opt-in and have not been run yet. If the network cannot be listed, `down` carries on with
-  volumes, images and state.
+  opt-in and passed on macOS + Docker Desktop on 2026-11-18
+  (`docs/superpowers/verification/1048-network-live-assert.md`). If the network cannot be
+  listed, `down` carries on with volumes, images and state.
 
   Networks left by earlier versions are not pruned automatically. To clean them up by hand, list
   them, check that no container uses them, then remove them one at a time:
@@ -322,8 +323,15 @@ service-account key was available, so no model call, embedding, `release` or `co
 been seen for a Vertex alias, and `new agent --model vertex` reports `verified: false`. What ran
 is the config review, `services up` with a fake Docker, and the launcher's checks, all in unit
 tests with a made-up key. The pinned-image checks for Vertex (redirects, client-side
-parameters, credential readback, logs; `tests/test_vertex_gateway_docker.py`) are written and
-**have not been run**. Treat everything below as how it is built, not as observed behaviour.
+parameters, credential readback, logs, metadata services; `tests/test_vertex_gateway_docker.py`)
+ran once on Docker Desktop (macOS, 2026-11-19), with a throwaway key and scripted Google
+endpoints, no Google account: 3 passed. Every client-side parameter the test sends (the
+spec's §4.2 list) was refused before a provider call; `vertex_credentials` and
+`vertex_ai_credentials` are refused by LiteLLM's own client-side credential check (401) before
+the request filter sees them. The request filter's
+harness (`tests/test_gateway_request_filter_docker.py`, now with 1.4.0) passed in the same
+session. Everything below that needs a real Vertex call is how it is built, not observed
+behaviour.
 
 `service/litellm@1.4.0` can serve aliases from Gemini and embedding models on Vertex AI:
 
@@ -589,7 +597,7 @@ guardrail also checks the model's reply. Blocked turns reach the agent as the ga
 `runtime/adk@1.4.0` answers such a turn `MODEL_BLOCKED` (422) with a `guardrail_blocked` event
 ([agent-yaml.md](agent-yaml.md#runtimeadk140)). One live run (2026-11-16, Northwind, macOS) showed
 this for a message with a US SSN, including the gateway blocking the turn's embedding call; the
-agent still stored that message in its own `turns` table and trace spans. The rest of G2 (reconcile drift, the
+agent still stored that message in its own `turns` table and trace spans. `runtime/adk@1.5.0` (#1106, runtime tests only) keeps a blocked turn's text out of the `turns` row and its spans, not out of the session. The rest of G2 (reconcile drift, the
 runtime capability check) is still to come. On `main`, not in a published preview.
 
 ## Writing a service

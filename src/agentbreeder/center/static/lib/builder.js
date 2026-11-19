@@ -7,7 +7,7 @@ import { caseProblems, parseCases, pyJson } from "./cases.js";
 import { starterNameProblem } from "./guide.js";
 import { PROVIDERS, VERIFIED } from "./onboard.js";
 
-export const SPEC_VERSION = 1;
+export const SPEC_VERSION = 2; // `runtime` is a version 2 field (`agentspec.V2_FIELDS`)
 export const MAX_PROMPT = 32 * 1024; // bytes, `agentspec.MAX_PROMPT`
 export const MAX_CASES = 100; // `agentspec.MAX_CASES`
 export const MAX_TURNS = 10;
@@ -22,6 +22,9 @@ const MODEL_ID = /^[A-Za-z0-9._:/-]{1,128}$/; // `newagent.MODEL_ID_PATTERN`
 export const SPEC_CHECKS = ["must_match", "must_not_match", "tools_include", "tools_exclude"];
 // The parts every spec has; `combination.parts` lists more when tools or MCP servers are picked.
 export const BASE_PARTS = ["model", "prompt", "evals"];
+// The framework a new form starts on (owner decision C1, #1085): the runtime's registry name,
+// fixed, with no "last used" state. Its display name comes from the runtime, never from here.
+export const DEFAULT_RUNTIME = "adk";
 
 /** The first case of a new form: a working example to edit. */
 export const FIRST_CASE = {
@@ -39,9 +42,158 @@ export const initialForm = () => ({
   maxCalls: "2",
   threshold: "1",
   retries: "1",
+  runtime: null, // the picked `runtime/` ref; set from `parts.runtimes` once it is read
   tools: {}, // tool name -> the picked `tool/` ref
   mcp: {}, // server name -> {ref, tools: [granted tool names]}
 });
+
+// -- the framework (#1085 S1, console spec §4.1) -------------------------------------------------
+// `parts.runtimes` is the engine's resolved view of every `runtime/` version (`registry runtimes
+// --json`, allow-listed by the server): a usable entry is `{ref, name, version, root_kind,
+// display_name, framework, protocol, profile, capabilities, limits, reserved_tool_names, verified,
+// notes?, conformance?: {passed}}`; one the CLI cannot use is `{ref, usable: false, code, reason}`.
+// No framework's name, note or limit is written in this file.
+
+const newestFirst = (a, b) => {
+  const left = a.version.split(".").map(Number);
+  const right = b.version.split(".").map(Number);
+  for (let index = 0; index < 3; index += 1) if (left[index] !== right[index]) return right[index] - left[index];
+  return 0;
+};
+
+/**
+ * The frameworks offered, one per runtime name: `[{name, versions: [entry]}]`, newest version
+ * first. Frameworks with a version run end to end come first, then by name.
+ */
+export function frameworks(runtimes) {
+  const groups = new Map();
+  for (const entry of runtimes || []) {
+    if (!entry.usable) continue;
+    if (!groups.has(entry.name)) groups.set(entry.name, { name: entry.name, versions: [] });
+    groups.get(entry.name).versions.push(entry);
+  }
+  const listed = [...groups.values()];
+  for (const group of listed) group.versions.sort(newestFirst);
+  const run = (group) => group.versions.some((entry) => entry.verified);
+  return listed.sort((a, b) => Number(run(b)) - Number(run(a)) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
+/** The runtime versions the CLI cannot use, listed as text and never as a disabled control. */
+export const unusableRuntimes = (runtimes) => (runtimes || []).filter((entry) => !entry.usable);
+
+export const unusableText = (entry) => `Cannot be used: ${entry.ref}: ${entry.reason} (${entry.code})`;
+
+/** The usable runtime version with this ref, or null. */
+export const runtimeOf = (runtimes, ref) => (runtimes || []).find((entry) => entry.usable && entry.ref === ref) || null;
+
+/** "LangGraph 1.0.0": the framework's own name (C8) and the version. */
+export const runtimeLabel = (entry) => `${entry.display_name} ${entry.version}`;
+
+/**
+ * The version a framework starts on: its newest version run end to end, else its newest. A newer
+ * version that has not been run (runtime/adk@1.5.0 today) stays one pick away, so a new form is not
+ * an unverified combination that Create refuses (composition console spec §4.1).
+ */
+const startingVersion = (group) => (group.versions.find((entry) => entry.verified) || group.versions[0]).ref;
+
+/** The ref a new form starts on: the default framework's starting version, or null. */
+export function defaultRuntime(runtimes) {
+  const group = frameworks(runtimes).find((item) => item.name === DEFAULT_RUNTIME);
+  return group ? startingVersion(group) : null;
+}
+
+/**
+ * The status of a runtime version, in the console's words (four values, §4.1): run end to end,
+ * else what its newest conformance report says, else not run.
+ */
+export function runtimeStatus(entry) {
+  if (entry.verified) return "Run end to end (Northwind)";
+  if (entry.conformance) return entry.conformance.passed ? "Conformance passed; not run end to end" : "Conformance failed; not run end to end";
+  return "Not run end to end";
+}
+
+/** What a framework or version change announces, once: "LangGraph 1.0.0: Not run end to end". */
+export const runtimeAnnouncement = (entry) => `${runtimeLabel(entry)}: ${runtimeStatus(entry)}`;
+
+const limitOf = (runtime, part) => {
+  const value = runtime && runtime.limits ? runtime.limits[part] : undefined;
+  return Number.isInteger(value) ? value : Infinity;
+};
+
+export const hasCapability = (runtime, name) => Boolean(runtime && (runtime.capabilities || []).includes(name));
+
+/** The function name of tool version `entry` that `runtime` reserves, or null. */
+export function reservedName(entry, runtime) {
+  const reserved = new Set((runtime && runtime.reserved_tool_names) || []);
+  return ((entry && entry.functions) || []).find((name) => reserved.has(name)) || null;
+}
+
+/** Why tool version `entry` cannot be picked on `runtime`, as a sentence, or null. */
+export function toolBlocked(entry, runtime) {
+  const name = reservedName(entry, runtime);
+  return name ? `${runtimeLabel(runtime)} reserves the tool name ${name}.` : null;
+}
+
+/** Whether `runtime` takes no more tools than the form has picked. */
+export const toolsFull = (form, runtime) => Object.keys(form.tools || {}).length >= limitOf(runtime, "tools");
+
+/**
+ * The picks that do not work with `runtime` (the chosen version), each with its reason:
+ * `[{kind: "tool" | "mcp", name, ref, reason}]`. A framework or version switch never drops a
+ * pick silently (§4.2): it stays on the form with this reason and a Remove control, and
+ * switching back clears it, because this is computed from the form and never stored.
+ *  - an MCP server on a runtime without the `mcp` capability, or past `limits.mcp_servers`;
+ *  - a tool past `limits.tools` (in name order, as the spec lists them, not counting a tool
+ *    with a reserved name);
+ *  - a tool with a function name the runtime reserves.
+ */
+export function invalidPicks(form, runtime, parts) {
+  if (!runtime) return [];
+  const label = runtimeLabel(runtime);
+  const found = [];
+  const entries = new Map(((parts && parts.tools) || []).map((entry) => [entry.ref, entry]));
+  const most = limitOf(runtime, "tools");
+  let taken = 0; // a tool with a reserved name takes none of the limit: it has its own reason
+  Object.keys(form.tools || {}).sort().forEach((name) => {
+    const ref = form.tools[name];
+    const blocked = toolBlocked(entries.get(ref), runtime);
+    if (blocked) found.push({ kind: "tool", name, ref, reason: blocked });
+    else if ((taken += 1) > most) found.push({ kind: "tool", name, ref, reason: `${label} takes at most ${most} tool${most === 1 ? "" : "s"}.` });
+  });
+  const servers = limitOf(runtime, "mcp_servers");
+  Object.keys(form.mcp || {}).sort().forEach((name, index) => {
+    const ref = form.mcp[name].ref;
+    if (!hasCapability(runtime, "mcp")) found.push({ kind: "mcp", name, ref, reason: `${label} has no MCP client.` });
+    else if (index >= servers) found.push({ kind: "mcp", name, ref, reason: `${label} takes at most ${servers} MCP server${servers === 1 ? "" : "s"}.` });
+  });
+  return found;
+}
+
+/** "2 picks do not work with LangGraph 1.0.0." (one message for all of them), or null. */
+export function invalidText(invalid, runtime) {
+  if (!invalid.length || !runtime) return null;
+  return `${invalid.length} pick${invalid.length === 1 ? " does" : "s do"} not work with ${runtimeLabel(runtime)}.`;
+}
+
+/** Preview's disabled reason while a pick does not fit the chosen framework, or null. */
+export function invalidProblem(invalid, runtime) {
+  const text = invalidText(invalid, runtime);
+  return text ? `${text} Remove ${invalid.length === 1 ? "it" : "them"} or choose another framework.` : null;
+}
+
+/** The form on framework `name`'s starting version (`startingVersion`). */
+export function pickFramework(form, name, runtimes) {
+  const group = frameworks(runtimes).find((item) => item.name === name);
+  return group ? { ...form, runtime: startingVersion(group) } : form;
+}
+
+/** The form without pick `{kind, name}` (an invalid pick's Remove control). */
+export function removePick(form, pick) {
+  const key = pick.kind === "mcp" ? "mcp" : "tools";
+  const next = { ...form[key] };
+  delete next[pick.name];
+  return { ...form, [key]: next };
+}
 
 // -- the pickers -------------------------------------------------------------------------------
 // `parts` is `GET /api/builder/parts`: `{tools: [entry], mcp: [entry + {tools, unusable}]}`, each
@@ -98,13 +250,16 @@ export function grantTool(form, name, tool, granted, entries) {
 
 /**
  * The form without picks `parts` no longer offers (a version gone, or one that cannot be picked
- * now) and without grants of tools the picked version no longer declares. The same form object
- * when nothing changed.
+ * now) and without grants of tools the picked version no longer declares; a runtime that is gone
+ * or cannot be used now, and a form with none yet, gets the default framework's starting version.
+ * The same form object when nothing changed. This is for registry changes only: a pick that does
+ * not fit the chosen framework stays, with a reason (`invalidPicks`).
  */
 export function keepOffered(form, parts) {
   const tools = new Set((parts.tools || []).map((entry) => entry.ref));
   const servers = new Map((parts.mcp || []).filter((entry) => !entry.unusable).map((entry) => [entry.ref, entry]));
-  let changed = false;
+  const runtime = runtimeOf(parts.runtimes, form.runtime) ? form.runtime : defaultRuntime(parts.runtimes);
+  let changed = runtime !== (form.runtime ?? null);
   const nextTools = {};
   for (const [name, ref] of Object.entries(form.tools || {})) {
     if (tools.has(ref)) nextTools[name] = ref;
@@ -122,7 +277,7 @@ export function keepOffered(form, parts) {
     if (granted.length !== server.tools.length) changed = true;
     nextServers[name] = granted.length === server.tools.length ? server : { ...server, tools: granted };
   }
-  return changed ? { ...form, tools: nextTools, mcp: nextServers } : form;
+  return changed ? { ...form, runtime, tools: nextTools, mcp: nextServers } : form;
 }
 
 /** Why the picks cannot be previewed, as a sentence, or null. */
@@ -181,10 +336,15 @@ export function specCases(casesText) {
   return { cases: spec, problems, entries: parsed.entries };
 }
 
-/** Why the form cannot be previewed yet, as a sentence, or null. */
-export function formProblem(form, casesText) {
+/**
+ * Why the form cannot be previewed yet, as a sentence, or null. `invalid` is `invalidProblem`'s
+ * sentence for picks that do not fit the chosen framework.
+ */
+export function formProblem(form, casesText, invalid = null) {
   const nameProblem = starterNameProblem(form.name.trim());
   if (nameProblem) return nameProblem === "Type a name first." ? "Type the agent's name first." : nameProblem;
+  if (!form.runtime) return "Choose a framework first.";
+  if (invalid) return invalid;
   if (!PROVIDERS.includes(form.model)) return "Pick a model provider first.";
   if (form.modelId.trim() && !MODEL_ID.test(form.modelId.trim())) return "A model id is letters, digits and . _ : / -, at most 128 characters.";
   if (!form.prompt.trim()) return "Write the agent's prompt first.";
@@ -211,6 +371,7 @@ export function buildSpec(form, casesText) {
   return {
     schema_version: SPEC_VERSION,
     name: form.name.trim(),
+    runtime: form.runtime,
     model: form.model,
     model_id: modelId || null,
     max_model_calls: whole(form.maxCalls, 1, 20),
@@ -229,26 +390,42 @@ export function createBody(spec, preview, codeConfirmed) {
   return { spec, digest: preview.plan_sha256, code_confirmed: codeConfirmed === true };
 }
 
+const PART_WORDS = { tools: "tools", mcp: "MCP servers", knowledge: "knowledge" };
+
+/** "LangGraph 1.0.0 with MCP servers", for the parts beyond the model, prompt and evals; or null. */
+function withParts(preview, label) {
+  const extra = preview.combination.parts.filter((part) => !BASE_PARTS.includes(part));
+  return extra.length ? `${label || "a new agent"} with ${extra.map((part) => PART_WORDS[part] || part).join(" and ")}` : null;
+}
+
 /**
  * What has not been run end to end, as a sentence, or null when the combination is verified:
- * the provider (unless it is one of `verified`), and the parts beyond the model, prompt and evals.
+ * the provider (unless it is one of `verified`), and the framework (`label`, `runtimeLabel` of
+ * the previewed runtime) with the parts beyond the model, prompt and evals. A combination is
+ * keyed by the runtime (`agentspec.VERIFIED`), so the same parts can be run on one framework or
+ * version and not on another.
  */
-export function unverifiedText(preview, verified = VERIFIED) {
+export function unverifiedText(preview, verified = VERIFIED, label = null) {
   if (!preview || preview.combination.verified) return null;
-  const extra = preview.combination.parts.filter((part) => !BASE_PARTS.includes(part));
   const what = [];
   if (!verified.includes(preview.model)) what.push(`the ${preview.model} provider`);
-  const words = { tools: "tools", mcp: "MCP servers" };
-  if (extra.length) what.push(`a new agent with ${extra.map((part) => words[part] || part).join(" and ")}`);
-  const named = what.length ? what.join(", and ") : "this combination";
+  const parts = withParts(preview, label);
+  if (parts) what.push(parts);
+  const named = what.length ? what.join(", and ") : label ? `a new agent on ${label}` : "this combination";
   return `Not run end to end yet: ${named}. The console creates only combinations that have been; \`agentbreeder new agent --from-spec\` writes it anyway.`;
 }
 
-/** Why Create is off, or null. */
-export function createProblem(preview, stale, codeConfirmed) {
+/** Why Create is off, or null. `label` is the previewed runtime's (`runtimeLabel`). */
+export function createProblem(preview, stale, codeConfirmed, label = null, verified = VERIFIED) {
   if (!preview) return "Preview first.";
   if (stale) return "The form changed: preview again.";
-  if (!preview.combination.verified) return "This combination has not been run end to end.";
+  if (!preview.combination.verified) {
+    const parts = label ? withParts(preview, label) : null;
+    if (parts) return `${parts} has not been run end to end.`;
+    // The provider and the parts are run ones, so it is this framework version that is not.
+    if (label && verified.includes(preview.model)) return `A new agent on ${label} has not been run end to end.`;
+    return "This combination has not been run end to end.";
+  }
   if (preview.runs_code && !codeConfirmed) return "Confirm that this code runs in agents first.";
   return null;
 }

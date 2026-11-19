@@ -412,7 +412,9 @@ behaviour (then a new digest goes through the two-week rule and the image review
 **As built.** The minors moved, because 1.1.0 went to #1024 G1b and 1.3.0 to #1105: Ollama is
 1.2.0 (O1) and Vertex is 1.4.0 (V1). 1.4.0 ships config-only: no Vertex credential was
 available, so §12.7 has not run for Vertex and its starter stays `verified: false`; the §12.5
-checks for Vertex are written (`tests/test_vertex_gateway_docker.py`) and not run. Bedrock and
+checks for Vertex (`tests/test_vertex_gateway_docker.py`) ran on Docker Desktop (macOS,
+2026-11-19): 3 passed, after one expectation was corrected (LiteLLM's own credential check
+refuses `vertex_credentials` and `vertex_ai_credentials` with a 401 before the filter). Bedrock and
 Azure take the next minors.
 
 ### 6.1 `service.yaml`

@@ -1,7 +1,7 @@
 """Opt-in real Docker checks for #1025 V1 (Vertex AI through `service/litellm@1.4.0`), on the
-pinned LiteLLM image. NOT RUN when this slice was written: no Docker slot was available, so
-every expectation below comes from reading LiteLLM 1.106.2, not from a run. They are the spec's
-ship gates for Vertex (D14, D15, §12.5); run them before the slice merges:
+pinned LiteLLM image. Written from reading LiteLLM 1.106.2, then first run on Docker Desktop
+(macOS, 2026-11-19): 3 passed, after one expectation was corrected (see test 2). They are the
+spec's ship gates for Vertex (D14, D15, §12.5):
 
     AGENTBREEDER_DOCKER_TEST=1 pytest tests/test_vertex_gateway_docker.py --no-cov -s
 
@@ -22,8 +22,10 @@ None of them needs a Google account.
    and a throwaway key. The gateway's process holds the canonical key, not the file's extra
    fields; a key reaches its aliases (a control); every client-side parameter of §4.2 sent for
    a Vertex alias is refused by the request filter or LiteLLM's own body check before any
-   provider call; no model-info or config endpoint returns the key to a virtual key, with the
-   endpoint shown live by the master key; the gateway's logs hold no key material.
+   provider call (`vertex_credentials` and `vertex_ai_credentials` by LiteLLM's check, with a
+   401, before the filter sees them); no model-info or config endpoint returns the key to a
+   virtual key, with the endpoint shown live by the master key; the gateway's logs hold no key
+   material.
    Limits, stated plainly: this gateway has ordinary network egress, so if a request were NOT
    refused, LiteLLM would try a token exchange at the real oauth2.googleapis.com with the
    throwaway key's signed assertion (and the test fails). And because every request here is
@@ -483,13 +485,21 @@ def test_a_vertex_gateway_keeps_its_key_and_its_route(gateway):
         assert 400 <= status < 500, (name, status, text[:300])
         if name.startswith("o"):  # the deploy-shaped key may be stopped earlier, by its routes
             assert any(mark in text for mark in REFUSAL_MARKS), (name, status, text[:300])
-    # The filter itself, by name, for the provider-routing and Vertex parameters.
+    # The filter itself, by name, for the provider-routing and Vertex parameters. The two
+    # Vertex credential fields never reach it: LiteLLM's own client-side credential check
+    # refuses them first, with a 401 (seen in the first run, 2026-11-19); the filter still
+    # lists them, for a LiteLLM that would let them through.
+    own_check = {f"body {field}" for field in FIELDS if field.endswith("_credentials")}
     filtered = [f"custom_llm_provider={name}" for name in PROVIDERS]
     filtered += [f"body {field}" for field in FIELDS if field.startswith("vertex_")]
     filtered += ["extra_body vertex_project", "embed vertex_location"]
+    assert own_check == {"body vertex_credentials", "body vertex_ai_credentials"}
     for name in filtered:
         status, text = results[f"{gateway_keys.alias('o' * 32)[-4:]} {name}"]
-        assert status == 400 and "GATEWAY_PARAM_REFUSED" in text, (name, status, text[:300])
+        if name in own_check:
+            assert status == 401 and "not allowed in request body" in text, (name, status, text)
+        else:
+            assert status == 400 and "GATEWAY_PARAM_REFUSED" in text, (name, status, text[:300])
     listener = docker("logs", f"{instance.state.project}-provider-b-1").stdout
     assert "PROVIDER-" not in listener, listener
 
