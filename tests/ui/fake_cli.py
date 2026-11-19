@@ -65,6 +65,12 @@ DEFAULT = {
     "guide": "services",
     # `services plan`: true fails it with SERVICES_BUSY (another services write holds the stack).
     "plan_busy": False,
+    # `registry runtimes --json` (#1085 S1): null hands it to the real command (the built-in
+    # `runtime/adk` versions and any on AGENTBREEDER_REGISTRY_PATH); a list is printed as its
+    # `runtimes` (frameworks that have no runtime yet); {"error": {code, message}} fails it.
+    "runtimes": None,
+    # Seconds `registry runtimes` waits before answering (the Framework group's loading line).
+    "runtimes_seconds": 0,
     # `new agent`: null writes the demo project into --dir; a {code, message} refuses.
     "new_error": None,
     # `registry used-by`: the deployments shown for a project that uses the ref.
@@ -814,6 +820,15 @@ def main(argv: list[str]) -> int:
         return real(argv)  # #826: the real edit and set-ref on the project's files
     elif head == ["registry", "import"]:
         return real(argv)  # #825: the real import into the project's registry
+    elif head == ["registry", "runtimes"]:
+        time.sleep(float(data.get("runtimes_seconds", 0)))
+        if data["runtimes"] is None:
+            return real(argv)
+        if isinstance(data["runtimes"], dict):
+            problem = data["runtimes"]["error"]
+            print(f"[{problem['code']}] {problem['message']}", file=sys.stderr)
+            return 2
+        print(json.dumps({"schema_version": 1, "runtimes": data["runtimes"]}))
     elif argv and argv[0] == "registry":
         print("[]")
     elif argv[:2] == ["list", "--all"]:
