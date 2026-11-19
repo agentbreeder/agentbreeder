@@ -1319,6 +1319,51 @@ listings, pairing release rows, rollbacks, the 1,000-row cut, `stack.yaml` error
 values, a symlinked `stack.yaml`). Not yet run against real deployments; that is the M7
 verification.
 
+### The framework badge and filter (#1085 S2): on `main`, not in a published preview
+
+Wherever an agent appears outside Build, the framework it runs is one neutral text badge with the
+framework's own name (owner decisions C4 and C8: no logos), from `GET /api/runtimes`. That route
+reads `agentbreeder registry runtimes --json` in a CLI child and passes on the same allow-listed
+view as Build's `parts.runtimes`. It only names things, so a failed read keeps the last good
+answer, which the Overview marks as from the last read. The page shares one good read for a
+minute; a failed or stale one is asked again by the next screen.
+
+- **Agents list.** The badge sits under the agent's name, with the ref beside it as text
+  (`Google ADK runtime/adk@1.4.0`). Its source is the row's `runtime` from `list --all --json`
+  (#1083 F2a). A ref the registries do not hold shows the ref itself, and a row with no runtime
+  shows "Not recorded"; a runtime recorded in another shape is shown as recorded (cut to 100
+characters) and filed under "Other runtime". `list` gives a default-state row a runtime only when it runs in the agent's
+  project, so those rows usually show "Not recorded".
+- **Framework filter** (C7: on the Agents list only). A select of "All frameworks", each framework
+  in the list and "Not recorded". The choice is kept in the address (`#/agents?framework=adk`,
+  `_none` for Not recorded): the router now reads a query, keeping only short keys and values of
+  letters, digits, dot, underscore and dash. So the filter survives a reload, a sign-in again and
+  the 3-second refresh, and choosing keeps focus on the select. Each choice is a history entry, so Back returns to the
+previous filter. A status line counts what is shown
+  ("1 of 4 agents"). A framework no agent runs shows "No agents on CrewAI." and **Show all
+  frameworks**.
+- **Overview** keeps the **Runtime** row (the ref in `agent.yaml`) and adds **Framework** (the
+  badge), **Protocol** ("1 (v1 profile, before the kit)" for a `v1` runtime, such as every
+  `runtime/adk` version; the spec's "1 (ADK, before the kit)" would put a framework name in the
+console, so the profile is named instead) and **Capabilities**. The spec's Conformance row for a
+code-mode agent waits for code mode (F8). A version the registries do not list as usable says so. Until
+  `/api/runtimes` answers (a CLI child that hashes every runtime version), a badge shows the ref
+  itself and then changes to the framework's name.
+- **Try it.** Turn details gains **Runtime** and **Framework** rows, from the reply's `runtime` and
+  `framework` (agent protocol v1; the server caps `framework` at 100 characters). The Cost row's
+  "Not measured" text no longer names `runtime/adk` versions: "Not measured: the runtime did not
+  report it for this turn." `MODEL_STEP_LIMIT` (a kit runtime's step cap, agent protocol
+  "Profiles") is a coded failure with its own line: the agent reached its limit on model calls for
+  one turn while the model still asked for tools, so there is no reply, and sending it again starts
+  a new turn.
+
+Tested with Playwright against the fake CLI (`tests/ui/test_framework_badge.py`, axe in light and
+dark), with node unit tests (`tests/js/framework.test.mjs`, the router's query) and on the server
+(`/api/runtimes`, `framework` in a turn). The LangGraph and CrewAI rows in these tests are a
+scripted `registry runtimes` answer. `runtime/langgraph@1.0.0` is on `main` (#1163, not run end to
+end in the console), but no LangGraph deployment was listed, opened or tried here, and no
+`MODEL_STEP_LIMIT` reached Try it from a real runtime. Not run against real deployments.
+
 ### Traces (#907, console half): on `main`, not in a published preview
 
 An agent's detail has a **Traces** tab after Logs. It lists one deployment's recent traces from

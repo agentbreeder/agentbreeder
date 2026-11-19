@@ -9,6 +9,7 @@
 // replies or tool arguments.
 // Cost is the runtime's figure (#906), shown as text.
 
+import { parseRuntime } from "../lib/framework.js";
 import { href } from "../lib/router.js";
 import { visible } from "../lib/text.js";
 import {
@@ -41,6 +42,7 @@ import {
   unknownToolsText,
 } from "../lib/tryit.js";
 import { Action, Card, CopyButton, Notice, Text, ViewState, nextId, useConsole } from "../ui/components.js";
+import { FrameworkBadge, useRuntimes } from "../ui/framework.js";
 import { useView } from "../ui/data.js";
 import { html, useEffect, useRef, useState } from "../ui/preact.js";
 
@@ -220,6 +222,7 @@ function Inspector({ turn, project }) {
   const cost = costText(turn.cost);
   const fallback = fallbackText(turn.fallbacks, turn.served_by);
   const unknown = unknownToolsText(turn.unknown_tools);
+  const { runtimes } = useRuntimes();
   return html`<details class="inspector">
     <summary>Turn details <span class="muted small">${latencyText(turn.latency_ms)} · ${tokensText(turn.tokens)} tokens${cost ? ` · ${cost}` : ""}</span></summary>
     <dl class="facts">
@@ -228,8 +231,12 @@ function Inspector({ turn, project }) {
       <dt>Sources</dt><dd><${Text} value=${namesText(turn.sources)} /></dd>
       <dt>Latency</dt><dd>${latencyText(turn.latency_ms)} <span class="muted small">(console to reply, through invoke)</span></dd>
       <dt>Tokens</dt><dd>${tokensText(turn.tokens)}${Number.isInteger(turn.model_calls) ? html` <span class="muted small">over ${turn.model_calls} model call${turn.model_calls === 1 ? "" : "s"}</span>` : null}</dd>
-      <dt>Cost</dt><dd>${cost ? html`<${Text} value=${cost} /> <span class="muted small">(LiteLLM's estimate, reported by the runtime)</span>` : html`<span class="muted">Not measured: this runtime did not report it (runtime/adk 1.2.0 and later do when every model call had a cost)</span>`}</dd>
+      <dt>Cost</dt><dd>${cost ? html`<${Text} value=${cost} /> <span class="muted small">(LiteLLM's estimate, reported by the runtime)</span>` : html`<span class="muted">Not measured: the runtime did not report it for this turn.</span>`}</dd>
       <dt>Trace</dt><dd>${trace.id ? html`<code><${Text} value=${trace.id} /></code> <${CopyButton} value=${trace.id} label="trace ID" />` : html`<span class="muted">No trace for this turn</span>`}</dd>
+      <dt>Runtime</dt><dd>${parseRuntime(turn.runtime) ? html`<code><${Text} value=${turn.runtime} /></code>` : turn.runtime ? html`<${Text} value=${turn.runtime} />` : html`<span class="muted">Not reported</span>`}</dd>
+      <dt>Framework</dt><dd>${parseRuntime(turn.runtime)
+        ? html`<${FrameworkBadge} runtime=${turn.runtime} runtimes=${runtimes} />`
+        : turn.framework ? html`<span class="badge framework"><${Text} value=${turn.framework} /></span>` : html`<span class="muted">Not reported</span>`}</dd>
       ${turn.model ? html`<dt>Model alias</dt><dd><${Text} value=${turn.model} /></dd>` : null}
       ${fallback ? html`<dt>Fallback</dt><dd><${Text} value=${fallback} /></dd>` : null}
     </dl>

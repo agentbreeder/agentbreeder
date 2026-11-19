@@ -22,6 +22,43 @@ export function pathFrom(hash) {
   return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
 }
 
+// A query key and value (#1085 S2: the Agents list's framework filter). Anything else is dropped,
+// so a query never carries a path, a URL or markup into a screen.
+const QUERY_KEY = /^[a-z][a-z0-9_]{0,31}$/;
+const QUERY_VALUE = /^[A-Za-z0-9._-]{0,128}$/;
+
+/**
+ * The query of a hash, as a plain object: `#/agents?framework=adk` gives `{framework: "adk"}`.
+ * Only keys and values of the allowed shape are kept (the first of a repeated key); an empty
+ * value is dropped.
+ */
+export function queryFrom(hash) {
+  const at = (hash || "").indexOf("?");
+  const query = {};
+  if (at < 0) return query;
+  let params;
+  try {
+    params = new URLSearchParams(hash.slice(at + 1));
+  } catch {
+    return query;
+  }
+  for (const [key, value] of params) {
+    if (Object.hasOwn(query, key) || !QUERY_KEY.test(key) || !value || !QUERY_VALUE.test(value)) continue;
+    query[key] = value;
+  }
+  return query;
+}
+
+/** `hash` (a route's `href`) with a query: empty values are left out, keys in sorted order. */
+export function withQuery(hash, query = {}) {
+  const parts = Object.keys(query)
+    .sort()
+    .filter((key) => QUERY_KEY.test(key) && query[key] && QUERY_VALUE.test(String(query[key])))
+    .map((key) => `${key}=${encodeURIComponent(String(query[key]))}`);
+  const base = hash.split("?")[0];
+  return parts.length ? `${base}?${parts.join("&")}` : base;
+}
+
 function split(path) {
   return path.split("/").filter(Boolean);
 }
