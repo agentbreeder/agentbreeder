@@ -6,6 +6,11 @@ const withMDX = createMDX();
 /** @type {import('next').NextConfig} */
 const config = {
   reactStrictMode: true,
+  experimental: {
+    // A restored Turbopack cache served the previous design's CSS alongside
+    // the current HTML. Compile production assets from source on every build.
+    turbopackFileSystemCacheForBuild: false,
+  },
   // The site documents the focused rebuild. Old preview URLs moved to the docs root; 2.x pages
   // were removed (they live at the v2.7.3 tag) and point at the Legacy 2.x page. Temporary
   // redirects, so the 2.x URLs stay free for future pages.

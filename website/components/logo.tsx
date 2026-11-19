@@ -3,7 +3,7 @@ import Link from 'next/link';
 interface LogoProps {
   size?: number;
   showWordmark?: boolean;
-  href?: string;
+  href?: string | null;
 }
 
 // The mark (design v2 §3): its single stroke is the gate line, --brand; the nodes and the wordmark
@@ -45,11 +45,15 @@ export function LogoIcon({ size = 28 }: { size?: number }) {
 }
 
 export function Logo({ size = 28, showWordmark = true, href = '/' }: LogoProps) {
-  return (
-    <Link href={href} className="flex min-h-[44px] items-center gap-2 text-foreground no-underline">
+  const content = (
+    <>
       <LogoIcon size={size} />
       {showWordmark && <span className="text-[15px] font-semibold tracking-[-0.02em]">agentbreeder</span>}
       {!showWordmark && <span className="sr-only">AgentBreeder home</span>}
-    </Link>
+    </>
   );
+  const className = 'flex min-h-[44px] items-center gap-2 text-foreground no-underline';
+  // Fumadocs supplies the home link around its title. Keep that markup valid.
+  if (href === null) return <span className={className}>{content}</span>;
+  return <Link href={href} className={className}>{content}</Link>;
 }

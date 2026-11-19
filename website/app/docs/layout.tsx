@@ -27,7 +27,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       <DocsLayout
         tree={source.pageTree}
         nav={{
-          title: <Logo size={22} />,
+          title: <Logo size={22} href={null} />,
           transparentMode: 'none',
         }}
         sidebar={{
