@@ -79,7 +79,9 @@ def installed_imports(site_packages: Path) -> dict[str, set[str]]:
                     names.add(stem)
             else:
                 names.add(first)
-        found.setdefault(normalise(dist.metadata["Name"]), set()).update(names)
+        # Only names `import NAME` can reach: a wheel's `*-stubs` or `*.libs` directory is not one.
+        importable = {name for name in names if name.isidentifier()}
+        found.setdefault(normalise(dist.metadata["Name"]), set()).update(importable)
     return found
 
 

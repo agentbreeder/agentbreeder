@@ -564,6 +564,94 @@
    "exec": false,
    "sha256": "cb44132309f5a5885b282a992b49ba932401e3b8ff6ae0c1eb3a5d0eeff653f8"
   },
+  "builtin_registry/runtime/langgraph/1.0.0/Dockerfile": {
+   "exec": false,
+   "sha256": "dd7e9a18f8ba709249d0a72b364536ee428b291de75911092dfef846493efacb"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/manifest.yaml": {
+   "exec": false,
+   "sha256": "592023ebcaac460d0a9027a2fcd499e6395e885b884ac33ea9eea5f29d03a8db"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/kit/__init__.py": {
+   "exec": false,
+   "sha256": "065afacf6071a29edc4fb4ae58f6033a0cfbca3b75b58415028a84cfabd24d78"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/kit/adapter.py": {
+   "exec": false,
+   "sha256": "e24552b9e63c2a98da1ba7fa87c2700139b0e2be5a98e5dc6b4b1f5a4da0309d"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/kit/config.py": {
+   "exec": false,
+   "sha256": "e3af62baa512e51e9adfa8aec76c431c141ddb719049f76b8347d212939f4d31"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/kit/context.py": {
+   "exec": false,
+   "sha256": "0634e53790030524b45bdb07dd023e4d108e68d5c21ce0947b6e98026c5f6eba"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/kit/errors.py": {
+   "exec": false,
+   "sha256": "8d06a4236e7c97d7210b67267fcbd700ab212f151f024ef3c52b361afb3dacf1"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/kit/logs.py": {
+   "exec": false,
+   "sha256": "66d0bb1c934594a03ee3eb0836e17381806da8bc0d4527bfa06286f81d069605"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/kit/memory.py": {
+   "exec": false,
+   "sha256": "7da42efa6376978fb91745feff4cb03591db0e0a3c10dd014dd3584bb22073fd"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/kit/proxy.py": {
+   "exec": false,
+   "sha256": "c41360e4946b1eab8f9dfb14ed5e847560e61a677e8a2ac647f8525975137b74"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/kit/rag.py": {
+   "exec": false,
+   "sha256": "5d250ea7682371a40697eefaa39d90de4b0f65d58aba0b2c72a5b25724d1b0e7"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/kit/redaction.py": {
+   "exec": false,
+   "sha256": "0d50966adb45b77c7dfa2c777fb4bdaf6ba0d2ecba3a202a89e5ba20fb520347"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/kit/server.py": {
+   "exec": false,
+   "sha256": "afc430400c3cd1bec6d3fb1dad45a91adedb67c0ec3ab97cfc2fe23c323c0aeb"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/kit/telemetry.py": {
+   "exec": false,
+   "sha256": "93f5efb15f975fa27d78fc149b733d92f00cf066fcdc46030440f69a2685a353"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/kit/tools.py": {
+   "exec": false,
+   "sha256": "6de79f5960cfe2d7c3cee7aedc8994f3951f8505c6dd7f61dbfaca0e1c4723fc"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/kit/turn.py": {
+   "exec": false,
+   "sha256": "fab6555b8598f6da1197d4821bf40683eeb1baa65db821b9548b311029ab8f43"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/langgraph_adapter.py": {
+   "exec": false,
+   "sha256": "2e9b5ba1d0a208a7216bab748bae94f8cd3cebc8dbc42208780d4e2073425cb0"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/modules.json": {
+   "exec": false,
+   "sha256": "eb2ad4345ca013a92bfb177a1f36920bc19c6fecd4812291ad9db3291f6f467f"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/requirements.in": {
+   "exec": false,
+   "sha256": "184b484d5279b45e44b79e8247b3b14b380cce47d721ae768de6aa8fe4ef1316"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/requirements.lock": {
+   "exec": false,
+   "sha256": "8461f9a73a629260fad4b1601977e8c2ad7972d70079e6a754553bd94a17528c"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime/server.py": {
+   "exec": false,
+   "sha256": "e9b2be167964f004ddbdb4ba9368602e436ead760328a85f12fe71cf4e194b36"
+  },
+  "builtin_registry/runtime/langgraph/1.0.0/runtime_tests/test_langgraph.py": {
+   "exec": false,
+   "sha256": "5553eb1f959ddeb7325eea445727f51890ea5d48c3a6f8db5208fb7fddb83578"
+  },
   "builtin_registry/service/echo/1.0.0/files/index.html": {
    "exec": false,
    "sha256": "80a071a69069a3497208c0379954681125bc3349db0e01e650edb7608dd5e014"
@@ -788,6 +876,18 @@
    "exec": false,
    "sha256": "fe0a050a0275f7c24250edc95c5c54e2df317147ad9605a0dec70de538c4aba5"
   },
+  "examples/northwind-langgraph/README.md": {
+   "exec": false,
+   "sha256": "6bca3648b881547a134f46e93824b83f29399065442c97bbf45c74d1dc85d313"
+  },
+  "examples/northwind-langgraph/agent.lock": {
+   "exec": false,
+   "sha256": "c24c15cf3ecb8bfb65fa8023c11dbfe6ced08e3248fcef4fab78bb2ffdf18694"
+  },
+  "examples/northwind-langgraph/agent.yaml": {
+   "exec": false,
+   "sha256": "be28626edbdd38752ce815036d22788eea58c3b622dd9b43ee028557ab403621"
+  },
   "examples/northwind/README.md": {
    "exec": false,
    "sha256": "10cedf68b0660048fe21d98d5ec844f2d0059fa079b8bbfe1233b28503fabfab"
@@ -998,7 +1098,7 @@
   },
   "examples/northwind/stack.yaml": {
    "exec": false,
-   "sha256": "35f37967d6f52567eca546297e867af5e86c52e72a9fc2e5cf66207641469f1c"
+   "sha256": "20ea2332943a7e9e224414e55f442701fb5c53ca0c1ad7c170ada8b89b86c55f"
   },
   "examples/northwind/stack/.dockerignore": {
    "exec": false,

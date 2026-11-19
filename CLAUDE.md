@@ -257,6 +257,18 @@ conformance IMAGE` (`conformance/`: 26 of 39 checks built, reports under
 Website: no change until a framework passes its acceptance. Cloud: a `CLAUDE.md` note only; it
 has no code that reads `list --json`, a conformance report or the agent's `/invoke` reply.
 
+**Runtime kit and LangGraph, #1083 F2b + F3 (multi-framework), per side.** OSS (on `main`, not
+run end to end): `src/agentbreeder/runtime_kit/` (protocol v1 `kit` profile, the turn, the
+loopback model proxy with 1.3.0's retries and codes and a step cap that withholds a tool-calling
+last answer, `MODEL_STEP_LIMIT`), vendored byte for byte as `runtime/kit/` in
+`runtime/langgraph@1.0.0` (capabilities `knowledge`, `notes`), and
+`examples/northwind-langgraph` (Northwind's registry and stack; Northwind's `stack.yaml` names
+the new agent). No `agent.yaml` field, manifest, JSON Schema, `SCHEMA_VERSION` or `agent.lock`
+format change; a kit runtime's deploy manifest carries F1's optional `runtime` field. Not in
+`agentspec.VERIFIED`; the real-stack acceptance is an opt-in test, not run. Website: no change
+until LangGraph passes its acceptance. Cloud: a `CLAUDE.md` note only; it has no code that reads
+a runtime manifest, the reply's `framework`/`runtime` or the deploy manifest's `runtime`.
+
 ## 🎯 When Adding a New Feature
 
 1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?
