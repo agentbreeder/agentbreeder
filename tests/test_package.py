@@ -119,7 +119,7 @@ def test_parse_round_trips_canonically():
         ("deploy.gateway", "litellm"),
         ("image.registry", "127.0.0.1:5001/x"),
         ("inputs.sources", {"x": {}}),
-        ("inputs.lock_version", 2),
+        ("inputs.lock_version", 3),
         ("image.id", "sha256:short"),
         ("agent.name", "Bad_Name"),
         ("agent.version", "1.4"),
@@ -388,7 +388,7 @@ def test_format_versions_must_be_integers(value):
         record(package_version=value)
     with pytest.raises(PackageError, match="inputs.lock_version"):
         record(**{"inputs.lock_version": value})
-    with pytest.raises(PackageError, match="lock_version 1"):
+    with pytest.raises(PackageError, match="unsupported lock_version"):
         package.redact_lock(json.dumps({"lock_version": value, "entries": {}}).encode())
 
 
@@ -454,3 +454,78 @@ def test_a_record_validates_from_python_dicts():
     built = Package.model_validate(record_data())
     assert built == record()
     assert built.deploy.aliases == ("chat-default",)
+
+
+# -- lock v2 (#829 slice 1b) ---------------------------------------------------------------------
+
+SOURCE = {"type": "git", "url": "https://github.com/acme/reg.git", "pin": {"commit": "c" * 40}}
+
+
+def v2_lock_bytes() -> bytes:
+    body = {
+        "lock_version": 2,
+        "sources": {"acme": SOURCE},
+        "entries": {
+            "tool/geo@1.0.0": {"sha256": "sha256:" + "1" * 64, "source": "remote:acme"},
+            "tool/abs@1.0.0": {"sha256": "sha256:" + "5" * 64, "source": "/Users/someone/reg"},
+        },
+    }
+    return (json.dumps(body, indent=2) + "\n").encode()
+
+
+def test_a_v2_lock_is_redacted_with_its_sources():
+    redacted = json.loads(package.redact_lock(v2_lock_bytes()))
+    assert redacted == {
+        "lock_version": 2,
+        "sources": {"acme": SOURCE},
+        "entries": {
+            "tool/abs@1.0.0": {"sha256": "sha256:" + "5" * 64, "source": EXTERNAL},
+            "tool/geo@1.0.0": {"sha256": "sha256:" + "1" * 64, "source": "remote:acme"},
+        },
+    }
+
+
+def test_a_v1_lock_is_redacted_byte_for_byte_as_before():
+    def kept(source: str) -> str:
+        return EXTERNAL if source.startswith(("../", "/")) else source
+
+    entries = json.loads(lock_bytes())["entries"]
+    expected = {
+        "lock_version": 1,
+        "entries": {
+            key: {"sha256": entry["sha256"], "source": kept(entry["source"])}
+            for key, entry in sorted(entries.items())
+        },
+    }
+    assert package.redact_lock(lock_bytes()) == (json.dumps(expected, indent=2) + "\n").encode()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"lock_version": 2, "entries": {}},
+        {"lock_version": 2, "sources": {"acme": {**SOURCE, "url": "http://x/y"}}, "entries": {}},
+        {"lock_version": 1, "sources": {}, "entries": {}},
+        {
+            "lock_version": 2,
+            "sources": {},
+            "entries": {"tool/x@1.0.0": {"sha256": "sha256:" + "1" * 64, "source": "remote:z"}},
+        },
+    ],
+)
+def test_a_malformed_v2_lock_is_refused(body):
+    with pytest.raises(PackageError) as raised:
+        package.redact_lock(json.dumps(body).encode())
+    assert raised.value.code == "PACKAGE_INVALID"
+
+
+def test_inputs_carry_the_sources_of_a_v2_lock():
+    parsed = record(**{"inputs.lock_version": 2, "inputs.sources": {"acme": SOURCE}})
+    assert parsed.inputs.sources == {"acme": SOURCE}
+    assert package.parse(parsed.to_bytes()) == parsed
+    with pytest.raises(PackageError, match="inputs"):
+        record(**{"inputs.sources": {"acme": SOURCE}})  # lock v1 has no sources
+    with pytest.raises(PackageError, match="inputs"):
+        record(**{"inputs.lock_version": 2, "inputs.sources": {"acme": {**SOURCE, "x": 1}}})
+    with pytest.raises(PackageError, match="inputs"):
+        record(**{"inputs.lock_version": 2})  # lock v2 always has sources

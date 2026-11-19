@@ -1,8 +1,8 @@
 usage: agentbreeder registry [-h]
-                             {new,publish,import,fork,edit,list,runtimes,verify,show,diff,used-by} ...
+                             {new,publish,import,fork,edit,list,runtimes,verify,show,diff,used-by,trust} ...
 
 positional arguments:
-  {new,publish,import,fork,edit,list,runtimes,verify,show,diff,used-by}
+  {new,publish,import,fork,edit,list,runtimes,verify,show,diff,used-by,trust}
     new                 Scaffold a version directory to edit
     publish             Publish an immutable version
     import              Copy a version directory from anywhere into the
@@ -18,6 +18,8 @@ positional arguments:
     show                Show one version's manifest and files
     diff                Show what changed between two versions
     used-by             Show which projects declare, lock and deploy a version
+    trust               Trust a remote registry source URL prefix (your
+                        sources.yaml)
 
 options:
   -h, --help            show this help message and exit
