@@ -1,8 +1,9 @@
 # `runtime/langgraph@1.0.0`
 
-**Status:** on `main`, not in a published preview. Built and unit-tested; **not run end to end**
-on a real stack. It has not passed `agentbreeder conformance` or Northwind's 61-case eval gate,
-so LangGraph is not a supported framework. What has and has not run is in
+**Status:** on `main`, not in a published preview. Run end to end on macOS x86_64 (2026-11-19):
+Northwind passed its 61-case eval gate on local Docker and on `kind`, and
+`agentbreeder conformance` gave 26 pass, 0 fail and 13 not run of 39. arm64 has not been run, the
+kit-profile conformance checks are not built, and LangGraph is not a supported framework. What has and has not run is in
 [the F3 record](../superpowers/verification/F3-langgraph.md).
 
 The first runtime on AgentBreeder's **runtime kit** (#1083, multi-framework spec

@@ -436,7 +436,7 @@ hash-locked `requirements.lock`, and a `manifest.yaml`. Since #1083 F1 that mani
 generated file are the only place `build`, `new agent` and the registry commands take framework
 facts from. Nothing in the engine branches on a framework's name. Two runtimes ship:
 `runtime/adk` and `runtime/langgraph@1.0.0` (#1083 F3, the first on the runtime kit; built and
-unit-tested, **not run end to end**, see [runtimes/langgraph.md](runtimes/langgraph.md)).
+run end to end on macOS x86_64, **not verified**, see [runtimes/langgraph.md](runtimes/langgraph.md)).
 
 **Manifest keys** (beside `port`, `health_path`, `secrets` and `environment`):
 

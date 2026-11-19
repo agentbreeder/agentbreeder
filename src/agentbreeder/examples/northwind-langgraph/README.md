@@ -1,9 +1,12 @@
 # Northwind support agent on LangGraph
 
-**Status: built and unit-tested, not run end to end.** This is Northwind
-(`../northwind`) on `runtime/langgraph@1.0.0`, the first runtime on AgentBreeder's runtime kit
-(#1083 F3). It has not passed conformance or the 61-case eval gate against a real stack, so
-LangGraph is not a supported framework yet. The acceptance run is listed below.
+**Status: run end to end on macOS x86_64 (Docker Desktop and `kind`), not verified.** This is
+Northwind (`../northwind`) on `runtime/langgraph@1.0.0`, the first runtime on AgentBreeder's
+runtime kit (#1083 F3). On 2026-11-19 `release` passed Northwind's 61-case eval gate locally, and
+`promote` passed it again on `kind`. `agentbreeder conformance` gave 26 pass, 0 fail and 13 not run
+of 39 checks (the kit-profile checks are not built yet). arm64 has not been run. LangGraph is
+not a supported framework yet: that is an owner decision. The record is
+`docs/superpowers/verification/F3-langgraph.md`.
 
 `agent.yaml` is Northwind's file with two lines changed, `name` and `runtime`. The prompt, model
 alias, tools, knowledge, memory and eval set are Northwind's, from Northwind's registry, and
@@ -27,12 +30,13 @@ artifacts, byte for byte (`tests/test_northwind_langgraph.py`).
   calling off, but Gemini ignores that (#1111). If the answer still calls a tool, the proxy relays
   none of it and the turn fails `MODEL_STEP_LIMIT` (502).
 - **History** is the conversation's user and assistant text from the agent's `turns` table, given
-  to LangGraph as messages. ADK also replayed earlier tool calls and knowledge blocks; 7 of the 61
-  golden cases have more than one turn, so this may cost some of them (spec §7.5, D5).
+  to LangGraph as messages. ADK also replayed earlier tool calls and knowledge blocks; the
+  multi-turn golden cases passed without them (spec §7.5, D5). The agent role reads six columns
+  of `turns` for this (Northwind's `commerce.sql`).
 - `/health` answers 503 until the agent is built.
 - No `mcp:` servers, sub-agents or skills in this version.
 
-## Run it (from a checkout; not run yet)
+## Run it (from a checkout)
 
 You need Docker and the keys Northwind needs (`GEMINI_API_KEY`, `TAVILY_API_KEY`).
 
@@ -47,12 +51,13 @@ agentbreeder release agent.yaml --stack ../northwind --environment dev
 
 `release` builds the image, deploys a candidate, runs Northwind's 61 evals against it and promotes
 it only if all pass. The stack names both agents, so they are meant to run side by side (sharing
-the `support` database's tables); that has not been run either.
+the `support` database's tables); running both at once has not been tried. A Northwind stack
+started before the `turns` grant needs `services up --update`.
 
 `agentbreeder example` does not list this directory: it needs Northwind beside it, so it is run
 from a checkout.
 
-## The acceptance run (written, not run)
+## The acceptance run
 
 `tests/test_northwind_langgraph_docker.py` runs the spec's acceptance steps against a real stack
 when `AGENTBREEDER_DOCKER_TEST=1` and `AGENTBREEDER_NORTHWIND_LANGGRAPH=1` are set:
@@ -65,5 +70,6 @@ AGENTBREEDER_DOCKER_TEST=1 AGENTBREEDER_NORTHWIND_LANGGRAPH=1 \
 It uses the Northwind directory you ran `services up` in (this checkout's, or the one named by
 `AGENTBREEDER_NORTHWIND_DIR`).
 
-It needs the Northwind stack up with real keys. Until it has passed and its result is recorded in
-`docs/superpowers/verification/`, this example claims nothing beyond the unit tests.
+It needs the Northwind stack up with real keys, and `AGENTBREEDER_KIND_TEST=1` with
+`agentbreeder cluster up` done for the `kind` test. It passed on 2026-11-19 (macOS x86_64); see
+`docs/superpowers/verification/F3-langgraph.md`.

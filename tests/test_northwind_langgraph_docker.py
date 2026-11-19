@@ -44,14 +44,21 @@ EXAMPLES = Path(registry.__file__).parent / "examples"
 NAME = "northwind-support-langgraph"
 NORTHWIND = Path(os.getenv("AGENTBREEDER_NORTHWIND_DIR") or EXAMPLES / "northwind").resolve()
 STACK = ["--stack", "../northwind", "--environment", "dev"]
-# Each Northwind tool function and a message that should make the model call it (§15.3).
+# Each Northwind tool function and a message that should make the model call it (§15.3), as
+# CUSTOMER: the eval customer whose paid orders `release` resets (fixtures.sql), so this runs after
+# `release` (a pending request from an earlier run makes the model decline again). NW-90002: the
+# golden set files a request on NW-90004 but never on NW-90002. Northwind's
+# prompt keeps web search for third-party questions and calls cancel_order only after a "yes" in
+# the same conversation, so that tool gets two messages in one session.
+CUSTOMER = "eval-cust-a"
 TOOL_PROMPTS = {
-    "lookup_orders": "I'm customer c-1001. Where is my latest order?",
+    "lookup_orders": "Where is my latest order?",
     "search_knowledge_base": "How do I sync my Northwind Notes to a new tablet? Search the help.",
-    "web_search": "Search the web for this week's news about fountain pens.",
+    "web_search": "How do I export my notes from Evernote? Search the web for the steps.",
     "escalate_to_human": "I want to talk to a human right now about a billing error.",
-    "save_customer_note": "Please remember that I prefer email over phone calls.",
-    "cancel_order": "Please cancel my latest order, I'm customer c-1001.",
+    # A new note each run: a note the customer already has is not saved again.
+    "save_customer_note": f"Please remember that my desk number is {os.getpid()}.",
+    "cancel_order": ("Please cancel my order NW-90002.", "Yes, please file the cancellation."),
     "get_product_catalog": "What products do you sell?",
 }
 
@@ -130,10 +137,13 @@ def test_release_passes_61_of_61(work):
 def test_one_invoke_per_northwind_tool(work):
     """§15 step 3: each Northwind tool runs through LangGraph, with the reply's identity."""
     missed = []
-    for tool, message in TOOL_PROMPTS.items():
-        answer = _json(
-            cli("invoke", NAME, message, *STACK, "--customer", "c-1001", "--json", cwd=work)
-        )
+    for tool, messages in TOOL_PROMPTS.items():
+        session = f"tools-{tool}-{os.getpid()}"
+        for message in (messages,) if isinstance(messages, str) else messages:
+            answer = _json(
+                cli("invoke", NAME, message, *STACK, "--customer", CUSTOMER, "--session", session,
+                    "--json", cwd=work)
+            )  # fmt: skip
         reply = answer["response"]
         print(tool, "->", reply.get("tools"), reply.get("cost_usd"), reply.get("trace_id"))
         assert reply["framework"] == "langgraph" and reply["runtime"] == "runtime/langgraph@1.0.0"
@@ -148,6 +158,6 @@ def test_promote_to_kind(work):
     """§15 step 6 and §16.1's Kubernetes /tmp: the release promoted to `kind` (promote runs the
     evals on the cluster unless told not to). The one invoke on `kind` afterwards is by hand
     (`agentbreeder forward`, then a POST to /invoke)."""
-    promoted = _json(cli("promote", NAME, "--to", "kubernetes", *STACK, "--json", cwd=work,
+    promoted = _json(cli("promote", "agent.yaml", "--to", "kubernetes", *STACK, "--json", cwd=work,
                          timeout=3600))  # fmt: skip
     print("promoted:", json.dumps(promoted)[:2000])

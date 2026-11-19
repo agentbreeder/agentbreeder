@@ -878,7 +878,7 @@
   },
   "examples/northwind-langgraph/README.md": {
    "exec": false,
-   "sha256": "6bca3648b881547a134f46e93824b83f29399065442c97bbf45c74d1dc85d313"
+   "sha256": "c73c123420ffa17af604c825c7320127c5e2829de6616bbec0d4d1bec20742b0"
   },
   "examples/northwind-langgraph/agent.lock": {
    "exec": false,
@@ -886,11 +886,11 @@
   },
   "examples/northwind-langgraph/agent.yaml": {
    "exec": false,
-   "sha256": "be28626edbdd38752ce815036d22788eea58c3b622dd9b43ee028557ab403621"
+   "sha256": "90c36a8ac216726ef3b4de1e6905cf977ecf6798abce84cd6e13b602ca19be50"
   },
   "examples/northwind/README.md": {
    "exec": false,
-   "sha256": "c517f02004aa10ae9ceea1c6c0535474db4d7063f7ec794b37608cfe1c2779c1"
+   "sha256": "19a4d9c88ede56ae9eaa6a12a915a69794b1eebdca38cc4f443dd182cb88568a"
   },
   "examples/northwind/agent.lock": {
    "exec": false,
@@ -1094,7 +1094,7 @@
   },
   "examples/northwind/stack.lock": {
    "exec": false,
-   "sha256": "05b5dc963e31888c2a7e9a6bd84301bd4e5d131b6aba9f9f596e4dffdc1cc8cc"
+   "sha256": "e2863df330b6d3edb7ff5e433abed92ac349ffba646049b75eadb2febe1efedb"
   },
   "examples/northwind/stack.yaml": {
    "exec": false,
@@ -1106,7 +1106,7 @@
   },
   "examples/northwind/stack/db/commerce.sql": {
    "exec": false,
-   "sha256": "c9abeed196074eaba7a17a8d92d61ebde2f0692c7e22b19f9d2657f602c349d1"
+   "sha256": "a125470a930ac70c59aa0463027101f2685b116d80c4ed4fdaf9dba03d409016"
   },
   "examples/northwind/stack/litellm/config.yaml": {
    "exec": false,

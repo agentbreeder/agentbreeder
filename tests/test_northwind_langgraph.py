@@ -159,3 +159,23 @@ def test_model_step_limit_is_a_model_code_for_invoke_and_try_it():
     from agentbreeder.commands import invoke
 
     assert "MODEL_STEP_LIMIT" in invoke.MODEL_CODES and "MODEL_STEP_LIMIT" in tryit.MODEL_CODES
+
+
+def test_northwinds_agent_role_can_read_what_kit_history_reads():
+    """Live Docker run, 2026-11-19: every LangGraph turn failed `InsufficientPrivilege`, because
+    the kit's `history()` reads `turns` and Northwind granted the agent INSERT only. The grant
+    must name every column `history()` uses, and no more of the table."""
+    import inspect
+    import re
+
+    from agentbreeder.runtime_kit import memory
+
+    sql = (EXAMPLES / "northwind" / "stack" / "db" / "commerce.sql").read_text()
+    grants = re.findall(r"GRANT SELECT \(([^)]*)\) ON turns TO support_agent;", sql)
+    assert len(grants) == 1
+    granted = {column.strip() for column in grants[0].split(",")}
+    query = " ".join(inspect.getsource(memory.Memory.history).split())
+    used = {"message", "reply", "customer", "session", "error", "created"}
+    assert all(f"{column}" in query for column in used)
+    assert granted == used
+    assert "GRANT SELECT ON turns TO support_agent" not in sql
