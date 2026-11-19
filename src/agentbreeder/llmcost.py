@@ -10,6 +10,15 @@ counted. Amounts are in USD as LiteLLM computed them: an estimate from list pric
 Cached prompt tokens (#1056) are what LiteLLM recorded the provider reported: a part of the
 prompt tokens, never estimated here.
 
+Per sub-agent (#1058, sub-agents spec §10.2): a runtime that runs sub-agents tags each model
+call with `agentbreeder-subagent:<name>` (the parent's with `agentbreeder-subagent:-`), and LiteLLM
+keeps the tag in the spend row's `request_tags`. A key with at least one tagged call gets a
+`subagents` list: the parent, each sub-agent (at most MAX_SUBAGENT_ROWS names, the rest in one
+`other` row), and the calls with no tag. The gateway does not
+check a tag (any key can send any tag), so a tag only splits the spend of the key that sent it,
+never moves spend between keys. A call with two different tags is not attributed. A call with no
+price stays `unpriced` in its row, never $0.00.
+
 Gateway rows are data from a local service: every field is type-checked here, and text fields are
 passed on as they are (callers print them through `safe_text`).
 """
@@ -20,7 +29,7 @@ import math
 import re
 from datetime import UTC, date, datetime, timedelta
 
-from agentbreeder.gateway_keys import PREFIX
+from agentbreeder.gateway_keys import PARENT_TAG, PREFIX, SUBAGENT_TAG, subagent_tags
 
 EVAL_PREFIX = PREFIX + "eval-"
 DEFAULT_DAYS = 30
@@ -31,6 +40,10 @@ TEXT_LIMIT = 200  # model names, aliases: longer values are cut
 LOCAL_PROVIDERS = frozenset({"ollama", "ollama_chat"})
 LOCAL_LABEL = "no price (local model)"
 MAX_CALL_USD = 1e12  # a price above this is not a price: counted as unpriced (no overflow)
+_ROLES = ("parent", "subagent", "other", "untagged")
+# Sub-agent names shown per key. An agent file has at most 5; a key that sends more names than
+# this (a tag is the caller's choice) gets one `other` row for the rest, so the list is bounded.
+MAX_SUBAGENT_ROWS = 50
 _DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 
@@ -124,6 +137,16 @@ def cached_tokens(metadata) -> int:
     return max(_count(read), _count(cached))
 
 
+def _agent(tags) -> tuple[str, str | None]:
+    """(role, name) from a spend row's `request_tags`: `parent`, `subagent` with its validated
+    name, or `untagged` when the call carries no tag of ours or two different ones."""
+    found = subagent_tags(tags)
+    if len(found) != 1:
+        return ("untagged", None)
+    name = found[0][len(SUBAGENT_TAG) :]
+    return ("parent", None) if name == PARENT_TAG else ("subagent", name)
+
+
 def _call(row: dict) -> dict | None:
     metadata = row.get("metadata")
     alias = metadata.get("user_api_key_alias") if isinstance(metadata, dict) else None
@@ -133,6 +156,7 @@ def _call(row: dict) -> dict | None:
     return {
         "alias": alias[: TEXT_LIMIT + len(PREFIX)],
         "request_id": _text(row.get("request_id")),
+        "agent": _agent(row.get("request_tags")),
         "model": _text(row.get("model")),
         "model_group": _text(row.get("model_group")),
         "ok": row.get("status") != "failure",
@@ -165,6 +189,7 @@ def summarize(rows: list[dict], deployments: list[dict]) -> dict:
     seen: set[str] = set()
     by_alias: dict[str, dict] = {}
     by_alias_model: dict[str, dict[tuple, dict]] = {}
+    by_alias_agent: dict[str, dict[tuple, dict]] = {}
     by_model: dict[tuple, dict] = {}
     total = _bucket({})
     for row in rows:
@@ -194,21 +219,39 @@ def summarize(rows: list[dict], deployments: list[dict]) -> dict:
                 extra = {"kind": "unknown", "id": identifier}
             by_alias[alias] = _bucket({"key_alias": alias, **extra})
             by_alias_model[alias] = {}
+            by_alias_agent[alias] = {}
         models = by_alias_model[alias]
         key = _key(call)
         if key not in models:
             models[key] = _bucket({"model_group": key[0] or None, "model": key[1] or None})
         if key not in by_model:
             by_model[key] = _bucket({"model_group": key[0] or None, "model": key[1] or None})
-        for bucket in (by_alias[alias], models[key], by_model[key], total):
+        agents = by_alias_agent[alias]
+        role, name = call["agent"]
+        group = call["agent"]
+        if group not in agents and role == "subagent":
+            if sum(1 for found, _ in agents if found == "subagent") >= MAX_SUBAGENT_ROWS:
+                group = ("other", None)
+        if group not in agents:
+            agents[group] = _bucket({"role": group[0], "name": group[1]})
+        for bucket in (by_alias[alias], models[key], by_model[key], total, agents[group]):
             _add(bucket, call)
 
     def order(bucket: dict) -> tuple:
         return (-bucket["cost_usd"], -bucket["calls"], bucket.get("key_alias") or "")
 
+    def agent_order(bucket: dict) -> tuple:
+        # The parent first, then sub-agents by cost, then `other`, the calls with no tag last.
+        return (_ROLES.index(bucket["role"]), *order(bucket)[:2], bucket["name"] or "")
+
     keys = []
     for alias, bucket in by_alias.items():
         bucket["models"] = [_round(m) for m in sorted(by_alias_model[alias].values(), key=order)]
+        agents = by_alias_agent[alias]
+        if any(role != "untagged" for role, _ in agents):
+            # Only for a key with a tagged call, so an agent without sub-agents (and every
+            # runtime that sends no tags) gets the same answer as before.
+            bucket["subagents"] = [_round(a) for a in sorted(agents.values(), key=agent_order)]
         keys.append(_round(bucket))
     return {
         "keys": sorted(keys, key=order),

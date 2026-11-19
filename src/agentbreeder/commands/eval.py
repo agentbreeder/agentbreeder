@@ -69,4 +69,6 @@ def run(args) -> int:
             f"{summary['passed']}/{summary['cases']} passed, mean correctness "
             f"{summary['mean_correctness']}, p50 {summary['p50_latency_ms']} ms"
         )
+        for line in evals.tag_lines(summary):  # per-tag rates, only for a tagged set (#1058)
+            print(line)
     return 0 if report.pass_rate >= agent.evals.threshold else 5

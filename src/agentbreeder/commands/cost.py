@@ -1,6 +1,7 @@
 """`agentbreeder cost [--stack DIR [--environment ENV]] [--since DAY] [--until DAY]
-[--by deployment|model] [--json]`: LLM cost per deployment key and per model, from the
-environment's LiteLLM gateway spend logs (#906; see `llmcost`).
+[--by deployment|model|subagent] [--json]`: LLM cost per deployment key and per model, and
+inside a key per sub-agent (#1058), from the environment's LiteLLM gateway spend logs (#906; see
+`llmcost`).
 
 Read-only: the deployment state is opened read-only (a missing state is not an error: every
 key is then `unknown`), and the gateway is only read, with its master key from the operator
@@ -27,6 +28,14 @@ NOTE = (
 )
 
 
+UNTAGGED = "(not tagged)"
+TAG_NOTE = (
+    "AGENT is the request tag the agent's runtime sent with each model call "
+    "(agentbreeder-subagent:<name>); the gateway does not check it, so it splits a key's spend "
+    f"and never moves spend between keys. {UNTAGGED}: calls with no such tag."
+)
+
+
 def register(commands) -> None:
     command = cli.stateful_parser(
         commands,
@@ -44,9 +53,10 @@ def register(commands) -> None:
     )
     command.add_argument(
         "--by",
-        choices=("deployment", "model"),
+        choices=("deployment", "model", "subagent"),
         default="deployment",
-        help="Group the table by deployment key (default) or by model; --json has both",
+        help="Group the table by deployment key (default), by model, or by sub-agent inside "
+        "each key (from request tags); --json has all three",
     )
 
 
@@ -137,6 +147,24 @@ def _price(bucket: dict) -> str:
     return _usd(bucket["cost_usd"])
 
 
+def _price_or_unknown(bucket: dict) -> str:
+    """The USD cell of the sub-agent table: calls without a price are shown as unknown, never
+    as $0 (#1058, sub-agents spec §10.2). A row whose other calls are all local has no priced
+    call either, so it is `unknown` too; the local count is in the footer and in `--json`."""
+    unpriced = bucket["unpriced"]
+    if not unpriced:
+        return _price(bucket)
+    if unpriced + bucket.get("local", 0) >= bucket["calls"]:
+        return "unknown"
+    return f"{_usd(bucket['cost_usd'])} + {unpriced} unknown"
+
+
+def _agent(row: dict) -> str:
+    if row["role"] == "subagent":
+        return row["name"]
+    return {"parent": "(parent)", "other": "(other sub-agents)"}.get(row["role"], UNTAGGED)
+
+
 def _tokens(bucket: dict) -> str:
     return f"{bucket['prompt_tokens']}/{bucket['completion_tokens']}"
 
@@ -154,12 +182,37 @@ def _who(bucket: dict) -> tuple[str, str, str]:
     return bucket["id"], "-", "not in this state"
 
 
+def _by_subagent(result: dict) -> list[tuple]:
+    rows = [
+        ("DEPLOYMENT", "NAME", "AGENT", "CALLS", "FAILED", "TOKENS IN/OUT", "CACHED IN", "USD")
+    ]
+    for key in result["keys"]:
+        who = _who(key)[:2]
+        # A key with no tagged call is one row: all of it is untagged.
+        for bucket in key.get("subagents") or [{**key, "role": "untagged", "name": None}]:
+            rows.append(
+                (
+                    *who,
+                    _agent(bucket),
+                    str(bucket["calls"]),
+                    str(bucket["failed"]),
+                    _tokens(bucket),
+                    _cached(bucket),
+                    _price_or_unknown(bucket),
+                )
+            )
+    return rows
+
+
 def _print(result: dict, by: str) -> None:
     print(
         f"LLM cost {result['since']} to {result['until']} (UTC), "
         f"gateway {excerpt(result['gateway'], 80)}"
     )
-    if by == "model":
+    price = _price_or_unknown if by == "subagent" else _price
+    if by == "subagent":
+        rows = _by_subagent(result)
+    elif by == "model":
         rows = [("MODEL ALIAS", "MODEL", "CALLS", "FAILED", "TOKENS IN/OUT", "CACHED IN", "USD")]
         for bucket in result["models"]:
             rows.append(
@@ -196,7 +249,7 @@ def _print(result: dict, by: str) -> None:
         blank = ("",) * (len(rows[0]) - 6)
         rows.append(
             ("Total", *blank, str(total["calls"]), str(total["failed"]))
-            + (_tokens(total), _cached(total), _price(total))
+            + (_tokens(total), _cached(total), price(total))
         )
         widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
         for row in rows:
@@ -215,4 +268,6 @@ def _print(result: dict, by: str) -> None:
         print(
             f"{total['unpriced']} call(s) had no price from LiteLLM and are not in the USD total."
         )
+    if by == "subagent" and any(key.get("subagents") for key in result["keys"]):
+        print(TAG_NOTE)  # only when some call is tagged
     print(NOTE)

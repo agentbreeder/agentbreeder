@@ -433,7 +433,8 @@ rules read the reply's `subagents` and `skills` fields, which no runtime sends y
 does, a case using them fails (`reply_reports:subagents` or `reply_reports:skills`), never
 passes. Child tools stay in `tools`, so `tools_exclude` catches a forbidden tool whichever agent
 called it. A case may carry `tags` (at most 5, `^[a-z][a-z0-9_-]{0,31}$`): the report gains a
-per-tag pass rate (`tags`, only when a case is tagged), and `evals.tag_threshold` (0-1, off by
+per-tag pass rate (`tags`, only when a case is tagged; `eval` and `release` also print one
+`Tag NAME: passed/cases passed (rate)` line per tag), and `evals.tag_threshold` (0-1, off by
 default) fails `release` and `promote` when any tag is below it, even if the overall rate
 passes. The judge calls the gateway alias from the eval manifest,
 on its own key, which is revoked after the run and expires after 6 hours in case the run is
