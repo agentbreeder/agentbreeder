@@ -38,6 +38,8 @@ ALLOWED = {
     "agentbreeder.strict_yaml",
     "agentbreeder.center",
     "agentbreeder.center.__main__",
+    # Sign-in (#818): password policy, scrypt and the backoff; standard library only.
+    "agentbreeder.center.auth",
     "agentbreeder.center.files",
     "agentbreeder.center.instance",
     "agentbreeder.center.jobs",

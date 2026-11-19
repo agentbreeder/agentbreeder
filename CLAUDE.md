@@ -293,6 +293,14 @@ agent role SELECT on six `turns` columns for kit history. Website: no change
 until LangGraph passes its acceptance. Cloud: a `CLAUDE.md` note only; it has no code that reads
 a runtime manifest, the reply's `framework`/`runtime` or the deploy manifest's `runtime`.
 
+**Console sign-in, #818 M2 (epic #1054), per side.** OSS (on `main`): `up --set-password`,
+`--reset-password` and `--link`; `center.sqlite3` schema 4 (`users` with scrypt hashes, and
+`security_events`); new console routes (`/api/auth`, `/api/setup`, `/api/password`,
+`/api/signout`, `/api/signout-everywhere`, `/api/settings`) and `POST /api/session` taking
+`{email, password}`. No manifest, JSON Schema, `agent.yaml` or `agent.lock` change. Website: no
+change until release R. Cloud: a `CLAUDE.md` note only; it has no code that runs `up`, calls the
+console API or reads `center.sqlite3` (the console API is private and unversioned).
+
 ## 🎯 When Adding a New Feature
 
 1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?
