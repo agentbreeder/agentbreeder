@@ -203,8 +203,20 @@ def test_openai_uses_its_embedding_model(tmp_path, kb_root):
 def test_the_verified_combinations():
     """The #833 runs: gemini with one knowledge version, one path tool, or both; never MCP."""
     # Keyed by the runtime's name since #1083 F1; only runtime/adk has been run.
+    # #1058 and #1059 AC added sub-agents (with one tool) and skills, on runtime/adk@1.5.0 only
+    # (`PART_RUNTIMES`; tests/test_agent_spec_v2.py).
     assert agentspec.VERIFIED == {
-        "adk": frozenset({(), ("knowledge",), ("tools",), ("knowledge", "tools")})
+        "adk": frozenset(
+            {
+                (),
+                ("knowledge",),
+                ("tools",),
+                ("knowledge", "tools"),
+                ("subagents",),
+                ("subagents", "tools"),
+                ("skills",),
+            }
+        )
     }
     assert agentspec.VERIFIED_TOOLS == 1
     # openrouter and openai ran without tools (#1020)

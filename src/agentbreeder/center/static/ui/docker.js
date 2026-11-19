@@ -11,7 +11,7 @@ const IDLE = Object.freeze({ ...DOCKER_UNKNOWN, checking: false });
 /**
  * Ask the server every DOCKER_EVERY ms while `active` (signed in) and the tab is visible; a tab
  * that comes back into view asks at once. `onChange` runs when Docker goes down or comes back
- * after the first answer (the overview loaded with the page already has that first state).
+ * after the first answer (the overview read at sign-in already has that first state).
  * Returns `[state, retry]`; `state.checking` is true from a Retry until the answer that follows
  * it. Leaving the signed-in phase stops asking and forgets the answer, so a later sign-in never
  * shows a stale blocker.

@@ -66,7 +66,7 @@ function TopBar() {
   return html`<header class="top glass-strong">
     <div class="brand">
       <strong>AgentBreeder console</strong>
-      <span class="muted small">preview <${Text} value=${overview ? overview.version : ""} />, this machine only</span>
+      <span class="muted small">${overview ? html`preview <${Text} value=${overview.version} />, ` : null}this machine only</span>
     </div>
     <div class="top-controls">
       <label class="scope">
