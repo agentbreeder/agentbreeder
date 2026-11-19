@@ -151,8 +151,9 @@ agentbreeder services start|stop|restart [DIR] NAME [--yes] [--json]   # one con
   and reported (`Kept network …`, `networks_left` in `--json`), never forced; `docker network
   inspect NAME` shows what holds it. This is checked with unit tests against a fake Docker; the
   real-Docker assertions (`tests/test_mcp_relay_docker.py`, `tests/test_services_docker.py`) are
-  opt-in and have not been run yet. If the network cannot be listed, `down` carries on with
-  volumes, images and state.
+  opt-in and passed on macOS + Docker Desktop on 2026-11-18
+  (`docs/superpowers/verification/1048-network-live-assert.md`). If the network cannot be
+  listed, `down` carries on with volumes, images and state.
 
   Networks left by earlier versions are not pruned automatically. To clean them up by hand, list
   them, check that no container uses them, then remove them one at a time:
