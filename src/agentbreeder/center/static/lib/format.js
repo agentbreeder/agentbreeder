@@ -86,6 +86,7 @@ const JOB_LABELS = {
   "cluster-up": "Connect cluster",
   "cluster-down": "Delete cluster",
   promote: "Deploy to cluster",
+  conformance: "Conformance run",
 };
 
 /** A job kind as a label. Unknown kinds show as themselves, with controls escaped (S-35). */
@@ -111,6 +112,11 @@ export function jobOutcome(job) {
   // only the pins, after the rest of the start ran.
   if (job.kind === "services-up" && (job.lines || []).some((line) => typeof (line && line.text) === "string" && line.text.startsWith("[PINS_CHANGED] "))) {
     return { tone: "warn", text: "The MCP tool definitions changed since your review: pins unchanged, the rest of Start ran. Review the repin again." };
+  }
+  // `conformance` exits 1 when the report failed or is incomplete (a check did not run): the run
+  // finished and wrote its report, so this is not a failed command (#1085 S3).
+  if (job.kind === "conformance" && job.exit_code === 1 && !jobFailure(job)) {
+    return { tone: "warn", text: "Conformance ran. The report failed or is incomplete (not a pass): see the runtime's Conformance." };
   }
   const gate = (job.kind === "release" || job.kind === "promote") && job.exit_code === 5;
   if (job.kind === "release" && gate) return { tone: "error", text: "The eval gate failed. Production is unchanged." };

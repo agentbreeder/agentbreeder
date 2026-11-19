@@ -696,3 +696,37 @@ def test_cleanup_holds_sigterm_until_it_is_done(tmp_path, docker, monkeypatch):
     environment.run(IMAGE, project(tmp_path), docker())
     assert seen[0] == (signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGHUP})
     assert seen[-1][0] == signal.SIG_SETMASK
+
+
+def test_registry_conformance_prints_the_newest_whole_report(capsys, home):
+    """`registry conformance REF` (#1085 S3): the console's runtime detail reads it."""
+    assert cli.main(["registry", "conformance", RUNTIME, "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "schema_version": 1,
+        "ref": RUNTIME,
+        "report": None,
+    }
+    assert cli.main(["registry", "conformance", RUNTIME]) == 0
+    assert capsys.readouterr().out == f"No conformance report for {RUNTIME}.\n"
+    old = {**make_report(("fail",)), "finished": "2026-11-18T10:00:00Z"}
+    new = {
+        **make_report(("pass", "not_run"), image="sha256:" + "d" * 64),
+        "finished": "2026-11-18T11:00:00Z",
+    }
+    report.write(old)
+    report.write(new)
+    assert cli.main(["registry", "conformance", RUNTIME, "--json"]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["report"] == new and printed["ref"] == RUNTIME
+    assert report.newest_report(RUNTIME) == new
+    assert report.newest(RUNTIME)["digest"] == "sha256:" + "d" * 64
+    assert cli.main(["registry", "conformance", RUNTIME]) == 0
+    text = capsys.readouterr().out
+    assert "Result: incomplete" in text and "Not a pass" in text
+
+
+@pytest.mark.parametrize("ref", ["tool/x@1.0.0", "runtime/adk", "nonsense"])
+def test_registry_conformance_refuses_what_is_not_a_runtime_version(capsys, ref):
+    assert cli.main(["registry", "conformance", ref, "--json"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == "" and "[REF_" in captured.err

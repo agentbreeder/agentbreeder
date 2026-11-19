@@ -84,7 +84,7 @@ Always written to the default state directory, whatever `--stack` or `--state-di
 
 `{"schema_version": 1, "protocol": 1, "profile", "runtime", "mode": "declared", "agent", "image", "result", "counts": {"pass", "fail", "not_run", "not_applicable"}, "started", "finished", "agentbreeder", "checks": [{"id", "group", "title", "status", "detail"}]}`.
 
-`agentbreeder registry runtimes --json` shows the newest report of each runtime version as `conformance: {passed, result, digest, date}` ([`registry`](registry.md)).
+`agentbreeder registry runtimes --json` shows the newest report of each runtime version as `conformance: {passed, result, digest, date}`, and `agentbreeder registry conformance REF --json` prints that newest report whole ([`registry`](registry.md)); the console's runtime detail reads it.
 
 ## Exit codes
 
