@@ -1177,9 +1177,18 @@ project, target, state, image, identity check, endpoint and last release:
   stack shows "not registered" (add its project on Home to open it), and the default state shows
   "default state". Stacks that could not be read are listed under **Not read** with their code
   (`STATE_BUSY`, `STATE_NEEDS_MIGRATION`, …). A modified click on an agent opens a new tab.
-- **Identity check** is the value recorded at deploy or by the last `reconcile` (`compliant`,
+- **Identity check** is the value the last `status` or `reconcile` recorded (`compliant`,
   `noncompliant: CODE`, `unverifiable: CODE`, `unbound`), with the time the deployment last
-  changed. Nothing here calls the identity provider.
+  changed. A deploy records none (the gate's decision at deploy is in the audit log), so a
+  deployment says "not checked since deploy" until one of them runs. That is why `agentbreeder
+  status ID` can report `compliant` for a deployment the console has not marked: for a deployment
+  bound to a principal, `status` (without `--no-verify`) checks the identity again each time and
+  records the result, and the console shows it on its next read. **Re-verify (reconcile)** on
+  Deployments checks every bound deployment, and also its guardrails and runtime boundary, so
+  its value can differ from what `status` recorded (#1078). The identity of a deployment with no
+  principal is never checked again: `status` and `reconcile` leave it without a value (unless
+  `reconcile` cleans up a failed one's runtime boundary, and records that result), so it keeps
+  saying "not checked since deploy". Nothing on this screen calls the identity provider.
 - **Last release** is the newest release entry of the project's audit log ("passed 5/5", "eval
   failed 2/5", "failed (CODE)", "no outcome recorded", "rolled back"), with its time. Audit rows
   of a release name no agent, so they count as the runs of the project's `agent.yaml` only: any

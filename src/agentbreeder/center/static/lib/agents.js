@@ -34,12 +34,31 @@ export function projectStatus(row) {
   return "not registered";
 }
 
-/** The identity check of a row in words: `compliant`, `noncompliant: CODE`, … or "not checked". */
+/**
+ * The identity check of a row in words: `compliant`, `noncompliant: CODE`, … A row with no value
+ * says "not checked since deploy" (#1078): a deploy records none; `status` and `reconcile` do,
+ * and only for a deployment bound to a principal.
+ */
 export function identityText(compliance) {
-  if (typeof compliance !== "string" || !compliance) return "not checked";
+  if (typeof compliance !== "string" || !compliance) return "not checked since deploy";
   if (compliance === "unbound") return "unbound (no principal)";
   const [state, ...codes] = compliance.split(":");
   return codes.length ? `${state}: ${codes.join(", ")}` : state;
+}
+
+/** True when nothing has recorded an identity check for the row since it was deployed. */
+export function identityUnchecked(compliance) {
+  return typeof compliance !== "string" || !compliance;
+}
+
+/**
+ * Where a row's identity value comes from (#1078). A row without one explains why `agentbreeder
+ * status` can say `compliant` while the console does not: `status` checks again each time it runs.
+ */
+export function identityNote(compliance) {
+  return identityUnchecked(compliance)
+    ? "A deploy records no result here; the gate's decision at deploy is in the audit log. For a deployment bound to a principal, status and reconcile check the identity again and record the result, so agentbreeder status can say compliant while this does not. The identity of a deployment with no principal is never checked again."
+    : "recorded by the last status or reconcile";
 }
 
 /** "passed", "failed" or "unknown" for a compliance value. */
