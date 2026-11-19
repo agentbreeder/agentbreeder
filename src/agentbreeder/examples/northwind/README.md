@@ -60,7 +60,9 @@ gateway config, run `services up --update` to accept their new hashes in `stack.
 `support` owns every table, and only the eval gate uses it, to reset fixtures. The agent runs
 as `support_agent`. It can read orders and the catalog, file cancellation *requests* (their
 status stays `pending`), and add notes, tickets, turns and audit events. It can't approve a
-request, change an order, alter a table or read customer records. The ops dashboard runs as
+request, change an order, alter a table or read customer records. It can read six columns of
+`turns` (session, customer, message, reply, error, created): a kit runtime such as LangGraph
+replays a conversation's history from them. The ops dashboard runs as
 `support_ops`. It decides requests and keeps its eval tables in its own schema.
 `agentbreeder_console` is reserved for AgentBreeder's own CLI commands (#828; none uses it yet):
 it can read turns and audit events and keep notes, only on tables `support` made. Every audit row

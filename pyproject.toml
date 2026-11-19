@@ -28,7 +28,9 @@ cedar = ["cedarpy==4.12.2"]
 aws = ["boto3>=1.40,<2"]
 # `agentbreeder eval` / `release` fixture resets (eval sets with fixtures.sql).
 eval = ["psycopg[binary]==3.3.6"]
-dev = ["pytest>=8,<10", "pytest-cov>=5,<8", "ruff>=0.11,<1", "build>=1,<2", "packaging>=24", "cryptography>=44", "cedarpy==4.12.2", "psycopg[binary]==3.3.6"]
+# h11, httpx and opentelemetry-sdk: the runtime kit's tests (src/agentbreeder/runtime_kit, #1083
+# F2b) run in the repo suite; the pins match the kit runtimes' locks.
+dev = ["pytest>=8,<10", "pytest-cov>=5,<8", "ruff>=0.11,<1", "build>=1,<2", "packaging>=24", "cryptography>=44", "cedarpy==4.12.2", "psycopg[binary]==3.3.6", "h11==0.16.0", "httpx==0.28.1", "opentelemetry-sdk==1.45.2"]
 
 [project.urls]
 Homepage = "https://www.agentbreeder.io"
@@ -66,6 +68,9 @@ agentbreeder = [
     "examples/http-agent/agent.yaml",
     "examples/http-agent/quickstart.py",
     "examples/http-agent/server.py",
+    "examples/northwind-langgraph/README.md",
+    "examples/northwind-langgraph/agent.yaml",
+    "examples/northwind-langgraph/agent.lock",
     "examples/northwind/README.md",
     "examples/northwind/agent.yaml",
     "examples/northwind/agent.lock",

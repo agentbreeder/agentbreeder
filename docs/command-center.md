@@ -1359,9 +1359,10 @@ code-mode agent waits for code mode (F8). A version the registries do not list a
 
 Tested with Playwright against the fake CLI (`tests/ui/test_framework_badge.py`, axe in light and
 dark), with node unit tests (`tests/js/framework.test.mjs`, the router's query) and on the server
-(`/api/runtimes`, `framework` in a turn). Only `runtime/adk` exists, so the LangGraph and CrewAI
-rows are a scripted `registry runtimes` answer, and no kit runtime has sent `MODEL_STEP_LIMIT`.
-Not run against real deployments.
+(`/api/runtimes`, `framework` in a turn). The LangGraph and CrewAI rows in these tests are a
+scripted `registry runtimes` answer. `runtime/langgraph@1.0.0` is on `main` (#1163, not run end to
+end in the console), but no LangGraph deployment was listed, opened or tried here, and no
+`MODEL_STEP_LIMIT` reached Try it from a real runtime. Not run against real deployments.
 
 ### Traces (#907, console half): on `main`, not in a published preview
 

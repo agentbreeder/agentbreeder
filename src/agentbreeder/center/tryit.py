@@ -77,8 +77,8 @@ MODEL_CODES = frozenset(
         "MODEL_ACCESS_DENIED",
         "MODEL_REQUEST_REFUSED",
         "MODEL_UNAVAILABLE",
-        # A kit runtime's step cap (agent protocol "Profiles", #1085 S2): the turn reached its
-        # model-call limit with the model still asking for tools.
+        # A kit runtime's step cap (agent protocol "Profiles", #1083 F2b; Try it's line, #1085 S2):
+        # the turn reached its model-call limit with the model still asking for tools.
         "MODEL_STEP_LIMIT",
     }
 )

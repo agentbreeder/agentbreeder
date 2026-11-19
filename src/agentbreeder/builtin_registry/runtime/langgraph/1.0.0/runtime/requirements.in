@@ -1,0 +1,16 @@
+# runtime/langgraph@1.0.0 (#1083 F3). The versions F0 probed (multi-framework spec §6.1), plus the
+# kit's own packages (h11 for the model proxy's listener, httpx for its upstream calls, psycopg
+# for memory and knowledge, OpenTelemetry for traces). No langchain-community and no
+# `allow_dangerous_*` tools (spec §13.3); LangSmith is in the lock as a langchain-core
+# dependency, and the entry point removes its environment variables before import (§8.2).
+langgraph==1.2.19
+langchain==1.4.8
+langchain-core==1.7.4
+langchain-openai==1.7.3
+openinference-instrumentation-langchain==0.1.81
+opentelemetry-sdk==1.45.2
+opentelemetry-exporter-otlp-proto-http==1.45.2
+psycopg[binary]==3.3.6
+pyyaml==6.0.3
+h11==0.16.0
+httpx==0.28.1
