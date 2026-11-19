@@ -267,6 +267,18 @@ manifest or JSON Schema change. Website: no change until release R. Cloud: a `CL
 only; a grep of its tracked files on 2026-11-19 found no reader of `agent.lock` or
 `stack.lock`. Any future Cloud reader must accept v1 and v2 and refuse unknown keys.
 
+**Remote registry sources, #829 M9b slice 1b (git), per side.** OSS (on `main`, not in a
+published preview; tested only against a loopback `git http-backend`): `agent.yaml` gains
+optional `registries:` (git only), which makes `build` write `agent.lock` v2; `sources/git.py`
+(hardened fetcher), `trust.py` (`~/.agentbreeder/sources.yaml`, `AGENTBREEDER_REGISTRY_TRUST`),
+`cache.py`, `remote.py`; `registry trust`; `build --offline`; `build.json` and `package.json`
+`inputs.sources` carry the sources table (only with `registries:`); `package.py` and the
+console's `center/reads.py` accept lock v2 via `Lock.parse_bytes`. New
+`docs/agent-lock.schema.json`. Without `registries:` every output is byte-identical. Website: no
+change until release R. Cloud: a `CLAUDE.md` note only; a grep of its tracked files on
+2026-11-19 found no reader of `agent.lock`, `stack.lock`, `lock_version`, `package.json` inputs,
+`build.json`, `sources.yaml` or the trust variable.
+
 ## 🎯 When Adding a New Feature
 
 1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?

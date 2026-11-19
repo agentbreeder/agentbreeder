@@ -90,22 +90,42 @@ def _eval_set(agent, project: Path, where: hints.Where | None = None) -> evals.E
         raise ReleaseError(
             "LOCK_STALE", f"{ref} is not in agent.lock; run `{build_command}` first"
         )
+    refresh = f"run `{build_command}` to re-lock it"
+    if sources.is_remote(locked.get("source")):
+        return _remote_eval_set(agent, ref, lock, locked, refresh)
     # #829 D6: only from the locked root (configured now), as `build --locked` reads it.
-    root = sources.locate(
-        str(ref),
-        locked,
-        registry.configured_roots(project),
-        refresh=f"run `{build_command}` to re-lock it",
-    )
+    root = sources.locate(str(ref), locked, registry.configured_roots(project), refresh=refresh)
     hit = registry.resolve(ref, [root.path])
+    return _checked_eval_set(ref, hit.path, locked)
+
+
+def _checked_eval_set(ref, path: Path, locked: dict) -> evals.EvalSet:
     with tempfile.TemporaryDirectory(prefix="agentbreeder-eval-") as temporary:
         copy = Path(temporary) / "eval"
-        digest = registry.copy_and_hash(hit.path, copy)
+        digest = registry.copy_and_hash(path, copy)
         if digest != locked["sha256"]:
             raise ReleaseError(
                 "HASH_MISMATCH", f"{ref}: agent.lock {locked['sha256']}, found {digest}"
             )
         return evals.load_eval_set(copy)
+
+
+def _remote_eval_set(agent, ref, lock, locked: dict, refresh: str) -> evals.EvalSet:
+    """An eval set locked from a remote source (#829): read as `build --locked` reads it, from
+    the source declared now at the locked pin (the cache first), and checked against the lock."""
+    from agentbreeder.sources.remote import Remotes
+
+    table = agent.sources_table()
+    if table != lock.sources:
+        raise ReleaseError(
+            "LOCK_STALE",
+            f"agent.lock: {sources.sources_difference(lock.sources, table)}; {refresh}",
+        )
+    with Remotes(table) as remotes:
+        name = sources.locked_name(str(ref), locked, remotes, "agent.lock", refresh)
+        path = remotes.version(name, ref, locked)
+        registry.read_manifest(path, ref)
+        return _checked_eval_set(ref, path, locked)
 
 
 def _journal_path(state: Path, name: str) -> Path:
@@ -358,7 +378,7 @@ def _package_record(
                     "agent_yaml_sha256": written.get("agent_yaml_sha256"),
                     "lock_sha256": written.get("lock_sha256"),
                     "lock_version": lock_version,
-                    "sources": {},
+                    "sources": written.get("sources", {}),
                 },
                 "evals": eval_fields,
                 "deploy": built.deploy,
