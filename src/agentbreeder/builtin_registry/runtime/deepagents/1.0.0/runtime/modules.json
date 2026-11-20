@@ -1,0 +1,242 @@
+{
+ "schema_version": 1,
+ "modules": [
+  "deepagents_adapter",
+  "kit",
+  "server"
+ ],
+ "imports": {
+  "annotated-types": [
+   "annotated_types"
+  ],
+  "anthropic": [
+   "anthropic"
+  ],
+  "anyio": [
+   "anyio"
+  ],
+  "bracex": [
+   "bracex"
+  ],
+  "certifi": [
+   "certifi"
+  ],
+  "cffi": [
+   "_cffi_backend",
+   "cffi"
+  ],
+  "charset-normalizer": [
+   "charset_normalizer"
+  ],
+  "cryptography": [
+   "cryptography"
+  ],
+  "deepagents": [
+   "deepagents"
+  ],
+  "distro": [
+   "distro"
+  ],
+  "docstring-parser": [
+   "docstring_parser"
+  ],
+  "filetype": [
+   "filetype"
+  ],
+  "google-auth": [
+   "google"
+  ],
+  "google-genai": [
+   "google"
+  ],
+  "googleapis-common-protos": [
+   "google"
+  ],
+  "h11": [
+   "h11"
+  ],
+  "httpcore": [
+   "httpcore"
+  ],
+  "httpcore2": [
+   "httpcore2"
+  ],
+  "httpx": [
+   "httpx"
+  ],
+  "httpx2": [
+   "httpx2"
+  ],
+  "idna": [
+   "idna"
+  ],
+  "jiter": [
+   "jiter"
+  ],
+  "jsonpatch": [
+   "jsonpatch",
+   "jsonpatch_cli"
+  ],
+  "jsonpointer": [
+   "jsonpointer"
+  ],
+  "langchain": [
+   "langchain"
+  ],
+  "langchain-anthropic": [
+   "langchain_anthropic"
+  ],
+  "langchain-core": [
+   "langchain_core"
+  ],
+  "langchain-google-genai": [
+   "langchain_google_genai"
+  ],
+  "langchain-openai": [
+   "langchain_openai"
+  ],
+  "langchain-protocol": [
+   "langchain_protocol"
+  ],
+  "langgraph": [
+   "langgraph"
+  ],
+  "langgraph-checkpoint": [
+   "langgraph"
+  ],
+  "langgraph-prebuilt": [
+   "langgraph"
+  ],
+  "langgraph-sdk": [
+   "langgraph_sdk"
+  ],
+  "langsmith": [
+   "langsmith"
+  ],
+  "openai": [
+   "openai"
+  ],
+  "openinference-instrumentation": [
+   "openinference"
+  ],
+  "openinference-instrumentation-langchain": [
+   "openinference"
+  ],
+  "openinference-semantic-conventions": [
+   "openinference"
+  ],
+  "opentelemetry-api": [
+   "opentelemetry"
+  ],
+  "opentelemetry-exporter-http-transport": [
+   "opentelemetry"
+  ],
+  "opentelemetry-exporter-otlp-common": [
+   "opentelemetry"
+  ],
+  "opentelemetry-exporter-otlp-proto-common": [
+   "opentelemetry"
+  ],
+  "opentelemetry-exporter-otlp-proto-http": [
+   "opentelemetry"
+  ],
+  "opentelemetry-instrumentation": [
+   "opentelemetry"
+  ],
+  "opentelemetry-proto": [
+   "opentelemetry"
+  ],
+  "opentelemetry-sdk": [
+   "opentelemetry"
+  ],
+  "opentelemetry-semantic-conventions": [
+   "opentelemetry"
+  ],
+  "orjson": [
+   "orjson"
+  ],
+  "ormsgpack": [
+   "ormsgpack"
+  ],
+  "packaging": [
+   "packaging"
+  ],
+  "protobuf": [
+   "google"
+  ],
+  "psycopg": [
+   "psycopg"
+  ],
+  "psycopg-binary": [
+   "psycopg_binary"
+  ],
+  "pyasn1": [
+   "pyasn1"
+  ],
+  "pyasn1-modules": [
+   "pyasn1_modules"
+  ],
+  "pycparser": [
+   "pycparser"
+  ],
+  "pydantic": [
+   "pydantic"
+  ],
+  "pydantic-core": [
+   "pydantic_core"
+  ],
+  "pyyaml": [
+   "_yaml",
+   "yaml"
+  ],
+  "regex": [
+   "regex"
+  ],
+  "requests": [
+   "requests"
+  ],
+  "requests-toolbelt": [
+   "requests_toolbelt"
+  ],
+  "sniffio": [
+   "sniffio"
+  ],
+  "tenacity": [
+   "tenacity"
+  ],
+  "tiktoken": [
+   "tiktoken",
+   "tiktoken_ext"
+  ],
+  "truststore": [
+   "truststore"
+  ],
+  "typing-extensions": [
+   "typing_extensions"
+  ],
+  "typing-inspection": [
+   "typing_inspection"
+  ],
+  "urllib3": [
+   "urllib3"
+  ],
+  "uuid-utils": [
+   "uuid_utils"
+  ],
+  "wcmatch": [
+   "wcmatch"
+  ],
+  "websockets": [
+   "websockets"
+  ],
+  "wrapt": [
+   "wrapt"
+  ],
+  "xxhash": [
+   "xxhash"
+  ],
+  "zstandard": [
+   "zstandard"
+  ]
+ }
+}

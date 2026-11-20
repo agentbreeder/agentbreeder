@@ -33,7 +33,7 @@ const EVENTS = {
   "session-length": "Session length changed",
 };
 const OUTCOMES = { ok: "Succeeded", failed: "Wrong password", backoff: "Refused: too many attempts" };
-const SOURCES = { browser: "Browser", terminal: "Terminal", "terminal-link": "Terminal link" };
+const SOURCES = { browser: "Console (HTTP)", terminal: "Terminal", "terminal-link": "Terminal link" };
 
 /** A security event row as words: {event, outcome, source}. Unknown values show as they are. */
 export function eventWords(row) {
