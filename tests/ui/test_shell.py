@@ -523,10 +523,10 @@ def test_session_ended_after_a_console_restart_names_the_restart(page, console):
     page.reload()
     expect(page.get_by_role("heading", level=1)).to_have_text("Session ended")
     expect(page.locator("main")).to_contain_text(
-        "This tab's session ended: it was open 8 hours or idle 1 hour, "
-        "or the console was restarted."
+        "This tab's session ended: it was open longer than the session length or idle 1 hour, "
+        "or the console was restarted"
     )
-    expect(page.locator("main")).to_contain_text("press Enter for a new one-time link")
+    expect(page.locator("main")).to_contain_text("press Enter for a one-time link")
     page.goto(console.mint())
     expect(page.get_by_role("heading", level=1)).to_contain_text("Audit")
 
