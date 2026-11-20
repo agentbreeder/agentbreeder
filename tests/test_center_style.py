@@ -125,7 +125,7 @@ def test_nothing_else_is_glass():
         for path in STATIC.rglob("*.js")
         if "vendor" not in path.parts and re.search(r"\bglass(?:-strong)?\b", path.read_text())
     )
-    assert users == ["components.js", "shell.js"]
+    assert users == ["components.js", "shell.js", "signin.js"]  # signin.js: the re-auth dialog
 
 
 def test_style_has_no_colour_literals():

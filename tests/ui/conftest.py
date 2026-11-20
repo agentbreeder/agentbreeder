@@ -30,7 +30,14 @@ class Console:
         self.process = process
         self.origin = info["origin"]
         self.login = info["login"]
+        self.password = info.get("password")  # None for a first-run console
         self.state = state
+
+    def reset_password(self, password: str) -> None:
+        """Replace the password from outside the server, as `up --reset-password` does."""
+        self.process.stdin.write(f"reset {password}\n")
+        self.process.stdin.flush()
+        assert json.loads(self.process.stdout.readline()) == {"reset": True}
 
     def mint(self) -> str:
         """A new one-time sign-in link, as pressing Enter in `up`'s terminal gives."""
@@ -67,7 +74,13 @@ def console_env() -> dict[str, str]:
 
 
 @pytest.fixture
-def console(tmp_path, console_env):
+def console_args() -> list[str]:
+    """Extra launcher arguments (`--first-run`: no password yet); a test module overrides it."""
+    return []
+
+
+@pytest.fixture
+def console(tmp_path, console_env, console_args):
     state = tmp_path / "state"
     state.mkdir(mode=0o700)
     env = {
@@ -78,7 +91,7 @@ def console(tmp_path, console_env):
         **console_env,
     }
     process = subprocess.Popen(
-        [sys.executable, "-I", str(HERE / "launcher.py"), str(state)],
+        [sys.executable, "-I", str(HERE / "launcher.py"), str(state), *console_args],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         text=True,

@@ -21,7 +21,7 @@ async function send(client, path, body) {
     const reply = await client.request(path, { body });
     return { data: reply.error ? null : reply.data, problem: reply.error };
   } catch (error) {
-    if (error.kind === "session") throw error;
+    // A 401 (M2 #818): the re-auth dialog opens over the page; this says to try again after it.
     return { data: null, problem: { code: error.code, message: error.message } };
   }
 }

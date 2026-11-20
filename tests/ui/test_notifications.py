@@ -157,6 +157,38 @@ def test_the_bell_counts_conditions_and_unread_events(page, console):
     expect(bell(page)).to_be_focused()
 
 
+def test_a_401_on_mark_read_opens_re_auth_and_the_panel_recovers(page, console):
+    # M2 (#818): a screen or panel never rethrows a session error; the re-auth dialog opens over
+    # the page, the panel says the marking failed, and it works again after signing in.
+    path = open_console(page, console)
+    stored(console, died(path, 1))
+    sign_in(page, console)
+    bell(page).click()
+    panel = page.get_by_role("region", name="Notifications", exact=True)
+    unauthorized = '{"data": null, "error": {"code": "SIGN_IN", "message": "no"}, "stale": false}'
+    page.route(
+        "**/api/events/read*",
+        lambda route: route.fulfill(
+            status=401, content_type="application/json", body=unauthorized
+        ),
+    )
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    panel.get_by_role("button", name="Mark all read").click()
+    dialog = page.get_by_role("dialog", name="Session ended")
+    expect(dialog).to_be_visible()
+    page.unroute("**/api/events/read*")
+    dialog.get_by_label("Password", exact=True).fill(console.password)
+    dialog.get_by_role("button", name="Sign in").click()
+    expect(dialog).to_have_count(0)
+    expect(
+        panel.get_by_role("status").filter(has_text="Could not mark the events read.")
+    ).to_be_attached()
+    panel.get_by_role("button", name="Mark all read").click()
+    expect(panel.get_by_role("button", name="All read")).to_have_attribute("aria-disabled", "true")
+    assert errors == []
+
+
 def test_nothing_to_show_says_so_and_shows_no_count(page, console):
     open_console(page, console, guide="build")
     sign_in(page, console)

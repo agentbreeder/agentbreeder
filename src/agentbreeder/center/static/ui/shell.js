@@ -33,8 +33,8 @@ export function Shell({ match }) {
       setEvents((previous) => ({ ...previous, events: reply.data.events, unread: reply.data.unread, error: null }));
       return true;
     } catch (error) {
-      if (error.kind === "session") throw error;
-      reloadEvents();
+      // A 401 (M2 #818): the re-auth dialog opens over the page; the panel says to try again.
+      if (error.kind !== "session") reloadEvents();
       return false;
     }
   };
@@ -126,7 +126,7 @@ const THEME_OPTIONS = [
  * option is in the tab order; the arrow keys move to, and choose, the next or previous one (Home and
  * End the first and last).
  */
-export function ThemeToggle() {
+export function ThemeToggle({ label = "Theme" }) {
   const { theme, setTheme } = useConsole();
   const group = useRef(null);
   const onKey = (event) => {
@@ -139,7 +139,7 @@ export function ThemeToggle() {
     setTheme(next.value);
     requestAnimationFrame(() => group.current?.querySelector(`[data-theme="${next.value}"]`)?.focus());
   };
-  return html`<div class="theme-toggle" role="radiogroup" aria-label="Theme" ref=${group} onKeyDown=${onKey}>
+  return html`<div class="theme-toggle" role="radiogroup" aria-label=${label} ref=${group} onKeyDown=${onKey}>
     ${THEME_OPTIONS.map((option) => {
       const checked = theme === option.value;
       return html`<button type="button" role="radio" aria-checked=${checked ? "true" : "false"} aria-label=${option.label} title=${option.label} tabindex=${checked ? "0" : "-1"} data-theme=${option.value} onClick=${() => setTheme(option.value)}><${Icon} name=${option.icon} /></button>`;
@@ -149,7 +149,7 @@ export function ThemeToggle() {
 
 /** The user menu: a disclosure that also closes on Escape (focus back to it) and outside clicks. */
 function UserMenu() {
-  const { signOut } = useConsole();
+  const { signOut, sessionKind } = useConsole();
   const menu = useRef(null);
   useEffect(() => {
     const onPointer = (event) => {
@@ -167,7 +167,8 @@ function UserMenu() {
   return html`<details class="menu" ref=${menu} onKeyDown=${onKey}>
     <summary>Owner<span class="visually-hidden"> menu</span></summary>
     <div class="menu-body glass-strong" role="group" aria-label="User menu">
-      <p class="muted small">Signed in on this tab with a one-time link from the terminal.</p>
+      <p class="muted small">${sessionKind === "link" ? "Signed in on this tab with a one-time link from the terminal." : "Signed in on this tab as admin@localhost."}</p>
+      <a class="menu-link" href="#/settings" onClick=${() => { menu.current.open = false; }}>Settings</a>
       <button type="button" class="action secondary small" onClick=${signOut}>Sign out of this tab</button>
     </div>
   </details>`;
@@ -257,15 +258,6 @@ function JobLog({ entry }) {
     ${entry.dropped ? html`<div class="muted small">${entry.dropped} earlier lines are not shown.</div>` : null}
     ${entry.lines.map((line) => html`<div class="line" key=${line.seq}><${Text} value=${line.text} /></div>`)}
   </div>`;
-}
-
-/** Not signed in, or the session ended. Re-auth returns to the screen you were on. */
-export function SignedOut({ reason }) {
-  return html`<main id="main" class="center-page">
-    <h1 tabindex="-1">${reason === "ended" ? "Session ended" : "Sign in"}</h1>
-    <p>${reason === "ended" ? "This tab's session ended: it was open 8 hours or idle 1 hour, or the console was restarted." : reason === "used" ? "This link was already used or has expired." : "There is no session in this tab."}</p>
-    <p class="muted">In the terminal running <code>agentbreeder up</code>, press Enter for a new one-time link. It brings you back to this screen.</p>
-  </main>`;
 }
 
 /** No HTTP answer at all: the console stopped, or this is not its address. */
