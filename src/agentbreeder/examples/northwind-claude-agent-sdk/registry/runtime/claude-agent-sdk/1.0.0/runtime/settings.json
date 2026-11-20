@@ -1,0 +1,5 @@
+{
+  "max_concurrent_turns": 2,
+  "max_leases": 4,
+  "lease_seconds": 200
+}

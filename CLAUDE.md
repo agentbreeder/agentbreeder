@@ -293,6 +293,18 @@ agent role SELECT on six `turns` columns for kit history. Website: no change
 until LangGraph passes its acceptance. Cloud: a `CLAUDE.md` note only; it has no code that reads
 a runtime manifest, the reply's `framework`/`runtime` or the deploy manifest's `runtime`.
 
+**Claude Agent SDK runtime and two-uid deploys, #1089 F7 (multi-framework), per side.** OSS (on
+`main`; unit-tested, not run end to end, not supported): `runtime/claude-agent-sdk@1.0.0` lives
+in `examples/northwind-claude-agent-sdk/registry/`, never `builtin_registry` (D8: AgentBreeder
+does not ship the CLI). New runtime manifest key `isolation: two-uid`; the deploy manifest's
+`runtime` gains optional `model_api: anthropic-messages` and `isolation: two-uid` (JSON Schema
+updated; written only when declared, so digests are unchanged). Deploy runs a second, secret-less
+CLI container (uid 65533; `--network none` on Docker, a second pod container on `kind`), keys get
+`/v1/messages` for `anthropic-messages`, and the gate refuses that wherever guardrails apply
+(`RUNTIME_GUARDRAILS_UNSUPPORTED`). Kit 1.0.0 is unchanged (the Anthropic route is a runtime-local
+proxy subclass). Website: no change until the runtime passes its acceptance and D15's support
+call. Cloud: a `CLAUDE.md` note only; it has no code that reads the deploy manifest's `runtime`.
+
 **Console sign-in, #818 M2 (epic #1054), per side.** OSS (on `main`): `up --set-password`,
 `--reset-password` and `--link`; `center.sqlite3` schema 4 (`users` with scrypt hashes, and
 `security_events`); new console routes (`/api/auth`, `/api/setup`, `/api/password`,

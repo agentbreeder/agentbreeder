@@ -512,6 +512,18 @@ def _check_shadowing(agent: AgentFile, placed: dict[str, Path], names: frozenset
                 )
 
 
+def _runtime_info(ref: str, profile: Profile) -> dict:
+    """The deploy manifest's `runtime` field for a kit runtime: `model_api` and `isolation`
+    only when the runtime declares the non-default ones (#1089), so every other manifest keeps
+    its bytes."""
+    info: dict = {"ref": ref, "profile": "kit"}
+    if profile.model_api == "anthropic-messages":
+        info["model_api"] = profile.model_api
+    if profile.isolation is not None:
+        info["isolation"] = profile.isolation
+    return info
+
+
 def _where(error: ValidationError) -> str:
     return ", ".join(".".join(map(str, e["loc"])) for e in error.errors()[:5])
 
@@ -537,7 +549,7 @@ def template(
                 "guardrails": list(agent.guardrails) or None,
                 # Written only for a kit runtime, so every manifest, package and revision
                 # digest of an agent on an earlier runtime keeps its bytes.
-                "runtime": {"ref": agent.runtime, "profile": "kit"} if kit else None,
+                "runtime": _runtime_info(agent.runtime, profile) if kit else None,
             }
         )
     except ValidationError as error:

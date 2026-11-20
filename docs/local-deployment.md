@@ -119,3 +119,16 @@ recreates the agents network and refreshes a recorded `agents_cidrs` with it. A 
   `model_access` (`MODEL_ACCESS_UNSUPPORTED`).
 - Someone who controls the Docker socket or the cluster can change any of this.
 
+
+### Two-uid kit deployments
+
+On `main`, not in a published preview (#1089, owner decision D15). **Not run on a real engine**
+(unit tests use a scripted Docker and kubectl; the opt-in run is
+`tests/test_northwind_claude_agent_sdk_docker.py`). A kit manifest whose `runtime` also says
+`isolation: two-uid` gets, on top of the above, a **CLI container**: the agent's own image as uid
+65533 with `AGENTBREEDER_ROLE=cli-host`, `--network none`, no secret mount, no environment but its
+role, and the agent's other container flags. The agent and CLI containers share one 1 MB tmpfs
+volume (`/run/agentbreeder-cli`, writable by the agent's uid only). Deploy verifies the CLI
+container before the deployment is ready and removes it and the volume on teardown. On `kind` the
+pod gets the same second container (`cli`). Only `runtime/claude-agent-sdk@1.0.0`, which
+AgentBreeder does not ship, declares it; see [runtimes/claude-agent-sdk.md](runtimes/claude-agent-sdk.md).

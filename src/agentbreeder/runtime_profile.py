@@ -34,6 +34,10 @@ DOCS_PATH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)
 PROTOCOLS = (1,)  # agent protocol versions this engine can build for (spec §10)
 PROFILES = ("v1", "kit")
 MODEL_APIS = ("openai-chat", "anthropic-messages")
+# How the deploy runs a kit runtime's image. `two-uid` (owner decision D15, #1089): a second
+# container from the same image, under its own uid with no secret mount, runs the framework's
+# subprocess (the Claude Code CLI). Unset: one container, as before.
+ISOLATIONS = ("two-uid",)
 # What `agent.yaml` itself allows (`agentfile.MAX_KNOWLEDGE`, `MAX_TOOLS`, `MAX_MCP`; a test keeps
 # them equal); a runtime's `limits` narrows these.
 ENGINE_LIMITS = {"knowledge": 5, "tools": 50, "mcp_servers": 10}
@@ -77,6 +81,7 @@ class Profile:
     reserved_tool_names: frozenset[str]
     kit: str | None = None
     model_api: str | None = None
+    isolation: str | None = None
     notes: str | None = None
     docs: str | None = None
     # True for a manifest without `protocol` (`LEGACY_ADK`). A legacy runtime checks reserved
@@ -101,6 +106,8 @@ class Profile:
         }
         if self.kit is not None:
             data["kit"] = self.kit
+        if self.isolation is not None:
+            data["isolation"] = self.isolation
         data["capabilities"] = sorted(self.capabilities)
         data["limits"] = dict(sorted(self.limits.items()))
         data["reserved_tool_names"] = sorted(self.reserved_tool_names)
@@ -314,6 +321,7 @@ PROTOCOL_KEYS = (
     "limits",
     "reserved_tool_names",
     "model_api",
+    "isolation",
     "notes",
     "docs",
 )
@@ -434,6 +442,9 @@ def from_manifest(meta: object) -> Profile:
     model_api = meta.get("model_api")
     if model_api is not None and model_api not in MODEL_APIS:
         raise _invalid("model_api")
+    isolation = meta.get("isolation")
+    if isolation is not None and (isolation not in ISOLATIONS or profile != "kit"):
+        raise _invalid("isolation")
     return Profile(
         framework=framework,
         display_name=_text(meta, "display_name", MAX_DISPLAY_NAME, required=True),
@@ -444,6 +455,7 @@ def from_manifest(meta: object) -> Profile:
         reserved_tool_names=_reserved(meta),
         kit=kit,
         model_api=model_api,
+        isolation=isolation,
         notes=_text(meta, "notes", MAX_NOTES),
         docs=_docs(meta),
     )

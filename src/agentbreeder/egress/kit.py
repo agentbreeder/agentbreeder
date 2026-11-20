@@ -13,6 +13,12 @@ container flags, ownership labels, teardown, and the probe run from inside the a
 namespace. It adds no policy decision: which destinations exist is the operator config's, and
 the manifest field is a signal written by `build`, not a security boundary (a hand-written
 manifest can leave it out).
+
+A manifest with `runtime.isolation: two-uid` (#1089, owner decision D15) also gets a CLI
+container: the agent's own image, run as CLI_USER with `AGENTBREEDER_ROLE=cli-host`, no secret
+mount, no network at all (`--network none`) and the agent container's other flags. The two share
+only a small tmpfs volume (SHARED_DIR) that only the agent's uid may write; the runtime checks
+every peer's kernel credentials over it (the runtime's `link_protocol.py`).
 """
 
 from __future__ import annotations
@@ -40,6 +46,11 @@ HOST_NAME = "host.docker.internal"
 GATEWAY_URL_ENV = "AGENTBREEDER_GATEWAY_URL"
 CONFIG_ENV = "AGENTBREEDER_FORWARDER_CONFIG"
 ROLE = "forwarder"
+CLI_ROLE = "cli"
+CLI_USER = "65533:65533"
+KIT_UID = 65532
+SHARED_DIR = "/run/agentbreeder-cli"
+ROLE_ENV = "AGENTBREEDER_ROLE=cli-host"
 UNSUPPORTED = "KIT_EGRESS_UNSUPPORTED"
 _CODE_FILES = (
     ("agentbreeder/__init__.py", ("agentbreeder", "__init__.py")),
@@ -51,6 +62,22 @@ _CODE_FILES = (
 
 def is_kit(manifest: Manifest) -> bool:
     return manifest.runtime is not None and manifest.runtime.profile == "kit"
+
+
+def two_uid(manifest: Manifest) -> bool:
+    return is_kit(manifest) and manifest.runtime.isolation == "two-uid"
+
+
+VOLUME_OPTIONS = f"size=1m,uid={KIT_UID},gid={KIT_UID},mode=0755,noexec,nosuid,nodev"
+
+
+def shared_mount(volume: str, readonly: bool = False) -> str:
+    """The `--mount` of the shared directory: a named volume, never a host path; `volume-nocopy`
+    so the image's mount point cannot set its owner or content. Read-only in the CLI container:
+    it only connects to the kit's sockets (a Unix connect works on a read-only mount)."""
+    return f"type=volume,src={volume},dst={SHARED_DIR},volume-nocopy" + (
+        ",readonly" if readonly else ""
+    )
 
 
 def applies(manifest: Manifest) -> bool:
@@ -152,7 +179,13 @@ class KitBoundary(Boundary):
     @staticmethod
     def names(record: dict) -> dict:
         base = record["container"]
-        return {"internal": base + "-int", "egress": base + "-egress", "sidecar": base + "-fwd"}
+        return {
+            "internal": base + "-int",
+            "egress": base + "-egress",
+            "sidecar": base + "-fwd",
+            "cli": base + "-cli",
+            "shared": base + "-shared",
+        }
 
     def image(self) -> tuple[str, str]:
         return self.built("agentbreeder-forwarder", *forwarder_context())
@@ -250,10 +283,35 @@ class KitBoundary(Boundary):
         self.runtime.command(
             "network", "connect", "--alias", SIDECAR_HOST, names["internal"], names["sidecar"]
         )
+        extra: dict = {}
+        if two_uid(manifest):
+            self.runtime.command(
+                "volume",
+                "create",
+                "--label",
+                "io.agentbreeder.deployment=" + record["id"],
+                "--driver",
+                "local",
+                "--opt",
+                "type=tmpfs",
+                "--opt",
+                "device=tmpfs",
+                "--opt",
+                "o=" + VOLUME_OPTIONS,
+                names["shared"],
+            )
+            extra["volumes"] = (shared_mount(names["shared"]),)
         # No host mapping and no published port: the agent's only networks are internal.
         self.runtime.create(
-            record, manifest, network=names["internal"], environment=environment, mounts=mounts
+            record,
+            manifest,
+            network=names["internal"],
+            environment=environment,
+            mounts=mounts,
+            **extra,
         )
+        if two_uid(manifest):
+            self._create_cli(record, manifest, names)
         if agents_network:
             try:
                 self.runtime.command("network", "connect", agents_network, record["container"])
@@ -262,6 +320,124 @@ class KitBoundary(Boundary):
                     "Cannot join the environment's network; is its stack up "
                     "(agentbreeder services up)?"
                 ) from None
+
+    def _create_cli(self, record: dict, manifest: Manifest, names: dict) -> None:
+        """The CLI container: the agent's image and flags, its own uid, no secret, no
+        network, no environment but its role."""
+        self.runtime.command(
+            "container",
+            "create",
+            "--name",
+            names["cli"],
+            "--pull",
+            "never",
+            *self._labels(record, CLI_ROLE),
+            "--network",
+            "none",
+            "--env",
+            ROLE_ENV,
+            "--mount",
+            shared_mount(names["shared"], readonly=True),
+            "--user",
+            CLI_USER,
+            "--read-only",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
+            "--memory",
+            "512m",
+            "--cpus",
+            "1",
+            "--pids-limit",
+            "128",
+            "--tmpfs",
+            "/tmp:rw,noexec,nosuid,size=64m",
+            "--log-driver",
+            "local",
+            "--log-opt",
+            "max-size=10m",
+            "--log-opt",
+            "max-file=2",
+            manifest.image,
+            timeout=60,
+        )
+
+    def _verify_cli(self, record: dict, manifest: Manifest, agent: dict) -> None:
+        """Fail closed unless the CLI container is the one `_create_cli` made: running, its own
+        uid, no network, no capability, no secret, and only the shared volume mounted (which
+        the agent mounts too)."""
+        names = self.names(record)
+        cli = self._inspect("container", names["cli"])
+        labels = (cli.get("Config") or {}).get("Labels") or {}
+        if (
+            labels.get("io.agentbreeder.deployment") != record["id"]
+            or labels.get("io.agentbreeder.role") != CLI_ROLE
+        ):
+            raise BoundaryUnverified("cli ownership does not match")
+        config = cli.get("Config") or {}
+        host = cli.get("HostConfig") or {}
+        if (cli.get("State") or {}).get("Running") is not True:
+            raise BoundaryUnverified("cli is not running")
+        if config.get("User") != CLI_USER or host.get("NetworkMode") != "none":
+            raise BoundaryUnverified("cli does not run as its own uid without a network")
+        if host.get("Privileged") or host.get("CapAdd") or host.get("CapDrop") != ["ALL"]:
+            raise BoundaryUnverified("cli capabilities are not dropped")
+        if not host.get("ReadonlyRootfs") or host.get("Binds"):
+            raise BoundaryUnverified("cli has a writable root or a host path")
+        if cli.get("Image") != agent.get("Image"):
+            raise BoundaryUnverified("cli does not run the agent's image")
+        environment = config.get("Env") or []
+        if ROLE_ENV not in environment or any(
+            item.split("=", 1)[0].endswith("_FILE") or item.startswith("AGENTBREEDER_GATEWAY")
+            for item in environment
+        ):
+            raise BoundaryUnverified("cli environment does not match")
+
+        def volumes(info: dict) -> list:
+            return [
+                (m.get("Type"), m.get("Name"), m.get("Destination"), m.get("RW"))
+                for m in info.get("Mounts") or []
+            ]
+
+        if volumes(cli) != [("volume", names["shared"], SHARED_DIR, False)] or (
+            "volume",
+            names["shared"],
+            SHARED_DIR,
+            True,
+        ) not in volumes(agent):
+            raise BoundaryUnverified("cli mounts more than the shared directory, read-only")
+        if not (host.get("SecurityOpt") or []) or "no-new-privileges" not in " ".join(
+            host.get("SecurityOpt") or []
+        ):
+            raise BoundaryUnverified("cli capabilities are not dropped (no-new-privileges)")
+        volume = self._inspect("volume", names["shared"])
+        if (volume.get("Labels") or {}).get("io.agentbreeder.deployment") != record["id"]:
+            raise BoundaryUnverified("shared volume ownership does not match")
+        # The options are the control that keeps the CLI's uid from writing the kit's sockets.
+        if (volume.get("Options") or {}) != {
+            "type": "tmpfs",
+            "device": "tmpfs",
+            "o": VOLUME_OPTIONS,
+        }:
+            raise BoundaryUnverified("shared volume options do not match")
+
+    def teardown_containers(self, record: dict) -> None:
+        super().teardown_containers(record)
+        volumes = self._owned_volumes(record)
+        if volumes:
+            self.runtime.command("volume", "rm", "--force", *volumes)
+
+    def _owned_volumes(self, record: dict) -> list[str]:
+        output = self.runtime.command(
+            "volume",
+            "ls",
+            "--filter",
+            "label=io.agentbreeder.deployment=" + record["id"],
+            "--format",
+            "{{.Name}}",
+        )
+        return [line for line in output.splitlines() if line.strip()]
 
     def _internal(self, name: str, desktop: bool) -> dict:
         """The network, which must be internal and, on a Linux engine, keep the host off its
@@ -273,9 +449,12 @@ class KitBoundary(Boundary):
             raise BoundaryUnverified(f"Network {name}'s gateway is not isolated from the host")
         return network
 
-    def start_sidecar(self, record: dict) -> None:
-        """Idempotent: starting a running container is a no-op."""
-        self.runtime.command("container", "start", self.names(record)["sidecar"])
+    def start_sidecar(self, record: dict, manifest: Manifest | None = None) -> None:
+        """Idempotent: starting a running container is a no-op. A two-uid deployment's CLI
+        container starts with it (it has no network, so it needs nothing from the agent)."""
+        names = self.names(record)
+        extra = [names["cli"]] if manifest is not None and two_uid(manifest) else []
+        self.runtime.command("container", "start", names["sidecar"], *extra)
 
     def _sidecar(self, record: dict) -> dict:
         info = self._inspect("container", self.names(record)["sidecar"])
@@ -344,6 +523,8 @@ class KitBoundary(Boundary):
                 raise BoundaryUnverified(f"{role} is privileged or not running")
             if host.get("CapDrop") != ["ALL"]:
                 raise BoundaryUnverified(f"{role} capabilities are not dropped")
+        if two_uid(manifest):
+            self._verify_cli(record, manifest, agent)
         agent_host = agent.get("HostConfig") or {}
         agent_networks = set(((agent.get("NetworkSettings") or {}).get("Networks") or {}).keys())
         if agent_host.get("NetworkMode") != names["internal"] or agent_networks != set(expected):
@@ -404,5 +585,9 @@ class KitBoundary(Boundary):
         """Remove every container and network labelled for this deployment. Verified:
         anything left behind raises."""
         self.teardown_containers(record)
-        if self._owned("container", record) or self._owned("network", record):
+        if (
+            self._owned("container", record)
+            or self._owned("network", record)
+            or self._owned_volumes(record)
+        ):
             raise DeploymentError("Kit egress teardown could not be verified; retry")

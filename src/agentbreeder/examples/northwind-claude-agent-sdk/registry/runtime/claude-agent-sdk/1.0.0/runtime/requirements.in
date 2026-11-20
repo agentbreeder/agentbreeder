@@ -1,0 +1,15 @@
+# runtime/claude-agent-sdk@1.0.0 (#1089, multi-framework spec F7). The versions F0 probed (spec
+# §6.1): claude-agent-sdk 0.2.177, whose platform wheels bundle the Claude Code CLI 2.1.317 as a
+# native binary (the wheel's hash below pins that binary). AgentBreeder does not ship this runtime
+# (owner decision D8): it is an example a user adds to their own project registry, and their own
+# `agentbreeder build` installs the wheel from PyPI. Running it means accepting Anthropic's terms
+# for Claude Code. Plus the kit's own packages (h11, httpx, psycopg, OpenTelemetry). No
+# OpenInference instrumentor: 0.1.24 adds SDK hooks (the spec sets none) and no LLM spans; the kit
+# writes the root, TOOL and (from the proxy) LLM spans itself.
+claude-agent-sdk==0.2.177
+opentelemetry-sdk==1.45.2
+opentelemetry-exporter-otlp-proto-http==1.45.2
+psycopg[binary]==3.3.6
+pyyaml==6.0.3
+h11==0.16.0
+httpx==0.28.1

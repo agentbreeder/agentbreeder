@@ -53,3 +53,8 @@ environment:
       sponsor: support-lead@example.com
       review_by: "2027-06-30"
       candidate: true
+    # The Claude Agent SDK port (../northwind-claude-agent-sdk, #1089); not run end to end.
+    northwind-support-claude-agent-sdk:
+      sponsor: support-lead@example.com
+      review_by: "2027-06-30"
+      candidate: true

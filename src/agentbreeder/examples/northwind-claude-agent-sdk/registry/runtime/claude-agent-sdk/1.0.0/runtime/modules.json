@@ -1,0 +1,163 @@
+{
+ "schema_version": 1,
+ "modules": [
+  "anthropic_proxy",
+  "claude_adapter",
+  "cli_host",
+  "cli_link",
+  "kit",
+  "link_protocol",
+  "server",
+  "transcript"
+ ],
+ "imports": {
+  "annotated-types": [
+   "annotated_types"
+  ],
+  "anyio": [
+   "anyio"
+  ],
+  "attrs": [
+   "attr",
+   "attrs"
+  ],
+  "certifi": [
+   "certifi"
+  ],
+  "cffi": [
+   "_cffi_backend",
+   "cffi"
+  ],
+  "charset-normalizer": [
+   "charset_normalizer"
+  ],
+  "claude-agent-sdk": [
+   "claude_agent_sdk"
+  ],
+  "click": [
+   "click"
+  ],
+  "cryptography": [
+   "cryptography"
+  ],
+  "googleapis-common-protos": [
+   "google"
+  ],
+  "h11": [
+   "h11"
+  ],
+  "httpcore": [
+   "httpcore"
+  ],
+  "httpcore2": [
+   "httpcore2"
+  ],
+  "httpx": [
+   "httpx"
+  ],
+  "httpx2": [
+   "httpx2"
+  ],
+  "idna": [
+   "idna"
+  ],
+  "jsonschema": [
+   "jsonschema"
+  ],
+  "jsonschema-specifications": [
+   "jsonschema_specifications"
+  ],
+  "mcp": [
+   "mcp"
+  ],
+  "mcp-types": [
+   "mcp_types"
+  ],
+  "opentelemetry-api": [
+   "opentelemetry"
+  ],
+  "opentelemetry-exporter-http-transport": [
+   "opentelemetry"
+  ],
+  "opentelemetry-exporter-otlp-common": [
+   "opentelemetry"
+  ],
+  "opentelemetry-exporter-otlp-proto-common": [
+   "opentelemetry"
+  ],
+  "opentelemetry-exporter-otlp-proto-http": [
+   "opentelemetry"
+  ],
+  "opentelemetry-proto": [
+   "opentelemetry"
+  ],
+  "opentelemetry-sdk": [
+   "opentelemetry"
+  ],
+  "opentelemetry-semantic-conventions": [
+   "opentelemetry"
+  ],
+  "protobuf": [
+   "google"
+  ],
+  "psycopg": [
+   "psycopg"
+  ],
+  "psycopg-binary": [
+   "psycopg_binary"
+  ],
+  "pycparser": [
+   "pycparser"
+  ],
+  "pydantic": [
+   "pydantic"
+  ],
+  "pydantic-core": [
+   "pydantic_core"
+  ],
+  "pyjwt": [
+   "jwt"
+  ],
+  "python-multipart": [
+   "multipart",
+   "python_multipart"
+  ],
+  "pyyaml": [
+   "_yaml",
+   "yaml"
+  ],
+  "referencing": [
+   "referencing"
+  ],
+  "requests": [
+   "requests"
+  ],
+  "rpds-py": [
+   "rpds"
+  ],
+  "sniffio": [
+   "sniffio"
+  ],
+  "sse-starlette": [
+   "sse_starlette"
+  ],
+  "starlette": [
+   "starlette"
+  ],
+  "truststore": [
+   "truststore"
+  ],
+  "typing-extensions": [
+   "typing_extensions"
+  ],
+  "typing-inspection": [
+   "typing_inspection"
+  ],
+  "urllib3": [
+   "urllib3"
+  ],
+  "uvicorn": [
+   "uvicorn"
+  ]
+ }
+}
