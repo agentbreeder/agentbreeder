@@ -202,7 +202,7 @@ def test_openai_uses_its_embedding_model(tmp_path, kb_root):
 
 def test_the_verified_combinations():
     """The #833 runs: gemini with one knowledge version, one path tool, or both; never MCP."""
-    # Keyed by the runtime's name since #1083 F1; only runtime/adk has been run.
+    # Keyed by the runtime's name since #1083 F1.
     # #1058 and #1059 AC added sub-agents (with one tool) and skills, on runtime/adk@1.5.0 only
     # (`PART_RUNTIMES`; tests/test_agent_spec_v2.py).
     assert agentspec.VERIFIED == {
@@ -216,19 +216,32 @@ def test_the_verified_combinations():
                 ("subagents", "tools"),
                 ("skills",),
             }
-        )
+        ),
+        # The starter and one tool on runtime/langgraph@1.0.0, gemini only
+        # (verify-langgraph-adk150.md; tests/test_runtime_profile.py).
+        "langgraph": frozenset({(), ("tools",)}),
     }
+    assert agentspec.BASE_RUNTIMES == {
+        "adk": newagent.RUNTIME,
+        "langgraph": "runtime/langgraph@1.0.0",
+    }
+    assert agentspec.RUNTIME_PROVIDERS == {"langgraph": {"gemini"}}
     assert agentspec.VERIFIED_TOOLS == 1
     # openrouter and openai ran without tools (#1020)
     assert agentspec.TOOL_PROVIDERS == {"gemini"}
     assert not any("mcp" in parts for runs in agentspec.VERIFIED.values() for parts in runs)
     # The registry label is a separate table of runtime versions (owner decision 2026-11-17).
-    assert agentspec.RUNTIMES_RUN == {"runtime/adk@1.3.0", "runtime/adk@1.4.0"}
+    assert agentspec.RUNTIMES_RUN == {
+        "runtime/adk@1.3.0",
+        "runtime/adk@1.4.0",
+        "runtime/adk@1.5.0",  # verify-langgraph-adk150.md
+        "runtime/langgraph@1.0.0",  # verify-langgraph-adk150.md
+    }
     assert newagent.RUNTIME in agentspec.RUNTIMES_RUN
     assert agentspec.runtime_verified(newagent.RUNTIME)
     assert agentspec.runtime_verified("runtime/adk@1.3.0")  # Northwind 61/61 (#1095)
     assert not agentspec.runtime_verified("runtime/adk@1.2.0")
-    assert not agentspec.runtime_verified("runtime/langgraph@1.0.0")
+    assert agentspec.runtime_verified("runtime/langgraph@1.0.0")
 
 
 def publish_echo(tmp_path: Path, root: Path, *names: str) -> list[str]:

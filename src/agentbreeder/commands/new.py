@@ -54,7 +54,8 @@ def register(commands) -> None:
         metavar="REF",
         help=(
             "Runtime version agent.yaml pins, runtime/NAME@X.Y.Z (default: "
-            f"{newagent.RUNTIME}, the only one the starter has been run end to end on); "
+            f"{newagent.RUNTIME}; the starter has also been run end to end on "
+            "runtime/langgraph@1.0.0 with gemini); "
             "`agentbreeder registry runtimes` lists them"
         ),
     )
@@ -285,13 +286,19 @@ def _verification(summary: dict) -> list[str]:
     runtime = summary.get("runtime", newagent.RUNTIME)
     lines = []
     # `--from-spec` says both through `combination` and its `refs` (the caller's notes).
-    if runtime != newagent.RUNTIME and "combination" not in summary:
+    ran_with = newagent.STARTER_RUNTIMES.get(runtime)
+    if runtime != newagent.RUNTIME and "combination" not in summary and ran_with is None:
         lines.append(
             f"{runtime} is not the runtime version this starter has been run end to end on "
             f"({newagent.RUNTIME})."
         )
         if summary.get("runtime_root_kind", "builtin") != "builtin":
             lines.append(f"Code that runs in agents, not shipped with AgentBreeder: {runtime}.")
+    if ran_with is not None and "combination" not in summary and model not in ran_with:
+        lines.append(
+            f"This starter has been run end to end on {runtime} with "
+            f"{', '.join(sorted(ran_with))} only, not with {model}."
+        )
     if not newagent.PROVIDERS[model].verified:
         return lines + [
             f"{model} is config-only: this starter has not been run end to end with it (the "

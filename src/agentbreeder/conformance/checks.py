@@ -206,6 +206,8 @@ class Context:
     deployment_id: str | None = None
     logs: Callable[[], str] | None = None
     upstream_texts: list[str] = field(default_factory=list)
+    # The image was built with `traces: none`: the span checks are `not_run` (`TRACES_OFF`).
+    traces_off: bool = False
     span_wait: float = SPAN_WAIT
     span_settle: float = SPAN_SETTLE
     busy_delay: float = BUSY_DELAY
@@ -924,6 +926,24 @@ CHECKS: tuple[Check, ...] = (
 )
 
 
+# The checks that read the spans of a turn. An image built with `traces: none` sends none,
+# so they cannot run (protocol: spans are written when the deployment has a trace collector);
+# they are `not_run`, never a pass, and the report is at best `incomplete`.
+SPAN_CHECKS = frozenset(
+    {
+        "traces.root_span",
+        "traces.llm_span",
+        "traces.tool_span",
+        "hygiene.spans",
+        "model_errors.text_spans",
+    }
+)
+TRACES_OFF = (
+    "the image was built with traces: none, so it sends no spans; build it with traces: otlp "
+    "to run this check"
+)
+
+
 def run(ctx: Context, checks: tuple[Check, ...] = CHECKS) -> list[dict]:
     """Run every check in order; one row per check: {id, group, title, status, detail}."""
     rows = []
@@ -935,6 +955,9 @@ def run(ctx: Context, checks: tuple[Check, ...] = CHECKS) -> list[dict]:
             continue
         if check.run is None:
             rows.append({**row, "status": NOT_RUN, "detail": check.pending})
+            continue
+        if ctx.traces_off and check.id in SPAN_CHECKS:
+            rows.append({**row, "status": NOT_RUN, "detail": TRACES_OFF})
             continue
         try:
             # Spans are kept from one check to the next: the last checks read every turn's.

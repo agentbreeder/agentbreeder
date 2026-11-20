@@ -40,6 +40,8 @@ from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
+import yaml
+
 from agentbreeder import mcp as mcp_relay
 from agentbreeder import registry, runtime_profile
 from agentbreeder.conformance import checks, fakes, protocol, report
@@ -90,6 +92,9 @@ class Subject:
     profile: str  # v1 or kit
     framework: str
     manifest: Manifest
+    # `traces: none` in the agent.yaml the build hashed: the image sends no spans, so the
+    # checks that read spans are `not_run` (`checks.TRACES_OFF`). False when it is unknown.
+    traces_off: bool = False
 
 
 def _build_record(image: str, project: Path) -> dict:
@@ -118,6 +123,27 @@ def _build_record(image: str, project: Path) -> dict:
         "run `agentbreeder build` in the agent's project, then pass its directory with "
         "--project",
     )
+
+
+def _traces_off(record: dict, project: Path) -> bool:
+    """Whether the build turned the agent's traces off: `traces: none` in the project's
+    agent.yaml, read only when it is still the file the build hashed (the record's
+    `agent_yaml_sha256`). Anything else (a moved or changed file, one that cannot be read or
+    parsed) is unknown, and every check runs."""
+    expected = record.get("agent_yaml_sha256")
+    if not isinstance(expected, str):
+        return False
+    try:
+        raw = read_project_file(project / "agent.yaml", BUILD_RECORD_LIMIT)
+    except RegistryError:
+        return False
+    if raw is None or "sha256:" + hashlib.sha256(raw).hexdigest() != expected:
+        return False
+    try:
+        data = yaml.safe_load(raw)
+    except (yaml.YAMLError, RecursionError):
+        return False
+    return isinstance(data, dict) and data.get("traces") == "none"
 
 
 def subject(image: str, project: Path) -> Subject:
@@ -157,7 +183,15 @@ def subject(image: str, project: Path) -> Subject:
             "CONFORMANCE_MANIFEST",
             f"deploy/{agent}.deploy.yaml is for another image; build the agent again",
         )
-    return Subject(image, agent, str(ref), profile.profile, profile.framework, manifest)
+    return Subject(
+        image,
+        agent,
+        str(ref),
+        profile.profile,
+        profile.framework,
+        manifest,
+        traces_off=_traces_off(record, project),
+    )
 
 
 def fakes_context() -> tuple[bytes, str]:
@@ -484,6 +518,7 @@ class Environment:
             secrets=dict(self.secrets),
             deployment_id=self.run_id,
             logs=self.logs,
+            traces_off=self.subject.traces_off,
         )
 
     def logs(self) -> str:

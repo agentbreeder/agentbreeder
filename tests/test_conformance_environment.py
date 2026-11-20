@@ -4,6 +4,7 @@ command. No test here runs Docker."""
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -66,6 +67,38 @@ def test_the_subject_comes_from_the_build_record(tmp_path):
     assert (found.agent, found.runtime, found.profile) == ("stub", RUNTIME, "v1")
     assert found.framework == "google-adk"  # LEGACY_ADK: a manifest without `protocol`
     assert found.manifest.port == 8080 and found.manifest.health_path == "/health"
+
+
+def test_traces_off_comes_from_the_agent_yaml_the_build_hashed(tmp_path):
+    """`traces: none` in the project's agent.yaml, while it is the file the build hashed, makes
+    the span checks `not_run`; a changed, missing or unparsable file, or a record without the
+    hash, leaves every check on."""
+    directory = project(tmp_path)
+    record_path = directory / "deploy" / "stub.build.json"
+    agent = directory / "agent.yaml"
+
+    def built(text: bytes, record_hash: bool = True) -> bool:
+        agent.write_bytes(text)
+        record = json.loads(record_path.read_text())
+        record.pop("agent_yaml_sha256", None)
+        if record_hash:
+            record["agent_yaml_sha256"] = "sha256:" + hashlib.sha256(text).hexdigest()
+        record_path.write_text(json.dumps(record))
+        return environment.subject(IMAGE, directory).traces_off
+
+    assert built(b"kind: agent\nname: stub\ntraces: none\n") is True
+    assert built(b"kind: agent\nname: stub\ntraces: otlp\n") is False
+    assert built(b"kind: agent\nname: stub\n") is False  # the default is otlp
+    assert built(b"kind: agent\ntraces: none\n", record_hash=False) is False
+    assert built(b"traces: [none\n") is False  # not YAML
+    assert built(b"- traces\n") is False  # not a mapping
+    built(b"kind: agent\ntraces: none\n")
+    agent.write_bytes(b"kind: agent\ntraces: none\n# edited after the build\n")
+    assert environment.subject(IMAGE, directory).traces_off is False
+    agent.unlink()
+    assert environment.subject(IMAGE, directory).traces_off is False
+    agent.symlink_to(record_path)  # a link is not read
+    assert environment.subject(IMAGE, directory).traces_off is False
 
 
 def refusal(image, directory) -> environment.ConformanceError:
