@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  DEFAULT_RUNTIME, FIRST_CASE, MAX_CASES, MAX_SERVERS, MAX_TOOLS, buildSpec, createBody, createProblem, defaultRuntime, formProblem, frameworks, grantTool,
+  DEFAULT_RUNTIME, FIRST_CASE, STARTER_RUNTIME, MAX_CASES, MAX_SERVERS, MAX_TOOLS, buildSpec, createBody, createProblem, defaultRuntime, formProblem, frameworks, grantTool,
   hasCapability, initialCases, initialForm, invalidPicks, invalidProblem, invalidText, keepOffered, pickFramework, pickGroups, pickServer, pickTool, picksProblem,
   previewBody, removePick, reservedName, runtimeAnnouncement, runtimeLabel, runtimeOf, runtimeStatus, specCases, toolBlocked, toolsFull, unusableRuntimes,
   unusableText, unverifiedText,
@@ -222,12 +222,21 @@ test("a runtime the CLI cannot use is text, never a choice", () => {
   assert.equal(runtimeOf(RUNTIMES, ADK), RUNTIMES[0]);
 });
 
-test("a new form starts on the default framework's newest version run end to end (C1)", () => {
+test("a new form starts on the default framework's starter version (C1)", () => {
   assert.equal(DEFAULT_RUNTIME, "adk");
+  assert.equal(STARTER_RUNTIME, ADK);
   assert.equal(defaultRuntime(RUNTIMES.filter((entry) => entry.version !== "1.10.0")), ADK);
   assert.equal(defaultRuntime(RUNTIMES), ADK, "a newer version not run end to end is not the start");
+  // A newer version run end to end (runtime/adk@1.5.0 with sub-agents and skills) is not the
+  // start either: a plain spec is verified only on the starter's version, so Create would refuse.
+  const newerRun = RUNTIMES.map((entry) => (entry.version === "1.10.0" ? { ...entry, verified: true } : entry));
+  assert.equal(defaultRuntime(newerRun), ADK, "the starter, not the newest run");
+  assert.equal(pickFramework(form(), "adk", newerRun).runtime, ADK);
   const unrun = RUNTIMES.map((entry) => ({ ...entry, verified: false }));
-  assert.equal(defaultRuntime(unrun), "runtime/adk@1.10.0", "with none run, the newest");
+  assert.equal(defaultRuntime(unrun), ADK, "the starter, run or not");
+  const noStarter = RUNTIMES.filter((entry) => entry.ref !== ADK);
+  assert.equal(defaultRuntime(noStarter), "runtime/adk@1.3.0", "without the starter, the newest run");
+  assert.equal(defaultRuntime(noStarter.map((entry) => ({ ...entry, verified: false }))), "runtime/adk@1.10.0", "with none run, the newest");
   assert.equal(defaultRuntime([LANGGRAPH]), null, "no other framework becomes the default");
   assert.equal(pickFramework(form(), "langgraph", RUNTIMES).runtime, "runtime/langgraph@1.0.0");
   const same = form();

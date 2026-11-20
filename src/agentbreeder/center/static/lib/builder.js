@@ -89,12 +89,20 @@ export const runtimeOf = (runtimes, ref) => (runtimes || []).find((entry) => ent
 /** "LangGraph 1.0.0": the framework's own name (C8) and the version. */
 export const runtimeLabel = (entry) => `${entry.display_name} ${entry.version}`;
 
+// The version `new agent` writes by default (`newagent.RUNTIME`). The console's form has no
+// sub-agents or skills, and a spec without them is verified only on this version
+// (`agentspec.verified`), so a form starts here even when a newer version was run end to end
+// (runtime/adk@1.5.0 ran with sub-agents and skills, `agentspec.PART_RUNTIMES`).
+export const STARTER_RUNTIME = "runtime/adk@1.4.0";
+
 /**
- * The version a framework starts on: its newest version run end to end, else its newest. A newer
- * version that has not been run (runtime/adk@1.5.0 today) stays one pick away, so a new form is not
- * an unverified combination that Create refuses (composition console spec §4.1).
+ * The version a framework starts on: the starter's version (`STARTER_RUNTIME`) when the framework
+ * has it, else its newest version run end to end, else its newest. Any other version stays one
+ * pick away, so a new form is not an unverified combination that Create refuses (composition
+ * console spec §4.1).
  */
-const startingVersion = (group) => (group.versions.find((entry) => entry.verified) || group.versions[0]).ref;
+const startingVersion = (group) =>
+  (group.versions.find((entry) => entry.ref === STARTER_RUNTIME) || group.versions.find((entry) => entry.verified) || group.versions[0]).ref;
 
 /** The ref a new form starts on: the default framework's starting version, or null. */
 export function defaultRuntime(runtimes) {

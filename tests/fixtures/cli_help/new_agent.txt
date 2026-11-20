@@ -27,9 +27,9 @@ options:
                         openrouter/google/gemini-3.8-flash; openrouter ids are
                         openrouter/<vendor>/<model>)
   --runtime REF         Runtime version agent.yaml pins, runtime/NAME@X.Y.Z
-                        (default: runtime/adk@1.4.0, the only one the starter
-                        has been run end to end on); `agentbreeder registry
-                        runtimes` lists them
+                        (default: runtime/adk@1.4.0; the starter has also been
+                        run end to end on runtime/langgraph@1.0.0 with
+                        gemini); `agentbreeder registry runtimes` lists them
   --dir DIR             Destination (default ./NAME)
   --stack-for AGENT_YAML
                         Instead of a starter, write stack.yaml and

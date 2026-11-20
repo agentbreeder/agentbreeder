@@ -67,6 +67,22 @@ def test_a_conformant_agent_passes_every_implemented_check(world):
     assert checks.result(list(rows.values())) == "incomplete"
 
 
+def test_an_image_built_with_traces_off_does_not_run_the_span_checks(world):
+    """`traces: none` (the starter's default): the image sends no spans, so the span checks are
+    `not_run` with the reason, never a failure and never a pass; the others still run."""
+    made = world(flaws={"no_spans"})  # as the real image: it sends none
+    made.context.traces_off = True
+    rows = made.run()
+    for name in checks.SPAN_CHECKS:
+        assert rows[name]["status"] == checks.NOT_RUN, name
+        if next(c for c in checks.CHECKS if c.id == name).run is not None:
+            assert rows[name]["detail"] == checks.TRACES_OFF
+    assert [row for row in rows.values() if row["status"] == checks.FAIL] == []
+    ran = set(IMPLEMENTED) - checks.SPAN_CHECKS
+    assert {n for n, row in rows.items() if row["status"] == checks.PASS} == ran
+    assert checks.result(list(rows.values())) == "incomplete"
+
+
 def test_a_kit_image_is_held_to_the_kit_checks(world):
     rows = world(profile="kit").run("serving.readiness", "proxy.requests", "serving.health")
     assert rows["serving.readiness"]["status"] == checks.NOT_RUN

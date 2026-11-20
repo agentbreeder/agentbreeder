@@ -437,8 +437,9 @@ A `runtime/` version is the agent server: a fixed `Dockerfile`, a `runtime/` dir
 hash-locked `requirements.lock`, and a `manifest.yaml`. Since #1083 F1 that manifest and one
 generated file are the only place `build`, `new agent` and the registry commands take framework
 facts from. Nothing in the engine branches on a framework's name. Two runtimes ship:
-`runtime/adk` and `runtime/langgraph@1.0.0` (#1083 F3, the first on the runtime kit; built and
-run end to end on macOS x86_64, **not verified**, see [runtimes/langgraph.md](runtimes/langgraph.md)).
+`runtime/adk` and `runtime/langgraph@1.0.0` (#1083 F3, the first on the runtime kit; run end
+to end and verified on macOS x86_64 only, for the starter and one tool with Gemini, see
+[runtimes/langgraph.md](runtimes/langgraph.md)).
 
 **Manifest keys** (beside `port`, `health_path`, `secrets` and `environment`):
 
@@ -521,13 +522,16 @@ so a reader such as the local console needs no knowledge of profiles:
 
 - `kit`, `notes` and `docs` appear only when the manifest has them.
 - `verified` is true for a runtime version that has been run end to end. Today that is
-  `runtime/adk@1.3.0` (Northwind 61/61, #1095) and `runtime/adk@1.4.0` (the starter and the
-  3.0.0a3 public-registry runs). It is about the version, not a `new agent` combination: those
-  all ran on the starter's default, `runtime/adk@1.4.0`, so a spec or `--runtime` that pins
-  `1.3.0` still has `verified: false` in `new agent`'s output. `runtime/adk@1.5.0` has also been
-  run end to end (Northwind 61/61 and the sub-agents and skills acceptance runs, #1058 and
-  #1059, on `main`) but is not labelled so yet: the label would make the console start new forms
-  on it, where only sub-agent and skill combinations are verified.
+  `runtime/adk@1.3.0` (Northwind 61/61, #1095), `runtime/adk@1.4.0` (the starter and the
+  3.0.0a3 public-registry runs), and, on `main`, `runtime/adk@1.5.0` (Northwind 61/61, the
+  sub-agents and skills acceptance runs, #1058 and #1059, and a fresh run from a wheel through
+  the CLI and the console) and `runtime/langgraph@1.0.0` (Northwind 61/61 locally and on `kind`,
+  and the starter and one tool from a wheel through the CLI and the console, macOS x86_64 only;
+  see [the record](superpowers/verification/verify-langgraph-adk150.md)). It is about the version,
+  not a `new agent` combination: a plain ADK spec is verified only on `runtime/adk@1.4.0`, so a
+  spec or `--runtime` that pins `1.3.0` or `1.5.0` without sub-agents or skills still has
+  `verified: false` in `new agent`'s output, and the console's form starts on `1.4.0` even though
+  `1.5.0` is newer and labelled run end to end.
 - A version the engine cannot use is still listed, with `usable: false`, a `code` and a
   `reason` and without the profile fields: an invalid manifest or a missing `modules.json`
   (`ARTIFACT_INVALID`), an unknown protocol (`PROTOCOL_UNSUPPORTED`), a version under a
