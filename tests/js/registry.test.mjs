@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  KINDS, compareVersions, deployedLines, diffStats, groupByName, hunkHeader, noHunkReason, parseRef, usedByText, useText, verifyLabel, verifyState,
+  KINDS, codeLabel, compareVersions, deployedLines, diffStats, groupByName, hunkHeader, noHunkReason, parseRef, usedByText, useText, verifyLabel, verifyState,
 } from "../../src/agentbreeder/center/static/lib/registry.js";
 
 const ROOTS = [
@@ -18,7 +18,7 @@ function view({ versions, problems = { data: [], error: null, stale: false }, re
 const row = (ref, root = "/p/registry", symlinked = false) => ({ ref, root, path: `${root}/${ref}`, symlinked });
 
 test("the kinds cover every registry kind once", () => {
-  assert.deepEqual(KINDS.map((k) => k.kind).sort(), ["eval", "knowledge", "mcp", "prompt", "runtime", "service", "tool"]);
+  assert.deepEqual(KINDS.map((k) => k.kind).sort(), ["eval", "knowledge", "mcp", "prompt", "runtime", "service", "skill", "tool"]);
   assert.equal(new Set(KINDS.map((k) => k.nav)).size, KINDS.length);
   assert.ok(!KINDS.some((k) => k.nav === "Services"), "the stack's Services link keeps its name");
 });
@@ -113,4 +113,24 @@ test("deployments of a used-by row as lines", () => {
     "Undetermined: nw cd running: no build record",
   ]);
   assert.deepEqual(deployedLines(null), []);
+});
+
+test("a skill's Code column: from its list rows, fail closed, Mixed across versions (#1059)", () => {
+  const skill = (ref, code, runs_code) => ({ ...row(ref), code, runs_code });
+  const rows = groupByName(view({ versions: [
+    skill("skill/pack@1.0.0", "text", false),
+    skill("skill/calc@1.0.0", "code", true),
+    skill("skill/odd@1.0.0", "unknown", true),
+    skill("skill/lying@1.0.0", "text", true),
+    { ...row("skill/old@1.0.0"), runs_code: true },
+    skill("skill/mixed@1.0.0", "text", false),
+    skill("skill/mixed@1.1.0", "code", true),
+  ] }), "skill");
+  const label = Object.fromEntries(rows.map((r) => [r.name, codeLabel(r)]));
+  assert.deepEqual(label, {
+    calc: "Has scripts (code)", lying: "Unknown, treated as code", mixed: "Mixed", odd: "Unknown, treated as code",
+    old: "Unknown, treated as code", pack: "Instructions",
+  });
+  assert.equal(codeLabel(rows.find((r) => r.name === "mixed").versions[0]), "Has scripts (code)");
+  assert.equal(groupByName(view({ versions: [row("tool/t@1.0.0")] }), "tool")[0].latest.code, null);
 });

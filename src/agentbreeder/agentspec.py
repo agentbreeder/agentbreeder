@@ -37,7 +37,8 @@ echoed in errors.
 
 `verified` in the summary is true only for a combination that has been run end to end
 (`VERIFIED`, with at most `VERIFIED_TOOLS` tools); the CLI writes unverified ones too, and the
-console enables only verified ones (it refuses knowledge on its own, whatever `VERIFIED` says).
+console enables only verified ones (its form offers one knowledge version for a provider with an
+embedding model, #1069).
 """
 
 from __future__ import annotations

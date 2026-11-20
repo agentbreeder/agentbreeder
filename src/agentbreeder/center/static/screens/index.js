@@ -17,6 +17,7 @@ import { REGISTRY_ROUTES } from "./registry.js";
 import { Release } from "./release.js";
 import { SERVICE_ROUTES } from "./service.js";
 import { Services } from "./services.js";
+import { Settings } from "./settings.js";
 
 export const ROUTES = [
   { pattern: "/", title: "Home", nav: "Home", screen: Home },
@@ -34,4 +35,6 @@ export const ROUTES = [
   { pattern: "/audit", title: "Audit", nav: "Audit", group: "Governance", scoped: true, screen: Audit },
   ...EVAL_ROUTES,
   ...BUILDER_ROUTES,
+  // Reached from the user menu (M2 #818); not a sidebar entry.
+  { pattern: "/settings", title: "Settings", screen: Settings },
 ];

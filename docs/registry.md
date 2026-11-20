@@ -176,6 +176,10 @@ changes between file and directory appears as `removed` then `added`. On an adde
 the missing side's `from_sha256`/`to_sha256` and `executable` value is `null`. `hunks` is empty
 when the change is not shown as text (see the flags; `too_large` means the diff's budget was
 spent). `no_newline` appears only on a line with no newline at the end of the file.
+A `skill/` diff (on `main`, not in a published preview) adds `"skill": {"description_changed",
+"scripts_changed"}`, decided from the two manifests and the changed paths, not from the hunks:
+the description is sent on every model call of every agent that pins the skill, and a scripts
+change is a code change.
 
 **`registry used-by REF --project DIR [DIR ...]`** reports, for each project (default `.`, each
 directory once), separately:
@@ -565,7 +569,8 @@ registry/skill/refund-policy/1.2.0/
 - **Instruction pack or script skill.** A version with no `scripts/` and no `scripts:` key is an
   instruction pack: text that steers the agent. **A version with any `scripts/` entry, or a
   `scripts:` key, is code**, like a tool: `list` marks it `(code)` (`"runs_code": true` in
-  `--json`), `import` and `fork` print the code notice, and the console asks the "this code runs"
+  `--json`, where a skill row also has `"code"`: `text`, `code` for scripts, or `unknown` for a
+  version that cannot be read or holds an entry a skill may not, treated as code), `import` and `fork` print the code notice, and the console asks the "this code runs"
   confirm. The decision comes from the version's files, never the kind alone, and fails closed:
   a version whose manifest cannot be read counts as code. Nothing runs a script yet.
 - **`SKILL.md`** is UTF-8, at most 32 KiB, and starts with a `---` front matter block, read with

@@ -98,20 +98,33 @@ def runs_code(version_dir: Path) -> bool:
     """Whether a skill version is code (skills spec §5.2), fail closed: true when it has a
     `scripts` entry of any kind, when its manifest declares `scripts:`, or when the directory or
     the manifest cannot be read as a plain file holding a YAML mapping."""
+    return code(version_dir) != TEXT
+
+
+TEXT, CODE, UNKNOWN = "text", "code", "unknown"
+
+
+def code(version_dir: Path) -> str:
+    """`runs_code` in three words, for `registry list --json` and the console (composition
+    console spec §9.1): "code" when the version has a `scripts` entry or declares `scripts:`,
+    "unknown" when its directory or manifest cannot be read as a plain file holding a YAML
+    mapping, or it holds an entry a published skill may not (both treated as code), else "text"."""
     try:
-        for entry in os.listdir(version_dir):
-            # `Scripts/` on a case-sensitive file system, or any entry a published skill may not
-            # hold: never published, so never vouched for as text.
-            folded = unicodedata.normalize("NFKC", entry).casefold()
-            if folded == "scripts" or entry not in TOP_LEVEL:
-                return True
+        entries = os.listdir(version_dir)
+        for entry in entries:
+            # `Scripts/` on a case-sensitive file system counts as scripts.
+            if unicodedata.normalize("NFKC", entry).casefold() == "scripts":
+                return CODE
+        # Any entry a published skill may not hold: never published, so never vouched for.
+        if any(entry not in TOP_LEVEL for entry in entries):
+            return UNKNOWN
         info = (version_dir / "manifest.yaml").lstat()
         if not stat.S_ISREG(info.st_mode):
-            return True
+            return UNKNOWN
         data = strict_yaml.load_file(version_dir / "manifest.yaml", registry.MANIFEST_LIMIT)
     except (OSError, ValueError, RecursionError):  # StrictYamlError is a ValueError
-        return True
-    return "scripts" in data
+        return UNKNOWN
+    return CODE if "scripts" in data else TEXT
 
 
 # -- The checks ----------------------------------------------------------------------------------
