@@ -1,6 +1,7 @@
 """The OpenAI Agents SDK acceptance on a real stack (#1083 F4, multi-framework spec §15 and the
-§16.1 items marked F4). **Written, not run**: it needs Docker, the Northwind stack up with real
-keys, and (for the last test) a `kind` cluster, so it is opt-in:
+§16.1 items marked F4). Run on 2026-11-20 (docs/superpowers/verification/F4-openai-agents.md); it
+needs Docker, the Northwind stack up with real keys, and (for the last test) a `kind` cluster, so
+it is opt-in:
 
     cd src/agentbreeder/examples/northwind      # or a copy; then set AGENTBREEDER_NORTHWIND_DIR
     agentbreeder services up --environment dev --env-file ~/.env

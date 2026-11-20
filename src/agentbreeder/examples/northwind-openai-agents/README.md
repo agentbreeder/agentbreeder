@@ -1,12 +1,12 @@
 # Northwind support agent on the OpenAI Agents SDK
 
-**Status: built and unit-tested with a scripted model; not run end to end, not verified.** This is
+**Status: run end to end on macOS x86_64 (Docker Desktop and `kind`), not verified.** This is
 Northwind (`../northwind`) on `runtime/openai-agents@1.0.0`, the second runtime on AgentBreeder's
-runtime kit (#1083 F4, after LangGraph). Its own tests run the real SDK against a scripted
-gateway behind the kit's real model proxy. Nothing has run it on Docker, against the real
-gateway and model, through `release`, or on `kind`, and arm64 has not been run. The OpenAI Agents
-SDK is not a supported framework. The record of what ran is
-`docs/superpowers/verification/F4-openai-agents.md`.
+runtime kit (#1083 F4, after LangGraph). On 2026-11-20 `release` passed Northwind's 61-case eval
+gate locally, and `promote` passed it again on `kind`. `agentbreeder conformance` gave 26 pass,
+0 fail and 13 not run of 39 checks (the kit-profile checks are not built yet). arm64 has not been
+run. The OpenAI Agents SDK is not a supported framework yet: that is an owner decision. The record
+is `docs/superpowers/verification/F4-openai-agents.md`.
 
 `agent.yaml` is Northwind's file with two lines changed, `name` and `runtime`. The prompt, model
 alias, tools, knowledge, memory and eval set are Northwind's, from Northwind's registry, and
@@ -54,9 +54,9 @@ agentbreeder release agent.yaml --stack ../northwind --environment dev
 ```
 
 `release` builds the image, deploys a candidate, runs Northwind's 61 evals against it and promotes
-it only if all pass. This has not been run for this port yet. The stack names every Northwind
-port, so they are meant to run side by side (sharing the `support` database's tables); that has
-not been tried.
+it only if all pass. On 2026-11-20 it passed 61/61 for this port on local Docker and on `kind`
+(macOS x86_64). The stack names every Northwind port, so they are meant to run side by side
+(sharing the `support` database's tables); that has not been tried.
 
 `agentbreeder example` does not list this directory: it needs Northwind beside it, so it is run
 from a checkout.

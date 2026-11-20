@@ -978,7 +978,7 @@
   },
   "examples/northwind-openai-agents/README.md": {
    "exec": false,
-   "sha256": "462ceaa54f3478ab20bce452135778c5d94790df731fd9ab3aef381e0db2f2ca"
+   "sha256": "c10e80550de1784b1f1c97eab4d0b5efd96fab37c499d61ece2ab77194d4c243"
   },
   "examples/northwind-openai-agents/agent.lock": {
    "exec": false,
@@ -986,7 +986,7 @@
   },
   "examples/northwind-openai-agents/agent.yaml": {
    "exec": false,
-   "sha256": "899d7e667942180f8cc2bae50e8383e6d91ae324f7306d2d889e20aded54d178"
+   "sha256": "3ef157e70c1540e7d9a708fa0158ef5116e6b7adc5862af788096a9d7dc34021"
   },
   "examples/northwind/README.md": {
    "exec": false,

@@ -4,7 +4,7 @@ the same thing as the ADK file. No Docker: `docker build` is replaced by a recor
 
 The real acceptance (conformance, 61/61 through `release`, tools and traces, cost, coded errors,
 `kind`) needs Docker and a real stack; it is `tests/test_northwind_openai_agents_docker.py`,
-opt-in, and has not been run.
+opt-in; it ran on 2026-11-20 on macOS x86_64 (docs/superpowers/verification/F4-openai-agents.md).
 """
 
 from __future__ import annotations

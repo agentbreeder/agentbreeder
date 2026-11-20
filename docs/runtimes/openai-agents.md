@@ -1,10 +1,10 @@
 # `runtime/openai-agents@1.0.0`
 
-**Status:** on `main` once merged, not in a published preview. **Not run end to end.** Its own
-tests run the real OpenAI Agents SDK against a scripted gateway behind the kit's real model
-proxy (CI job `runtime-openai-agents`). It has not been built as an image, run on Docker, run
-against a real gateway or model, run through `release` or on `kind`, or installed on arm64, and
-the OpenAI Agents SDK is not a supported framework. What has and has not run is in
+**Status:** on `main` once merged, not in a published preview. Run end to end on macOS x86_64
+(2026-11-20): Northwind passed its 61-case eval gate on local Docker and on `kind`, and
+`agentbreeder conformance` gave 26 pass, 0 fail and 13 not run of 39. arm64 has not been run, the
+kit-profile conformance checks are not built, and the OpenAI Agents SDK is not a supported
+framework. What has and has not run is in
 [the F4 record](../superpowers/verification/F4-openai-agents.md).
 
 The second runtime on AgentBreeder's **runtime kit** (#1083, multi-framework spec
