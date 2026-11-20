@@ -5,10 +5,10 @@ makes invalid (each removable, one announcement, cleared by switching back), the
 `runtime:` line, Create off for what has not been run end to end, the code confirm for a runtime
 from outside the built-ins, reflow at 320 px and 200% zoom, and axe in light and dark.
 
-The built-ins have `runtime/adk` and `runtime/langgraph`, so the tests that need other
-frameworks give the fake CLI a scripted `registry runtimes` answer; nothing is previewed or
-created on a runtime that does not exist. The other tests hand both `registry runtimes` and
-`new agent --from-spec` to the real commands."""
+The built-ins have `runtime/adk`, `runtime/langgraph` and `runtime/openai-agents`, so the tests
+that need other frameworks give the fake CLI a scripted `registry runtimes` answer; nothing is
+previewed or created on a runtime that does not exist. The other tests hand both
+`registry runtimes` and `new agent --from-spec` to the real commands."""
 
 from __future__ import annotations
 
@@ -174,8 +174,8 @@ def test_adk_1_2_0_and_1_3_0_are_usable_google_adk_through_the_legacy_profile(pa
     the engine's legacy profile names each one."""
     open_builder(page, console)
     radios = group(page).get_by_role("radio")
-    expect(radios).to_have_count(2)  # the frameworks with a built-in runtime today
-    for index, name in enumerate(("Google ADK", "LangGraph")):
+    expect(radios).to_have_count(3)  # the frameworks with a built-in runtime today
+    for index, name in enumerate(("Google ADK", "LangGraph", "OpenAI Agents SDK")):
         expect(radios.nth(index)).to_have_accessible_name(name)
     adk = group(page).get_by_role("radio", name="Google ADK")
     expect(adk).to_be_checked()
@@ -184,6 +184,12 @@ def test_adk_1_2_0_and_1_3_0_are_usable_google_adk_through_the_legacy_profile(pa
     expect(langgraph).not_to_be_checked()
     expect(langgraph).to_have_accessible_description(
         "runtime/langgraph@1.0.0 · Not run end to end"
+    )
+    # runtime/openai-agents@1.0.0 (#1083 F4) likewise.
+    openai_agents = group(page).get_by_role("radio", name="OpenAI Agents SDK")
+    expect(openai_agents).not_to_be_checked()
+    expect(openai_agents).to_have_accessible_description(
+        "runtime/openai-agents@1.0.0 · Not run end to end"
     )
     # The form starts on the newest version run end to end, not on a newer one that was not
     # (the path registry's 9.9.0, and runtime/adk@1.5.0).

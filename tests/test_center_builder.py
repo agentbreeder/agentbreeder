@@ -921,7 +921,8 @@ def test_parts_lists_every_runtime_version_through_the_cli(center, cookie, calls
     assert [listed[f"runtime/adk@1.{n}.0"]["verified"] for n in (2, 3, 4)] == [False, True, True]
     assert "mcp" not in listed["runtime/adk@1.0.4"]["capabilities"]
     # runtime/langgraph@1.0.0 (#1083 F3): a kit runtime, listed but never run end to end.
-    assert {entry["name"] for entry in listed.values()} == {"adk", "langgraph"}
+    # runtime/openai-agents@1.0.0 (#1083 F4) likewise.
+    assert {entry["name"] for entry in listed.values()} == {"adk", "langgraph", "openai-agents"}
     langgraph = listed["runtime/langgraph@1.0.0"]
     assert langgraph["usable"] is True and langgraph["verified"] is False
     assert (langgraph["display_name"], langgraph["profile"], langgraph["kit"]) == (
@@ -930,6 +931,13 @@ def test_parts_lists_every_runtime_version_through_the_cli(center, cookie, calls
         "1.0.0",
     )
     assert "mcp" not in langgraph["capabilities"]
+    openai_agents = listed["runtime/openai-agents@1.0.0"]
+    assert openai_agents["usable"] is True and openai_agents["verified"] is False
+    assert (openai_agents["display_name"], openai_agents["profile"]) == (
+        "OpenAI Agents SDK",
+        "kit",
+    )
+    assert "mcp" not in openai_agents["capabilities"]
 
 
 def test_the_runtimes_read_is_uncached(center, cookie, scripted_runtimes):

@@ -45,9 +45,9 @@ def _manifest() -> dict[str, dict]:
         raise ExampleError(error.code, str(error)) from error
 
 
-# Shipped examples that are not copied on their own: a framework port of Northwind (#1083 F3)
+# Shipped examples that are not copied on their own: a framework port of Northwind (#1083 F3, F4)
 # uses Northwind's registry and stack from `../northwind`, so it is run from a checkout.
-PORTS = frozenset({"northwind-langgraph"})
+PORTS = frozenset({"northwind-langgraph", "northwind-openai-agents"})
 
 
 def names() -> list[str]:

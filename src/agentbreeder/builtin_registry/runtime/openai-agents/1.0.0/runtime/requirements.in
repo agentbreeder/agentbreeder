@@ -1,0 +1,13 @@
+# runtime/openai-agents@1.0.0 (#1083 F4). The versions F0 probed (multi-framework spec §6.1), plus
+# the kit's own packages (h11 for the model proxy's listener, httpx for its upstream calls, psycopg
+# for memory and knowledge, OpenTelemetry for traces). The adapter adds only kit functions to the
+# agent, never one of the SDK's built-in tools (spec §8.1, §13.3).
+openai-agents==0.24.0
+openai==3.42.1
+openinference-instrumentation-openai-agents==2.7.0
+opentelemetry-sdk==1.45.2
+opentelemetry-exporter-otlp-proto-http==1.45.2
+psycopg[binary]==3.3.6
+pyyaml==6.0.3
+h11==0.16.0
+httpx==0.28.1

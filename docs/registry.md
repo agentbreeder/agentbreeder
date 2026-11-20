@@ -436,9 +436,11 @@ files and your git history if you commit them.
 A `runtime/` version is the agent server: a fixed `Dockerfile`, a `runtime/` directory with a
 hash-locked `requirements.lock`, and a `manifest.yaml`. Since #1083 F1 that manifest and one
 generated file are the only place `build`, `new agent` and the registry commands take framework
-facts from. Nothing in the engine branches on a framework's name. Two runtimes ship:
-`runtime/adk` and `runtime/langgraph@1.0.0` (#1083 F3, the first on the runtime kit; built and
-run end to end on macOS x86_64, **not verified**, see [runtimes/langgraph.md](runtimes/langgraph.md)).
+facts from. Nothing in the engine branches on a framework's name. Three runtimes ship:
+`runtime/adk`, `runtime/langgraph@1.0.0` (#1083 F3, the first on the runtime kit; built and
+run end to end on macOS x86_64, **not verified**, see [runtimes/langgraph.md](runtimes/langgraph.md))
+and `runtime/openai-agents@1.0.0` (#1083 F4, on the kit; tested with a scripted model only, **not
+run end to end**, see [runtimes/openai-agents.md](runtimes/openai-agents.md)).
 
 **Manifest keys** (beside `port`, `health_path`, `secrets` and `environment`):
 

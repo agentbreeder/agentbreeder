@@ -1,0 +1,508 @@
+"""runtime/openai-agents@1.0.0 against the real OpenAI Agents SDK (#1083 F4, multi-framework spec
+§8.1).
+
+These need the runtime's locked packages, so they run apart from the repo suite (CI job
+`runtime-openai-agents`):
+
+    pip install --require-hashes --only-binary=:all: -r runtime/requirements.lock
+    pip install pytest==8.4.2
+    pytest runtime_tests
+
+The gateway is a scripted httpx MockTransport behind the kit's real loopback proxy; memory is an
+in-process fake. Nothing here reaches a network or a database.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import sys
+from pathlib import Path
+
+import httpx
+import pytest
+
+RUNTIME = Path(__file__).resolve().parents[1] / "runtime"
+sys.path.insert(0, str(RUNTIME))
+
+from kit import config as cfg  # noqa: E402
+from kit import telemetry  # noqa: E402
+from kit.errors import ModelError  # noqa: E402
+from kit.proxy import ModelProxy  # noqa: E402
+from kit.turn import Kit  # noqa: E402
+from openai_agents_adapter import OpenAIAgentsAdapter, arguments, as_tool, messages, reply_text  # noqa: E402
+
+KEY = "gateway-key-0123456789abcdef"
+
+
+class FakeMemory:
+    db = object()
+    HISTORY: list = []
+    log: list = []
+
+    def __init__(self, database_url, events=True):
+        pass
+
+    def audit(self, turn, session, customer, actor, action, detail):
+        FakeMemory.log.append((action, customer, detail))
+
+    def record_turn(self, **turn):
+        FakeMemory.log.append(("turn", turn["customer"], turn))
+
+    def history(self, customer, session):
+        return list(FakeMemory.HISTORY)
+
+    def notes(self, customer):
+        return ["Prefers email"]
+
+    def close(self):
+        pass
+
+
+def answer(text=None, tool=None, args=None):
+    message = {"role": "assistant", "content": text}
+    if tool:
+        message["tool_calls"] = [
+            {
+                "id": f"call_{tool}",
+                "type": "function",
+                "function": {"name": tool, "arguments": json.dumps(args or {})},
+            }
+        ]
+    return httpx.Response(
+        200,
+        json={
+            "id": "chatcmpl-1",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "gemini",
+            "choices": [{"index": 0, "message": message, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 176, "completion_tokens": 9},
+        },
+        headers={"x-litellm-response-cost": "0.0004", "x-litellm-model-group": "support-model"},
+    )
+
+
+@pytest.fixture
+def app(tmp_path, monkeypatch):
+    monkeypatch.setattr(cfg, "APP_DIR", tmp_path)
+    (tmp_path / "prompt").mkdir()
+    (tmp_path / "prompt" / "prompt.md").write_text("You are Northwind's support agent.\n")
+    tool = tmp_path / "tool" / "orders"
+    (tool / "src").mkdir(parents=True)
+    (tool / "tool.yaml").write_text(
+        "functions:\n"
+        "  - name: lookup_order\n"
+        "    module: oa_test_orders\n"
+        "    description: Look up an order by id.\n"
+        "    parameters: {type: object, properties: {order_id: {type: string},"
+        " detail: {type: boolean}}, required: [order_id]}\n"
+    )
+    (tool / "src" / "oa_test_orders.py").write_text(
+        "def lookup_order(rt, order_id, detail=False):\n"
+        "    return {'order': order_id, 'customer': rt.customer, 'status': 'shipped'}\n"
+    )
+    FakeMemory.HISTORY, FakeMemory.log = [], []
+    telemetry.setup("oa-test", "", enabled=False)
+    return tmp_path
+
+
+CONFIG = {
+    "name": "northwind-support-openai-agents",
+    "model": {"alias": "support-model", "reasoning": "low", "max_model_calls": 4},
+    "prompt": {"dir": "prompt"},
+    "knowledge": [],
+    "tools": [{"name": "orders", "version": "1.0.0", "dir": "tool/orders"}],
+    "memory": {"sessions": "postgres", "notes": True},
+}
+
+
+def run(handler, *turns, config=None):
+    """Turns through one Kit with the OpenAI Agents adapter; each is (session, customer, message).
+    Turns given as a list run concurrently."""
+
+    async def main():
+        proxy = ModelProxy("http://gateway:4000", KEY, httpx.MockTransport(handler))
+        kit = Kit(
+            config or CONFIG,
+            "postgresql://unused",
+            KEY,
+            OpenAIAgentsAdapter(),
+            runtime_ref="runtime/openai-agents@1.0.0",
+            framework="openai-agents",
+            proxy=proxy,
+            memory_factory=FakeMemory,
+        )
+        await kit.start()
+
+        async def one(session, customer, message):
+            try:
+                return await kit.chat_async(session, customer, message)
+            except ModelError as error:
+                return error
+
+        try:
+            results = []
+            for item in turns:
+                if isinstance(item, list):
+                    results.append(await asyncio.gather(*(one(*t) for t in item)))
+                else:
+                    results.append(await one(*item))
+            return results
+        finally:
+            await kit.close()
+
+    return asyncio.run(main())
+
+
+class Scripted:
+    """Answers by call position within a session's turn; records each upstream body."""
+
+    def __init__(self, *answers):
+        self.answers = answers
+        self.bodies = []
+
+    def __call__(self, request):
+        body = json.loads(request.content)
+        self.bodies.append(body)
+        step = sum(1 for m in body["messages"] if m["role"] == "assistant" and m.get("tool_calls"))
+        return self.answers[min(step, len(self.answers) - 1)]
+
+
+def model_rows():
+    return [entry[2] for entry in FakeMemory.log if entry[0] == "model_called"]
+
+
+def test_a_northwind_shaped_turn(app):
+    gateway = Scripted(
+        answer(tool="lookup_order", args={"order_id": "1042"}), answer("It shipped.")
+    )
+    FakeMemory.HISTORY = [("Hi", "Hello! How can I help?")]
+    (reply,) = run(gateway, ("s-1", "c-1", "Where is order 1042?"))
+    assert reply["reply"] == "It shipped."
+    assert reply["framework"] == "openai-agents"
+    assert reply["runtime"] == "runtime/openai-agents@1.0.0"
+    assert reply["tools"] == ["lookup_order"] and reply["model_calls"] == 2
+    assert reply["cost_usd"] == 0.0008 and reply["served_by"] == ["support-model"]
+    assert (reply["prompt_tokens"], reply["output_tokens"]) == (352, 18)
+    first, second = gateway.bodies
+    # Chat Completions, history as messages, the system prompt with the customer's notes first.
+    assert [m["role"] for m in first["messages"]] == ["system", "user", "assistant", "user"]
+    assert first["messages"][0]["content"].startswith("You are Northwind's support agent.")
+    assert "<customer_memory>" in first["messages"][0]["content"]
+    assert first["messages"][2]["content"] == "Hello! How can I help?"
+    assert first["model"] == "support-model" and first["reasoning_effort"] == "low"
+    (tool,) = first["tools"]
+    assert tool["function"]["name"] == "lookup_order"
+    # Not strict: the declared schema as written, with only order_id required.
+    assert tool["function"]["parameters"]["required"] == ["order_id"]
+    tool_result = json.loads(second["messages"][-1]["content"])
+    assert tool_result == {"order": "1042", "customer": "c-1", "status": "shipped"}
+    actions = [entry[0] for entry in FakeMemory.log]
+    assert actions[:5] == [
+        "message_received",
+        "model_called",
+        "tool:lookup_order",
+        "model_called",
+        "reply_sent",
+    ]
+
+
+def test_the_sdks_calls_are_main_loop_calls(app):
+    """§16.1 (F4): the proxy's main-loop test (the system prompt's hash and exactly the agent's
+    tool set, spec §7.2.4) on the SDK's own requests. With a stub gateway: the request shape is
+    the SDK's, the answers are scripted."""
+    gateway = Scripted(answer(tool="lookup_order", args={"order_id": "9"}), answer("Done."))
+    run(gateway, ("s-1", "c-1", "order 9?"))
+    rows = model_rows()
+    assert len(rows) == 2 and all(row["main_loop"] is True for row in rows)
+
+
+def test_the_step_cap_holds_when_the_model_ignores_tool_choice_none(app):
+    """Gemini ignores `tool_choice: none` (#1111): the scripted gateway keeps asking for tools,
+    the SDK never runs the Nth call's tool, and the turn fails MODEL_STEP_LIMIT."""
+    gateway = Scripted(answer(tool="lookup_order", args={"order_id": "1"}))
+    config = {**CONFIG, "model": {**CONFIG["model"], "max_model_calls": 2}}
+    (error,) = run(gateway, ("s-1", "c-1", "Loop forever"), config=config)
+    assert isinstance(error, ModelError) and error.code == "MODEL_STEP_LIMIT"
+    assert len(gateway.bodies) == 2 and gateway.bodies[1]["tool_choice"] == "none"
+    tool_rows = [entry for entry in FakeMemory.log if entry[0] == "tool:lookup_order"]
+    assert len(tool_rows) == 1  # the first call's tool ran; the withheld one never did
+    (limited,) = [row for row in model_rows() if row.get("step_limited")]
+    assert limited["step"] == 2
+
+
+def test_the_step_cap_answer_is_the_reply_when_the_model_honours_it(app):
+    """OpenAI honours `tool_choice: none`: the Nth call's text is the SDK's final output."""
+    gateway = Scripted(answer(tool="lookup_order", args={"order_id": "1"}), answer("Shipped."))
+    config = {**CONFIG, "model": {**CONFIG["model"], "max_model_calls": 2}}
+    (reply,) = run(gateway, ("s-1", "c-1", "order 1?"), config=config)
+    assert reply["reply"] == "Shipped." and reply["model_calls"] == 2
+    assert gateway.bodies[1]["tool_choice"] == "none"
+
+
+def test_a_failing_gateway_is_a_coded_error_and_not_retried_by_the_sdk(app):
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(503, json={"error": {"type": "api_error", "message": "SECRET"}})
+
+    (error,) = run(handler, ("s-1", "c-1", "hi"))
+    assert isinstance(error, ModelError) and error.code == "MODEL_UNAVAILABLE"
+    assert len(calls) == 3  # the proxy's three tries; the OpenAI client's own retries are off
+
+
+def test_concurrent_sessions_keep_their_own_customer_in_tools(app):
+    gateway = Scripted(answer(tool="lookup_order", args={"order_id": "7"}), answer("Done."))
+    (pair,) = run(gateway, [("s-a", "alice", "order 7?"), ("s-b", "bob", "order 7?")])
+    assert [r["customer_id"] for r in pair] == ["alice", "bob"]
+    seen = sorted(
+        json.loads(b["messages"][-1]["content"])["customer"]
+        for b in gateway.bodies
+        if b["messages"][-1]["role"] == "tool"
+    )
+    assert seen == ["alice", "bob"]
+
+
+def test_a_tool_with_bad_arguments_is_reported_to_the_model(app):
+    gateway = Scripted(answer(tool="lookup_order", args={"detail": True}), answer("Need an id."))
+    (reply,) = run(gateway, ("s-1", "c-1", "order?"))
+    assert reply["reply"] == "Need an id."
+    rows = [entry for entry in FakeMemory.log if entry[0] == "tool:lookup_order"]
+    assert rows and rows[0][2]["ok"] is False
+
+
+def test_unparseable_tool_arguments_are_a_failed_call_not_a_crash(app):
+    """The SDK hands the tool the model's raw argument text; text that is not a JSON object
+    reaches the kit as no arguments, so the schema check answers the model."""
+    bad = answer(tool="lookup_order")
+    body = bad.json()
+    body["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] = "{bad"
+    gateway = Scripted(httpx.Response(200, json=body, headers=bad.headers), answer("Sorry."))
+    (reply,) = run(gateway, ("s-1", "c-1", "order?"))
+    assert reply["reply"] == "Sorry." and reply["tools"] == ["lookup_order"]
+    rows = [entry for entry in FakeMemory.log if entry[0] == "tool:lookup_order"]
+    assert rows[0][2]["ok"] is False and "order_id" in rows[0][2]["error"]
+
+
+def test_the_agent_has_only_the_kits_functions():
+    """No built-in tool, handoff or MCP server reaches the agent (spec §8.1, §13.3)."""
+    from agents import FunctionTool
+
+    adapter = OpenAIAgentsAdapter()
+
+    class FakeKit:
+        base_url = "http://127.0.0.1:9/v1"
+        alias, app, system, max_steps = "support-model", "a", "prompt", 4
+        functions = ()
+
+        def http_client(self):
+            return httpx.AsyncClient()
+
+    class Function:
+        name, description = "lookup_order", "Look up."
+        parameters = {"type": "object", "properties": {"order_id": {"type": "string"}}}
+
+        async def __call__(self, **kwargs):
+            return "ok"
+
+    FakeKit.functions = (Function(),)
+    adapter.build(FakeKit())
+    agent = adapter.agent
+    assert [type(t) for t in agent.tools] == [FunctionTool]
+    assert [t.name for t in agent.tools] == ["lookup_order"]
+    assert agent.handoffs == [] and agent.mcp_servers == []
+    assert agent.tools[0].strict_json_schema is False
+    assert adapter.client.max_retries == 0
+    assert str(adapter.client.base_url).startswith("http://127.0.0.1:9/v1")
+
+
+def test_openai_variables_are_removed_by_the_entry_point(monkeypatch):
+    for name in ("OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_AGENTS_DISABLE_TRACING"):
+        monkeypatch.setenv(name, "x")
+    source = (RUNTIME / "server.py").read_text()
+    namespace: dict = {"__name__": "not_main", "__file__": str(RUNTIME / "server.py")}
+    exec(compile(source, "server.py", "exec"), namespace)  # noqa: S102 - our own entry point
+    assert not [name for name in os.environ if name.startswith("OPENAI_")]
+    assert namespace["RUNTIME_REF"] == "runtime/openai-agents@1.0.0"
+    assert namespace["FRAMEWORK"] == "openai-agents"
+
+
+def test_helpers():
+    assert arguments('{"a": 1}') == {"a": 1}
+    assert arguments("") == {} and arguments("{bad") == {} and arguments("[1]") == {}
+    assert reply_text("final") == "final" and reply_text(None) == "" and reply_text(3) == ""
+
+    class Turn:
+        history = ({"role": "user", "content": "a"}, {"role": "assistant", "content": "b"})
+        message = "c"
+
+    assert messages(Turn()) == [
+        {"role": "user", "content": "a"},
+        {"role": "assistant", "content": "b"},
+        {"role": "user", "content": "c"},
+    ]
+
+    class Function:
+        name, description = "f", ""
+        parameters = {"type": "object", "properties": {}}
+
+        async def __call__(self, **kwargs):
+            return f"ok {kwargs}"
+
+    tool = as_tool(Function())
+    assert tool.name == "f" and tool.description == "f"
+    assert asyncio.run(tool.on_invoke_tool(None, '{"x": 1}')) == "ok {'x': 1}"
+
+
+class FakeRetriever:
+    description = "Northwind's help centre."
+    sets = [object()]
+
+    def search(self, db, query, limit):
+        return [{"id": "a#1", "title": "Syncing", "text": "Open Settings.", "mode": "hybrid"}]
+
+
+def test_knowledge_before_the_call_and_the_search_tool(app, monkeypatch):
+    import kit.turn
+
+    monkeypatch.setattr(kit.turn, "Retriever", lambda sets: FakeRetriever())
+    monkeypatch.setattr(kit.turn, "KnowledgeSet", lambda *a: None)
+    config = {
+        **CONFIG,
+        "knowledge": [{"name": "help", "version": "1.0.0", "dir": "kb", "top_k": 5,
+                       "extra_searches": 1}],
+    }  # fmt: skip
+    gateway = Scripted(
+        answer(tool="search_knowledge_base", args={"query": "sync tablet"}),
+        answer("Open Settings."),
+    )
+    (reply,) = run(gateway, ("s-1", "c-1", "How do I sync?"), config=config)
+    assert reply["reply"] == "Open Settings." and reply["sources"] == ["Syncing"]
+    assert reply["tools"] == ["search_knowledge_base"] and reply["kb_searches"] == 1
+    assert gateway.bodies[0]["messages"][-1]["content"].startswith("<knowledge_base_results>")
+    names = {t["function"]["name"] for t in gateway.bodies[0]["tools"]}
+    assert names == {"search_knowledge_base", "lookup_order"}
+
+
+def _sdk_processors() -> list:
+    from agents.tracing.setup import get_trace_provider
+
+    return list(get_trace_provider()._multi_processor._processors)
+
+
+def test_the_instrumentor_replaces_the_sdk_exporter_and_nests_under_the_kits_spans(app):
+    from agents.tracing.processors import BatchTraceProcessor
+    from openinference.instrumentation.openai_agents import OpenAIAgentsInstrumentor
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    # The process's provider is set once (the fixture's); add an exporter to it.
+    provider = trace.get_tracer_provider()
+    exporter = InMemorySpanExporter()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    adapter = OpenAIAgentsAdapter()
+    adapter.instrument(provider)
+    try:
+        # Exclusive: the SDK's batch exporter to OpenAI is no longer registered.
+        assert not [p for p in _sdk_processors() if isinstance(p, BatchTraceProcessor)]
+        gateway = Scripted(answer(tool="lookup_order", args={"order_id": "1"}), answer("Done."))
+        (reply,) = run(gateway, ("s-1", "c-1", "order 1?"))
+        provider.force_flush()
+    finally:
+        OpenAIAgentsInstrumentor().uninstrument()
+    exported = [telemetry.RedactingExporter.redacted(s) for s in exporter.get_finished_spans()]
+    kinds = [(s.name, s.attributes.get("openinference.span.kind")) for s in exported]
+    tool_spans = [name for name, kind in kinds if kind == "TOOL"]
+    assert tool_spans == ["lookup_order"]  # the kit's own; the SDK's is CHAIN
+    assert any(kind == "LLM" for _, kind in kinds)
+    root = [s for s in exported if s.name == "agent_turn"][0]
+    assert all(s.context.trace_id == root.context.trace_id for s in exported)
+    assert root.attributes["agent.framework"] == "openai-agents"
+
+
+CONNECTS: list = []
+
+
+def _audit(event, args):
+    if event == "socket.connect" and CONNECTS and CONNECTS[0] == "on":
+        address = args[1]
+        CONNECTS.append(address[0] if isinstance(address, tuple) else str(address))
+
+
+def test_nothing_leaves_the_host_with_no_openai_key(app, monkeypatch):
+    """§16.1 (F4): the SDK with no OPENAI_API_KEY at all. A turn, then the SDK's trace
+    processors flushed, with an audit hook on every socket connect: only the kit's loopback
+    proxy is reached (the gateway here is a MockTransport, so it opens no socket). Run once
+    without the instrumentor (the SDK's own exporter, which skips its upload with no key) and
+    once with it (the exporter replaced). Not the conformance egress check: a venv run."""
+    from agents.tracing.setup import get_trace_provider
+    from openinference.instrumentation.openai_agents import OpenAIAgentsInstrumentor
+    from opentelemetry import trace
+
+    for name in [n for n in os.environ if n.startswith("OPENAI_")]:
+        monkeypatch.delenv(name)
+    sys.addaudithook(_audit)
+    CONNECTS[:] = ["on"]
+    try:
+        gateway = Scripted(answer(tool="lookup_order", args={"order_id": "1"}), answer("Done."))
+        run(gateway, ("s-1", "c-1", "order 1?"))
+        get_trace_provider().force_flush()
+        OpenAIAgentsAdapter().instrument(trace.get_tracer_provider())
+        try:
+            run(gateway, ("s-2", "c-1", "order 1?"))
+            get_trace_provider().force_flush()
+        finally:
+            OpenAIAgentsInstrumentor().uninstrument()
+    finally:
+        seen = CONNECTS[1:]
+        CONNECTS[:] = []
+    assert seen, "the audit hook saw no connect at all"
+    assert set(seen) == {"127.0.0.1"}, seen
+
+
+def test_the_exporter_is_replaced_even_with_a_key_in_the_environment(app, monkeypatch):
+    """The exclusive processor, not the missing key, keeps traces off OpenAI: with a key set
+    after import (as if the entry point had not removed it) and the instrumentor installed, a
+    turn and a flush still connect only to the loopback proxy."""
+    from agents.tracing.setup import get_trace_provider
+    from openinference.instrumentation.openai_agents import OpenAIAgentsInstrumentor
+    from opentelemetry import trace
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-not-a-real-key")
+    sys.addaudithook(_audit)
+    OpenAIAgentsAdapter().instrument(trace.get_tracer_provider())
+    CONNECTS[:] = ["on"]
+    try:
+        gateway = Scripted(answer(tool="lookup_order", args={"order_id": "1"}), answer("Done."))
+        run(gateway, ("s-1", "c-1", "order 1?"))
+        get_trace_provider().force_flush()
+    finally:
+        seen = CONNECTS[1:]
+        CONNECTS[:] = []
+        OpenAIAgentsInstrumentor().uninstrument()
+    assert seen and set(seen) == {"127.0.0.1"}, seen
+
+
+def test_a_tool_the_agent_lacks_runs_nothing_and_is_answered_to_the_model(app):
+    """`tool_not_found_behavior="return_error_to_model"`: a call to a tool the agent was not
+    given runs nothing; the model is told, and its next answer is the reply (as on LangGraph).
+    Without it the SDK raises ModelBehaviorError and the turn fails."""
+    gateway = Scripted(answer(tool="delete_everything", args={}), answer("I can't do that."))
+    (reply,) = run(gateway, ("s-1", "c-1", "hi"))
+    assert reply["reply"] == "I can't do that." and reply["tools"] == []
+    assert not [entry for entry in FakeMemory.log if entry[0].startswith("tool:")]
+    told = gateway.bodies[1]["messages"][-1]
+    assert told["role"] == "tool" and "delete_everything" in told["content"]
+
+
+def test_max_turns_is_a_backstop_the_proxy_reaches_first(app):
+    """max_turns = max_model_calls + 2: with the model always calling a tool, the proxy's cap
+    ends the turn (MODEL_STEP_LIMIT), never the SDK's MaxTurnsExceeded."""
+    gateway = Scripted(answer(tool="lookup_order", args={"order_id": "1"}))
+    (error,) = run(gateway, ("s-1", "c-1", "Loop forever"))
+    assert isinstance(error, ModelError) and error.code == "MODEL_STEP_LIMIT"
+    assert len(gateway.bodies) == CONFIG["model"]["max_model_calls"]

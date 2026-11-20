@@ -652,6 +652,94 @@
    "exec": false,
    "sha256": "5553eb1f959ddeb7325eea445727f51890ea5d48c3a6f8db5208fb7fddb83578"
   },
+  "builtin_registry/runtime/openai-agents/1.0.0/Dockerfile": {
+   "exec": false,
+   "sha256": "8447339b6c96fedc8bf88a8ec893f8f6fff4e4a01f69e70f043d721b469f96d1"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/manifest.yaml": {
+   "exec": false,
+   "sha256": "86c0ab0f70ef5dbb38409222c3adde093bba1d3518ab3901e379bf65a21f3bb1"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/__init__.py": {
+   "exec": false,
+   "sha256": "065afacf6071a29edc4fb4ae58f6033a0cfbca3b75b58415028a84cfabd24d78"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/adapter.py": {
+   "exec": false,
+   "sha256": "e24552b9e63c2a98da1ba7fa87c2700139b0e2be5a98e5dc6b4b1f5a4da0309d"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/config.py": {
+   "exec": false,
+   "sha256": "e3af62baa512e51e9adfa8aec76c431c141ddb719049f76b8347d212939f4d31"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/context.py": {
+   "exec": false,
+   "sha256": "0634e53790030524b45bdb07dd023e4d108e68d5c21ce0947b6e98026c5f6eba"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/errors.py": {
+   "exec": false,
+   "sha256": "8d06a4236e7c97d7210b67267fcbd700ab212f151f024ef3c52b361afb3dacf1"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/logs.py": {
+   "exec": false,
+   "sha256": "66d0bb1c934594a03ee3eb0836e17381806da8bc0d4527bfa06286f81d069605"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/memory.py": {
+   "exec": false,
+   "sha256": "7da42efa6376978fb91745feff4cb03591db0e0a3c10dd014dd3584bb22073fd"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/proxy.py": {
+   "exec": false,
+   "sha256": "c41360e4946b1eab8f9dfb14ed5e847560e61a677e8a2ac647f8525975137b74"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/rag.py": {
+   "exec": false,
+   "sha256": "5d250ea7682371a40697eefaa39d90de4b0f65d58aba0b2c72a5b25724d1b0e7"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/redaction.py": {
+   "exec": false,
+   "sha256": "0d50966adb45b77c7dfa2c777fb4bdaf6ba0d2ecba3a202a89e5ba20fb520347"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/server.py": {
+   "exec": false,
+   "sha256": "afc430400c3cd1bec6d3fb1dad45a91adedb67c0ec3ab97cfc2fe23c323c0aeb"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/telemetry.py": {
+   "exec": false,
+   "sha256": "93f5efb15f975fa27d78fc149b733d92f00cf066fcdc46030440f69a2685a353"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/tools.py": {
+   "exec": false,
+   "sha256": "6de79f5960cfe2d7c3cee7aedc8994f3951f8505c6dd7f61dbfaca0e1c4723fc"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/turn.py": {
+   "exec": false,
+   "sha256": "fab6555b8598f6da1197d4821bf40683eeb1baa65db821b9548b311029ab8f43"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/modules.json": {
+   "exec": false,
+   "sha256": "0bc6e5f98df08c69465a1507d35f53d618ca4673d67b0cc13ffda7c24fc2a52e"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/openai_agents_adapter.py": {
+   "exec": false,
+   "sha256": "cc920d8bb4d88e741552897f9d1531b669edd5d006347ca2243c2a03646ba7ef"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/requirements.in": {
+   "exec": false,
+   "sha256": "af8d3d609e35ad1ebdfe6f1f2ad4e27ca3580b7cdf1408304c3cf2c95b672a6a"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/requirements.lock": {
+   "exec": false,
+   "sha256": "cb3eb883d54b881bc02199fd676affb24dfa0fd58e48115c78f2ac5824f20fd4"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/server.py": {
+   "exec": false,
+   "sha256": "fa189666e454aa1709ba150fbaa80a031ba5e00f5cf4a493bfb0e933e38ad389"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime_tests/test_openai_agents.py": {
+   "exec": false,
+   "sha256": "44cddd19baff775faa2f5e27f0101e3a4cacd023aaf93a39683cdc298353a80e"
+  },
   "builtin_registry/service/echo/1.0.0/files/index.html": {
    "exec": false,
    "sha256": "80a071a69069a3497208c0379954681125bc3349db0e01e650edb7608dd5e014"
@@ -888,6 +976,18 @@
    "exec": false,
    "sha256": "90c36a8ac216726ef3b4de1e6905cf977ecf6798abce84cd6e13b602ca19be50"
   },
+  "examples/northwind-openai-agents/README.md": {
+   "exec": false,
+   "sha256": "462ceaa54f3478ab20bce452135778c5d94790df731fd9ab3aef381e0db2f2ca"
+  },
+  "examples/northwind-openai-agents/agent.lock": {
+   "exec": false,
+   "sha256": "41a32ca96b8e8e32b6b525e8f917aed3e3028f21162f8ed4f8097a0121c17e23"
+  },
+  "examples/northwind-openai-agents/agent.yaml": {
+   "exec": false,
+   "sha256": "899d7e667942180f8cc2bae50e8383e6d91ae324f7306d2d889e20aded54d178"
+  },
   "examples/northwind/README.md": {
    "exec": false,
    "sha256": "19a4d9c88ede56ae9eaa6a12a915a69794b1eebdca38cc4f443dd182cb88568a"
@@ -1098,7 +1198,7 @@
   },
   "examples/northwind/stack.yaml": {
    "exec": false,
-   "sha256": "20ea2332943a7e9e224414e55f442701fb5c53ca0c1ad7c170ada8b89b86c55f"
+   "sha256": "af66b43550a60b4eb57fe92b58481a42d709f1ae549039c8720021ce2702777f"
   },
   "examples/northwind/stack/.dockerignore": {
    "exec": false,
