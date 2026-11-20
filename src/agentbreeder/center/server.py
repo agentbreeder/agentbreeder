@@ -46,6 +46,7 @@ from agentbreeder.center import (
     knowledgestatus,
     logfollow,
     mcpgrants,
+    notifications,
     onboard,
     pinsreview,
     registryimport,
@@ -104,6 +105,7 @@ EXAMPLES = ("northwind",)
 # first so a refused name never reaches a child process or creates the projects folder.
 RELEASE_ROWS = 1000  # audit rows read for an agent's releases: `audit list`'s maximum
 STARTER_NAME = re.compile(r"^[a-z]([a-z0-9-]{0,29}[a-z0-9])?$")
+EVENTS_COALESCE = 2.0  # seconds one `events` read serves concurrent polls (#827)
 GUIDE_TIMEOUT = 60  # `next` runs doctor's checks and one `compose ps`
 # `build`'s `lock: "update"` drops --locked after "Move agent to this version" (#826).
 OPTIONS = {
@@ -219,6 +221,10 @@ class Center:
         self.directory = directory
         self.environment = environment
         self.state = CenterState(directory)
+        # The last events read and when (#827): concurrent polls within EVENTS_COALESCE seconds
+        # share one CLI child, so tabs polling together cannot pile up children.
+        self.events_lock = threading.Lock()
+        self.events_last: tuple[float, dict, int] | None = None
         self.runner = Runner(self.state, directory, prefix)
         self.reads = Reads(run_cli=self.runner.read)
         self.runner.on_invalidate.append(self.reads.invalidate)
@@ -975,6 +981,64 @@ class Center:
             )
         return envelope({"agent": agent, "saved": True, "lines": lines})
 
+    def events(self, project_id: str | None = None) -> dict:
+        """The stored events of the registered projects (#827, console notifications spec §2):
+        `events --limit N --json` with fixed argv, each event allow-listed by
+        `notifications.events_answer` against the projects registered now, and only
+        `project_id`'s when one is given (a scoped page never gets another project's events).
+        One CLI read serves every poll within EVENTS_COALESCE seconds. Conditions are not here:
+        they are the guide's."""
+        with self.events_lock:
+            ended = self.runner.ended
+            last = self.events_last
+            if last is None or last[2] != ended or time.monotonic() - last[0] >= EVENTS_COALESCE:
+                result = self.runner.read(
+                    notifications.events_argv(), timeout=notifications.TIMEOUT, cache=False
+                )
+                # Stamped when the answer arrived: a slow read still serves the polls after it.
+                # A job that ended since (it may have stored an event) makes the next one read.
+                self.events_last = (time.monotonic(), result, ended)
+            result = self.events_last[1]
+        if result["data"] is None:
+            return result
+        projects = {p["path"]: p["id"] for p in self.state.projects()}
+        answer = notifications.events_answer(result["data"], projects)
+        if answer is None:
+            return envelope(
+                None,
+                error(
+                    "EVENTS_INVALID",
+                    "The events answer does not match its contract; run `agentbreeder events` "
+                    "in a terminal",
+                ),
+            )
+        if project_id is not None:
+            answer["events"] = [e for e in answer["events"] if e["project_id"] == project_id]
+            answer["unread"] = sum(1 for event in answer["events"] if not event["read"])
+        return {**result, "data": answer}
+
+    def mark_events_read(self, body: object, project_id: str | None = None) -> dict:
+        """Mark events read (`events --mark-read ID …`), then answer as `events`. Only ids of
+        events this console lists for the registered projects are sent: `--mark-read` does not
+        check a project, so any other id is refused here."""
+        ids = notifications.mark_request(body)
+        with self.events_lock:
+            self.events_last = None
+        shown = self.events(project_id)
+        if shown["data"] is None:
+            return shown  # the CLI's own error, not a refusal of the ids
+        known = {event["id"] for event in shown["data"]["events"]}
+        if not set(ids) <= known:
+            raise BadRequest("Mark only events this console lists", "EVENTS_READ_INVALID")
+        result = self.runner.read(
+            notifications.mark_argv(ids), timeout=notifications.TIMEOUT, cache=False
+        )
+        with self.events_lock:
+            self.events_last = None
+        if result["data"] is None:
+            return result
+        return self.events(project_id)
+
     def eval_reports(self, project: dict, run: str | None, query: dict[str, list[str]]) -> dict:
         """The saved eval reports (`evals list`), or one run's report (`evals show RUN`), from the
         project's default `deploy/` folder (#932): fixed argv from `center/evals.py`, redacted
@@ -1650,6 +1714,26 @@ def _watch(request: Request) -> dict:
     return request.center.watch.read(request.project())
 
 
+def _events_project(request: Request) -> str | None:
+    """`?project=ID`: one registered project's events only, or None for all of them."""
+    value = request.query.get("project", [""])[0]
+    if not value:
+        return None
+    if not any(p["id"] == value for p in request.center.state.projects()):
+        raise BadRequest("No such project", "PROJECT_NOT_FOUND")
+    return value
+
+
+def _events(request: Request) -> dict:
+    """Stored events for the bell's panel and toasts (#827): a poll, so it does not keep an idle
+    session alive (R7)."""
+    return request.center.events(_events_project(request))
+
+
+def _events_read(request: Request) -> dict:
+    return request.center.mark_events_read(request.body, _events_project(request))
+
+
 def _docker(request: Request) -> dict:
     return request.center.docker(fresh=request.query.get("fresh") == ["1"])
 
@@ -2078,6 +2162,7 @@ ROUTES: tuple[Route, ...] = (
         "/api/projects/0123456789ab/traces/" + "0" * 32,
     ),
     Route("GET", rf"/api/jobs/{JOB_ID}", _job, "/api/jobs/" + "0" * 32, poll=True),
+    Route("GET", r"/api/events", _events, "/api/events", poll=True),
     Route("GET", r"/api/auth", _auth_state, "/api/auth", session=False),
     Route("GET", r"/api/settings", _settings, "/api/settings"),
     Route("POST", r"/api/session", _session, "/api/session", session=False),
@@ -2087,6 +2172,7 @@ ROUTES: tuple[Route, ...] = (
     Route("POST", r"/api/signout-everywhere", _sign_out_everywhere, "/api/signout-everywhere"),
     Route("POST", r"/api/settings", _save_settings, "/api/settings"),
     Route("POST", r"/api/projects", _add_project, "/api/projects"),
+    Route("POST", r"/api/events/read", _events_read, "/api/events/read"),
     Route("POST", r"/api/projects/stack-for", _preview_stack_for, "/api/projects/stack-for"),
     Route(
         "POST",
@@ -2511,6 +2597,12 @@ def in_use(port: int) -> bool:
         return True  # a timeout (a full accept queue) or a reset: something holds it
 
 
+class _Server(ThreadingHTTPServer):
+    # The page loads its ~65 ES modules at once; the stdlib default backlog of 5 made one of them
+    # fail with a connection reset now and then, and the page never booted (#1047).
+    request_queue_size = 128
+
+
 def make_server(center: Center, port: int | None) -> ThreadingHTTPServer:
     handler = type("BoundHandler", (Handler,), {"center": center})
     candidates, scanned = port_candidates(center, port)
@@ -2518,7 +2610,7 @@ def make_server(center: Center, port: int | None) -> ThreadingHTTPServer:
         if in_use(candidate):
             continue
         try:
-            server = ThreadingHTTPServer(("127.0.0.1", candidate), handler)
+            server = _Server(("127.0.0.1", candidate), handler)
             break
         except OSError as problem:
             if problem.errno != errno.EADDRINUSE:
