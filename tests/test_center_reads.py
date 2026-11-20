@@ -52,6 +52,8 @@ ALLOWED = {
     "agentbreeder.center.registryimport",
     # The eval report viewer (#932): fixed argv and answer shape checks; imports only `re`.
     "agentbreeder.center.evals",
+    # Notifications (#827): fixed argv and event allow-list; imports `re` and center.files.
+    "agentbreeder.center.notifications",
     # Prompt editing and set-ref (#826): pure request checks and argv; imports only registry.
     "agentbreeder.center.edits",
     # MCP grant and revoke (#831): pure request/answer checks; imports registry, strict_yaml.
