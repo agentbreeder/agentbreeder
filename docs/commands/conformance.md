@@ -71,7 +71,7 @@ The suite is black-box: it reports what the image did against the fakes. An imag
 Each row of the report has a `status`:
 
 - `pass` or `fail` (with a one-line `detail`);
-- `not_run`: the check is not built yet, or had nothing to read (no container log, no spans). The detail says which;
+- `not_run`: the check is not built yet, or had nothing to read (no container log, no spans). On `main`, not in a published preview: an image whose `agent.yaml` says `traces: none` (the starter's default) sends no spans, so the checks that read spans (`traces.*`, `hygiene.spans`, `model_errors.text_spans`) are `not_run` with that reason instead of `fail`; this is read from the project's `agent.yaml` only while it is the file the build record hashed. Build with `traces: otlp` to run them. This handling is unit-tested only; it has not yet been run against a real image. The detail says which;
 - `not_applicable`: a kit-profile check on a `v1` image.
 
 `result` is `pass` only when every check that applies passed, `fail` when one failed, and otherwise `incomplete`. **`incomplete` is not a pass.** While any check is not built, no image can get `pass`, so no runtime version is called conformant yet. A check is never relaxed for a runtime: a runtime that fails one is fixed in a later version or the failure is recorded (owner decision D14).

@@ -53,6 +53,11 @@ environment:
       sponsor: support-lead@example.com
       review_by: "2027-06-30"
       candidate: true
+    # The OpenAI Agents SDK port (../northwind-openai-agents, #1083 F4): same registry, same stack.
+    northwind-support-openai-agents:
+      sponsor: support-lead@example.com
+      review_by: "2027-06-30"
+      candidate: true
     # The Deep Agents port (../northwind-deepagents, #1083 F5): same registry, same stack.
     northwind-support-deepagents:
       sponsor: support-lead@example.com

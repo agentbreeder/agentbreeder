@@ -108,6 +108,7 @@ def test_a_manifest_without_protocol_gets_the_legacy_adk_profile():
 # runtime/modules.json (tests/test_runtime_adk_150.py).
 ADK_150_MODULES = frozenset({"skill_hash", "skills", "subagents", "turns"})
 LANGGRAPH_100_MODULES = frozenset({"kit", "langgraph_adapter", "server"})
+OPENAI_AGENTS_100_MODULES = frozenset({"kit", "openai_agents_adapter", "server"})
 DEEPAGENTS_100_MODULES = frozenset({"kit", "deepagents_adapter", "server"})
 
 
@@ -615,11 +616,17 @@ def test_registry_runtimes_on_the_shipped_registry(tmp_path, capsys, monkeypatch
     assert cli.main(["registry", "runtimes", "--json", "--project", str(tmp_path)]) == 0
     rows = json.loads(capsys.readouterr().out)["runtimes"]
     assert rows and all(row["usable"] and row["root_kind"] == "builtin" for row in rows)
-    # 1.3.0 (Northwind 61/61, #1095) and 1.4.0 (the starter and the 3.0.0a3 runs) were run end
-    # to end; they come first, newest first. No older version was.
-    run = ["runtime/adk@1.4.0", "runtime/adk@1.3.0"]
+    # 1.3.0 (Northwind 61/61, #1095), 1.4.0 (the starter and the 3.0.0a3 runs), 1.5.0 (sub-agents
+    # and skills) and langgraph 1.0.0 (verify-langgraph-adk150.md) were run end to end; they come
+    # first, by name, newest first. No older version was.
+    run = [
+        "runtime/adk@1.5.0",
+        "runtime/adk@1.4.0",
+        "runtime/adk@1.3.0",
+        "runtime/langgraph@1.0.0",
+    ]
     assert [row["ref"] for row in rows if row["verified"]] == run
-    assert [row["ref"] for row in rows[:2]] == run and rows[0]["ref"] == newagent.RUNTIME
+    assert [row["ref"] for row in rows[:4]] == run
     by_ref = {row["ref"]: row for row in rows}
     for older in ("1.0.4", "1.0.5", "1.0.6", "1.1.0", "1.2.0"):
         assert by_ref[f"runtime/adk@{older}"]["verified"] is False
@@ -627,6 +634,7 @@ def test_registry_runtimes_on_the_shipped_registry(tmp_path, capsys, monkeypatch
     assert cli.main(["registry", "runtimes", "--project", str(tmp_path)]) == 0
     text = capsys.readouterr().out
     assert "runtime/adk@1.4.0  Google ADK  protocol 1 (v1)  run end to end\n" in text
+    assert "runtime/adk@1.5.0  Google ADK  protocol 1 (v1)  run end to end\n" in text
     assert "runtime/adk@1.3.0  Google ADK  protocol 1 (v1)  run end to end\n" in text
     assert "runtime/adk@1.2.0  Google ADK  protocol 1 (v1)  not run end to end\n" in text
 
@@ -761,6 +769,37 @@ def test_new_agent_says_when_the_runtime_is_not_the_one_that_was_run(tmp_path, c
     assert "is not the runtime version" not in capsys.readouterr().out
 
 
+def test_the_starter_on_langgraph_is_verified_with_gemini_only(tmp_path, capsys, monkeypatch):
+    """runtime/langgraph@1.0.0 ran the starter with gemini on its default model
+    (verify-langgraph-adk150.md, `newagent.STARTER_RUNTIMES`); another provider or model id is
+    not verified, and the command says which."""
+    monkeypatch.delenv(registry.PATH_ENV, raising=False)
+    lg = "runtime/langgraph@1.0.0"
+    assert newagent.STARTER_RUNTIMES == {lg: {"gemini"}}
+    assert newagent.starter_verified(lg, "gemini", newagent.PROVIDERS["gemini"].model)
+    assert not newagent.starter_verified(lg, "gemini", "gemini/gemini-2.5-flash")
+    assert not newagent.starter_verified(lg, "openai", newagent.PROVIDERS["openai"].model)
+    assert not newagent.starter_verified("runtime/adk@1.5.0", "gemini", "gemini/gemini-3.8-flash")
+    assert not newagent.starter_verified(newagent.RUNTIME, "anthropic", "anthropic/claude-x")
+
+    def run(model: str) -> tuple[dict, str]:
+        args = ["new", "agent", "helper", "--model", model, "--runtime", lg, "--dry-run"]
+        assert cli.main([*args, "--dir", str(tmp_path / model), "--json"]) == 0
+        summary = json.loads(capsys.readouterr().out)
+        assert cli.main([*args, "--dir", str(tmp_path / model)]) == 0
+        return summary, capsys.readouterr().out
+
+    summary, text = run("gemini")
+    assert summary["runtime"] == lg and summary["verified"] is True
+    assert "is not the runtime version" not in text and "only, not with" not in text
+    summary, text = run("openai")
+    assert summary["verified"] is False
+    assert (
+        f"This starter has been run end to end on {lg} with gemini only, not with openai." in text
+    )
+    assert "is not the runtime version" not in text
+
+
 @pytest.fixture
 def shared(tmp_path, monkeypatch) -> Path:
     """A registry on AGENTBREEDER_REGISTRY_PATH with `runtime/fake@1.0.0`, a kit runtime."""
@@ -886,19 +925,53 @@ def test_a_spec_is_checked_against_its_runtime_as_build_checks_it(tmp_path, shar
 
 
 def test_verified_is_keyed_by_the_runtime_name():
-    """The builder's check stays on the default version: `runtime/adk@1.3.0` was run end to
-    end (the registry label), but no `new agent` combination ran on it."""
+    """The builder's check stays on each name's version (`BASE_RUNTIMES`): `runtime/adk@1.3.0`
+    and 1.5.0 were run end to end (the registry label), but no plain `new agent` combination ran
+    on them; runtime/langgraph@1.0.0 ran the starter (verify-langgraph-adk150.md)."""
     spec = agentspec.Spec.model_validate(_spec())
     assert agentspec.verified(spec)
     assert agentspec.runtime_verified("runtime/adk@1.3.0")
+    assert agentspec.runtime_verified("runtime/adk@1.5.0")
+    assert agentspec.runtime_verified("runtime/langgraph@1.0.0")
     for runtime, expected in (
         (newagent.RUNTIME, True),
         ("runtime/adk@1.3.0", False),
-        ("runtime/langgraph@1.0.0", False),
+        ("runtime/adk@1.5.0", False),
+        ("runtime/langgraph@1.0.0", True),
+        ("runtime/openai-agents@1.0.0", False),
         ("runtime/deepagents@1.0.0", False),
     ):
         pinned = agentspec.Spec.model_validate(_spec(runtime=runtime))
-        assert agentspec.verified(pinned) is expected
+        assert agentspec.verified(pinned) is expected, runtime
+
+
+def test_langgraph_is_verified_only_for_what_ran():
+    """The starter and one tool on runtime/langgraph@1.0.0, with gemini on its default model:
+    another provider, a model id, two tools, MCP, knowledge, sub-agents or skills stay
+    unverified."""
+    lg = "runtime/langgraph@1.0.0"
+    tool = "tool/escalate-to-human@1.0.0"
+
+    def check(**changes):
+        return agentspec.verified(agentspec.Spec.model_validate(_spec(runtime=lg, **changes)))
+
+    assert check() is True
+    assert check(tools=[tool]) is True
+    assert check(model="openai") is False  # ran with gemini only
+    assert check(model="openrouter") is False
+    assert check(model_id="gemini/gemini-2.5-flash") is False  # the default model only
+    assert check(tools=[tool, "tool/clock@1.0.0"]) is False  # VERIFIED_TOOLS
+    assert check(mcp=[{"ref": "mcp/github@1.0.0", "tools": ["get_me"]}]) is False
+    assert check(knowledge=[{"ref": "knowledge/docs@1.0.0"}]) is False
+    assert check(skills=["skill/returns-policy@0.1.0"]) is False  # PART_RUNTIMES: adk@1.5.0
+    sub = {
+        "name": "billing",
+        "description": "Answers billing questions.",
+        "model": "gemini",
+        "prompt": {"text": "Answer billing questions."},
+    }
+    assert check(subagents=[sub]) is False  # PART_RUNTIMES: adk@1.5.0
+    assert check(subagents=[{**sub, "model": "openai"}]) is False
 
 
 # -- tool_check and the generator ----------------------------------------
@@ -906,12 +979,17 @@ def test_verified_is_keyed_by_the_runtime_name():
 
 def test_tool_check_reads_modules_files_from_the_builtin_registry(tmp_path, monkeypatch):
     # Every built-in version counts: the legacy table, runtime/adk@1.5.0's own file,
-    # runtime/langgraph@1.0.0's (#1083 F3) and runtime/deepagents@1.0.0's (#1083 F5).
+    # runtime/langgraph@1.0.0's (#1083 F3), runtime/openai-agents@1.0.0's (F4) and
+    # runtime/deepagents@1.0.0's (F5).
     builtin_modules, builtin_imports = tool_check.runtime_names()
     assert builtin_modules == (
-        LEGACY_ADK.modules | ADK_150_MODULES | LANGGRAPH_100_MODULES | DEEPAGENTS_100_MODULES
+        LEGACY_ADK.modules
+        | ADK_150_MODULES
+        | LANGGRAPH_100_MODULES
+        | OPENAI_AGENTS_100_MODULES
+        | DEEPAGENTS_100_MODULES
     )
-    assert {"litellm", "langgraph", "langchain_core", "deepagents"} <= builtin_imports
+    assert {"litellm", "langgraph", "langchain_core", "agents", "deepagents"} <= builtin_imports
     assert tool_check.shadows("deepagents_adapter") == "shadows a runtime module"
     assert tool_check.shadows("deepagents") == "shadows a package the runtime installs"
     assert tool_check.shadows("kit") == "shadows a runtime module"
