@@ -7,11 +7,37 @@ import { visible } from "../lib/text.js";
 import { ROUTES } from "../screens/index.js";
 import { Action, Text, useConfirm, useConsole } from "./components.js";
 import { JobResult, NextPill } from "./guide.js";
+import { Bell, NotificationsPanel, Toasts, useEvents } from "./notifications.js";
 import { Icon } from "./icons.js";
 import { html, useEffect, useLayoutEffect, useRef, useState } from "./preact.js";
 
 export function Shell({ match }) {
-  const { project, dockOpen, setDockOpen } = useConsole();
+  const { project, projects, dockOpen, setDockOpen, client, versionOf } = useConsole();
+  // Notifications (#827): one events read shared by the bell, its panel and the toasts. A job
+  // ending (any project's version) reads them again.
+  const jobsVersion = (project ? [project] : projects).reduce((sum, p) => sum + versionOf(p.id), 0);
+  const [events, reloadEvents, setEvents, eventsPath] = useEvents(client, project ? project.id : null, jobsVersion, true);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const closePanel = () => {
+    setPanelOpen(false);
+    requestAnimationFrame(() => document.getElementById("notifications-bell")?.focus());
+  };
+  const markRead = async (ids) => {
+    if (!ids.length) return true;
+    try {
+      const path = project ? `/api/events/read?project=${encodeURIComponent(project.id)}` : "/api/events/read";
+      const sentFor = eventsPath.current;
+      const reply = await client.request(path, { body: { ids } });
+      if (!reply.data) return false;
+      if (eventsPath.current !== sentFor) return true; // the scope changed: its own read applies
+      setEvents((previous) => ({ ...previous, events: reply.data.events, unread: reply.data.unread, error: null }));
+      return true;
+    } catch (error) {
+      // A 401 (M2 #818): the re-auth dialog opens over the page; the panel says to try again.
+      if (error.kind !== "session") reloadEvents();
+      return false;
+    }
+  };
   const route = match ? match.route : null;
   const h1 = useRef(null);
   const previous = useRef(null);
@@ -42,7 +68,8 @@ export function Shell({ match }) {
   const needsProject = route && route.scoped && !project;
   return html`
     <a class="skip" href="#main" onClick=${(event) => { event.preventDefault(); h1.current && h1.current.focus(); }}>Skip to content</a>
-    <${TopBar} />
+    <${TopBar} bell=${html`<${Bell} open=${panelOpen} events=${events} onToggle=${() => (panelOpen ? closePanel() : setPanelOpen(true))} />`} />
+    ${panelOpen ? html`<${NotificationsPanel} events=${events} onClose=${closePanel} onMarkRead=${markRead} />` : null}
     <div class="layout">
       <${Sidebar} current=${section} />
       <main id="main">
@@ -50,6 +77,7 @@ export function Shell({ match }) {
         ${!route ? html`<p>There is no screen at this address. <a href="#/">Go to Home</a>.</p>` : needsProject ? html`<${ChooseProject} />` : html`<${Screen} project=${project} params=${match.params} query=${match.query || {}} key=${project ? project.id : "all"} />`}
       </main>
     </div>
+    <${Toasts} events=${events} onOpen=${() => setPanelOpen(true)} />
     ${dockOpen
       ? html`<${Dock} onClose=${() => {
           setDockOpen(false);
@@ -59,7 +87,7 @@ export function Shell({ match }) {
   `;
 }
 
-function TopBar() {
+function TopBar({ bell }) {
   const { overview, projects, project, setScope, jobs, dockOpen, setDockOpen } = useConsole();
   const running = jobs.running().length;
   const followed = jobs.list().length;
@@ -80,6 +108,7 @@ function TopBar() {
       <button type="button" id="activity-pill" class=${`pill${running ? " running" : ""}`} aria-expanded=${dockOpen ? "true" : "false"} aria-controls=${dockOpen ? "dock" : undefined} onClick=${() => setDockOpen(!dockOpen)}>
         ${running ? `${running} running` : followed ? "Jobs" : "No jobs running"}
       </button>
+      ${bell}
       <${ThemeToggle} />
       <${UserMenu} />
     </div>

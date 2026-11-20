@@ -884,6 +884,9 @@ class Runner:
         self.prefix = list(prefix or [sys.executable, "-I", "-m", "agentbreeder"])
         self.mutex = threading.Lock()
         self.jobs: dict[str, Running] = {}
+        # Jobs ended since start (#827): a job may have stored an event, so the events read is
+        # not served from the last one across a change of this count.
+        self.ended = 0
         self.held: dict[str, str] = {}  # lock key -> the job or short write holding it
         self.children: set[subprocess.Popen] = set()  # long-lived children (follows, watch, usage)
         self.follows: set[subprocess.Popen] = set()  # the subset started by `follow`
@@ -1091,6 +1094,7 @@ class Runner:
                 break
             except Exception:
                 time.sleep(0.2)  # a second failure leaves it to the next start (interrupted)
+        self.ended += 1
         if state == "succeeded" and on_success:
             on_success()
 

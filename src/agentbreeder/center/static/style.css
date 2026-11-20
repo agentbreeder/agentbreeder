@@ -67,6 +67,31 @@ header.top {
   font: inherit; padding: 4px 12px; cursor: pointer;
 }
 .pill.running { border-color: var(--info); color: var(--info); background: var(--info-subtle); }
+/* Notifications (#827): the bell is a pill; the panel sits in the page flow under the top bar
+   (no overlap with the sticky header at any width); toasts stack at the bottom left, clear of the
+   jobs dock at the bottom right, above it on narrow screens. Tokens only. */
+.pill.bell { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; }
+.bell-count { font-variant-numeric: tabular-nums; font-weight: 600; }
+.notifications {
+  margin: 8px max(16px, env(safe-area-inset-right)) 0 auto; width: min(32rem, calc(100% - 32px)); max-height: 70vh; overflow: auto;
+  background: var(--card); border: 1px solid var(--control-border); border-radius: 12px; padding: 12px 16px; box-shadow: var(--elev-2);
+  overflow-wrap: anywhere;
+}
+.notifications h3 { font-size: 14px; margin: 12px 0 6px; }
+.notifications .events li { border-left: 3px solid transparent; padding: 6px 0 6px 8px; border-top: 1px solid var(--border); }
+.notifications .events li.unread { border-left-color: var(--control-border); }
+.notifications .row { flex-wrap: wrap; gap: 8px; }
+.toasts {
+  position: fixed; left: 16px; bottom: 16px; width: min(24rem, calc(100vw - 32px)); max-height: 40vh; overflow: auto; z-index: 5;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+}
+.toast {
+  pointer-events: auto; margin: 0; background: var(--card); border: 1px solid var(--control-border); border-left: 3px solid var(--destructive);
+  border-radius: 8px; padding: 8px 12px; box-shadow: var(--elev-3); overflow-wrap: anywhere;
+}
+.toast p { margin: 4px 0 8px; }
+.toast .row { flex-wrap: wrap; gap: 8px; }
+@media (pointer: coarse) { .toast .action, .pill.bell { min-height: 44px; } }
 .scope-chip { font-size: 12.5px; font-weight: 500; padding: 2px 8px; border-radius: 999px; background: var(--secondary); color: var(--text-muted); }
 
 .menu { position: relative; }
