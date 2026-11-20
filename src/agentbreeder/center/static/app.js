@@ -5,12 +5,14 @@ import { createClient } from "./lib/api.js";
 import { jobLabel, jobOutcome } from "./lib/format.js";
 import { createJobs } from "./lib/jobs.js";
 import { createRouter, pathFrom, queryFrom, titleFor, tokenFrom } from "./lib/router.js";
+import { createDrafts } from "./lib/signin.js";
 import { visible } from "./lib/text.js";
 import { ROUTES } from "./screens/index.js";
 import { Console, Text } from "./ui/components.js";
 import { DockerBlocker, useDocker } from "./ui/docker.js";
 import { html, render, useEffect, useReducer, useRef, useState } from "./ui/preact.js";
-import { Shell, SignedOut, Unreachable } from "./ui/shell.js";
+import { Shell, Unreachable } from "./ui/shell.js";
+import { Reauth, Setup, SignedOut } from "./ui/signin.js";
 
 const router = createRouter(ROUTES);
 // A route, and the query a screen keeps in it (#1085 S2), so re-auth returns to both.
@@ -24,6 +26,13 @@ const tab = {
       return sessionStorage.getItem(key);
     } catch {
       return memory[key] ?? null;
+    }
+  },
+  keys() {
+    try {
+      return Object.keys(sessionStorage);
+    } catch {
+      return Object.keys(memory);
     }
   },
   set(key, value) {
@@ -54,8 +63,11 @@ const prefs = {
 };
 
 // Phase changes from outside Preact (a 401 or no answer from any request) go through this hook.
-const bus = { phase: () => {} };
+const bus = { phase: () => {}, sessionEnded: () => {} };
 const session = { get: () => tab.get("console-session"), set: (value) => tab.set("console-session", value) };
+// How this tab signed in ("password" or "link"), for the user menu only.
+const sessionKind = { get: () => tab.get("console-session-kind"), set: (value) => tab.set("console-session-kind", value) };
+const drafts = createDrafts(tab);
 
 function rememberRoute() {
   if (RETURN_TO.test(location.hash)) tab.set("console-return", location.hash);
@@ -67,9 +79,12 @@ const base = createClient({
   onSessionEnded: () => {
     rememberRoute();
     session.set(null);
-    bus.phase({ name: "signed-out", reason: "ended" });
+    bus.sessionEnded();
   },
 });
+// Sign-in, setup's auth read and sign-out: a 401 there is an answer for the form, not the end of
+// the page's session.
+const quiet = createClient({ fetchImpl: (...args) => fetch(...args), session });
 const client = {
   ...base,
   async request(path, options) {
@@ -171,13 +186,60 @@ function App({ initial }) {
       (error) => { if (read === overviewRead.current) onError(error); },
     );
   };
-  const [docker, retryDocker] = useDocker(client, phase.name === "ready", () => readOverview());
-  const [guide, reloadGuide] = useGuide(scoped ? scoped.id : null, scoped ? jobs.version(scoped.id) : 0, phase.name === "ready");
+  // A 401 while the page is shown opens the re-auth dialog over it (spec §8.2): the page, the
+  // route and an editor's text stay; polls stop until a new sign-in.
+  const [reauth, setReauth] = useState(false);
+  const live = phase.name === "ready" && !reauth;
+  const [docker, retryDocker] = useDocker(client, live, () => readOverview());
+  const [guide, reloadGuide] = useGuide(scoped ? scoped.id : null, scoped ? jobs.version(scoped.id) : 0, live);
 
   bus.phase = (next) => {
     jobs.halt();
+    setReauth(false);
     setPhase(next);
   };
+  // Set from a deliberate sign-out until the next sign-in: a poll still in flight then gets a
+  // 401, which must not turn "Signed out" into "Session ended" or open the re-auth dialog.
+  const leaving = useRef(false);
+  bus.sessionEnded = () => {
+    jobs.halt();
+    if (leaving.current || phase.name === "signed-out") return;
+    if (phase.name === "ready") setReauth(true);
+    else setPhase({ name: "signed-out", reason: "ended" });
+  };
+
+  /** A new session from the sign-in form (the page) or the re-auth dialog (over the page). */
+  function signedIn(data, overPage) {
+    leaving.current = false;
+    setReauth(false);
+    session.set(data.session);
+    sessionKind.set(data.kind || "password");
+    if (overPage) {
+      setReauth(false);
+      jobs.begin();
+      loadProjects().catch(() => {});
+      readOverview();
+      return;
+    }
+    const back = tab.get("console-return");
+    tab.set("console-return", null);
+    if (back && RETURN_TO.test(back) && back !== location.hash) {
+      history.replaceState(null, "", `/${back}`);
+      setPath(pathFrom(back));
+      setQuery(queryFrom(back)); // a screen's query (#1085 S2) comes back with its route
+    }
+    setPhase({ name: "loading" });
+    load();
+  }
+
+  function signedOut(reason) {
+    leaving.current = true;
+    jobs.halt();
+    session.set(null);
+    sessionKind.set(null);
+    drafts.clearAll(); // a deliberate sign-out leaves no editor text behind in this tab
+    bus.phase({ name: "signed-out", reason });
+  }
 
   async function loadProjects() {
     const data = await client.get("/api/projects");
@@ -192,6 +254,19 @@ function App({ initial }) {
    * card appear when it answers.
    */
   async function load() {
+    // First run, or a 3.0.0a2 console with no password: setup comes before any screen (S-28).
+    try {
+      const auth = await quiet.get("/api/auth");
+      if (auth && auth.password_set === false) {
+        setPhase({ name: "setup" });
+        return;
+      }
+    } catch (error) {
+      if (error.kind === "unreachable") {
+        bus.phase({ name: "unreachable" });
+        return;
+      }
+    }
     let failed = null; // this load's overview error, shown above the page as before
     readOverview((error) => {
       if (error.kind === "session" || error.kind === "unreachable") return; // the phase is already set
@@ -278,7 +353,8 @@ function App({ initial }) {
   }, [path, phase.name]);
 
   if (phase.name === "loading") return html`<main id="main" class="center-page" aria-busy="true"><p class="muted">Loading the console…</p></main>`;
-  if (phase.name === "signed-out") return html`<${SignedOut} reason=${phase.reason} />`;
+  if (phase.name === "signed-out") return html`<${SignedOut} reason=${phase.reason} client=${quiet} onSignedIn=${(data) => signedIn(data, false)} key=${phase.reason} />`;
+  if (phase.name === "setup") return html`<${Setup} client=${client} onDone=${() => signedOut("set")} />`;
   if (phase.name === "unreachable") return html`<${Unreachable} onRetry=${load} />`;
 
   const project = scoped;
@@ -330,10 +406,25 @@ function App({ initial }) {
       await loadProjects();
       return added;
     },
-    signOut() {
+    drafts,
+    sessionKind: sessionKind.get(),
+    async signOut() {
       rememberRoute();
-      session.set(null);
-      bus.phase({ name: "signed-out", reason: "none" });
+      leaving.current = true;
+      jobs.halt();
+      await quiet.post("/api/signout").catch(() => {});
+      signedOut("none");
+    },
+    signedOutEverywhere() {
+      rememberRoute();
+      signedOut("everywhere");
+    },
+    /**
+     * After a password change: this tab's new session (every other one has ended). A poll that
+     * carried the old token in between may have opened the re-auth dialog; this closes it.
+     */
+    replaceSession(data) {
+      signedIn(data, true);
     },
     versionOf: (id) => jobs.version(id),
     jobsEnded: () => jobs.ended(),
@@ -346,8 +437,9 @@ function App({ initial }) {
   };
   return html`<${Console.Provider} value=${value}>
     ${phase.error ? html`<div class="notice error" role="alert"><${Text} value=${phase.error} /></div>` : null}
-    <${DockerBlocker} docker=${docker} onRetry=${retryDocker} />
+    ${reauth ? null : html`<${DockerBlocker} docker=${docker} onRetry=${retryDocker} />`}
     <${Shell} match=${match} />
+    ${reauth ? html`<${Reauth} client=${quiet} onSignedIn=${(data) => signedIn(data, true)} />` : null}
   <//>`;
 }
 
@@ -362,7 +454,9 @@ async function boot() {
     tab.set("console-return", null);
     history.replaceState(null, "", `/${back && RETURN_TO.test(back) ? back : "#/"}`);
     try {
-      session.set((await base.post("/api/session", { token })).session);
+      const data = await quiet.post("/api/session", { token });
+      session.set(data.session);
+      sessionKind.set(data.kind || "link");
     } catch (error) {
       initial = error.kind === "unreachable" ? { name: "unreachable" } : { name: "signed-out", reason: "used" };
     }

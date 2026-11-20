@@ -37,7 +37,7 @@ async function send(client, path, body) {
     const reply = await client.request(path, { body });
     return { data: reply.error ? null : reply.data, problem: reply.error };
   } catch (error) {
-    if (error.kind === "session") throw error;
+    // A 401 (M2 #818): the re-auth dialog opens over the page; this says to try again after it.
     return { data: null, problem: { code: error.code, message: error.message } };
   }
 }
@@ -187,7 +187,7 @@ function TextBody({ path, text, onText, onKey }) {
 }
 
 function EditorBody({ project, kind, entry, version, show, focusCase, FileDiff, onSaved, onRefresh }) {
-  const { client } = useConsole();
+  const { client, drafts } = useConsole();
   const spec = editKind(kind);
   const files = editableFiles(show, kind);
   const others = (show.files || []).map((file) => [file, notEditableReason(file, kind, show)]).filter(([, why]) => why);
@@ -196,7 +196,10 @@ function EditorBody({ project, kind, entry, version, show, focusCase, FileDiff, 
   const paths = [...files.map((file) => file.path), ...(added && !files.some((file) => file.path === added) ? [added] : [])];
   const isNew = Boolean(path) && path === added && !files.some((file) => file.path === added);
   const original = (files.find((file) => file.path === path) || {}).text ?? "";
-  const [text, setText] = useState(original);
+  // An unsaved edit is kept in this tab (M2 #818): a session that ends mid-edit, or a reload
+  // after signing in again, gives the text back. Editors mount only once the tab is signed in.
+  const draftKey = (file) => `${project.id}:${version.ref}:${file}`;
+  const [text, setText] = useState(() => (drafts && path ? drafts.get(draftKey(path)) : null) ?? original);
   const [part, setPart] = useState("patch");
   const [review, setReview] = useState(null); // {data, text, version, path, remove}
   const [busy, setBusy] = useState(null); // "review" | "save"
@@ -207,8 +210,14 @@ function EditorBody({ project, kind, entry, version, show, focusCase, FileDiff, 
   const [dialog, confirm] = useConfirm();
   const dirty = text !== original;
   const cases = spec.body === "cases" ? parseCases(text) : null; // parsed once per render
+  const remember = (file, value, from) => {
+    if (!drafts || !file) return;
+    if (value === from) drafts.clear(draftKey(file));
+    else drafts.set(draftKey(file), value);
+  };
   const change = (next) => {
     setText(next);
+    remember(path, next, original);
     setInvalid(null); // the CLI's finding was about the text it loaded
   };
   const casesToFix = cases && !cases.error ? caseProblems(cases.entries).count : 0;
@@ -221,14 +230,17 @@ function EditorBody({ project, kind, entry, version, show, focusCase, FileDiff, 
     if (next === path) return;
     if (dirty && !(await confirm({ title: "Discard your changes?", text: `Your changes to ${path} are not saved.`, confirm: "Discard" }))) return;
     if (isNew && next !== added) setAdded(null); // an empty new file is dropped when left
+    remember(path, original, original); // its changes were discarded
     setPath(next);
-    setText((files.find((file) => file.path === next) || {}).text ?? "");
+    const saved = drafts ? drafts.get(draftKey(next)) : null;
+    setText(saved ?? (files.find((file) => file.path === next) || {}).text ?? "");
     setReview(null);
     setNotice(null);
     setInvalid(null);
     setReset((n) => n + 1);
   };
   const discard = () => {
+    remember(path, original, original);
     setText(original);
     setReview(null);
     setInvalid(null);
@@ -238,6 +250,7 @@ function EditorBody({ project, kind, entry, version, show, focusCase, FileDiff, 
     const made = newFile(kind, name, show);
     if (made.error) return made.error;
     if (dirty && !(await confirm({ title: "Discard your changes?", text: `Your changes to ${path} are not saved.`, confirm: "Discard" }))) return "";
+    remember(path, original, original);
     setAdded(made.path);
     setPath(made.path);
     setText("");
@@ -285,6 +298,7 @@ function EditorBody({ project, kind, entry, version, show, focusCase, FileDiff, 
       return;
     }
     setReview(null);
+    remember(review.path, "", ""); // saved: the draft is done
     if (review.path === added) setAdded(null);
     const what = review.remove ? `Saved ${data.ref} without ${review.path}.` : `Saved ${data.ref}.`;
     onSaved(data.version, `${what} ${version.ref} is unchanged. An agent uses the new version only after you move it there and release.`);
@@ -319,8 +333,8 @@ function EditorBody({ project, kind, entry, version, show, focusCase, FileDiff, 
         ${original.includes("\r") ? html`<p class="notice warn">This file has carriage returns (CRLF line endings). The browser edits it with LF endings, so a save changes every such line; use <code>agentbreeder registry edit</code> in a terminal to keep them.</p>` : null}
         ${spec.body === "cases"
           ? html`<${CasesBody} key=${`${path} ${reset}`} parsed=${cases} original=${original} onText=${change} invalid=${invalid} focus=${reset ? null : focusCase}
-              fallback=${html`<${TextBody} path=${path} text=${text} onText=${setText} onKey=${onKey} />`} />`
-          : html`<${TextBody} path=${path} text=${text} onText=${setText} onKey=${onKey} />`}
+              fallback=${html`<${TextBody} path=${path} text=${text} onText=${change} onKey=${onKey} />`} />`
+          : html`<${TextBody} path=${path} text=${text} onText=${change} onKey=${onKey} />`}
         <${Notice} notice=${notice} onDismiss=${() => setNotice(null)} />
         <${Actions}>
           <${Action} onClick=${() => ask(false)} disabled=${busy ? "Waiting for the console." : !dirty ? (isNew ? "Write the document first." : "Change the text first.") : casesToFix ? "Fix the cases marked with ! first." : false}>${busy === "review" ? "Reviewing…" : "Review changes"}<//>

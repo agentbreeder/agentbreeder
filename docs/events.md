@@ -114,5 +114,8 @@ A job waiting for approval (exit 3) is not an event,
 and neither is a release the gate stopped (exit 5), which is stored as `gate_failed`. Storing an
 event never fails the command that stores it.
 
+The console shows conditions and events under its bell, with failure toasts for new events
+(see [`command-center.md`](command-center.md), on `main`, not in a published preview).
+
 Labels on containers are not authenticated, so container events are best effort. AgentBreeder
 sends nothing off the machine.

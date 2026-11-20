@@ -237,6 +237,35 @@ def invoke(argv: list[str], data: dict) -> int:
     return 0
 
 
+def stored_events(argv: list[str]) -> int:
+    """`events [--mark-read ID ...] --limit N --json` (#827) over `events-store.json` in the fake
+    directory, which a test writes and may change between reads (the console never caches them):
+    a list of event objects as `agentbreeder events --json` prints them. `--mark-read` marks them
+    in the file, as the real store does. `events-error.txt` makes the read fail with its line."""
+    _record("events-calls.json", argv)
+    state = Path(os.environ["AGENTBREEDER_FAKE_DIR"])
+    problem = state / "events-error.txt"
+    if problem.exists():
+        print(problem.read_text().strip(), file=sys.stderr)
+        return 2
+    store = state / "events-store.json"
+    rows = json.loads(store.read_text()) if store.exists() else []
+    marked = {int(argv[i + 1]) for i, arg in enumerate(argv) if arg == "--mark-read"}
+    if marked:
+        for row in rows:
+            if row["id"] in marked:
+                row["read"] = True
+        store.write_text(json.dumps(rows))
+    known = {row["id"] for row in rows}
+    print(json.dumps({
+        "schema_version": 1,
+        "events": sorted(rows, key=lambda row: -row["id"]),
+        "unread": sum(1 for row in rows if not row["read"]),
+        "unknown_ids": sorted(marked - known),
+    }))  # fmt: skip
+    return 0
+
+
 def evals(argv: list[str], data: dict) -> int:
     _record("evals-calls.json", argv)
     spec = data["evals"]
@@ -908,6 +937,8 @@ def main(argv: list[str]) -> int:
         return invoke(argv, data)
     elif argv and argv[0] == "evals":
         return evals(argv, data)
+    elif argv and argv[0] == "events":
+        return stored_events(argv)
     elif argv and argv[0] == "traces":
         return traces(argv, data)
     elif head == ["tool", "log"]:

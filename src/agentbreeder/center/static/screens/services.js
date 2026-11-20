@@ -177,7 +177,7 @@ function Repin({ drifted, project, pins, setPins, client }) {
       const reply = await client.request(`/api/projects/${project.id}/mcp/pins`, { body: {} });
       setPins({ summary: reply.error ? null : reply.data, reading: false, problem: reply.error ? pinsProblem(reply.error) : "", reviewed: false });
     } catch (error) {
-      if (error.kind === "session") throw error;
+      // A 401 (M2 #818): the re-auth dialog opens over the page; this says to try again after it.
       setPins({ summary: null, reading: false, problem: pinsProblem(error), reviewed: false });
     }
   };

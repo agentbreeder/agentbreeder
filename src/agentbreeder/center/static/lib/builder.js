@@ -44,6 +44,7 @@ export const initialForm = () => ({
   retries: "1",
   runtime: null, // the picked `runtime/` ref; set from `parts.runtimes` once it is read
   tools: {}, // tool name -> the picked `tool/` ref
+  knowledge: "", // the picked `knowledge/` ref, or "" (#1069)
   mcp: {}, // server name -> {ref, tools: [granted tool names]}
 });
 
@@ -282,7 +283,11 @@ export function keepOffered(form, parts) {
     if (granted.length !== server.tools.length) changed = true;
     nextServers[name] = granted.length === server.tools.length ? server : { ...server, tools: granted };
   }
-  return changed ? { ...form, runtime, tools: nextTools, mcp: nextServers } : form;
+  // A picked knowledge version still offered and usable stays; otherwise it is dropped.
+  const offered = new Set(knowledgeChoices(parts.knowledge).map((entry) => entry.ref));
+  const knowledge = form.knowledge && offered.has(form.knowledge) ? form.knowledge : "";
+  if (knowledge !== (form.knowledge || "")) changed = true;
+  return changed ? { ...form, runtime, tools: nextTools, mcp: nextServers, knowledge } : form;
 }
 
 /** Why the picks cannot be previewed, as a sentence, or null. */
@@ -295,7 +300,24 @@ export function picksProblem(form) {
   if (bare) return `Grant ${bare[0]} at least one of its tools, or set it to Not used.`;
   const many = servers.find(([, server]) => server.tools.length > MAX_SERVER_TOOLS);
   if (many) return `Grant ${many[0]} at most ${MAX_SERVER_TOOLS} tools.`;
+  if (form.knowledge && !EMBEDDING_PROVIDERS.includes(form.model)) return knowledgeProviderText(form.model);
   return null;
+}
+
+/**
+ * The providers with an embedding model (`agentspec.EMBEDDINGS`, `center/builder.py`
+ * EMBEDDING_PROVIDERS): knowledge is offered only with these (#1069).
+ */
+export const EMBEDDING_PROVIDERS = ["gemini", "openai"];
+
+/** Why knowledge cannot be used with `model`, as a sentence. */
+export function knowledgeProviderText(model) {
+  return `Knowledge needs an embedding model, and ${model} has none in the pinned gateway: pick ${EMBEDDING_PROVIDERS.join(" or ")}, or set Knowledge to Not used.`;
+}
+
+/** The knowledge versions a new agent can pin: usable ones, newest first per name. */
+export function knowledgeChoices(entries) {
+  return (entries || []).filter((entry) => entry && typeof entry.ref === "string" && !entry.unusable);
 }
 
 export const initialCases = () => `${pyJson(FIRST_CASE)}\n`;
@@ -383,7 +405,7 @@ export function buildSpec(form, casesText) {
     prompt: { text: form.prompt.replace(/\r\n?/g, "\n") },
     evals: { cases: specCases(casesText).cases, threshold: fraction(form.threshold), retries: whole(form.retries, 0, 3) },
     tools: Object.keys(form.tools || {}).sort().map((name) => form.tools[name]),
-    knowledge: [],
+    knowledge: form.knowledge ? [{ ref: form.knowledge }] : [],
     mcp: Object.keys(form.mcp || {}).sort().map((name) => ({ ref: form.mcp[name].ref, tools: [...form.mcp[name].tools] })),
   };
 }

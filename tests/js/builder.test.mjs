@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  DEFAULT_RUNTIME, FIRST_CASE, MAX_CASES, MAX_SERVERS, MAX_TOOLS, buildSpec, createBody, createProblem, defaultRuntime, formProblem, frameworks, grantTool,
-  hasCapability, initialCases, initialForm, invalidPicks, invalidProblem, invalidText, keepOffered, pickFramework, pickGroups, pickServer, pickTool, picksProblem,
+  DEFAULT_RUNTIME, EMBEDDING_PROVIDERS, FIRST_CASE, MAX_CASES, MAX_SERVERS, MAX_TOOLS, buildSpec, createBody, createProblem, defaultRuntime, formProblem, frameworks, grantTool,
+  hasCapability, initialCases, initialForm, invalidPicks, invalidProblem, invalidText, keepOffered, knowledgeChoices, pickFramework, pickGroups, pickServer, pickTool, picksProblem,
   previewBody, removePick, reservedName, runtimeAnnouncement, runtimeLabel, runtimeOf, runtimeStatus, specCases, toolBlocked, toolsFull, unusableRuntimes,
   unusableText, unverifiedText,
 } from "../../src/agentbreeder/center/static/lib/builder.js";
@@ -309,4 +309,24 @@ test("a re-read gives a form its runtime: the default when it has none or its ow
   assert.equal(none.runtime, null, "no default framework: the user chooses");
   const empty = initialForm();
   assert.equal(keepOffered(empty, { tools: [], mcp: [], runtimes: [] }), empty);
+});
+
+test("knowledge (#1069): one picked version in the spec, only with an embedding provider", () => {
+  assert.deepEqual(EMBEDDING_PROVIDERS, ["gemini", "openai"]);
+  const cases = initialCases();
+  assert.deepEqual(buildSpec(form(), cases).knowledge, []);
+  assert.deepEqual(buildSpec(form({ knowledge: "knowledge/help@1.0.0" }), cases).knowledge, [{ ref: "knowledge/help@1.0.0" }]);
+  assert.equal(picksProblem(form({ knowledge: "knowledge/help@1.0.0" })), null);
+  assert.match(picksProblem(form({ model: "anthropic", knowledge: "knowledge/help@1.0.0" })), /Knowledge needs an embedding model, and anthropic has none/);
+  assert.equal(picksProblem(form({ model: "anthropic" })), null);
+});
+
+test("knowledge choices skip unusable versions, and a pick no longer offered is dropped", () => {
+  const entries = [{ ref: "knowledge/help@1.0.0", embedding: { alias: "a", dimensions: 8 } }, { ref: "knowledge/bare@1.0.0", unusable: "no embedding" }];
+  assert.deepEqual(knowledgeChoices(entries).map((e) => e.ref), ["knowledge/help@1.0.0"]);
+  const runtimes = [{ ref: ADK, name: "adk", version: "1.4.0", usable: true }];
+  const picked = form({ knowledge: "knowledge/help@1.0.0" });
+  assert.equal(keepOffered(picked, { tools: [], mcp: [], knowledge: entries, runtimes }), picked);
+  assert.equal(keepOffered(picked, { tools: [], mcp: [], knowledge: [entries[1]], runtimes }).knowledge, "");
+  assert.equal(keepOffered(form({ knowledge: "knowledge/bare@1.0.0" }), { tools: [], mcp: [], knowledge: entries, runtimes }).knowledge, "");
 });
