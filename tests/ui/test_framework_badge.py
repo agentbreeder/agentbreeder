@@ -158,6 +158,22 @@ def test_a_sign_in_again_returns_to_the_filtered_list(page, console):
     expect(rows(page)).to_have_count(1)
 
 
+def test_a_password_sign_in_returns_to_the_filtered_list(page, console):
+    """The password form (#818 M2) restores the route's query too, not only its path."""
+    console.scenario(list_all=listing(console, *ROWS), runtimes=FRAMEWORKS)
+    open_agents(page, console, "?framework=langgraph")
+    expect(rows(page)).to_have_count(1)
+    page.locator("summary", has_text="Owner").click()
+    page.get_by_role("button", name="Sign out of this tab").click()
+    expect(page.get_by_role("heading", level=1)).to_have_text("Sign in")
+    page.goto(console.origin + "/")
+    page.get_by_label("Password", exact=True).fill(console.password)
+    page.get_by_role("button", name="Sign in").click()
+    expect(page).to_have_url(re.compile(r"#/agents\?framework=langgraph$"))
+    expect(framework_filter(page)).to_have_value("langgraph")
+    expect(rows(page)).to_have_count(1)
+
+
 @pytest.mark.parametrize("value", ["%3Cimg%3E", "..%2Fx", "a%20b"])
 def test_an_unknown_filter_value_in_the_address_is_dropped(page, console, value):
     console.scenario(list_all=listing(console, *ROWS), runtimes=FRAMEWORKS)
