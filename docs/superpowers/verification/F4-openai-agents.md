@@ -130,6 +130,11 @@ the Northwind stack up with real keys):
 | `runtime/langgraph@1.0.0`, profile `kit` (`F3-langgraph.md`) | 26 | 0 | 13 | 0 |
 | `runtime/adk@1.3.0` and `1.5.0`, profile `v1` (`F2a-adk-baseline.md`) | 22 | 4 | 8 | 5 |
 
+- **After #1178** (merged into this branch later): conformance now reports the five span checks
+  `not_run` for an image built with `traces: none`. Northwind's OpenAI Agents `agent.yaml` has
+  `traces: otlp`, so that change does not apply to this image and the 26/0/13 above stands
+  (not re-run).
+
 - The same 26 checks pass as on LangGraph. These include the four that ADK fails:
   `sessions.busy`, `traces.llm_span`, `model_errors.text_logs` and `model_errors.text_spans`.
 - **Not run (13), the same set as LangGraph:**

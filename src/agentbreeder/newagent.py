@@ -57,6 +57,11 @@ from pathlib import Path
 from agentbreeder import example, registry
 
 RUNTIME = "runtime/adk@1.4.0"
+# Other runtime versions the starter (the model, the prompt and its two eval cases) was run end
+# to end on, from a wheel in a clean sandbox through the CLI and the console, each with the
+# providers it ran with, on each provider's default model (macOS x86_64 only;
+# docs/superpowers/verification/verify-langgraph-adk150.md).
+STARTER_RUNTIMES = {"runtime/langgraph@1.0.0": frozenset({"gemini"})}
 GATEWAY = "service/litellm@1.0.0"  # the gateway version the starter's stack.yaml names
 # Ollama needs a gateway that can reach the host's port 11434 (#1025 O1).
 LOCAL_GATEWAY = "service/litellm@1.2.0"
@@ -90,6 +95,17 @@ class Provider:
     def route(self) -> str:
         """The litellm_params after `model`: the key reference, or Ollama's fixed host."""
         return f"api_key: os.environ/{self.key}" if self.key else f"api_base: {OLLAMA_BASE}"
+
+
+def starter_verified(runtime: str, model: str, model_id: str) -> bool:
+    """Whether the starter was run end to end on this runtime version with this provider: the
+    default version with any verified provider, or a `STARTER_RUNTIMES` version with one of its
+    providers on that provider's default model."""
+    if not PROVIDERS[model].verified:
+        return False
+    if runtime == RUNTIME:
+        return True
+    return model in STARTER_RUNTIMES.get(runtime, ()) and model_id == PROVIDERS[model].model
 
 
 def gateway_for(model_id: str) -> str:
@@ -294,8 +310,7 @@ class Plan:
             "directory": str(self.directory),
             "model": self.model,
             "model_id": self.model_id,
-            # Every end-to-end run of the starter used the default runtime version.
-            "verified": PROVIDERS[self.model].verified and self.runtime == RUNTIME,
+            "verified": starter_verified(self.runtime, self.model, self.model_id),
             "runtime": self.runtime,
             "aliases": ["chat", "judge"]
             + [alias for alias, _ in self.served]
