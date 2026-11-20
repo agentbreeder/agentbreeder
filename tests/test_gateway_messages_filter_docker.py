@@ -10,10 +10,13 @@ model on provider B. One key is minted the way `deploy` mints it for a
 chat and embeddings routes only.
 
 On 1.4.0 a plain Messages request reaches its alias's provider, on the Anthropic route (`m`)
-and translated to chat (`a`); every request carrying a refused field, tool, header or content
-gets the filter's coded 400, and no provider sees it. `service/litellm@1.3.0` is the control:
-the same plain request is refused there (`GATEWAY_ROUTE_REFUSED`). The test-only widening of
-the config review (`api_base`) is the 1.3.0 test's.
+and translated for the OpenAI model (`a`), which LiteLLM 1.106.2 sends to the provider's
+Responses API (`/v1/responses`), not to chat completions, so this test's providers also answer
+that path, plain and streamed (`PROVIDER`). Every request carrying a refused field, tool,
+header or content gets the filter's coded 400, and no provider sees it.
+`service/litellm@1.3.0` is the control: the same plain request is refused there
+(`GATEWAY_ROUTE_REFUSED`). The test-only widening of the config review (`api_base`) is the
+1.3.0 test's.
 """
 
 from __future__ import annotations
@@ -26,11 +29,11 @@ import yaml
 from test_gateway_request_filter_docker import (
     KEY_A,
     KEY_B,
-    PROVIDER,
     _log,
     _model,
     _provider_service,
 )
+from test_gateway_request_filter_docker import PROVIDER as CHAT_PROVIDER
 from test_guardrails_docker import _post, docker
 
 from agentbreeder import gateway_keys, gateway_providers, registry
@@ -40,6 +43,49 @@ from agentbreeder.services.state import ROOT_ENV
 pytestmark = pytest.mark.skipif(
     os.getenv("AGENTBREEDER_DOCKER_TEST") != "1", reason="Opt-in real Docker test"
 )
+
+# LiteLLM turns a Messages request for an OpenAI model into a Responses API call. #1105's
+# providers answer every non-Messages path as chat completions, which LiteLLM cannot parse there.
+RESPONSES_BRANCH = r"""
+        elif self.path.endswith("/responses"):
+            text = "from " + NAME
+            item = {"type": "message", "id": "msg_1", "status": "completed", "role": "assistant",
+                    "content": [{"type": "output_text", "text": text, "annotations": []}]}
+            done = {"id": "resp_1", "object": "response", "created_at": 1, "status": "completed",
+                    "model": data.get("model"), "output": [item],
+                    "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}}
+            if not data.get("stream"):
+                self._reply(done)
+                return
+            started = dict(done, status="in_progress", output=[], usage=None)
+            part = {"type": "output_text", "text": "", "annotations": []}
+            where = {"item_id": "msg_1", "output_index": 0, "content_index": 0}
+            events = [
+                {"type": "response.created", "response": started},
+                {"type": "response.in_progress", "response": started},
+                {"type": "response.output_item.added", "output_index": 0,
+                 "item": dict(item, status="in_progress", content=[])},
+                dict(where, type="response.content_part.added", part=part),
+                dict(where, type="response.output_text.delta", delta=text),
+                dict(where, type="response.output_text.done", text=text),
+                dict(where, type="response.content_part.done", part=dict(part, text=text)),
+                {"type": "response.output_item.done", "output_index": 0, "item": item},
+                {"type": "response.completed", "response": done},
+            ]
+            payload = "".join(
+                "event: " + event["type"] + "\ndata: "
+                + json.dumps(dict(event, sequence_number=number)) + "\n\n"
+                for number, event in enumerate(events)
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+"""
+STREAM_BRANCH = '        elif data.get("stream"):\n'
+assert CHAT_PROVIDER.count(STREAM_BRANCH) == 1
+PROVIDER = CHAT_PROVIDER.replace(STREAM_BRANCH, RESPONSES_BRANCH.lstrip("\n") + STREAM_BRANCH)
 
 CONFIG = {
     "model_list": [
@@ -231,6 +277,8 @@ def test_the_messages_route_is_filtered(stack):
     for label, (status, text) in plain.items():
         assert status == 200, (label, status, text[:300])
     assert "from B" in plain["anthropic"][1] and "from A" in plain["translated"][1]
+    # A failed stream still answers 200, with an error event in the body.
+    assert "from A" in plain["streamed"][1] and "event: error" not in plain["streamed"][1]
     seen_a = _log(instance, "provider-a")[before_a:]
     seen_b = _log(instance, "provider-b")[before_b:]
     print(f"[{version}] provider A:", json.dumps(seen_a), "provider B:", json.dumps(seen_b))
