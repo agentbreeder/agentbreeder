@@ -222,8 +222,10 @@ Tested: unit and API tests of every refusal (setup without a link's session, a c
 current password, the sixth wrong password waiting and never more than 5 minutes, a reset from
 another process ending a running console's sessions), the terminal commands end to end as
 subprocesses, and Playwright with axe in light and dark for setup, sign-in, Settings and the
-re-auth dialog. Not yet run: the container check from inside a Northwind container, a Chrome
-click-through, and a run from a wheel built from `main` in a clean sandbox.
+re-auth dialog. Run from a wheel built from `main` in a clean sandbox on macOS (2026-11-20 UTC,
+`docs/superpowers/verification/M2.md`): the container check from inside a Northwind container and
+from the default bridge, a click-through in Chrome driven by Playwright, and the upgrade from a
+3.0.0a2 console. Not run: the Claude in Chrome extension, the 5-minute cap reached live, Linux.
 
 ### Design system v2 (#1116): on `main`, not in a published preview
 
