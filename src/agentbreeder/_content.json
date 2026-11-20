@@ -574,7 +574,7 @@
   },
   "builtin_registry/runtime/crewai/1.0.0/runtime/crewai_adapter.py": {
    "exec": false,
-   "sha256": "d59a23ae071f251d488ed9f737461c6ef9ba8db297d9a0fe931d6386d4fd8f7a"
+   "sha256": "ec622516688747074949864fb7da460cd623eb35fcc68dd012d8be4e1c74222f"
   },
   "builtin_registry/runtime/crewai/1.0.0/runtime/crewai_confine.py": {
    "exec": false,
@@ -658,7 +658,7 @@
   },
   "builtin_registry/runtime/crewai/1.0.0/runtime_tests/test_crewai.py": {
    "exec": false,
-   "sha256": "c00f819ff84698e10cbb6823ae7cdd4812f2ce89de1946338ab6f0ccc4904759"
+   "sha256": "1bd3bc0f2b2f27028ef3848324b7b184fa6888d2ba0b4ddb09480dab5c11b75d"
   },
   "builtin_registry/runtime/langgraph/1.0.0/Dockerfile": {
    "exec": false,
@@ -974,15 +974,15 @@
   },
   "examples/northwind-crewai/README.md": {
    "exec": false,
-   "sha256": "1a8a8bfa8bf2e40ed11145eb1561a154ba972af823f6c62b03793f0cb822aa06"
+   "sha256": "4a867e03d0f5a3ab49ccd40b0696c6a52b302b3123990590ae31fd1d687e9605"
   },
   "examples/northwind-crewai/agent.lock": {
    "exec": false,
-   "sha256": "4a864279818dae3266a285c534b94b9b762c103b2f4ac602a4000493fffea32f"
+   "sha256": "918dd50b8b7b510d5eda67f6fb8dbb532408faaab8090e1c0b27c90adc297c1f"
   },
   "examples/northwind-crewai/agent.yaml": {
    "exec": false,
-   "sha256": "a2a4a0874e536c827a1672bd9e44a876d9d7ac738fa5ba808a9849d51ddc279d"
+   "sha256": "b2f3736bad6641240e23a8579d72803d3fbd9ad4a0153e147dbb3aa680040912"
   },
   "examples/northwind-langgraph/README.md": {
    "exec": false,

@@ -14,7 +14,7 @@
       "source": "../northwind/registry"
     },
     "runtime/crewai@1.0.0": {
-      "sha256": "sha256:e570608bbd51469a875fe615681e2ae7f871e3f228ea78e0aa126c4b7b9018d6",
+      "sha256": "sha256:170390530ba463ee8fe01607e3bba27664f24c72892fdd414dfb2876178d4e57",
       "source": "builtin"
     },
     "tool/cancel-order@1.0.1": {

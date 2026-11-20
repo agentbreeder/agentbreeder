@@ -950,6 +950,62 @@ def test_the_instrumentor_nests_under_the_kits_spans_and_tool_spans_are_relabell
     assert root.attributes["agent.framework"] == "crewai"
 
 
+def test_each_model_call_is_one_llm_span_under_the_turn(app):
+    """Spec §12, conformance `traces.llm_span`: CrewAI's instrumentor writes no LLM span, so the
+    adapter writes one per call from its `model_called` row, as a child in the turn's trace, with
+    the model, `served_by` and token counts and no message text (seen missing on the first real
+    conformance run, 2026-11-20)."""
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    provider = trace.get_tracer_provider()
+    exporter = InMemorySpanExporter()
+    processor = SimpleSpanProcessor(exporter)
+    provider.add_span_processor(processor)
+    before = len(FakeMemory.log)
+    try:
+        gateway = Scripted(answer(tool="lookup_order", args={"order_id": "1"}), answer("Done."))
+        (reply,) = run(gateway, ("s-1", "c-1", "order 1? ZZ-LLM-SPAN"))
+        provider.force_flush()
+        exported = exporter.get_finished_spans()
+    finally:
+        processor.shutdown()  # exports nothing more in later tests
+    root = [s for s in exported if s.name == "agent_turn"][-1]
+    llm = [
+        s for s in exported
+        if s.context.trace_id == root.context.trace_id
+        and s.attributes.get("openinference.span.kind") == "LLM"
+    ]  # fmt: skip
+    assert len(llm) == reply["model_calls"] == 2
+    rows = [entry[2] for entry in FakeMemory.log[before:] if entry[0] == "model_called"]
+    assert len(rows) == 2  # the audit rows are still written, once per call
+    ordered = sorted(llm, key=lambda s: s.attributes["agentbreeder.step"])
+    for current, row in zip(ordered, rows, strict=True):
+        assert current.parent is not None and current.parent.span_id == root.context.span_id
+        assert current.attributes["llm.model_name"] == "support-model"
+        assert current.attributes["agentbreeder.model_alias"] == "support-model"
+        assert current.attributes["llm.token_count.prompt"] == row["prompt_tokens"]
+        assert current.attributes["llm.token_count.completion"] == row["output_tokens"]
+        assert current.attributes["agentbreeder.main_loop"] is True
+        text = ("input.", "output.", "llm.input", "llm.output")
+        assert not [key for key in current.attributes if key.startswith(text)]
+        assert current.end_time >= current.start_time
+
+
+def test_a_span_that_cannot_be_written_does_not_fail_the_turn(app, monkeypatch):
+    import crewai_adapter
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("tracer down")
+
+    monkeypatch.setattr(crewai_adapter.tracer, "start_span", broken)
+    gateway = Scripted(answer(tool="lookup_order", args={"order_id": "1"}), answer("Done."))
+    (reply,) = run(gateway, ("s-1", "c-1", "order 1?"))
+    assert reply["reply"] == "Done." and reply["model_calls"] == 2
+    assert [e[0] for e in FakeMemory.log].count("model_called") == 2
+
+
 def test_crewai_prints_nothing_of_the_turn(app, capfd):
     """§13.8: CrewAI's global event listener prints verbose panels whatever the agent says
     (the backstory with the customer's notes, tool arguments and output, the answer). They are

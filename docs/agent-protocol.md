@@ -177,7 +177,7 @@ A runtime manifest's `profile` says which additions the runtime serves on top of
   `MODEL_BLOCKED` (422), which this page does not list and no check covers yet.
 - **`kit`** (multi-framework spec §10.2; served by `runtime/langgraph@1.0.0`, run end to end on macOS
   x86_64 and not verified, see [runtimes/langgraph.md](runtimes/langgraph.md); also by
-  `runtime/crewai@1.0.0`, tested with a scripted model only, see
+  `runtime/crewai@1.0.0`, run end to end on macOS x86_64 and not verified, see
   [runtimes/crewai.md](runtimes/crewai.md)): `GET /health` is 503 until the
   agent is built and after a failed start, and 200 only when it is ready; on SIGTERM the turn in
   flight finishes or times out within the stop grace; a turn that reaches its model-call limit

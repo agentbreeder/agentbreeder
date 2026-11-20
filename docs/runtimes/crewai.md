@@ -1,9 +1,10 @@
 # `runtime/crewai@1.0.0`
 
-**Status:** not in a published preview (#1090). **Not run end to end.**
-Its runtime tests run real CrewAI 1.15.34 against a scripted gateway behind the kit's real model
-proxy; nothing has been run against a real model, Docker, `kind` or `agentbreeder conformance`.
-CrewAI is not a supported framework. What has and has not run is in
+**Status:** not in a published preview (#1090). Run end to end on macOS x86_64 (2026-11-20):
+Northwind passed its 61-case eval gate on local Docker and on `kind`, and
+`agentbreeder conformance` gave 26 pass, 0 fail and 13 not run of 39. arm64 has not been run, the
+kit-profile conformance checks are not built, and CrewAI is not a supported framework. What has
+and has not run is in
 [the F6 record](../superpowers/verification/F6-crewai.md).
 
 A runtime on AgentBreeder's **runtime kit** (#1083, multi-framework spec
@@ -117,8 +118,10 @@ given", and the kit checks each call against the declared schema, as on every ki
 - **No chat page** at `GET /`.
 - **Traces:** the kit writes the root `agent_turn` span, `retrieve_knowledge` and one TOOL span
   per call; OpenInference's CrewAI instrumentor adds AGENT and CHAIN spans (its own TOOL spans are
-  exported as CHAIN) and **no LLM spans**. Each model call is in the turn's `model_called` audit
-  rows (alias, tokens, cost, latency).
+  exported as CHAIN) and no LLM spans, so the adapter writes **one LLM span per model call**
+  (`llm_call`, a child of `agent_turn`) from the call's `model_called` audit row: the model group
+  that served it, the alias, token counts, the step and whether it was a main-loop call, and no
+  message text. Cost and latency are in the audit row.
 
 ## Packages
 

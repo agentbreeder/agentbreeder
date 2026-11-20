@@ -302,11 +302,13 @@ until LangGraph passes its acceptance. Cloud: a `CLAUDE.md` note only; it has no
 a runtime manifest, the reply's `framework`/`runtime` or the deploy manifest's `runtime`.
 
 **CrewAI, #1090 (#1083 F6, multi-framework), per side.** OSS: `runtime/crewai@1.0.0` on kit 1.0.0
-(unchanged), tested with a scripted model only, **not run end to end**: `Agent.kickoff_async` per
+(unchanged), run end to end on macOS x86_64 (2026-11-20: Northwind 61/61 local and on `kind`,
+conformance 26/39 with 13 not built, no arm64), not verified: `Agent.kickoff_async` per
 turn (no `Crew`), CrewAI's task-output SQLite store and console output switched off and checked at
-start-up, CrewAI's retry loop off per turn, tool schemas as generated pydantic models;
+start-up, CrewAI's retry loop off per turn, tool schemas as generated pydantic models, one LLM
+span per model call written by the adapter;
 `examples/northwind-crewai` (Northwind's `stack.yaml` names the new agent; `example.PORTS`); CI job
-`runtime-crewai`; opt-in `tests/test_northwind_crewai_docker.py`, not run. Not in
+`runtime-crewai`; opt-in `tests/test_northwind_crewai_docker.py`. Not in
 `agentspec.VERIFIED` or `RUNTIMES_RUN`. No `agent.yaml` field, manifest, JSON Schema,
 `SCHEMA_VERSION` or `agent.lock` format change. Website: no change until CrewAI passes its
 acceptance. Cloud: a `CLAUDE.md` note only, as for F3.

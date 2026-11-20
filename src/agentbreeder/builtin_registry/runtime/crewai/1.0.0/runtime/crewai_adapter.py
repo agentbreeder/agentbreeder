@@ -29,8 +29,9 @@
   for a refused call (§7.3). A tool call the agent did not declare is answered to the model by
   CrewAI ("Tool not found"); nothing runs.
 - Traces: `openinference-instrumentation-crewai` (AGENT, CHAIN and TOOL spans, no LLM spans; the
-  kit relabels its TOOL spans CHAIN, since the kit writes its own). LLM calls are in the proxy's
-  `model_called` rows.
+  kit relabels its TOOL spans CHAIN, since the kit writes its own). The adapter writes one LLM
+  span per model call from the proxy's `model_called` row (spec §12: model name, `served_by` and
+  token counts, no request or response body), under the turn's span (`llm_spans`).
 
 CrewAI's telemetry, tracking and trace upload are switched off, and its storage confined, by the
 entry point (`server.py`) before CrewAI is imported.
@@ -40,6 +41,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 import crewai_confine
@@ -53,7 +55,9 @@ from crewai.utilities.prompts import SystemPromptResult
 from crewai.utilities.string_utils import sanitize_tool_name
 from crewai_schema import args_model, given
 from kit.context import CURRENT, TOKEN
+from kit.telemetry import KIND, tracer
 from kit.turn import CLIENT_TIMEOUT
+from opentelemetry import context as otel_context
 
 LOGGERS = ("crewai", "crewai_core", "chromadb", "openai", "openinference", "httpx", "LiteLLM")
 # CrewAI warns on every call that it estimates token counts for an unknown model (F0); the
@@ -176,6 +180,38 @@ def reply_text(output) -> str:
     return raw
 
 
+def llm_spans(state) -> None:
+    """One LLM span per model call (spec §12): CrewAI's instrumentor writes none. The proxy
+    answers CrewAI on its own task, outside the turn's span, so each span is parented on the span
+    current here (the turn's) and written when the call's `model_called` row is, from that row:
+    alias, `served_by`, token counts, step and latency. No message text: that stays in the
+    CHAIN spans CrewAI's instrumentor writes."""
+    parent = otel_context.get_current()
+    written = state.on_model_called
+
+    async def model_called(row: dict) -> None:
+        if written is not None:
+            await written(row)
+        try:  # a span never fails the turn
+            end = time.time_ns()
+            start = end - int(row.get("latency_ms") or 0) * 1_000_000
+            current = tracer.start_span("llm_call", context=parent, start_time=start)
+            current.set_attribute(KIND, "LLM")
+            current.set_attribute("llm.model_name", str(row.get("served_by") or row.get("model")))
+            current.set_attribute("agentbreeder.model_alias", str(row.get("model")))
+            prompt, output = int(row.get("prompt_tokens") or 0), int(row.get("output_tokens") or 0)
+            current.set_attribute("llm.token_count.prompt", prompt)
+            current.set_attribute("llm.token_count.completion", output)
+            current.set_attribute("llm.token_count.total", prompt + output)
+            current.set_attribute("agentbreeder.step", int(row.get("step") or 0))
+            current.set_attribute("agentbreeder.main_loop", bool(row.get("main_loop")))
+            current.end(end_time=end)
+        except Exception as failure:
+            logging.getLogger(__name__).debug("llm span not written: %s", type(failure).__name__)
+
+    state.on_model_called = model_called
+
+
 class CrewAIAdapter:
     framework = "crewai"
 
@@ -253,6 +289,7 @@ class CrewAIAdapter:
         state = CURRENT.get().proxy_state
         if state is not None:
             state.system = main_loop_system(agent)
+            llm_spans(state)
         guard = RETRY_GUARD.set(True) if RETRY_GUARD is not None else None
         try:
             output = await agent.kickoff_async(self.messages(turn))

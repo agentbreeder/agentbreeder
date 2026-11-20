@@ -1,11 +1,9 @@
 # Northwind support agent on CrewAI
 
-**Status: tested with a scripted model only. Not run end to end, not verified.** This is
+**Status: run end to end on macOS x86_64 (Docker Desktop and `kind`), not verified.** This is
 Northwind (`../northwind`) on `runtime/crewai@1.0.0`, a runtime on AgentBreeder's runtime kit
-(#1090, #1083 F6). Its runtime tests run real CrewAI 1.15.34 against a scripted gateway behind
-the kit's real model proxy. Nothing has been run against a real model, Docker or `kind` yet:
-not `release` with Northwind's 61 evals, not `agentbreeder conformance`. CrewAI is not a
-supported framework. The record is `docs/superpowers/verification/F6-crewai.md`.
+(#1090, #1083 F6). On 2026-11-20 `release` passed Northwind's 61-case eval gate on local Docker and `promote` passed it again on `kind`; `agentbreeder conformance` gave 26 pass, 0 fail and 13 not run of 39. arm64 has not been run. CrewAI is not a supported framework. The
+record is `docs/superpowers/verification/F6-crewai.md`.
 
 `agent.yaml` is Northwind's file with two lines changed, `name` and `runtime`. The prompt, model
 alias, tools, knowledge, memory and eval set are Northwind's, from Northwind's registry, and
@@ -61,7 +59,7 @@ its memory and RAG storage import.
 `agentbreeder example` does not list this directory: it needs Northwind beside it, so it is run
 from a checkout.
 
-## The acceptance run (written, not run)
+## The acceptance run
 
 `tests/test_northwind_crewai_docker.py` runs the spec's acceptance steps against a real stack
 when `AGENTBREEDER_DOCKER_TEST=1` and `AGENTBREEDER_NORTHWIND_CREWAI=1` are set:
