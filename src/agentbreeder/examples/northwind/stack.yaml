@@ -53,3 +53,8 @@ environment:
       sponsor: support-lead@example.com
       review_by: "2027-06-30"
       candidate: true
+    # The CrewAI port (../northwind-crewai, #1090, #1083 F6): same registry, same stack.
+    northwind-support-crewai:
+      sponsor: support-lead@example.com
+      review_by: "2027-06-30"
+      candidate: true

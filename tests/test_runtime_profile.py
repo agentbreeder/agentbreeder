@@ -108,6 +108,9 @@ def test_a_manifest_without_protocol_gets_the_legacy_adk_profile():
 # runtime/modules.json (tests/test_runtime_adk_150.py).
 ADK_150_MODULES = frozenset({"skill_hash", "skills", "subagents", "turns"})
 LANGGRAPH_100_MODULES = frozenset({"kit", "langgraph_adapter", "server"})
+CREWAI_100_MODULES = frozenset(
+    {"kit", "crewai_adapter", "crewai_confine", "crewai_schema", "server"}
+)
 
 
 @pytest.mark.parametrize("name", sorted(path.name for path in ADK.iterdir()))
@@ -894,6 +897,7 @@ def test_verified_is_keyed_by_the_runtime_name():
         (newagent.RUNTIME, True),
         ("runtime/adk@1.3.0", False),
         ("runtime/langgraph@1.0.0", False),
+        ("runtime/crewai@1.0.0", False),
     ):
         pinned = agentspec.Spec.model_validate(_spec(runtime=runtime))
         assert agentspec.verified(pinned) is expected
@@ -903,11 +907,13 @@ def test_verified_is_keyed_by_the_runtime_name():
 
 
 def test_tool_check_reads_modules_files_from_the_builtin_registry(tmp_path, monkeypatch):
-    # Every built-in version counts: the legacy table, runtime/adk@1.5.0's own file and
-    # runtime/langgraph@1.0.0's (#1083 F3).
+    # Every built-in version counts: the legacy table, runtime/adk@1.5.0's own file,
+    # runtime/langgraph@1.0.0's (#1083 F3) and runtime/crewai@1.0.0's (#1090).
     builtin_modules, builtin_imports = tool_check.runtime_names()
-    assert builtin_modules == LEGACY_ADK.modules | ADK_150_MODULES | LANGGRAPH_100_MODULES
-    assert {"litellm", "langgraph", "langchain_core"} <= builtin_imports
+    assert builtin_modules == (
+        LEGACY_ADK.modules | ADK_150_MODULES | LANGGRAPH_100_MODULES | CREWAI_100_MODULES
+    )
+    assert {"litellm", "langgraph", "langchain_core", "crewai", "chromadb"} <= builtin_imports
     assert tool_check.shadows("kit") == "shadows a runtime module"
     assert tool_check.shadows("langchain") == "shadows a package the runtime installs"
     legacy_imports = {name for names in LEGACY_ADK.imports.values() for name in names}

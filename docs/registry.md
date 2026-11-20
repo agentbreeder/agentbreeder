@@ -443,6 +443,8 @@ generated file are the only place `build`, `new agent` and the registry commands
 facts from. Nothing in the engine branches on a framework's name. Two runtimes ship:
 `runtime/adk` and `runtime/langgraph@1.0.0` (#1083 F3, the first on the runtime kit; built and
 run end to end on macOS x86_64, **not verified**, see [runtimes/langgraph.md](runtimes/langgraph.md)).
+`runtime/crewai@1.0.0` (#1090, F6) is on the same kit and has been tested with a scripted model
+only, **not run end to end** (see [runtimes/crewai.md](runtimes/crewai.md)).
 
 **Manifest keys** (beside `port`, `health_path`, `secrets` and `environment`):
 

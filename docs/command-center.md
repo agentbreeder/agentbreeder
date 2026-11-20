@@ -1241,6 +1241,8 @@ framework starts on its newest version. Frameworks with a version run end to end
 by name. **The built-in registry has Google ADK and, since #1163, LangGraph
 (`runtime/langgraph@1.0.0`)**. LangGraph is listed but has not been run end to end from the console:
 it is not in `agentspec.VERIFIED`, so Create stays off for it and no LangGraph agent was built here.
+CrewAI (`runtime/crewai@1.0.0`, #1090) is listed the same way and has not been run end to end
+anywhere.
 Other frameworks appear when their runtimes land, with no console change. There are no logos.
 
 - **Where the list comes from.** `GET /api/builder/parts` gains `runtimes`: the engine's resolved

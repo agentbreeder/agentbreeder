@@ -57,6 +57,14 @@ never claim runtime enforcement beyond MCP Streamable HTTP via the opt-in sideca
 8. **Never merge without tests** — CI blocks PRs with < 80% coverage on changed files
 9. **Never commit marketing/strategy content** — this is a public OSS repo. Positioning docs, growth/GTM plans, competitive strategy, website-audit artifacts, and similar internal material go in `docs/superpowers/private/` (gitignored) or outside the repo — never into tracked paths like `docs/superpowers/specs/`. Engineering specs/plans remain tracked as usual.
 
+## 🔐 Known security exceptions (read by `/security` and `/gate`; anything not listed blocks)
+
+- **Known exception: `chromadb==1.5.9` in `runtime/crewai@1.0.0`'s lock only**, IDs GHSA-f4j7-r4q5-qw2c, GHSA-36p7-vc44-83pf, GHSA-xph7-9rjv-w5fr, GHSA-2wm9-hf6c-p5cr
+  (pip-audit aliases, in order: PYSEC-2026-311/CVE-2026-45829, PYSEC-2026-3814/CVE-2026-45833, PYSEC-2026-3815/CVE-2026-45831, PYSEC-2026-3813/CVE-2026-45830)
+  (`src/agentbreeder/builtin_registry/runtime/crewai/1.0.0/runtime/requirements.lock`). Reason: the advisories (GitHub: 2 critical, 2 high) are in ChromaDB's HTTP server, which the runtime never starts; it imports `chromadb` only as a library.
+  No fixed version exists; re-check when chromadb ships a fix. Owner decision 2026-11-20 (#1090). Guarded by `tests/test_crewai_chromadb_exception.py`
+  and the runtime test `test_chromadb_is_a_library_only_no_server_client_or_port`. Any other ID, package, version or lock is not covered.
+
 ---
 
 ## 🚦 Standard Delivery Workflow (Definition of Done)
@@ -292,6 +300,16 @@ format change; a kit runtime's deploy manifest carries F1's optional `runtime` f
 agent role SELECT on six `turns` columns for kit history. Website: no change
 until LangGraph passes its acceptance. Cloud: a `CLAUDE.md` note only; it has no code that reads
 a runtime manifest, the reply's `framework`/`runtime` or the deploy manifest's `runtime`.
+
+**CrewAI, #1090 (#1083 F6, multi-framework), per side.** OSS: `runtime/crewai@1.0.0` on kit 1.0.0
+(unchanged), tested with a scripted model only, **not run end to end**: `Agent.kickoff_async` per
+turn (no `Crew`), CrewAI's task-output SQLite store and console output switched off and checked at
+start-up, CrewAI's retry loop off per turn, tool schemas as generated pydantic models;
+`examples/northwind-crewai` (Northwind's `stack.yaml` names the new agent; `example.PORTS`); CI job
+`runtime-crewai`; opt-in `tests/test_northwind_crewai_docker.py`, not run. Not in
+`agentspec.VERIFIED` or `RUNTIMES_RUN`. No `agent.yaml` field, manifest, JSON Schema,
+`SCHEMA_VERSION` or `agent.lock` format change. Website: no change until CrewAI passes its
+acceptance. Cloud: a `CLAUDE.md` note only, as for F3.
 
 **Console sign-in, #818 M2 (epic #1054), per side.** OSS (on `main`): `up --set-password`,
 `--reset-password` and `--link`; `center.sqlite3` schema 4 (`users` with scrypt hashes, and
