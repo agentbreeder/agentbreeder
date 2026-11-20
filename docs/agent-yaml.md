@@ -549,6 +549,25 @@ knowledge on a sub-agent, the caps against a real model, skill reference files, 
 - A tool's module may no longer be named `turns`, `subagents`, `skills` or `skill_hash` (the
   runtime's own new modules); `registry publish` and the runtime both refuse it.
 
+### `runtime/adk@1.4.1` and `runtime/adk@1.5.1`
+
+On `main`, not in a published preview (#1190). `1.4.1` is `1.4.0` and `1.5.1` is `1.5.0` with a
+dependency update, nothing else: opentelemetry 1.45.2 (pip-audit reports CVE-2026-114603 and
+CVE-2026-126360 against the 1.42.1 every earlier `runtime/adk` lock pins) and google-adk 2.14.0,
+the first ADK release that allows it. google-adk 2.14 emits a new span layout by default (no
+`call_llm` span, tool content in other attributes), so both versions set ADK's
+`ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN=1` at start: the spans, and what the redaction removes from
+them, stay `1.4.0`'s and `1.5.0`'s, and the agent's environment cannot change it. ADK keeps that
+setting until at least 2027-03-31.
+
+Checked by each version's own tests against the new lock (1.4.1: 159 passed, 1.5.1: 353 passed,
+macOS x86_64, Python 3.12; cryptography from its newest macOS wheel, as the lock's has none for
+that platform) and by stub-builder build tests. **Not run end to end:** no image has been built
+or deployed on either version, so neither is labelled run end to end, Northwind stays on
+`1.5.0` and the `new agent` starter on `1.4.0`. The rerun is written as an opt-in test,
+`tests/test_runtime_adk_otel_patch_docker.py`. Every earlier version is unchanged; pin a new
+one with [`agent set-ref`](commands/agent.md) once it has run.
+
 Agents built from `agent.yaml` can't yet run behind the opt-in MCP egress sidecar
 (`runtime_enforcement: mcp_http`): the deploy is refused with `MODEL_ACCESS_UNSUPPORTED`, because
 the sidecar's network has no route to the gateway.

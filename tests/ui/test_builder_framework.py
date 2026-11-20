@@ -198,8 +198,8 @@ def test_adk_1_2_0_and_1_3_0_are_usable_google_adk_through_the_legacy_profile(pa
     version = page.get_by_label("Version of Google ADK")
     expect(version).to_have_value(ADK)
     expect(version.locator("option")).to_have_text(
-        ["9.9.0 (AGENTBREEDER_REGISTRY_PATH)", "1.5.0", "1.4.0", "1.3.0", "1.2.0", "1.1.0"]
-        + ["1.0.6", "1.0.5", "1.0.4"]
+        ["9.9.0 (AGENTBREEDER_REGISTRY_PATH)", "1.5.1", "1.5.0", "1.4.1", "1.4.0", "1.3.0"]
+        + ["1.2.0", "1.1.0", "1.0.6", "1.0.5", "1.0.4"]
     )
     version.select_option(PATH_RUNTIME)
     expect(adk).to_have_accessible_description("runtime/adk@9.9.0 · Not run end to end")
@@ -207,6 +207,9 @@ def test_adk_1_2_0_and_1_3_0_are_usable_google_adk_through_the_legacy_profile(pa
         ("1.2.0", "Not run end to end"),
         ("1.3.0", "Run end to end (Northwind)"),
         ("1.5.0", "Run end to end (Northwind)"),
+        # The opentelemetry dependency update: no Docker run yet.
+        ("1.4.1", "Not run end to end"),
+        ("1.5.1", "Not run end to end"),
     ):
         version.select_option(f"runtime/adk@{number}")
         expect(adk).to_have_accessible_description(f"runtime/adk@{number} · {status}")

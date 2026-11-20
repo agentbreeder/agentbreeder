@@ -538,6 +538,8 @@ so a reader such as the local console needs no knowledge of profiles:
   spec or `--runtime` that pins `1.3.0` or `1.5.0` without sub-agents or skills still has
   `verified: false` in `new agent`'s output, and the console's form starts on `1.4.0` even though
   `1.5.0` is newer and labelled run end to end.
+  `runtime/adk@1.4.1` and `runtime/adk@1.5.1` (a dependency update, #1190) have not been run
+  end to end and are listed with `verified: false`.
 - A version the engine cannot use is still listed, with `usable: false`, a `code` and a
   `reason` and without the profile fields: an invalid manifest or a missing `modules.json`
   (`ARTIFACT_INVALID`), an unknown protocol (`PROTOCOL_UNSUPPORTED`), a version under a
