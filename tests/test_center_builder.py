@@ -955,8 +955,14 @@ def test_parts_lists_every_runtime_version_through_the_cli(center, cookie, calls
     assert [listed[f"runtime/adk@1.{n}.0"]["verified"] for n in (2, 3, 4)] == [False, True, True]
     assert "mcp" not in listed["runtime/adk@1.0.4"]["capabilities"]
     # runtime/langgraph@1.0.0 (#1083 F3): a kit runtime, run end to end (verify-langgraph-adk150).
-    # runtime/openai-agents@1.0.0 (#1083 F4): a kit runtime, listed, not verified.
-    assert {entry["name"] for entry in listed.values()} == {"adk", "langgraph", "openai-agents"}
+    # runtime/openai-agents@1.0.0 (#1083 F4) and runtime/deepagents@1.0.0 (#1083 F5): kit
+    # runtimes, listed, not verified.
+    assert {entry["name"] for entry in listed.values()} == {
+        "adk",
+        "langgraph",
+        "openai-agents",
+        "deepagents",
+    }
     langgraph = listed["runtime/langgraph@1.0.0"]
     assert langgraph["usable"] is True and langgraph["verified"] is True
     assert (langgraph["display_name"], langgraph["profile"], langgraph["kit"]) == (
@@ -965,13 +971,18 @@ def test_parts_lists_every_runtime_version_through_the_cli(center, cookie, calls
         "1.0.0",
     )
     assert "mcp" not in langgraph["capabilities"]
-    openai_agents = listed["runtime/openai-agents@1.0.0"]
-    assert openai_agents["usable"] is True and openai_agents["verified"] is False
-    assert (openai_agents["display_name"], openai_agents["profile"]) == (
-        "OpenAI Agents SDK",
-        "kit",
+    for ref, display_name in (
+        ("runtime/openai-agents@1.0.0", "OpenAI Agents SDK"),
+        ("runtime/deepagents@1.0.0", "Deep Agents"),
+    ):
+        entry = listed[ref]
+        assert entry["usable"] is True and entry["verified"] is False
+        assert (entry["display_name"], entry["profile"]) == (display_name, "kit")
+        assert "mcp" not in entry["capabilities"]
+    assert listed["runtime/deepagents@1.0.0"]["kit"] == "1.0.0"
+    assert {"task", "read_file", "delete"} <= set(
+        listed["runtime/deepagents@1.0.0"]["reserved_tool_names"]
     )
-    assert "mcp" not in openai_agents["capabilities"]
 
 
 def test_the_runtimes_read_is_uncached(center, cookie, scripted_runtimes):
@@ -1053,8 +1064,10 @@ def test_the_runtimes_route_reads_the_real_command(center, cookie, calls):
     assert status == 200 and data["error"] is None, data
     assert [call["argv"] for call in calls] == [RUNTIMES_ARGV]
     names = {entry["ref"]: entry["display_name"] for entry in data["data"] if entry["usable"]}
-    # Every built-in runtime, named from its manifest: ADK and, since #1163, LangGraph.
+    # Every built-in runtime, named from its manifest: ADK and, since #1163, LangGraph; Deep
+    # Agents since #1083 F5.
     assert names[ADK] == "Google ADK" and names["runtime/langgraph@1.0.0"] == "LangGraph"
+    assert names["runtime/deepagents@1.0.0"] == "Deep Agents"
 
 
 def test_parts_shows_a_tools_function_names(center, cookie, path_registry):

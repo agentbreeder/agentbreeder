@@ -326,7 +326,7 @@ and `traces` all showed it), and a sandbox copy redeployed with `budget_usd: 0.0
   | `MODEL_ACCESS_DENIED` | 502 | the gateway refused the key for the model (401/403) | check `environment.models` and deploy again |
   | `MODEL_REQUEST_REFUSED` | 502 | another 4xx: sending it again won't help | the log line under `correlation_id` |
   | `MODEL_UNAVAILABLE` | 502 | a 5xx, timeout or connection error, after retries | try again |
-  | `MODEL_STEP_LIMIT` | 502 | kit runtimes only (`runtime/langgraph`, `runtime/openai-agents`, #1083): the turn used its `model.max_model_calls`, or the last allowed answer still called a tool | ask again, or raise `model.max_model_calls` |
+  | `MODEL_STEP_LIMIT` | 502 | kit runtimes only (`runtime/langgraph`, `runtime/openai-agents`, `runtime/deepagents`, #1083): the turn used its `model.max_model_calls`, or the last allowed answer still called a tool | ask again, or raise `model.max_model_calls` |
 
 - **Bounded retries.** The OpenAI client under LiteLLM no longer retries on its own: it waited
   out a rate limit's `retry-after` (up to 120 s, twice) unseen. `1.3.0` retries a model call
