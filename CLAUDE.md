@@ -305,6 +305,18 @@ gains `langgraph` (the starter and one tool, `gemini` on its default model, macO
 change until release R. Cloud: a `CLAUDE.md` note only; it has no code that reads `registry
 runtimes` or a `new agent` summary.
 
+**OpenAI Agents SDK, #1083 F4 (multi-framework), per side.** OSS (on `main`; run end to end on
+macOS x86_64 2026-11-20, not verified): `runtime/openai-agents@1.0.0` (the SDK's `Agent` over
+Chat Completions on the vendored kit 1.0.0, kit-function tools only, every `OPENAI_*` variable
+removed before import, the instrumentor's exclusive processor replacing the SDK's OpenAI trace
+exporter) and `examples/northwind-openai-agents` (Northwind's registry and stack; `stack.yaml`
+names the agent). No `agent.yaml` field, manifest, JSON Schema, `SCHEMA_VERSION` or `agent.lock`
+format change. Not in `agentspec.VERIFIED` or `RUNTIMES_RUN`. The opt-in real-stack acceptance
+(`tests/test_northwind_openai_agents_docker.py`) ran on 2026-11-20 (61/61 local and on `kind`,
+conformance 26/39 with 13 not built, no arm64). Website: no change until it
+passes its acceptance. Cloud: a `CLAUDE.md` note only (not made by this lane); it has no code that
+reads a runtime manifest or the reply's `framework`/`runtime`.
+
 **Console sign-in, #818 M2 (epic #1054), per side.** OSS (on `main`): `up --set-password`,
 `--reset-password` and `--link`; `center.sqlite3` schema 4 (`users` with scrypt hashes, and
 `security_events`); new console routes (`/api/auth`, `/api/setup`, `/api/password`,

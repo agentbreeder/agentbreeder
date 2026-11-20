@@ -1246,6 +1246,8 @@ and one tool with Gemini (macOS x86_64 only), so Create accepts those. A LangGra
 its services started, released (1/1) and chatted with (two turns, history kept) in this console
 from a wheel in a clean sandbox, driven by Playwright in Chrome
 ([record](superpowers/verification/verify-langgraph-adk150.md)).
+The OpenAI Agents SDK (`runtime/openai-agents@1.0.0`, #1083 F4) is listed but not in
+`agentspec.VERIFIED`, so Create stays off for it; it has not been run end to end from the console.
 Other frameworks appear when their runtimes land, with no console change. There are no logos.
 
 - **Where the list comes from.** `GET /api/builder/parts` gains `runtimes`: the engine's resolved
