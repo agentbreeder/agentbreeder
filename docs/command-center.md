@@ -136,6 +136,35 @@ Docker and on `kind` through the console's API, every screen was opened in Chrom
 ran from the UI (three leftover Docker objects of the stack were then removed by hand). Onboarding,
 the grant review, a full release and the cluster connect and deploy were not clicked in the browser.
 
+### Notifications (#827, M11 console half): on `main`, not in a published preview
+
+A **bell** in the top bar (between the Jobs pill and the theme toggle) shows one number: the
+project in scope's **conditions** (exactly `agentbreeder next`'s, from the read the console
+already makes for the checklist, so they clear themselves) plus its unread **stored events**
+(`agentbreeder events`); under All projects, the unread events of every registered project. Its
+accessible name says the split in words, and "not known" or "last known" rather than zero when
+`next` did not answer. It opens a panel under the top bar (not modal; Escape returns to the bell):
+
+- **Needs attention**: each condition's code and message, and a link to Home;
+- **Recent events**: the newest 20, each with its time and the CLI's fixed-template message, "new"
+  for unread ones, and **Mark all read** (`events --mark-read ID …`; only ids the console lists for
+  its registered projects are accepted). A gate failure shows its report path as text and, for a
+  report in the project's `deploy/`, **Show summary of failed cases** (the eval report viewer's
+  `evals show RUN --agent NAME` read) and a link to the report.
+
+An unread failure stored after the page loaded also appears as a **toast** at the bottom left
+(each once per tab, at most three on screen, never taking focus or timing out). The console reads
+`events --limit 200 --json` (fixed argv) every 20 s while the page is visible, on focus and when
+a job ends; one read serves every request within 2 seconds, each event is allow-listed by
+`center/notifications.py`, and the reads do not keep an idle session alive. Design:
+`docs/superpowers/specs/2026-11-19-console-notifications-design.md`.
+
+Tested with pytest (the allow-list, scoping, coalescing and mark-read rules) and Playwright with
+the fake CLI (the count and its words, the panel, mark read, Escape, a failed read, a toast only
+for an event stored after load and not again once dismissed, the gate summary read, 320 and
+375 px, axe in light and dark). Not run on a real stack: the acceptance (stop a service and see
+its condition appear and clear; a clean release stores no event) needs Docker.
+
 ### Design system v2 (#1116): on `main`, not in a published preview
 
 The console follows design system v2 (spec `docs/superpowers/specs/2026-11-16-design-system-v2.md`).
