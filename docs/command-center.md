@@ -203,8 +203,10 @@ The console has one user, `admin@localhost`, and a password with no shared defau
 - **Settings** (user menu): change the password (needs the current one; this tab stays signed in
   and every other session ends), session length, sign out everywhere, the theme, and the last 20
   security events (sign-ins, failed sign-ins, waits, password set, change and reset, sign-outs;
-  time, outcome and source only, never a password or link). A forgotten password is reset only in
-  the terminal: `agentbreeder up --reset-password`.
+  time, outcome and source only, never a password or link). The source is "Console (HTTP)" for
+  anything that came through the console's HTTP API (the server cannot tell a browser from `curl`
+  or a local container), and "Terminal" or "Terminal link" for the terminal (#1180). A forgotten
+  password is reset only in the terminal: `agentbreeder up --reset-password`.
 - `http://localhost:PORT/` redirects to `http://127.0.0.1:PORT/`, the one address the console
   answers; the API never redirects.
 

@@ -290,6 +290,10 @@ def test_settings_session_length_events_and_sign_out_everywhere(page, console):
     expect(sessions.get_by_role("status")).to_contain_text("Sessions now last 4 hours")
     events = page.get_by_role("table", name="Security events")
     expect(events).to_contain_text("Session length changed")
+    # An HTTP event names the channel, not a client the server cannot tell apart (#1180).
+    changed = events.get_by_role("row").filter(has_text="Session length changed").first
+    expect(changed).to_contain_text("Console (HTTP)")
+    expect(events).not_to_contain_text("Browser")
     expect(events).to_contain_text("Sign-in with a one-time link")
     sessions.get_by_role("button", name="Sign out everywhere").click()
     dialog = page.get_by_role("dialog", name="Sign out everywhere?")
