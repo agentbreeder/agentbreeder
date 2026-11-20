@@ -2,13 +2,20 @@
 items marked F7). **Written, not run**: it needs Docker, the Northwind stack up with real keys,
 and (for the last test) a `kind` cluster, so it is opt-in:
 
-    cd src/agentbreeder/examples/northwind      # or a copy; then set AGENTBREEDER_NORTHWIND_DIR
-    agentbreeder services up --environment dev --env-file ~/.env
-    cd -
-    AGENTBREEDER_DOCKER_TEST=1 AGENTBREEDER_NORTHWIND_CLAUDE=1 \\
+    # A copy of Northwind whose gateway is service/litellm@1.4.0, the first version whose request
+    # filter serves /v1/messages (#1187). The shipped stack stays on 1.0.0 for the other agents
+    # (owner rule: no Northwind repin), so the pin lives only in the copy; the directory must be
+    # named `northwind` (the port's `--stack ../northwind`). macOS sed; on Linux `sed -i`.
+    WORK=$(mktemp -d)
+    cp -R src/agentbreeder/examples/northwind "$WORK/northwind"
+    sed -i '' 's#service/litellm@1.0.0#service/litellm@1.4.0#' "$WORK/northwind/stack.yaml"
+    (cd "$WORK/northwind" && agentbreeder services up --update --environment dev --env-file ~/.env)
+    AGENTBREEDER_NORTHWIND_DIR="$WORK/northwind" AGENTBREEDER_DOCKER_TEST=1 \\
+      AGENTBREEDER_NORTHWIND_CLAUDE=1 \\
       python -m pytest -q tests/test_northwind_claude_agent_sdk_docker.py
     # and, with `agentbreeder cluster up` done:
     AGENTBREEDER_DOCKER_TEST=1 AGENTBREEDER_NORTHWIND_CLAUDE=1 AGENTBREEDER_KIND_TEST=1 \\
+      AGENTBREEDER_NORTHWIND_DIR="$WORK/northwind" \\
       python -m pytest -q tests/test_northwind_claude_agent_sdk_docker.py -k kind
 
 Building the image downloads the claude-agent-sdk wheel, with the Claude Code CLI inside, from
@@ -33,6 +40,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from agentbreeder import registry
 
@@ -46,6 +54,8 @@ EXAMPLES = Path(registry.__file__).parent / "examples"
 PORT = "northwind-claude-agent-sdk"
 NAME = "northwind-support-claude-agent-sdk"
 REF = "runtime/claude-agent-sdk@1.0.0"
+# The gateway this acceptance runs on: the first whose request filter serves `/v1/messages`.
+GATEWAY = "service/litellm@1.4.0"
 NORTHWIND = Path(os.getenv("AGENTBREEDER_NORTHWIND_DIR") or EXAMPLES / "northwind").resolve()
 STACK = ["--stack", "../northwind", "--environment", "dev"]
 CUSTOMER = "eval-cust-a"
@@ -123,9 +133,23 @@ PROCESSES = (
 )
 
 
+def gateway_refs(northwind: Path) -> tuple[str, list[str]]:
+    """The gateway ref in `stack.yaml` and the `service/litellm@` versions in `stack.lock` (which
+    `services up --update` writes once the stack is up on that ref)."""
+    stack = yaml.safe_load((northwind / "stack.yaml").read_text())
+    lock = json.loads((northwind / "stack.lock").read_text())
+    locked = sorted(k for k in lock["entries"] if k.startswith("service/litellm@"))
+    return stack["services"][stack["environment"]["gateway"]]["ref"], locked
+
+
 @pytest.fixture(scope="module")
 def work():
     assert (NORTHWIND / "stack.yaml").is_file(), f"no Northwind directory at {NORTHWIND}"
+    ref, locked = gateway_refs(NORTHWIND)
+    assert (ref, locked) == (GATEWAY, [GATEWAY]), (
+        f"the stack at {NORTHWIND} runs {ref} (locked {locked}); this acceptance needs {GATEWAY}:"
+        " run it on a pinned copy (module docstring)"
+    )
     return _port()
 
 

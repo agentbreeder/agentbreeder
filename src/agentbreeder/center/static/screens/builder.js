@@ -13,7 +13,7 @@
 
 import {
   MAX_CASES, SPEC_CHECKS, buildSpec, createBody, createProblem, formProblem, frameworks, grantTool, hasCapability, initialCases, initialForm, invalidPicks, invalidProblem,
-  invalidText, keepOffered, pickFramework, pickGroups, pickServer, pickTool, previewBody, removePick, runtimeAnnouncement, runtimeLabel, runtimeOf, runtimeStatus,
+  EMBEDDING_PROVIDERS, invalidText, keepOffered, knowledgeChoices, knowledgeProviderText, pickFramework, pickGroups, pickServer, pickTool, previewBody, removePick, runtimeAnnouncement, runtimeLabel, runtimeOf, runtimeStatus,
   toolBlocked, toolsFull, unusableRuntimes, unverifiedText,
 } from "../lib/builder.js";
 import { CHECKS, parseCases } from "../lib/cases.js";
@@ -118,6 +118,39 @@ function ServerPicker({ entries, form, onForm }) {
 }
 
 /**
+ * One knowledge version (#1069): Not used, or a version a new project resolves. Offered only with
+ * a provider that has an embedding model and a framework that searches knowledge; the reason is
+ * text next to the select, never only in a disabled option.
+ */
+function KnowledgePicker({ entries, form, onForm, runtime }) {
+  const id = "build-knowledge";
+  const choices = knowledgeChoices(entries);
+  const unusable = (entries || []).filter((entry) => entry && entry.unusable);
+  const noProvider = !EMBEDDING_PROVIDERS.includes(form.model);
+  const noRuntime = runtime && !hasCapability(runtime, "knowledge");
+  const why = noRuntime ? `${runtimeLabel(runtime)} does not search knowledge, so knowledge is not offered.` : noProvider ? knowledgeProviderText(form.model) : null;
+  const picked = choices.find((entry) => entry.ref === form.knowledge) || null;
+  const pick = (ref) => onForm({ ...form, knowledge: ref });
+  if (!choices.length) {
+    return html`${why ? html`<p class="muted small"><${Text} value=${why} /></p>` : null}
+      <p class="muted small">No usable <code>knowledge/</code> versions were found. A new agent pins one from the built-in registry or a registry on AGENTBREEDER_REGISTRY_PATH: publish your documents into that registry with <code>agentbreeder registry publish</code>, then reload this page.</p>
+      ${unusable.map((entry) => html`<p class="muted small" key=${entry.ref}>Cannot be used: <code><${Text} value=${entry.ref} /></code>: <${Text} value=${entry.unusable} /></p>`)}`;
+  }
+  const notes = [why && `${id}-why`, picked && picked.description && `${id}-about`, picked && `${id}-embedding`].filter(Boolean).join(" ");
+  return html`<div class="pick">
+    <label for=${id}>Knowledge version</label>
+    <select id=${id} value=${form.knowledge || ""} disabled=${Boolean(why) && !form.knowledge} aria-describedby=${notes || null} onChange=${(event) => pick(event.currentTarget.value)}>
+      <option value="">Not used</option>
+      ${choices.map((entry) => html`<option value=${entry.ref}>${entry.name} ${versionText(entry)}</option>`)}
+    </select>
+    ${why ? html`<p class="muted small" id=${`${id}-why`}><${Text} value=${why} /></p>` : null}
+    ${picked && picked.description ? html`<p class="muted small" id=${`${id}-about`}><${Text} value=${picked.description} /></p>` : null}
+    ${picked ? html`<p class="muted small" id=${`${id}-embedding`}><${Text} value=${`Embeds with the gateway alias ${picked.embedding.alias} at ${picked.embedding.dimensions} dimensions; the stack serves it with the provider's embedding model.`} /></p>` : null}
+    ${unusable.map((entry) => html`<p class="muted small" key=${entry.ref}>Cannot be used: <code><${Text} value=${entry.ref} /></code>: <${Text} value=${entry.unusable} /></p>`)}
+  </div>`;
+}
+
+/**
  * The Framework group (#1085 S1, §4.1): one radio per framework, named by the framework alone;
  * its ref, status and note are lines under it, tied to the radio with `aria-describedby`. One
  * Version select for the chosen framework (static text when it has one version). A runtime the
@@ -172,7 +205,7 @@ function Parts({ view, form, onForm, runtime, invalid }) {
   return html`
     <h3 id="build-tools-heading" tabindex="-1">Tools</h3>
     <p class="muted">Tools are code that runs inside the agent. A version is pinned and recorded in agent.lock.</p>
-    ${!data ? html`<p class="muted small">Tools and MCP servers are offered once the registries are read.</p>` : html`
+    ${!data ? html`<p class="muted small">Tools, MCP servers and knowledge are offered once the registries are read.</p>` : html`
       <${InvalidPicks} picks=${invalidOf("tool")} label="Tools that do not work with this framework" form=${form} onForm=${onForm} heading="build-tools-heading" />
       <${ToolPicker} entries=${data.tools} form=${form} onForm=${onForm} runtime=${runtime} />
       <h3 id="build-mcp-heading" tabindex="-1">MCP servers</h3>
@@ -181,6 +214,9 @@ function Parts({ view, form, onForm, runtime, invalid }) {
       ${runtime && !hasCapability(runtime, "mcp")
         ? html`<p class="muted small"><${Text} value=${`${runtimeLabel(runtime)} has no MCP client, so MCP servers are not offered.`} /></p>`
         : html`<${ServerPicker} entries=${data.mcp} form=${form} onForm=${onForm} />`}
+      <h3 id="build-knowledge-heading" tabindex="-1">Knowledge</h3>
+      <p class="muted">Documents the agent searches before it answers. The version is pinned and recorded in agent.lock; the agent builds its index in the stack's Postgres at its first search.</p>
+      <${KnowledgePicker} entries=${data.knowledge} form=${form} onForm=${onForm} runtime=${runtime} />
       ${data.skipped ? html`<p class="muted small">${data.skipped} version${data.skipped === 1 ? " is" : "s are"} not offered: unreadable or under a symlink (<code>agentbreeder registry verify</code> says why).</p>` : null}
       ${data.truncated ? html`<p class="muted small">Only the first 500 versions of each kind are offered.</p>` : null}
     `}`;
@@ -327,7 +363,6 @@ export function Builder() {
           <label for=${ids.retries}>Retries for a failed case (0 to 3)</label>
           <input id=${ids.retries} inputmode="numeric" value=${form.retries} onInput=${edit("retries")} />
         </details>
-        <p class="muted small">Knowledge is not on this form yet.</p>
         <${Action} type="submit" tone=${preview && !stale ? "secondary" : "primary"} disabled=${busy ? "Working…" : problem}>Preview<//>
       </form>
     <//>
@@ -350,6 +385,16 @@ export function Builder() {
                   <td><code><${Text} value=${ref.ref} /></code></td>
                   <td>${rootText(ref.root_kind)}</td>
                   <td>${ref.runs_code ? (ref.root_kind === "builtin" ? "Runs (ships with AgentBreeder)" : html`<strong>Runs in agents</strong>`) : "Text"}</td>
+                </tr>`)}
+              <//>`
+            : null}
+          ${preview.knowledge && preview.knowledge.length
+            ? html`<${Table} label="Knowledge the agent searches" columns=${["Ref", "Embedding", "Documents", "Search"]}>
+                ${preview.knowledge.map((row) => html`<tr key=${row.ref}>
+                  <td><code><${Text} value=${row.ref} /></code></td>
+                  <td><code><${Text} value=${row.embedding_model} /></code> as <code><${Text} value=${row.alias} /></code>, <${Text} value=${`${row.dimensions} dimensions`} /></td>
+                  <td class="num"><${Text} value=${`${row.documents} (${row.chunks} chunks)`} /></td>
+                  <td><${Text} value=${`top ${row.top_k}, ${row.extra_searches} extra ${row.extra_searches === 1 ? "search" : "searches"}`} /></td>
                 </tr>`)}
               <//>`
             : null}

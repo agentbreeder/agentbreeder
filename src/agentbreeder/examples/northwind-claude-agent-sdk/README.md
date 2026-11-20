@@ -22,20 +22,27 @@ container, as another uid, with no secret and no network), the controls and the 
 
 ## Run it (from a checkout; not run yet)
 
+The `/v1/messages` route needs a `service/litellm@1.4.0` gateway (#1187), and Northwind's shipped
+stack stays on `service/litellm@1.0.0` for its other agents. Run this agent on a copy of
+Northwind with the gateway pinned to 1.4.0 (the directory must be named `northwind`). Bring down
+any other Northwind stack first, and on Linux use `sed -i` (no `''`):
+
 ```
+WORK=$(mktemp -d)
 pip install -e ".[eval]"                       # at the repo root
-cd src/agentbreeder/examples/northwind
-agentbreeder services up --environment dev --env-file ~/.env
-cd ../northwind-claude-agent-sdk
+cp -R src/agentbreeder/examples/northwind src/agentbreeder/examples/northwind-claude-agent-sdk "$WORK"/
+sed -i '' 's#service/litellm@1.0.0#service/litellm@1.4.0#' "$WORK/northwind/stack.yaml"
+(cd "$WORK/northwind" && agentbreeder services up --update --environment dev --env-file ~/.env)
+cd "$WORK/northwind-claude-agent-sdk"
 export AGENTBREEDER_REGISTRY_PATH=../northwind/registry
 agentbreeder release agent.yaml --stack ../northwind --environment dev
 ```
 
-The acceptance run is opt-in:
+The acceptance run is opt-in, and refuses a stack whose gateway is not 1.4.0:
 
 ```
-AGENTBREEDER_DOCKER_TEST=1 AGENTBREEDER_NORTHWIND_CLAUDE=1 \
-  python -m pytest -q tests/test_northwind_claude_agent_sdk_docker.py
+AGENTBREEDER_NORTHWIND_DIR="$WORK/northwind" AGENTBREEDER_DOCKER_TEST=1 \
+  AGENTBREEDER_NORTHWIND_CLAUDE=1 python -m pytest -q tests/test_northwind_claude_agent_sdk_docker.py
 ```
 
 `agentbreeder example` does not list this directory: it needs Northwind beside it.

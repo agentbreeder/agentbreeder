@@ -82,7 +82,8 @@ def test_a_session_that_ends_drops_the_blocker(page, console):
         ),
     )
     page.get_by_role("button", name="Retry").click()
-    page.get_by_role("heading", level=1, name="Session ended").wait_for()
+    # M2 #818: the re-auth dialog opens over the page; the blocker goes while it is open.
+    page.get_by_role("dialog", name="Session ended").wait_for()
     assert blocker(page).count() == 0
     page.unroute("**/api/docker*")
     console.scenario(doctor=UP)

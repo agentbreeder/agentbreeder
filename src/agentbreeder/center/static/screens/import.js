@@ -9,7 +9,7 @@
 // the server refuses the write without it.
 
 import { detailRoute, formProblem, importBody, importProblem, needsNewReview, reviewFiles, reviewMatches, reviewSummary, runsCode, terminalCommand } from "../lib/import.js";
-import { ROOT_LABELS } from "../lib/registry.js";
+import { ROOT_LABELS, codeLabel } from "../lib/registry.js";
 import { href } from "../lib/router.js";
 import { Action, Actions, Card, Notice, Text, useConsole } from "../ui/components.js";
 import { html, useEffect, useRef, useState } from "../ui/preact.js";
@@ -21,7 +21,7 @@ async function send(client, path, body) {
     const reply = await client.request(path, { body });
     return { data: reply.error ? null : reply.data, problem: reply.error };
   } catch (error) {
-    if (error.kind === "session") throw error;
+    // A 401 (M2 #818): the re-auth dialog opens over the page; this says to try again after it.
     return { data: null, problem: { code: error.code, message: error.message } };
   }
 }
@@ -82,6 +82,8 @@ export function ImportVersion({ project }) {
   };
   const files = current ? reviewFiles(current.data) : [];
   const code = current && runsCode(current.data);
+  // A skill's review (#1059 §9.4): the server's description and code word, from the files.
+  const skill = current && current.data.kind === "skill" && current.data.skill && typeof current.data.skill === "object" ? current.data.skill : null;
   const link = done && detailRoute(done);
   return html`<${Card} title="Import a version">
     <p class="muted">Copy a registry version directory from anywhere on this machine (another project, a shared folder, a download) into this project's registry. The directory must hold a <code>manifest.yaml</code>; links, hard links and special files are refused. Review lists exactly what will be copied.</p>
@@ -115,15 +117,27 @@ export function ImportVersion({ project }) {
             <dt>From</dt><dd><code><${Text} value=${current.data.source} /></code></dd>
             <dt>Into</dt><dd><span class="badge">${ROOT_LABELS[current.data.root_kind] || current.data.root_kind}</span> <code><${Text} value=${current.data.path} /></code></dd>
             <dt>Version hash</dt><dd><code><${Text} value=${current.data.sha256} /></code></dd>
+            ${skill ? html`<dt>Code</dt><dd><${Text} value=${codeLabel({ code: skill.code })} /></dd>` : null}
           </dl>
+          ${skill && skill.description
+            ? html`<section class="callout" aria-labelledby="import-sent-heading">
+                <h4 id="import-sent-heading">Sent on every model call</h4>
+                <p>Every agent that pins this skill sends this name and description on every model call, before it chooses to load anything.</p>
+                <p class="muted small" id="import-description-label">Description, ${skill.description.length} characters</p>
+                <blockquote class="quoted" aria-labelledby="import-description-label"><${Text} value=${skill.description} /></blockquote>
+              </section>`
+            : null}
           <ul class="files">${files.map((file) => html`<li key=${file.path}><${FileView} file=${file} /></li>`)}</ul>
           ${code
             ? html`<fieldset class="code-confirm">
                 <legend>This code runs in agents</legend>
                 <p>A ${current.data.kind} version is code. Building and releasing an agent that uses it runs this code as you, with the stack's model key and database. The eval gate is a quality gate, not a security review.</p>
+                ${skill ? html`<p>Script skills are designed to run in a separate container with no network; that is not shipped or verified.</p>` : null}
                 <label class="check"><input type="checkbox" checked=${confirmed} onChange=${(event) => setConfirmed(event.currentTarget.checked)} /> I reviewed this code and trust it to run in agents</label>
               </fieldset>`
-            : html`<p class="muted small">A ${current.data.kind} version steers the agent: review it before an agent uses it.</p>`}
+            : skill
+              ? html`<p class="muted small">A skill's name and description are sent on every model call of every agent that pins it, and its instructions can steer the agent to use any tool it has. ${skill.description ? "Read the description above and the source before you import." : "Read manifest.yaml's description and the source before you import."}</p>`
+              : html`<p class="muted small">A ${current.data.kind} version steers the agent: review it before an agent uses it.</p>`}
           <${Actions}>
             <button type="button" id="import-write" class="action primary" disabled=${Boolean(busy) || (code && !confirmed)} onClick=${write}>${busy === "import" ? "Importing…" : html`Import as <${Text} value=${current.data.ref} />`}</button>
             <${Action} tone="secondary" onClick=${() => setReview(null)} disabled=${busy ? "Waiting for the console." : false}>Cancel<//>

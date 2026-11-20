@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from test_center import api, center, cookie  # noqa: F401 (fixtures)
 
-from agentbreeder import registry
+from agentbreeder import newagent, registry
 from agentbreeder.center import builder, server
 from agentbreeder.center.files import BadRequest
 
@@ -203,7 +203,28 @@ def test_the_clis_own_refusal_is_shown(center, cookie, home, calls):
         ({"spec": spec(model="mistral")}, "MODEL_INVALID"),
         ({"spec": spec(model_id="gemini/a b")}, "MODEL_ID_INVALID"),
         ({"spec": spec(model_id=3)}, "MODEL_ID_INVALID"),
-        ({"spec": spec(knowledge=["knowledge/docs@0.1.0"])}, "SPEC_UNSUPPORTED"),
+        ({"spec": spec(knowledge=["knowledge/docs@0.1.0"])}, "SPEC_INVALID"),
+        ({"spec": spec(knowledge={"ref": "knowledge/docs@0.1.0"})}, "SPEC_INVALID"),
+        ({"spec": spec(knowledge=[{"ref": "tool/docs@0.1.0"}])}, "SPEC_INVALID"),
+        ({"spec": spec(knowledge=[{"ref": "knowledge/docs"}])}, "SPEC_INVALID"),
+        ({"spec": spec(knowledge=[{"ref": "knowledge/docs@0.1.0", "x": 1}])}, "SPEC_INVALID"),
+        ({"spec": spec(knowledge=[{"ref": "knowledge/docs@0.1.0", "top_k": 0}])}, "SPEC_INVALID"),
+        (
+            {"spec": spec(knowledge=[{"ref": "knowledge/docs@0.1.0", "top_k": True}])},
+            "SPEC_INVALID",
+        ),
+        (
+            {"spec": spec(knowledge=[{"ref": "knowledge/docs@0.1.0", "extra_searches": 6}])},
+            "SPEC_INVALID",
+        ),
+        (
+            {"spec": spec(knowledge=[{"ref": "knowledge/a@0.1.0"}, {"ref": "knowledge/b@0.1.0"}])},
+            "SPEC_INVALID",
+        ),
+        (
+            {"spec": spec(model="anthropic", knowledge=[{"ref": "knowledge/docs@0.1.0"}])},
+            "SPEC_UNSUPPORTED",
+        ),
         ({"spec": spec(tools="tool/clock@0.1.0")}, "SPEC_INVALID"),
         ({"spec": spec(tools=["tool/clock"])}, "SPEC_INVALID"),
         ({"spec": spec(tools=["mcp/github@1.0.0"])}, "SPEC_INVALID"),
@@ -822,6 +843,13 @@ def test_the_mirrored_limits_match_the_clis():
         assert f"export const {name} = {getattr(builder, name)};" in script, name
 
 
+def test_the_consoles_starter_runtime_is_new_agents_default():
+    """The form starts on `newagent.RUNTIME`: a spec without sub-agents or skills is verified
+    only there (`agentspec.verified`), so another start would be a form Create refuses."""
+    script = (Path(builder.__file__).parent / "static" / "lib" / "builder.js").read_text()
+    assert f'export const STARTER_RUNTIME = "{newagent.RUNTIME}";' in script
+
+
 def test_a_version_in_two_roots_is_offered_once_from_the_first(tmp_path):
     """`resolve` reads the first root that has a version; so does the offer."""
     first, second = tmp_path / "first", tmp_path / "second"
@@ -910,7 +938,13 @@ def test_parts_lists_every_runtime_version_through_the_cli(center, cookie, calls
     assert status == 200 and data["error"] is None, data
     assert [call["argv"] for call in calls] == [RUNTIMES_ARGV]
     listed = {entry["ref"]: entry for entry in data["data"]["runtimes"]}
-    assert list(listed)[:2] == ["runtime/adk@1.4.0", "runtime/adk@1.3.0"]  # run end to end first
+    # run end to end first, by name, newest first
+    assert list(listed)[:4] == [
+        "runtime/adk@1.5.0",
+        "runtime/adk@1.4.0",
+        "runtime/adk@1.3.0",
+        "runtime/langgraph@1.0.0",
+    ]
     for ref in ("runtime/adk@1.2.0", "runtime/adk@1.3.0", "runtime/adk@1.4.0"):
         entry = listed[ref]
         assert entry["usable"] is True and entry["display_name"] == "Google ADK", entry
@@ -920,16 +954,35 @@ def test_parts_lists_every_runtime_version_through_the_cli(center, cookie, calls
         assert "transfer_to_agent" in entry["reserved_tool_names"]
     assert [listed[f"runtime/adk@1.{n}.0"]["verified"] for n in (2, 3, 4)] == [False, True, True]
     assert "mcp" not in listed["runtime/adk@1.0.4"]["capabilities"]
-    # runtime/langgraph@1.0.0 (#1083 F3): a kit runtime, listed but never run end to end.
-    assert {entry["name"] for entry in listed.values()} == {"adk", "langgraph"}
+    # runtime/langgraph@1.0.0 (#1083 F3): a kit runtime, run end to end (verify-langgraph-adk150).
+    # runtime/openai-agents@1.0.0 (#1083 F4) and runtime/deepagents@1.0.0 (#1083 F5): kit
+    # runtimes, listed, not verified.
+    assert {entry["name"] for entry in listed.values()} == {
+        "adk",
+        "langgraph",
+        "openai-agents",
+        "deepagents",
+    }
     langgraph = listed["runtime/langgraph@1.0.0"]
-    assert langgraph["usable"] is True and langgraph["verified"] is False
+    assert langgraph["usable"] is True and langgraph["verified"] is True
     assert (langgraph["display_name"], langgraph["profile"], langgraph["kit"]) == (
         "LangGraph",
         "kit",
         "1.0.0",
     )
     assert "mcp" not in langgraph["capabilities"]
+    for ref, display_name in (
+        ("runtime/openai-agents@1.0.0", "OpenAI Agents SDK"),
+        ("runtime/deepagents@1.0.0", "Deep Agents"),
+    ):
+        entry = listed[ref]
+        assert entry["usable"] is True and entry["verified"] is False
+        assert (entry["display_name"], entry["profile"]) == (display_name, "kit")
+        assert "mcp" not in entry["capabilities"]
+    assert listed["runtime/deepagents@1.0.0"]["kit"] == "1.0.0"
+    assert {"task", "read_file", "delete"} <= set(
+        listed["runtime/deepagents@1.0.0"]["reserved_tool_names"]
+    )
 
 
 def test_the_runtimes_read_is_uncached(center, cookie, scripted_runtimes):
@@ -1011,8 +1064,10 @@ def test_the_runtimes_route_reads_the_real_command(center, cookie, calls):
     assert status == 200 and data["error"] is None, data
     assert [call["argv"] for call in calls] == [RUNTIMES_ARGV]
     names = {entry["ref"]: entry["display_name"] for entry in data["data"] if entry["usable"]}
-    # Every built-in runtime, named from its manifest: ADK and, since #1163, LangGraph.
+    # Every built-in runtime, named from its manifest: ADK and, since #1163, LangGraph; Deep
+    # Agents since #1083 F5.
     assert names[ADK] == "Google ADK" and names["runtime/langgraph@1.0.0"] == "LangGraph"
+    assert names["runtime/deepagents@1.0.0"] == "Deep Agents"
 
 
 def test_parts_shows_a_tools_function_names(center, cookie, path_registry):
@@ -1342,3 +1397,116 @@ def test_a_path_runtime_is_listed_from_its_root_and_previewed_as_code(
     assert shown["runs_code"] is True and shown["combination"]["verified"] is False
     [ref] = shown["refs"]
     assert (ref["ref"], ref["root_kind"], ref["runs_code"]) == (path_runtime, "path", True)
+
+
+# -- knowledge (#1069) ---------------------------------------------------------------------------
+
+
+def test_the_embedding_providers_match_the_cli():
+    from agentbreeder import agentspec, stackfor
+
+    assert builder.EMBEDDING_PROVIDERS == tuple(sorted(agentspec.EMBEDDINGS))
+    assert builder.ALIAS.pattern == stackfor.ALIAS.pattern
+    from agentbreeder import knowledge
+
+    assert builder.DEFAULT_DIMENSIONS == knowledge.DEFAULT_DIMENSIONS
+    assert builder.MAX_DIMENSIONS == knowledge.MAX_DIMENSIONS
+    # The browser's copy of the providers (lib/builder.js) is the same list.
+    source = (Path(builder.__file__).parent / "static" / "lib" / "builder.js").read_text()
+    assert 'export const EMBEDDING_PROVIDERS = ["gemini", "openai"];' in source
+    fields = agentspec.Knowledge.model_fields
+    assert builder.TOP_K == (fields["top_k"].metadata[0].ge, fields["top_k"].metadata[1].le)
+    assert builder.EXTRA_SEARCHES == (
+        fields["extra_searches"].metadata[0].ge,
+        fields["extra_searches"].metadata[1].le,
+    )
+
+
+@pytest.mark.parametrize("model", ["gemini", "openai"])
+def test_one_knowledge_version_is_accepted_for_a_provider_with_embeddings(model):
+    entry = {"ref": "knowledge/docs@0.1.0", "top_k": 5, "extra_searches": 1}
+    name, checked = builder.request({"spec": spec(model=model, knowledge=[entry])})
+    assert name == "helper" and checked["knowledge"] == [entry]
+
+
+KNOWLEDGE_ROW = {
+    "ref": "knowledge/docs@0.1.0",
+    "alias": "docs-embedding",
+    "dimensions": 768,
+    "embedding_model": "gemini/gemini-embedding-2",
+    "top_k": 5,
+    "extra_searches": 1,
+    "documents": 3,
+    "chunks": 12,
+}
+
+
+def test_summary_shows_the_knowledge_row():
+    shown = builder.summary(answer(knowledge=[KNOWLEDGE_ROW]), *ASKED)
+    assert shown["knowledge"] == [KNOWLEDGE_ROW]
+    assert builder.summary(answer(), *ASKED)["knowledge"] == []
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        KNOWLEDGE_ROW | {"ref": "tool/docs@0.1.0"},
+        KNOWLEDGE_ROW | {"alias": "bad alias"},
+        KNOWLEDGE_ROW | {"embedding_model": "x y"},
+        KNOWLEDGE_ROW | {"dimensions": True},
+        KNOWLEDGE_ROW | {"chunks": -1},
+        "knowledge/docs@0.1.0",
+    ],
+)
+def test_summary_refuses_a_knowledge_row_off_contract(row):
+    with pytest.raises(builder.BadOutput):
+        builder.summary(answer(knowledge=[row]), *ASKED)
+    with pytest.raises(builder.BadOutput):
+        builder.summary(answer(knowledge=[KNOWLEDGE_ROW, KNOWLEDGE_ROW]), *ASKED)
+
+
+def _knowledge(root: Path, name: str, version: str, embedding: str) -> None:
+    source = root.parent / f"kb-{name}-{version}"
+    source.mkdir(parents=True)
+    (source / "manifest.yaml").write_text(
+        f"kind: knowledge\nname: {name}\nversion: {version}\ndescription: Help articles.\n"
+        f"chunking: paragraph\n{embedding}store: pgvector\n"
+    )
+    (source / "docs").mkdir()
+    (source / "docs" / "a.md").write_text("# A\n\nOne paragraph.\n")
+    registry.publish(source, root)
+
+
+def test_parts_offers_knowledge_versions_with_their_embedding(tmp_path, monkeypatch):
+    root = tmp_path / "path-registry"
+    _knowledge(root, "help", "1.0.0", "embedding: {alias: help-embedding, dimensions: 768}\n")
+    _knowledge(root, "bare", "1.0.0", "")
+    shown = {e["ref"]: e for e in builder.parts([root])["knowledge"]}
+    assert shown["knowledge/help@1.0.0"]["embedding"] == {
+        "alias": "help-embedding",
+        "dimensions": 768,
+    }
+    assert "unusable" not in shown["knowledge/help@1.0.0"]
+    assert shown["knowledge/help@1.0.0"]["description"] == "Help articles."
+    assert shown["knowledge/bare@1.0.0"]["embedding"] is None
+    assert "no valid embedding" in shown["knowledge/bare@1.0.0"]["unusable"]
+
+
+@pytest.mark.parametrize(
+    ("embedding", "expected"),
+    [
+        ({"alias": "a"}, {"alias": "a", "dimensions": 768}),
+        ({"alias": "a", "dimensions": "1536"}, {"alias": "a", "dimensions": 1536}),
+        ({"alias": "a", "dimensions": 16000}, {"alias": "a", "dimensions": 16000}),
+        ({"alias": "a", "dimensions": 16001}, None),
+        ({"alias": "a", "dimensions": 0}, None),
+        ({"alias": "a", "dimensions": True}, None),
+        ({"alias": "a", "dimensions": "x"}, None),
+        ({"alias": "bad alias"}, None),
+        ({}, None),
+        ("text", None),
+    ],
+)
+def test_the_embedding_is_read_as_the_cli_reads_it(embedding, expected):
+    assert builder._embedding({"embedding": embedding}) == expected
+    assert builder._embedding({}) is None

@@ -95,3 +95,27 @@ def test_the_port_is_not_a_standalone_example(tmp_path):
 def test_northwinds_stack_names_the_ports_identity():
     stack = yaml.safe_load((EXAMPLES / "northwind" / "stack.yaml").read_text())
     assert NAME in stack["environment"]["agents"]
+
+
+def test_the_acceptance_pins_the_messages_gateway_only_in_a_copy(tmp_path):
+    """The Docker acceptance needs `service/litellm@1.4.0` (its filter serves `/v1/messages`,
+    #1187). The shipped Northwind stack stays on 1.0.0 for the other agents (owner rule: no
+    repin), so the test refuses the shipped stack and accepts a copy pinned and relocked."""
+    from test_northwind_claude_agent_sdk_docker import GATEWAY, gateway_refs
+
+    shipped = EXAMPLES / "northwind"
+    assert GATEWAY == "service/litellm@1.4.0"
+    assert (registry.BUILTIN_ROOT / "service" / "litellm" / "1.4.0" / "service.yaml").is_file()
+    assert gateway_refs(shipped) == ("service/litellm@1.0.0", ["service/litellm@1.0.0"])
+
+    copy = tmp_path / "northwind"
+    shutil.copytree(shipped, copy, ignore=shutil.ignore_patterns("__pycache__"))
+    stack = copy / "stack.yaml"
+    stack.write_text(stack.read_text().replace("service/litellm@1.0.0", GATEWAY))
+    # Pinned but not yet up: the lock still names 1.0.0, so the fixture would refuse it.
+    assert gateway_refs(copy) == (GATEWAY, ["service/litellm@1.0.0"])
+    lock_file = copy / "stack.lock"
+    lock = json.loads(lock_file.read_text())
+    lock["entries"][GATEWAY] = lock["entries"].pop("service/litellm@1.0.0")
+    lock_file.write_text(json.dumps(lock))
+    assert gateway_refs(copy) == (GATEWAY, [GATEWAY])

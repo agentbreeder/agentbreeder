@@ -176,6 +176,10 @@ changes between file and directory appears as `removed` then `added`. On an adde
 the missing side's `from_sha256`/`to_sha256` and `executable` value is `null`. `hunks` is empty
 when the change is not shown as text (see the flags; `too_large` means the diff's budget was
 spent). `no_newline` appears only on a line with no newline at the end of the file.
+A `skill/` diff (on `main`, not in a published preview) adds `"skill": {"description_changed",
+"scripts_changed"}`, decided from the two manifests and the changed paths, not from the hunks:
+the description is sent on every model call of every agent that pins the skill, and a scripts
+change is a code change.
 
 **`registry used-by REF --project DIR [DIR ...]`** reports, for each project (default `.`, each
 directory once), separately:
@@ -436,9 +440,14 @@ files and your git history if you commit them.
 A `runtime/` version is the agent server: a fixed `Dockerfile`, a `runtime/` directory with a
 hash-locked `requirements.lock`, and a `manifest.yaml`. Since #1083 F1 that manifest and one
 generated file are the only place `build`, `new agent` and the registry commands take framework
-facts from. Nothing in the engine branches on a framework's name. Two runtimes ship:
-`runtime/adk` and `runtime/langgraph@1.0.0` (#1083 F3, the first on the runtime kit; built and
-run end to end on macOS x86_64, **not verified**, see [runtimes/langgraph.md](runtimes/langgraph.md)).
+facts from. Nothing in the engine branches on a framework's name. Three runtimes ship:
+`runtime/adk`, `runtime/langgraph@1.0.0` (#1083 F3, the first on the runtime kit; run end
+to end and verified on macOS x86_64 only, for the starter and one tool with Gemini, see
+[runtimes/langgraph.md](runtimes/langgraph.md)), `runtime/openai-agents@1.0.0` (#1083 F4, on
+the kit; built and run end to end on macOS x86_64, **not verified**, see
+[runtimes/openai-agents.md](runtimes/openai-agents.md)) and `runtime/deepagents@1.0.0` (#1083
+F5, on the same kit; built and run end to end on macOS x86_64, **not verified**, see
+[runtimes/deepagents.md](runtimes/deepagents.md)).
 
 **Manifest keys** (beside `port`, `health_path`, `secrets` and `environment`):
 
@@ -522,13 +531,16 @@ so a reader such as the local console needs no knowledge of profiles:
 
 - `kit`, `notes` and `docs` appear only when the manifest has them.
 - `verified` is true for a runtime version that has been run end to end. Today that is
-  `runtime/adk@1.3.0` (Northwind 61/61, #1095) and `runtime/adk@1.4.0` (the starter and the
-  3.0.0a3 public-registry runs). It is about the version, not a `new agent` combination: those
-  all ran on the starter's default, `runtime/adk@1.4.0`, so a spec or `--runtime` that pins
-  `1.3.0` still has `verified: false` in `new agent`'s output. `runtime/adk@1.5.0` has also been
-  run end to end (Northwind 61/61 and the sub-agents and skills acceptance runs, #1058 and
-  #1059, on `main`) but is not labelled so yet: the label would make the console start new forms
-  on it, where only sub-agent and skill combinations are verified.
+  `runtime/adk@1.3.0` (Northwind 61/61, #1095), `runtime/adk@1.4.0` (the starter and the
+  3.0.0a3 public-registry runs), and, on `main`, `runtime/adk@1.5.0` (Northwind 61/61, the
+  sub-agents and skills acceptance runs, #1058 and #1059, and a fresh run from a wheel through
+  the CLI and the console) and `runtime/langgraph@1.0.0` (Northwind 61/61 locally and on `kind`,
+  and the starter and one tool from a wheel through the CLI and the console, macOS x86_64 only;
+  see [the record](superpowers/verification/verify-langgraph-adk150.md)). It is about the version,
+  not a `new agent` combination: a plain ADK spec is verified only on `runtime/adk@1.4.0`, so a
+  spec or `--runtime` that pins `1.3.0` or `1.5.0` without sub-agents or skills still has
+  `verified: false` in `new agent`'s output, and the console's form starts on `1.4.0` even though
+  `1.5.0` is newer and labelled run end to end.
 - A version the engine cannot use is still listed, with `usable: false`, a `code` and a
   `reason` and without the profile fields: an invalid manifest or a missing `modules.json`
   (`ARTIFACT_INVALID`), an unknown protocol (`PROTOCOL_UNSUPPORTED`), a version under a
@@ -562,7 +574,8 @@ registry/skill/refund-policy/1.2.0/
 - **Instruction pack or script skill.** A version with no `scripts/` and no `scripts:` key is an
   instruction pack: text that steers the agent. **A version with any `scripts/` entry, or a
   `scripts:` key, is code**, like a tool: `list` marks it `(code)` (`"runs_code": true` in
-  `--json`), `import` and `fork` print the code notice, and the console asks the "this code runs"
+  `--json`, where a skill row also has `"code"`: `text`, `code` for scripts, or `unknown` for a
+  version that cannot be read or holds an entry a skill may not, treated as code), `import` and `fork` print the code notice, and the console asks the "this code runs"
   confirm. The decision comes from the version's files, never the kind alone, and fails closed:
   a version whose manifest cannot be read counts as code. Nothing runs a script yet.
 - **`SKILL.md`** is UTF-8, at most 32 KiB, and starts with a `---` front matter block, read with

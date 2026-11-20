@@ -111,10 +111,13 @@ The deployment's gateway key gets `/v1/messages` on top of the chat and embeddin
 gate refuses this runtime wherever guardrails apply (an environment floor or agent
 `guardrails:`), with `RUNTIME_GUARDRAILS_UNSUPPORTED`: output masking and the real Presidio images
 on `/v1/messages` have not been run. `service/litellm@1.3.0`'s request filter refuses the
-Messages call type (`GATEWAY_ROUTE_REFUSED`), so this runtime needs a gateway without that filter
-(Northwind's stack runs `service/litellm@1.0.0`, where the key's routes and aliases and the
-proxy's allow-list are the only controls) until a later gateway version allows the Messages
-call types together with refused fields reviewed for Messages bodies. The proxy also refuses
+Messages call type (`GATEWAY_ROUTE_REFUSED`); `service/litellm@1.4.0` (#1187; unit-tested, its Docker
+test run with stub providers only) serves it through the filter, with refused fields reviewed for Messages bodies, so run this runtime on 1.4.0. On
+1.0.0 to 1.2.0 (no filter) the key's routes and aliases and the proxy's allow-list are the only
+controls. Deploy does not yet refuse `anthropic-messages` on a gateway older than 1.4.0 (open,
+owner decision pending). Northwind's shipped stack stays on 1.0.0 for its other agents; the
+acceptance runs on a copy pinned to 1.4.0 (`tests/test_northwind_claude_agent_sdk_docker.py`).
+`/v1/messages/count_tokens` is reachable with the key and unfiltered on 1.4.0 (open). The proxy also refuses
 provider server-side tools and `url` content sources, and returns only the documented response
 fields.
 
