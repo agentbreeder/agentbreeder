@@ -66,6 +66,42 @@ jobs:
       - run: >-
           python -m pytest -q -p no:cacheprovider
           src/agentbreeder/builtin_registry/runtime/langgraph/1.0.0/runtime_tests
+  runtime-openai-agents:
+    # runtime/openai-agents@1.0.0's own tests against the real OpenAI Agents SDK (#1083 F4); like
+    # runtime-langgraph, they need the runtime's locked dependencies.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - run: >-
+          python -m pip install --require-hashes --only-binary=:all:
+          -r src/agentbreeder/builtin_registry/runtime/openai-agents/1.0.0/runtime/requirements.lock
+      - run: python -m pip install pytest==8.4.2
+      - run: >-
+          python -m pytest -q -p no:cacheprovider
+          src/agentbreeder/builtin_registry/runtime/openai-agents/1.0.0/runtime_tests
+  runtime-deepagents:
+    # runtime/deepagents@1.0.0's own tests against real Deep Agents (#1083 F5); like
+    # runtime-langgraph, they need the runtime's locked dependencies.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - run: >-
+          python -m pip install --require-hashes --only-binary=:all:
+          -r src/agentbreeder/builtin_registry/runtime/deepagents/1.0.0/runtime/requirements.lock
+      - run: python -m pip install pytest==8.4.2
+      - run: >-
+          python -m pytest -q -p no:cacheprovider
+          src/agentbreeder/builtin_registry/runtime/deepagents/1.0.0/runtime_tests
   runtime-crewai:
     # runtime/crewai@1.0.0's own tests against real CrewAI (#1090, #1083 F6); like
     # runtime-langgraph, they need the runtime's locked dependencies.

@@ -2,9 +2,17 @@
 
 **Status:** on `main`, not in a published preview. Run end to end on macOS x86_64 (2026-11-19):
 Northwind passed its 61-case eval gate on local Docker and on `kind`, and
-`agentbreeder conformance` gave 26 pass, 0 fail and 13 not run of 39. arm64 has not been run, the
-kit-profile conformance checks are not built, and LangGraph is not a supported framework. What has and has not run is in
-[the F3 record](../superpowers/verification/F3-langgraph.md).
+`agentbreeder conformance` gave 26 pass, 0 fail and 13 not run of 39
+([the F3 record](../superpowers/verification/F3-langgraph.md)). Then, from a wheel in a clean
+sandbox, the way a new user would (owner decision 2026-11-19): `new agent --runtime
+runtime/langgraph@1.0.0` with Gemini, and a `--from-spec` agent with one tool, each through
+`services up`, `build`, `release`, `invoke` and `eval`; and an agent built, released and chatted
+with in the console (`agentbreeder up`, driven by Playwright in Chrome)
+([the record](../superpowers/verification/verify-langgraph-adk150.md)). So `registry runtimes`
+labels it run end to end, and `new agent` calls exactly those combinations verified: the starter
+and one tool, with `gemini` on its default model. **Verified on macOS x86_64 only**: arm64 has not
+been run, the kit-profile conformance checks are not built, and other providers, knowledge, notes
+and more tools have not been run on it.
 
 The first runtime on AgentBreeder's **runtime kit** (#1083, multi-framework spec
 `docs/superpowers/specs/2026-11-16-multi-framework-agents-design.md` §7 and §8.2). An agent picks

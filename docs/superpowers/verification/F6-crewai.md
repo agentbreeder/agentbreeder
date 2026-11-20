@@ -248,6 +248,10 @@ processor, an exact audit-row count, the doc), all applied; round 2 APPROVED.
   `step_cap.enforced`, `model_errors.swallowed`, `proxy.requests`). The run above covers some by
   hand (step cap, egress, one TOOL span per call, `model_called` rows); that is not the check
   passing.
+- After merging `main` (which added #1178's `traces: none` handling: the span checks are `not_run`
+  for an image built with `traces: none`): no change for this run. `examples/northwind-crewai`
+  builds with `traces: otlp`, so the span checks ran (`traces.llm_span` and the others passed after
+  the fix); the 26/0/13 above stands. Conformance was not re-run after the merge.
 - CrewAI passes the four checks ADK fails (`sessions.busy`, `traces.llm_span` after the fix,
   `model_errors.text_logs`, `model_errors.text_spans`).
 

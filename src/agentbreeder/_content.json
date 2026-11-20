@@ -660,6 +660,94 @@
    "exec": false,
    "sha256": "1bd3bc0f2b2f27028ef3848324b7b184fa6888d2ba0b4ddb09480dab5c11b75d"
   },
+  "builtin_registry/runtime/deepagents/1.0.0/Dockerfile": {
+   "exec": false,
+   "sha256": "090b1b435e89e376af9714ae0d94fe26ae587cd36278d4d404cf782710cd5f56"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/manifest.yaml": {
+   "exec": false,
+   "sha256": "9929bf43d60f94382b298e935f305b64756dfd93553e02cdad89a8f68b448d28"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/deepagents_adapter.py": {
+   "exec": false,
+   "sha256": "d59a136c45d6a96783cb1e1c6a7bcc9c1cfeed485ea830a09f2e45d7cdf68eef"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/kit/__init__.py": {
+   "exec": false,
+   "sha256": "065afacf6071a29edc4fb4ae58f6033a0cfbca3b75b58415028a84cfabd24d78"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/kit/adapter.py": {
+   "exec": false,
+   "sha256": "e24552b9e63c2a98da1ba7fa87c2700139b0e2be5a98e5dc6b4b1f5a4da0309d"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/kit/config.py": {
+   "exec": false,
+   "sha256": "e3af62baa512e51e9adfa8aec76c431c141ddb719049f76b8347d212939f4d31"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/kit/context.py": {
+   "exec": false,
+   "sha256": "0634e53790030524b45bdb07dd023e4d108e68d5c21ce0947b6e98026c5f6eba"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/kit/errors.py": {
+   "exec": false,
+   "sha256": "8d06a4236e7c97d7210b67267fcbd700ab212f151f024ef3c52b361afb3dacf1"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/kit/logs.py": {
+   "exec": false,
+   "sha256": "66d0bb1c934594a03ee3eb0836e17381806da8bc0d4527bfa06286f81d069605"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/kit/memory.py": {
+   "exec": false,
+   "sha256": "7da42efa6376978fb91745feff4cb03591db0e0a3c10dd014dd3584bb22073fd"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/kit/proxy.py": {
+   "exec": false,
+   "sha256": "c41360e4946b1eab8f9dfb14ed5e847560e61a677e8a2ac647f8525975137b74"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/kit/rag.py": {
+   "exec": false,
+   "sha256": "5d250ea7682371a40697eefaa39d90de4b0f65d58aba0b2c72a5b25724d1b0e7"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/kit/redaction.py": {
+   "exec": false,
+   "sha256": "0d50966adb45b77c7dfa2c777fb4bdaf6ba0d2ecba3a202a89e5ba20fb520347"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/kit/server.py": {
+   "exec": false,
+   "sha256": "afc430400c3cd1bec6d3fb1dad45a91adedb67c0ec3ab97cfc2fe23c323c0aeb"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/kit/telemetry.py": {
+   "exec": false,
+   "sha256": "93f5efb15f975fa27d78fc149b733d92f00cf066fcdc46030440f69a2685a353"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/kit/tools.py": {
+   "exec": false,
+   "sha256": "6de79f5960cfe2d7c3cee7aedc8994f3951f8505c6dd7f61dbfaca0e1c4723fc"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/kit/turn.py": {
+   "exec": false,
+   "sha256": "fab6555b8598f6da1197d4821bf40683eeb1baa65db821b9548b311029ab8f43"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/modules.json": {
+   "exec": false,
+   "sha256": "330fcaeba170d2d63710a9fc8ad376a25dde1f4a8b1ed59d9bdbdabec93556b6"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/requirements.in": {
+   "exec": false,
+   "sha256": "cf7752371808d6273e8e05c2e24161180b247b4a539cefbbec193854fa5876e1"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/requirements.lock": {
+   "exec": false,
+   "sha256": "c1d567c9cff69145d54de6203dbc84454b31a59c06492443e156fbe3cb7189fb"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime/server.py": {
+   "exec": false,
+   "sha256": "5aa8ffcc34e21b5290a4b98b2695a93683331a255d90a5ea50d0855fd70e60f6"
+  },
+  "builtin_registry/runtime/deepagents/1.0.0/runtime_tests/test_deepagents.py": {
+   "exec": false,
+   "sha256": "c863c7ea763382161c2ce4cdde6699ce5c98b2a42a370a4e7e2810c1ce0800d4"
+  },
   "builtin_registry/runtime/langgraph/1.0.0/Dockerfile": {
    "exec": false,
    "sha256": "dd7e9a18f8ba709249d0a72b364536ee428b291de75911092dfef846493efacb"
@@ -748,6 +836,94 @@
    "exec": false,
    "sha256": "5553eb1f959ddeb7325eea445727f51890ea5d48c3a6f8db5208fb7fddb83578"
   },
+  "builtin_registry/runtime/openai-agents/1.0.0/Dockerfile": {
+   "exec": false,
+   "sha256": "8447339b6c96fedc8bf88a8ec893f8f6fff4e4a01f69e70f043d721b469f96d1"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/manifest.yaml": {
+   "exec": false,
+   "sha256": "86c0ab0f70ef5dbb38409222c3adde093bba1d3518ab3901e379bf65a21f3bb1"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/__init__.py": {
+   "exec": false,
+   "sha256": "065afacf6071a29edc4fb4ae58f6033a0cfbca3b75b58415028a84cfabd24d78"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/adapter.py": {
+   "exec": false,
+   "sha256": "e24552b9e63c2a98da1ba7fa87c2700139b0e2be5a98e5dc6b4b1f5a4da0309d"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/config.py": {
+   "exec": false,
+   "sha256": "e3af62baa512e51e9adfa8aec76c431c141ddb719049f76b8347d212939f4d31"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/context.py": {
+   "exec": false,
+   "sha256": "0634e53790030524b45bdb07dd023e4d108e68d5c21ce0947b6e98026c5f6eba"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/errors.py": {
+   "exec": false,
+   "sha256": "8d06a4236e7c97d7210b67267fcbd700ab212f151f024ef3c52b361afb3dacf1"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/logs.py": {
+   "exec": false,
+   "sha256": "66d0bb1c934594a03ee3eb0836e17381806da8bc0d4527bfa06286f81d069605"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/memory.py": {
+   "exec": false,
+   "sha256": "7da42efa6376978fb91745feff4cb03591db0e0a3c10dd014dd3584bb22073fd"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/proxy.py": {
+   "exec": false,
+   "sha256": "c41360e4946b1eab8f9dfb14ed5e847560e61a677e8a2ac647f8525975137b74"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/rag.py": {
+   "exec": false,
+   "sha256": "5d250ea7682371a40697eefaa39d90de4b0f65d58aba0b2c72a5b25724d1b0e7"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/redaction.py": {
+   "exec": false,
+   "sha256": "0d50966adb45b77c7dfa2c777fb4bdaf6ba0d2ecba3a202a89e5ba20fb520347"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/server.py": {
+   "exec": false,
+   "sha256": "afc430400c3cd1bec6d3fb1dad45a91adedb67c0ec3ab97cfc2fe23c323c0aeb"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/telemetry.py": {
+   "exec": false,
+   "sha256": "93f5efb15f975fa27d78fc149b733d92f00cf066fcdc46030440f69a2685a353"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/tools.py": {
+   "exec": false,
+   "sha256": "6de79f5960cfe2d7c3cee7aedc8994f3951f8505c6dd7f61dbfaca0e1c4723fc"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/kit/turn.py": {
+   "exec": false,
+   "sha256": "fab6555b8598f6da1197d4821bf40683eeb1baa65db821b9548b311029ab8f43"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/modules.json": {
+   "exec": false,
+   "sha256": "0bc6e5f98df08c69465a1507d35f53d618ca4673d67b0cc13ffda7c24fc2a52e"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/openai_agents_adapter.py": {
+   "exec": false,
+   "sha256": "cc920d8bb4d88e741552897f9d1531b669edd5d006347ca2243c2a03646ba7ef"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/requirements.in": {
+   "exec": false,
+   "sha256": "af8d3d609e35ad1ebdfe6f1f2ad4e27ca3580b7cdf1408304c3cf2c95b672a6a"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/requirements.lock": {
+   "exec": false,
+   "sha256": "cb3eb883d54b881bc02199fd676affb24dfa0fd58e48115c78f2ac5824f20fd4"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime/server.py": {
+   "exec": false,
+   "sha256": "fa189666e454aa1709ba150fbaa80a031ba5e00f5cf4a493bfb0e933e38ad389"
+  },
+  "builtin_registry/runtime/openai-agents/1.0.0/runtime_tests/test_openai_agents.py": {
+   "exec": false,
+   "sha256": "44cddd19baff775faa2f5e27f0101e3a4cacd023aaf93a39683cdc298353a80e"
+  },
   "builtin_registry/service/echo/1.0.0/files/index.html": {
    "exec": false,
    "sha256": "80a071a69069a3497208c0379954681125bc3349db0e01e650edb7608dd5e014"
@@ -809,6 +985,22 @@
    "sha256": "f9a658fe049aca2706b8d359b4b096a06683935d9a96fb548ff247a251dccf3c"
   },
   "builtin_registry/service/litellm/1.3.0/service.yaml": {
+   "exec": false,
+   "sha256": "a39352987f077ad49dcf26c682bcc6ff204b8148742c20e3f629f51266070980"
+  },
+  "builtin_registry/service/litellm/1.4.0/files/agentbreeder_request_filter.py": {
+   "exec": false,
+   "sha256": "2eff418dfa8dd59ac41ee387d3c3ed7457f4a735dafc05fd02fee057d0df8f22"
+  },
+  "builtin_registry/service/litellm/1.4.0/files/start.py": {
+   "exec": true,
+   "sha256": "fbc04b544496f2f568566950182fa4fca9afce837ebb3ec37e8512c966bb86ce"
+  },
+  "builtin_registry/service/litellm/1.4.0/manifest.yaml": {
+   "exec": false,
+   "sha256": "6c768bf6898b002a1b780f050291268972702ca4242f6052e852d6c675fa3677"
+  },
+  "builtin_registry/service/litellm/1.4.0/service.yaml": {
    "exec": false,
    "sha256": "a39352987f077ad49dcf26c682bcc6ff204b8148742c20e3f629f51266070980"
   },
@@ -984,6 +1176,18 @@
    "exec": false,
    "sha256": "b2f3736bad6641240e23a8579d72803d3fbd9ad4a0153e147dbb3aa680040912"
   },
+  "examples/northwind-deepagents/README.md": {
+   "exec": false,
+   "sha256": "4f37133529e3f8cd71314923dc1a317cc9568f8eb40f9265590f8a3f4379d820"
+  },
+  "examples/northwind-deepagents/agent.lock": {
+   "exec": false,
+   "sha256": "5cec6a9762a2f74cce7561848a4af8f20d1c89d8808a0dd514170726a446be5d"
+  },
+  "examples/northwind-deepagents/agent.yaml": {
+   "exec": false,
+   "sha256": "e50a6cdc45e94a5d275b88d7be2032beef3635d6ef677a5eef251aec364dd06a"
+  },
   "examples/northwind-langgraph/README.md": {
    "exec": false,
    "sha256": "c73c123420ffa17af604c825c7320127c5e2829de6616bbec0d4d1bec20742b0"
@@ -995,6 +1199,18 @@
   "examples/northwind-langgraph/agent.yaml": {
    "exec": false,
    "sha256": "90c36a8ac216726ef3b4de1e6905cf977ecf6798abce84cd6e13b602ca19be50"
+  },
+  "examples/northwind-openai-agents/README.md": {
+   "exec": false,
+   "sha256": "c10e80550de1784b1f1c97eab4d0b5efd96fab37c499d61ece2ab77194d4c243"
+  },
+  "examples/northwind-openai-agents/agent.lock": {
+   "exec": false,
+   "sha256": "41a32ca96b8e8e32b6b525e8f917aed3e3028f21162f8ed4f8097a0121c17e23"
+  },
+  "examples/northwind-openai-agents/agent.yaml": {
+   "exec": false,
+   "sha256": "3ef157e70c1540e7d9a708fa0158ef5116e6b7adc5862af788096a9d7dc34021"
   },
   "examples/northwind/README.md": {
    "exec": false,
@@ -1206,7 +1422,7 @@
   },
   "examples/northwind/stack.yaml": {
    "exec": false,
-   "sha256": "31f12e30ab1519fa6630180b875e5ebc353490f3d53662c950754f3cd89ac0c7"
+   "sha256": "3de85a4f35a1a96bb3b3aa2acfe0871c12d24110f49eea81b69d772797aafaf6"
   },
   "examples/northwind/stack/.dockerignore": {
    "exec": false,

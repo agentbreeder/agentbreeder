@@ -1236,13 +1236,20 @@ alone. Under each radio a second line gives the ref and its status, and a third 
 own note when its manifest has one; both are tied to the radio with `aria-describedby`. A
 **Version** select under the group lists the chosen framework's versions, newest first (static
 text when there is one), and a change of framework or version is announced once ("Google ADK
-1.3.0: Run end to end (Northwind)"). The form starts on Google ADK's newest version, and each
-framework starts on its newest version. Frameworks with a version run end to end come first, then
+1.3.0: Run end to end (Northwind)"). The form starts on Google ADK's starter version, `runtime/adk@1.4.0` (the version
+`new agent` writes, and the only one where a form without sub-agents or skills is a verified
+combination), even though `1.5.0` is newer and run end to end; another framework starts on its
+newest version run end to end, else its newest. Frameworks with a version run end to end come first, then
 by name. **The built-in registry has Google ADK and, since #1163, LangGraph
-(`runtime/langgraph@1.0.0`)**. LangGraph is listed but has not been run end to end from the console:
-it is not in `agentspec.VERIFIED`, so Create stays off for it and no LangGraph agent was built here.
+(`runtime/langgraph@1.0.0`)**. On `main`, LangGraph is in `agentspec.VERIFIED` for the starter's parts
+and one tool with Gemini (macOS x86_64 only), so Create accepts those. A LangGraph agent was built,
+its services started, released (1/1) and chatted with (two turns, history kept) in this console
+from a wheel in a clean sandbox, driven by Playwright in Chrome
+([record](superpowers/verification/verify-langgraph-adk150.md)).
+The OpenAI Agents SDK (`runtime/openai-agents@1.0.0`, #1083 F4) is listed but not in
+`agentspec.VERIFIED`, so Create stays off for it; it has not been run end to end from the console.
 CrewAI (`runtime/crewai@1.0.0`, #1090) is listed the same way and has not been run end to end
-anywhere.
+from the console.
 Other frameworks appear when their runtimes land, with no console change. There are no logos.
 
 - **Where the list comes from.** `GET /api/builder/parts` gains `runtimes`: the engine's resolved
@@ -1502,9 +1509,10 @@ code-mode agent waits for code mode (F8). A version the registries do not list a
 Tested with Playwright against the fake CLI (`tests/ui/test_framework_badge.py`, axe in light and
 dark), with node unit tests (`tests/js/framework.test.mjs`, the router's query) and on the server
 (`/api/runtimes`, `framework` in a turn). The LangGraph and CrewAI rows in these tests are a
-scripted `registry runtimes` answer. `runtime/langgraph@1.0.0` is on `main` (#1163, not run end to
-end in the console), but no LangGraph deployment was listed, opened or tried here, and no
-`MODEL_STEP_LIMIT` reached Try it from a real runtime. Not run against real deployments.
+scripted `registry runtimes` answer. `runtime/langgraph@1.0.0` is on `main` (#1163). The fresh-wheel run
+(`superpowers/verification/verify-langgraph-adk150.md`) listed a real LangGraph deployment in
+Agents with its badge and tried it in Try it; no `MODEL_STEP_LIMIT` reached Try it from a real
+runtime. Not run against real deployments.
 
 ### Registry ▸ Runtimes and conformance (#1085 S3): on `main`, not in a published preview
 

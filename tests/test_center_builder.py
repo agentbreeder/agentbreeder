@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from test_center import api, center, cookie  # noqa: F401 (fixtures)
 
-from agentbreeder import registry
+from agentbreeder import newagent, registry
 from agentbreeder.center import builder, server
 from agentbreeder.center.files import BadRequest
 
@@ -843,6 +843,13 @@ def test_the_mirrored_limits_match_the_clis():
         assert f"export const {name} = {getattr(builder, name)};" in script, name
 
 
+def test_the_consoles_starter_runtime_is_new_agents_default():
+    """The form starts on `newagent.RUNTIME`: a spec without sub-agents or skills is verified
+    only there (`agentspec.verified`), so another start would be a form Create refuses."""
+    script = (Path(builder.__file__).parent / "static" / "lib" / "builder.js").read_text()
+    assert f'export const STARTER_RUNTIME = "{newagent.RUNTIME}";' in script
+
+
 def test_a_version_in_two_roots_is_offered_once_from_the_first(tmp_path):
     """`resolve` reads the first root that has a version; so does the offer."""
     first, second = tmp_path / "first", tmp_path / "second"
@@ -931,7 +938,13 @@ def test_parts_lists_every_runtime_version_through_the_cli(center, cookie, calls
     assert status == 200 and data["error"] is None, data
     assert [call["argv"] for call in calls] == [RUNTIMES_ARGV]
     listed = {entry["ref"]: entry for entry in data["data"]["runtimes"]}
-    assert list(listed)[:2] == ["runtime/adk@1.4.0", "runtime/adk@1.3.0"]  # run end to end first
+    # run end to end first, by name, newest first
+    assert list(listed)[:4] == [
+        "runtime/adk@1.5.0",
+        "runtime/adk@1.4.0",
+        "runtime/adk@1.3.0",
+        "runtime/langgraph@1.0.0",
+    ]
     for ref in ("runtime/adk@1.2.0", "runtime/adk@1.3.0", "runtime/adk@1.4.0"):
         entry = listed[ref]
         assert entry["usable"] is True and entry["display_name"] == "Google ADK", entry
@@ -941,21 +954,38 @@ def test_parts_lists_every_runtime_version_through_the_cli(center, cookie, calls
         assert "transfer_to_agent" in entry["reserved_tool_names"]
     assert [listed[f"runtime/adk@1.{n}.0"]["verified"] for n in (2, 3, 4)] == [False, True, True]
     assert "mcp" not in listed["runtime/adk@1.0.4"]["capabilities"]
-    # runtime/langgraph@1.0.0 (#1083 F3): a kit runtime, listed but never run end to end.
-    # runtime/crewai@1.0.0 (#1090) likewise.
-    assert {entry["name"] for entry in listed.values()} == {"adk", "crewai", "langgraph"}
+    # runtime/langgraph@1.0.0 (#1083 F3): a kit runtime, run end to end (verify-langgraph-adk150).
+    # runtime/openai-agents@1.0.0 (#1083 F4), runtime/deepagents@1.0.0 (#1083 F5) and
+    # runtime/crewai@1.0.0 (#1090): kit runtimes, listed, not verified.
+    assert {entry["name"] for entry in listed.values()} == {
+        "adk",
+        "langgraph",
+        "openai-agents",
+        "deepagents",
+        "crewai",
+    }
     langgraph = listed["runtime/langgraph@1.0.0"]
-    assert langgraph["usable"] is True and langgraph["verified"] is False
+    assert langgraph["usable"] is True and langgraph["verified"] is True
     assert (langgraph["display_name"], langgraph["profile"], langgraph["kit"]) == (
         "LangGraph",
         "kit",
         "1.0.0",
     )
     assert "mcp" not in langgraph["capabilities"]
-    crewai = listed["runtime/crewai@1.0.0"]
-    assert crewai["usable"] is True and crewai["verified"] is False
-    assert (crewai["display_name"], crewai["profile"], crewai["kit"]) == ("CrewAI", "kit", "1.0.0")
-    assert "mcp" not in crewai["capabilities"]
+    for ref, display_name in (
+        ("runtime/openai-agents@1.0.0", "OpenAI Agents SDK"),
+        ("runtime/deepagents@1.0.0", "Deep Agents"),
+        ("runtime/crewai@1.0.0", "CrewAI"),
+    ):
+        entry = listed[ref]
+        assert entry["usable"] is True and entry["verified"] is False
+        assert (entry["display_name"], entry["profile"]) == (display_name, "kit")
+        assert "mcp" not in entry["capabilities"]
+    assert listed["runtime/deepagents@1.0.0"]["kit"] == "1.0.0"
+    assert {"task", "read_file", "delete"} <= set(
+        listed["runtime/deepagents@1.0.0"]["reserved_tool_names"]
+    )
+    assert listed["runtime/crewai@1.0.0"]["kit"] == "1.0.0"
 
 
 def test_the_runtimes_read_is_uncached(center, cookie, scripted_runtimes):
@@ -1037,9 +1067,10 @@ def test_the_runtimes_route_reads_the_real_command(center, cookie, calls):
     assert status == 200 and data["error"] is None, data
     assert [call["argv"] for call in calls] == [RUNTIMES_ARGV]
     names = {entry["ref"]: entry["display_name"] for entry in data["data"] if entry["usable"]}
-    # Every built-in runtime, named from its manifest: ADK and, since #1163, LangGraph; CrewAI
-    # since #1090.
+    # Every built-in runtime, named from its manifest: ADK and, since #1163, LangGraph; Deep
+    # Agents since #1083 F5; CrewAI since #1090.
     assert names[ADK] == "Google ADK" and names["runtime/langgraph@1.0.0"] == "LangGraph"
+    assert names["runtime/deepagents@1.0.0"] == "Deep Agents"
     assert names["runtime/crewai@1.0.0"] == "CrewAI"
 
 
