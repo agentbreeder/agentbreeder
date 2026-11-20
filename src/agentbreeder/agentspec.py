@@ -103,8 +103,8 @@ MCP_TOOL = r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$"  # services.schema.MCP_TOOL
 # Combinations run end to end with this command (services up, release, invoke), keyed by the
 # runtime's name (#1083 F1, console spec §4.3), as the sorted names of the parts the spec uses
 # beyond the model, prompt and evals every spec has. A provider must also be verified
-# (`PROVIDERS`). A runtime name is added only by a verification record; every run so far used
-# the default version (`newagent.RUNTIME`), so another version of a listed runtime is unverified.
+# (`PROVIDERS`). A runtime name is added only by a verification record; each name's runs used
+# one version (`BASE_RUNTIMES`), so another version of a listed runtime is unverified.
 # One knowledge version was run end to end with gemini alone and with one path tool, and one path
 # tool alone (#833), and one knowledge version with openai alone (#1020,
 # `openai/text-embedding-3-small`); MCP was not, so any combination with MCP stays unverified.
@@ -123,7 +123,15 @@ VERIFIED: dict[str, frozenset[tuple[str, ...]]] = {
             ("skills",),
         }
     ),
+    # docs/superpowers/verification/verify-langgraph-adk150.md: the starter and one tool, from
+    # a wheel in a clean sandbox, gemini only (`RUNTIME_PROVIDERS`), macOS x86_64 only.
+    "langgraph": frozenset({(), ("tools",)}),
 }
+# The version each runtime name's combinations ran on (parts in `PART_RUNTIMES` excepted).
+BASE_RUNTIMES = {"adk": RUNTIME, "langgraph": "runtime/langgraph@1.0.0"}
+# The providers a runtime name's combinations ran with, on each provider's default model, when
+# fewer than every verified provider (`PROVIDERS`); a name not listed ran with all of them.
+RUNTIME_PROVIDERS = {"langgraph": frozenset({"gemini"})}
 VERIFIED_TOOLS = 1  # the most tools a verified spec has, its sub-agents' included
 # Parts the starter's runtime (`newagent.RUNTIME`) does not run, with the one version each was
 # run end to end on. A spec with such a part is verified only when it pins that version; every
@@ -138,11 +146,18 @@ VERIFIED_SUBAGENTS = 2
 VERIFIED_SKILLS = 2
 # Runtime versions that were run end to end, each with its run (owner decision 2026-11-17).
 # This is what `registry runtimes` labels (`runtime_verified`). It says nothing about a
-# `new agent` combination: those all ran on `newagent.RUNTIME`, so `verified` does not read it.
+# `new agent` combination (`VERIFIED`, `BASE_RUNTIMES`), so `verified` does not read it.
 RUNTIMES_RUN = frozenset(
     {
         "runtime/adk@1.3.0",  # Northwind 61/61 (#1095)
         "runtime/adk@1.4.0",  # the starter and the 3.0.0a3 public-registry runs (#836)
+        # Sub-agents and skills from a wheel in a clean sandbox, CLI and console, and
+        # Northwind 61/61 (1058-subagents.md, verify-langgraph-adk150.md)
+        "runtime/adk@1.5.0",
+        # The starter and one tool from a wheel in a clean sandbox, CLI and console, macOS
+        # x86_64 only, and Northwind 61/61 locally and on kind (F3-langgraph.md,
+        # verify-langgraph-adk150.md)
+        "runtime/langgraph@1.0.0",
     }
 )
 # The providers a combination with a tool was run with (#833); openrouter ran model + prompt +
@@ -1084,12 +1099,13 @@ def runtime_verified(ref: str) -> bool:
 
 
 def verified(spec: Spec) -> bool:
-    """Whether the spec's combination was run end to end: its runtime is the default version
-    (`newagent.RUNTIME`) of a name in `VERIFIED`, its parts are in `VERIFIED` for that name, its
-    provider is verified, and for a spec with tools there are at most `VERIFIED_TOOLS` of them
-    on a `TOOL_PROVIDERS` provider. Every combination ran on the default runtime version, so a
-    spec that pins another is not verified, even one `registry runtimes` shows as run end to
-    end (`runtime_verified`, e.g. `runtime/adk@1.3.0`).
+    """Whether the spec's combination was run end to end: its runtime is the version its name's
+    combinations ran on (`BASE_RUNTIMES`: `newagent.RUNTIME` for adk) of a name in `VERIFIED`,
+    its parts are in `VERIFIED` for that name, its provider is verified (and, for a name in
+    `RUNTIME_PROVIDERS`, one of those, on its default model), and for a spec with tools there
+    are at most `VERIFIED_TOOLS` of them on a `TOOL_PROVIDERS` provider. A spec that pins
+    another version is not verified, even one `registry runtimes` shows as run end to end
+    (`runtime_verified`, e.g. `runtime/adk@1.3.0`).
 
     Sub-agents and skills need a newer version than the default: a spec with either is
     verified only on the version in `PART_RUNTIMES`, with the agent and every sub-agent on a
@@ -1104,11 +1120,15 @@ def verified(spec: Spec) -> bool:
         return False
     runtime = spec.runtime or RUNTIME
     name = runtime.removeprefix("runtime/").partition("@")[0]
-    if runtime != (wanted.pop() if wanted else RUNTIME) or name not in VERIFIED:
+    if name not in VERIFIED or runtime != (wanted.pop() if wanted else BASE_RUNTIMES[name]):
         return False
     if parts not in VERIFIED[name] or not PROVIDERS[spec.model].verified:
         return False
     models = [spec.model, *(sub.model for sub in spec.subagents)]
+    if name in RUNTIME_PROVIDERS and (
+        spec.model_id is not None or any(m not in RUNTIME_PROVIDERS[name] for m in models)
+    ):
+        return False
     # the runs used each provider's default model; another model id was not run with either part
     if (spec.subagents or spec.skills) and any(
         model_id is not None for model_id in (spec.model_id, *(s.model_id for s in spec.subagents))

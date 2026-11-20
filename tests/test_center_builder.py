@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from test_center import api, center, cookie  # noqa: F401 (fixtures)
 
-from agentbreeder import registry
+from agentbreeder import newagent, registry
 from agentbreeder.center import builder, server
 from agentbreeder.center.files import BadRequest
 
@@ -843,6 +843,13 @@ def test_the_mirrored_limits_match_the_clis():
         assert f"export const {name} = {getattr(builder, name)};" in script, name
 
 
+def test_the_consoles_starter_runtime_is_new_agents_default():
+    """The form starts on `newagent.RUNTIME`: a spec without sub-agents or skills is verified
+    only there (`agentspec.verified`), so another start would be a form Create refuses."""
+    script = (Path(builder.__file__).parent / "static" / "lib" / "builder.js").read_text()
+    assert f'export const STARTER_RUNTIME = "{newagent.RUNTIME}";' in script
+
+
 def test_a_version_in_two_roots_is_offered_once_from_the_first(tmp_path):
     """`resolve` reads the first root that has a version; so does the offer."""
     first, second = tmp_path / "first", tmp_path / "second"
@@ -931,7 +938,13 @@ def test_parts_lists_every_runtime_version_through_the_cli(center, cookie, calls
     assert status == 200 and data["error"] is None, data
     assert [call["argv"] for call in calls] == [RUNTIMES_ARGV]
     listed = {entry["ref"]: entry for entry in data["data"]["runtimes"]}
-    assert list(listed)[:2] == ["runtime/adk@1.4.0", "runtime/adk@1.3.0"]  # run end to end first
+    # run end to end first, by name, newest first
+    assert list(listed)[:4] == [
+        "runtime/adk@1.5.0",
+        "runtime/adk@1.4.0",
+        "runtime/adk@1.3.0",
+        "runtime/langgraph@1.0.0",
+    ]
     for ref in ("runtime/adk@1.2.0", "runtime/adk@1.3.0", "runtime/adk@1.4.0"):
         entry = listed[ref]
         assert entry["usable"] is True and entry["display_name"] == "Google ADK", entry
@@ -941,10 +954,10 @@ def test_parts_lists_every_runtime_version_through_the_cli(center, cookie, calls
         assert "transfer_to_agent" in entry["reserved_tool_names"]
     assert [listed[f"runtime/adk@1.{n}.0"]["verified"] for n in (2, 3, 4)] == [False, True, True]
     assert "mcp" not in listed["runtime/adk@1.0.4"]["capabilities"]
-    # runtime/langgraph@1.0.0 (#1083 F3): a kit runtime, listed but never run end to end.
+    # runtime/langgraph@1.0.0 (#1083 F3): a kit runtime, run end to end (verify-langgraph-adk150).
     assert {entry["name"] for entry in listed.values()} == {"adk", "langgraph"}
     langgraph = listed["runtime/langgraph@1.0.0"]
-    assert langgraph["usable"] is True and langgraph["verified"] is False
+    assert langgraph["usable"] is True and langgraph["verified"] is True
     assert (langgraph["display_name"], langgraph["profile"], langgraph["kit"]) == (
         "LangGraph",
         "kit",

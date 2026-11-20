@@ -179,14 +179,15 @@ def test_adk_1_2_0_and_1_3_0_are_usable_google_adk_through_the_legacy_profile(pa
         expect(radios.nth(index)).to_have_accessible_name(name)
     adk = group(page).get_by_role("radio", name="Google ADK")
     expect(adk).to_be_checked()
-    # runtime/langgraph@1.0.0 (#1083 F3) is listed but has not been run end to end.
+    # runtime/langgraph@1.0.0 (#1083 F3) was run end to end (verify-langgraph-adk150.md).
     langgraph = group(page).get_by_role("radio", name="LangGraph")
     expect(langgraph).not_to_be_checked()
     expect(langgraph).to_have_accessible_description(
-        "runtime/langgraph@1.0.0 · Not run end to end"
+        "runtime/langgraph@1.0.0 · Run end to end (Northwind)"
     )
-    # The form starts on the newest version run end to end, not on a newer one that was not
-    # (the path registry's 9.9.0, and runtime/adk@1.5.0).
+    # The form starts on the starter's version (newagent.RUNTIME), not on a newer one: not the
+    # path registry's 9.9.0, which was not run, and not runtime/adk@1.5.0, which was run end to
+    # end with sub-agents and skills but where a plain form is not a verified combination.
     expect(adk).to_have_accessible_description("runtime/adk@1.4.0 · Run end to end (Northwind)")
     version = page.get_by_label("Version of Google ADK")
     expect(version).to_have_value(ADK)
@@ -196,11 +197,13 @@ def test_adk_1_2_0_and_1_3_0_are_usable_google_adk_through_the_legacy_profile(pa
     )
     version.select_option(PATH_RUNTIME)
     expect(adk).to_have_accessible_description("runtime/adk@9.9.0 · Not run end to end")
-    for number, status in (("1.2.0", "Not run end to end"), ("1.3.0", "Run end to end")):
+    for number, status in (
+        ("1.2.0", "Not run end to end"),
+        ("1.3.0", "Run end to end (Northwind)"),
+        ("1.5.0", "Run end to end (Northwind)"),
+    ):
         version.select_option(f"runtime/adk@{number}")
-        expect(adk).to_have_accessible_description(
-            f"runtime/adk@{number} · {status}" + (" (Northwind)" if number == "1.3.0" else "")
-        )
+        expect(adk).to_have_accessible_description(f"runtime/adk@{number} · {status}")
     expect(page.get_by_text("Cannot be used:")).to_have_count(0)
 
 
