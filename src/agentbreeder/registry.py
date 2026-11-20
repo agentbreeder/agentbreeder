@@ -34,6 +34,7 @@ import shutil
 import stat
 import tempfile
 import time
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -963,20 +964,22 @@ def listing(search: list[Path], prefix: str = "") -> list[dict]:
                 if not text.startswith(prefix) or not REF.fullmatch(text):
                     continue
                 symlinked = bool({root / kind, version_dir.parent} & linked)
-                rows.append(
-                    {
-                        "ref": text,
-                        "root": str(root),
-                        "path": str(version_dir),
-                        "symlinked": symlinked,
-                        # A skill is code when its files say so (fail closed, spec §5.2).
-                        "runs_code": (
-                            True
-                            if symlinked and kind == SKILL_KIND
-                            else runs_code(kind, version_dir)
-                        ),
-                    }
-                )
+                row = {
+                    "ref": text,
+                    "root": str(root),
+                    "path": str(version_dir),
+                    "symlinked": symlinked,
+                    "runs_code": kind in CODE_KINDS,
+                }
+                if kind == SKILL_KIND:
+                    # A skill is code when its files say so (fail closed, spec §5.2); `code`
+                    # says which: text, code (scripts) or unknown (unreadable, treated as code).
+                    from agentbreeder import skill_check  # skill_check imports this module
+
+                    code = skill_check.UNKNOWN if symlinked else skill_check.code(version_dir)
+                    row["runs_code"] = code != skill_check.TEXT
+                    row["code"] = code
+                rows.append(row)
     return rows
 
 
@@ -1787,7 +1790,8 @@ def diff(first: Ref, second: Ref, search: list[Path], context: int = 3, project_
     {from_start, from_count, to_start, to_count, lines[] of {op: " "|"-"|"+", text,
     no_newline?}}. A file with no hunks changed in a way that is not shown as text: binary, over
     the cap, over the diff's shared budget of work and output lines (`too_large`), only its
-    executable bit, or only in removed control, bidi or invisible characters (`stripped`)."""
+    executable bit, or only in removed control, bidi or invisible characters (`stripped`).
+    A `skill/` diff adds `skill`: {description_changed, scripts_changed}."""
     if not 0 <= context <= MAX_CONTEXT:
         raise RegistryError("DIFF_INVALID", f"context must be 0 to {MAX_CONTEXT} lines")
     if (first.kind, first.name) != (second.kind, second.name):
@@ -1795,10 +1799,12 @@ def diff(first: Ref, second: Ref, search: list[Path], context: int = 3, project_
             "REF_INVALID", f"diff compares versions of one kind/name: {first} and {second}"
         )
     sides = []
+    manifests = []
     for ref in (first, second):
         with _reads():
             hit = resolve(ref, search)
-            read, digest, _ = _read_checked(ref, hit)
+            read, digest, data = _read_checked(ref, hit)
+        manifests.append(data if isinstance(data, dict) else {})
         items = {item.relative: item for item in read}
         summary = {
             "ref": str(ref),
@@ -1808,13 +1814,34 @@ def diff(first: Ref, second: Ref, search: list[Path], context: int = 3, project_
         }
         sides.append((summary, items))
     (before_summary, before), (after_summary, after) = sides
-    return {
+    answer = {
         "from": before_summary,
         "to": after_summary,
         "context": context,
         "identical": before_summary["sha256"] == after_summary["sha256"],
         "files": _changes(before, after, context),
     }
+    if first.kind == SKILL_KIND:
+        answer["skill"] = _skill_changes(manifests[0], manifests[1], answer["files"])
+    return answer
+
+
+def _skill_changes(before: dict, after: dict, files: list[dict]) -> dict:
+    """What a skill diff says before its hunks (composition console spec §9.2, CC5): whether the
+    manifest's description changed (it is sent on every model call of every agent that pins
+    the skill) and whether its scripts changed (the `scripts:` declarations or any file under
+    `scripts/`). From the manifests and the changed paths, never from reading hunks."""
+    return {
+        "description_changed": before.get("description") != after.get("description"),
+        "scripts_changed": before.get("scripts") != after.get("scripts")
+        or any(_top_is_scripts(f["path"]) for f in files),
+    }
+
+
+def _top_is_scripts(path: str) -> bool:
+    """Whether a version path is under `scripts`, folded as `skill_check.code` folds it."""
+    top = path.split("/", 1)[0]
+    return unicodedata.normalize("NFKC", top).casefold() == "scripts"
 
 
 def _changes(before: dict[str, _File], after: dict[str, _File], context: int) -> list[dict]:

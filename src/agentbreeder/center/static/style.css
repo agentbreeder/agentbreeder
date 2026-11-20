@@ -483,6 +483,19 @@ a.action.ghost { text-decoration: underline; text-underline-offset: 3px; }
 .choices .check { align-self: flex-start; min-height: 28px; }
 .choices .check input { min-height: auto; padding: 0; }
 .choices p { margin: 4px 0; }
+/* A skill's publisher text (#1059 UI-R, composition console spec §10.3): a neutral frame, never
+   the blue info notice, and formatted Markdown in its own labelled frame. Tokens only. */
+.callout { display: block; border: 1px solid var(--control-border); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; background: var(--background); }
+.callout p { margin: 0 0 4px; }
+blockquote.quoted { border-left: 3px solid var(--control-border); color: inherit; margin: 8px 0; padding-left: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+div.md { border: 1px solid var(--control-border); border-radius: 6px; padding: 8px 12px; margin: 0 0 12px; max-height: 340px; overflow: auto; overflow-wrap: anywhere; }
+.md h4, .md h5, .md h6 { font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
+.md p { margin: 0 0 8px; }
+.md ul, .md ol { padding-left: 20px; margin: 0 0 8px; }
+.md blockquote { border-left: 3px solid var(--control-border); color: var(--text-muted); margin: 8px 0; padding-left: 12px; }
+.md pre.text { max-height: none; }
+.md hr { border: 0; border-top: 1px solid var(--control-border); margin: 12px 0; }
+.skill-scripts h4 { font-size: 13px; margin: 12px 0 4px; overflow-wrap: anywhere; }
 /* MCP servers in the services review (#831) */
 .mcp-review { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 0; display: flex; flex-direction: column; gap: 6px; }
 .mcp-review li + li { margin-top: 8px; }

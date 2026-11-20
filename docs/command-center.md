@@ -73,7 +73,8 @@ agentbreeder cluster down --stack DIR
 On `main` the walkthrough column is replaced by a console shell (Preact + htm, no build step):
 
 - **Sidebar** with one entry per screen that works: Home, Services, Build and release, Deployments,
-  Logs, Registry ▸ Prompts, Eval sets, Tools, Knowledge, MCP servers, Service definitions and Runtimes,
+  Logs, Registry ▸ Prompts, Eval sets, Tools, Skills, Knowledge, MCP servers, Service definitions and
+  Runtimes,
   Targets ▸ Kubernetes, Governance ▸ Audit. Each screen has its own address (`#/deployments`), page
   title and `h1`. Changing screen moves focus to that `h1`, and a skip link goes straight to it.
 - **Top bar**: a scope switcher ("All projects" or one project; a project screen under "All
@@ -400,6 +401,46 @@ source changed after its review) and with Playwright over Northwind (the same ed
 tool check's refusal, axe in light and dark). Not yet run as the M12 acceptance (edit
 `tool/orders`, move Northwind to it, release with the eval gate, 61/61): that is batched with the
 milestone checks.
+
+### Registry ▸ Skills and the safe Markdown renderer (#1059 UI-R): on `main`, not in a published preview
+
+**Registry ▸ Skills** (`#/registry/skills`) lists `skill/` versions like every kind, with a
+seventh column, **Code**, from `registry list --json`'s `code` per row: "Instructions" (`text`),
+"Has scripts (code)" (`code`), "Unknown, treated as code" (`unknown`: a version that cannot be
+read, or holds an entry a skill may not), or "Mixed" when a name's versions differ. The versions
+table has the same column. A version's card shows, from `registry show --json`'s `skill` object
+(the CLI's strict loader splits the front matter; the browser parses no YAML):
+
+- **Code**, `license` and `compatibility` facts, or the reason a version breaks the skill rules;
+- **"Sent on every model call"**: the description, as quoted text in a neutral frame, first,
+  because every agent that pins the version sends it on every model call;
+- **Instructions (`SKILL.md`)** with one **Formatted / Source (what the model reads)** choice for
+  the page (kept while the tab is open, never stored), applied to `SKILL.md` and every `.md`
+  reference; `.txt` references are text, and a reference over its cap is not shown;
+- **Scripts** (script skills): each script's tool name (`skill_NAME__SCRIPT`), description,
+  parameters and source as text, under "These scripts are code" (nothing runs them yet).
+
+The diff says "The description changed" (and "The scripts changed") from `registry diff --json`'s
+new `skill` object, never from its hunks. Import and Fork review a skill with its description
+first, the code question decided from the staged files, and the extra wording of the spec
+(`2026-11-16-composition-console-design.md` §9.4).
+
+**Formatted is our own subset renderer** (`lib/markdown.js` to a token tree, `ui/markdown.js` to
+fixed elements with htm; CC1). It never builds HTML. Raw HTML, entities, tables, images ("[image:
+ALT, not shown]"), link titles and reference definitions stay visible as their characters. Only
+secure web links (with the full destination shown after the text, the host in punycode, opening
+in a new tab with `rel="noopener noreferrer"`) and mail links become links; any other scheme, a
+relative address or an address with a user name is text. Lists and quotes nest at most 4 deep,
+emphasis and links 8; past 5,000 elements the whole file is shown as source. Every text node goes
+through `<Text>`.
+
+Tested: the parser in `tests/js/markdown.test.mjs` (an XSS corpus, a linear-growth test over
+adversarial shapes, links, the caps and fallback, no HTML sink) and the screens in
+`tests/ui/test_skills.py` (Playwright with the real `registry list/show/diff/import` over skill
+versions published into a copy of Northwind: the Code column, the detail, the toggle, references,
+scripts, the diff line, the corpus in a real DOM with allowed elements and attributes only and no
+request leaving the console, the Import review of a pack and a script skill, 320 and 375 px, axe
+in light and dark). Not run on a real stack.
 
 ### Import a version by path (#825, M9a, first part): on `main`, not in a published preview
 
