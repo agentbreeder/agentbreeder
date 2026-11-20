@@ -1,0 +1,35 @@
+# Northwind customer support on the OpenAI Agents SDK (#1083 F4): the ADK file with only `name`
+# and `runtime` changed. Same prompt, model alias, tools, knowledge and eval set, all from
+# Northwind's registry (set AGENTBREEDER_REGISTRY_PATH to ../northwind/registry) and Northwind's
+# stack (--stack ../northwind). See README.md. Run end to end on macOS x86_64, not verified; the
+# OpenAI Agents SDK is not called supported.
+kind: agent
+schema_version: 1
+name: northwind-support-openai-agents
+runtime: runtime/openai-agents@1.0.0
+description: Customer support for Northwind Notes and the Northwind Pen.
+
+model:
+  alias: support-model          # LiteLLM alias: Gemini direct, OpenRouter fallback (stack/litellm)
+  reasoning: low
+  max_model_calls: 4
+  budget_usd: 25
+  rpm: 120
+
+prompt: {ref: prompt/northwind-support@1.0.1}
+
+knowledge:
+  - {ref: knowledge/northwind-help@1.0.0, top_k: 5, extra_searches: 1}
+
+tools:
+  - {ref: tool/customer-notes@1.0.0}
+  - {ref: tool/escalate-to-human@1.0.0}
+  - {ref: tool/orders@1.0.0}
+  - {ref: tool/cancel-order@1.0.1}      # files a request; staff approve in the ops dashboard
+  - {ref: tool/web-search@1.0.0}
+
+memory: {sessions: postgres, notes: true}
+agent_events: postgres
+traces: otlp
+
+evals: {ref: eval/northwind-golden@1.0.1, threshold: 1.0, retries: 1}

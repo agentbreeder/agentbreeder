@@ -181,6 +181,18 @@ guardrails floor. 1.0.0 to 1.2.0 unchanged (they still honour `custom_llm_provid
 Northwind not relocked. No manifest, JSON Schema or `agent.lock` format change. Website: no change
 until release R. Cloud: a `CLAUDE.md` note only.
 
+**Gateway Messages route, #1089, per side.** OSS (on `main`; unit-tested, the opt-in Docker test is
+written and not run): built-in `service/litellm@1.4.0` (1.3.0's image, launcher and `service.yaml`,
+a new filter) also serves `/v1/messages` (`anthropic_messages`), with 1.3.0's refusals plus
+`mcp_servers`, `container`, `service_tier`, `speed`, `inference_geo`, betas, `compaction`,
+`safeguards`, typed tools, provider headers other than `anthropic-version`, and Files API or URL
+content (`GATEWAY_PARAM_REFUSED`); chat and embeddings are filtered as on 1.3.0.
+`gateway_keys.key_routes(..., model_api)` adds `/v1/messages` for `anthropic-messages`; nothing on
+`main` passes it yet (F7, #1177, does). `/v1/messages/count_tokens` is reachable with such a key
+and unfiltered (LiteLLM prefix-matches routes). 1.0.0 to 1.3.0, starters and Northwind unchanged.
+No manifest, JSON Schema or `agent.lock` change. Website: no change until release R. Cloud: a
+`CLAUDE.md` note only.
+
 **Agent guardrails, #1053, per side.** OSS (on `main`): `agent.yaml` and the manifest gain an
 optional `guardrails` list (JSON Schema updated; digests, revisions and package bytes are unchanged
 when it is unset), `services up` writes `guardrails.optional`, and deploy attaches a LiteLLM policy
@@ -305,6 +317,18 @@ gains `langgraph` (the starter and one tool, `gemini` on its default model, macO
 change until release R. Cloud: a `CLAUDE.md` note only; it has no code that reads `registry
 runtimes` or a `new agent` summary.
 
+**OpenAI Agents SDK, #1083 F4 (multi-framework), per side.** OSS (on `main`; run end to end on
+macOS x86_64 2026-11-20, not verified): `runtime/openai-agents@1.0.0` (the SDK's `Agent` over
+Chat Completions on the vendored kit 1.0.0, kit-function tools only, every `OPENAI_*` variable
+removed before import, the instrumentor's exclusive processor replacing the SDK's OpenAI trace
+exporter) and `examples/northwind-openai-agents` (Northwind's registry and stack; `stack.yaml`
+names the agent). No `agent.yaml` field, manifest, JSON Schema, `SCHEMA_VERSION` or `agent.lock`
+format change. Not in `agentspec.VERIFIED` or `RUNTIMES_RUN`. The opt-in real-stack acceptance
+(`tests/test_northwind_openai_agents_docker.py`) ran on 2026-11-20 (61/61 local and on `kind`,
+conformance 26/39 with 13 not built, no arm64). Website: no change until it
+passes its acceptance. Cloud: a `CLAUDE.md` note only (not made by this lane); it has no code that
+reads a runtime manifest or the reply's `framework`/`runtime`.
+
 **Console sign-in, #818 M2 (epic #1054), per side.** OSS (on `main`): `up --set-password`,
 `--reset-password` and `--link`; `center.sqlite3` schema 4 (`users` with scrypt hashes, and
 `security_events`); new console routes (`/api/auth`, `/api/setup`, `/api/password`,
@@ -312,6 +336,17 @@ runtimes` or a `new agent` summary.
 `{email, password}`. No manifest, JSON Schema, `agent.yaml` or `agent.lock` change. Website: no
 change until release R. Cloud: a `CLAUDE.md` note only; it has no code that runs `up`, calls the
 console API or reads `center.sqlite3` (the console API is private and unversioned).
+
+**Deep Agents, #1083 F5 (multi-framework), per side.** OSS (on `main`; run end to end on macOS
+x86_64 on 2026-11-20, 61/61 local and on `kind`, conformance 26/39, no arm64; not verified):
+`runtime/deepagents@1.0.0` on the unchanged kit 1.0.0 (state backend only; reserved tool names
+`ls`, `read_file`, `write_file`, `edit_file`, `delete`, `glob`, `grep`, `task`; the `task`
+sub-agent counts against the turn's step cap, D10) and `examples/northwind-deepagents`
+(Northwind's registry and stack; Northwind's `stack.yaml` names the new agent). No `agent.yaml`
+field, manifest, JSON Schema, `SCHEMA_VERSION` or `agent.lock` format change. Not in
+`agentspec.VERIFIED` or `RUNTIMES_RUN`. Website: no change until Deep Agents passes its
+acceptance. Cloud: a `CLAUDE.md` note only; it has no code that reads a runtime manifest, the
+reply's `framework`/`runtime` or the deploy manifest's `runtime`.
 
 ## 🎯 When Adding a New Feature
 

@@ -183,6 +183,7 @@ agentbreeder services start|stop|restart [DIR] NAME [--yes] [--json]   # one con
 | `service/postgres-pgvector@1.2.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | as 1.1.0, plus `console_database` | as 1.1.0, plus `console` (operator only): a URL for `agentbreeder_console`, which can connect only to `console_database` and has no rights until `init_sql` grants them. |
 | `service/postgres-pgvector@1.1.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | as 1.0.0, plus `roles` (list) and `roles_database` | as 1.0.0, plus `roles.<name>`: a URL for a role that can connect only to `roles_database`, owns only a schema of its own name and has no other rights until `init_sql` grants them. `postgres` and `template1` are closed to applications. |
 | `service/postgres-pgvector@1.0.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | `databases` (list), `init_sql` (file, ≤ 64 KiB, no `\` meta-commands), `init_sql_database` | `databases.<name>`: a URL with that database's own role (never the superuser) |
+| `service/litellm@1.4.0` | as 1.3.0, plus LiteLLM's Anthropic Messages route (`/v1/messages`) through the request filter, with refusals for the Messages fields that reach provider-side tools, execution or storage (#1089; see "Anthropic Messages route" below). Chat completions and embeddings are filtered as in 1.3.0 | as 1.3.0 | as 1.3.0 |
 | `service/litellm@1.3.0` | as 1.2.0, plus a request filter: the gateway refuses provider-routing, endpoint and credential parameters in requests, and call types other than chat completions and embeddings (#1105; see "Request parameters" below) | as 1.2.0 | as 1.2.0 |
 | `service/litellm@1.2.0` | as 1.1.0, plus Ollama on the operator's host (`reaches_host: [11434]`, #1025 O1) and a stricter launcher: LiteLLM gets only an allow-list of variables, with cloud metadata lookups and credential files turned off | as 1.1.0 | as 1.1.0 |
 | `service/litellm@1.1.0` | as 1.0.0, plus two optional url inputs, `presidio-analyzer` and `presidio-anonymizer`, for Presidio guardrails (#1024) | as 1.0.0 | as 1.0.0 |
@@ -359,6 +360,61 @@ Anthropic key, and keys granted `a` only.
 - On 1.2.0, the same `custom_llm_provider` requests reached A's endpoint in another provider's
   wire format (Anthropic messages, Gemini, Ollama, Azure, Bedrock).
 - Not run: Linux, `kind`, real provider endpoints.
+
+### Anthropic Messages route (`service/litellm@1.4.0`)
+
+On `main`, not in a published preview (#1089). Unit-tested; **not run** against the pinned
+image (the opt-in test below is written and has not been run). 1.4.0 is 1.3.0 with a new filter.
+The image, launcher and `service.yaml` are byte-identical to 1.3.0's. It adds LiteLLM's Anthropic
+Messages route (`/v1/messages`, call type `anthropic_messages`), which a runtime that declares
+`model_api: anthropic-messages` (the Claude Agent SDK runtime, #1089) calls instead of chat
+completions. Chat completions and embeddings are decided exactly as on 1.3.0; a unit test runs
+both filters over the same requests.
+
+A Messages request gets 1.3.0's checks (every provider-routing, endpoint and credential
+parameter, top level, `extra_body` and fallback targets). It is also refused with
+`GATEWAY_PARAM_REFUSED` when the body, `extra_body` or a fallback target carries:
+
+| Refused | Why |
+|---|---|
+| `mcp_servers` | the provider connects to remote MCP servers from its own network |
+| `container` | a provider code-execution container and its skills |
+| `service_tier`, `speed` | a provider capacity tier or fast mode, priced outside the alias's model and not checked against LiteLLM's cost map |
+| `inference_geo` | the provider region (1.3.0 refuses `region_name` and the like) |
+| `betas`, `anthropic_beta` | beta flags turn on server tools and the Files API |
+| `compaction`, `safeguards` | provider-side features that LiteLLM turns into beta flags and that no AgentBreeder runtime sends |
+| `tools` with a `type` other than `custom`, or a client tool with a key outside `name`, `description`, `input_schema`, `cache_control`, `strict`, `input_examples`, `eager_input_streaming`, `defer_loading` | provider server tools (web search and fetch, code execution, tool search), Anthropic-defined tools (computer, bash, text editor, memory), MCP toolsets, LiteLLM's own MCP gateway (`mcp`) and advisor tools (a second model call that can carry its own credentials); `allowed_callers` hands a tool to code execution. `tools` that is not a list of objects is refused |
+| `provider_specific_header` with anything but `anthropic-version` | LiteLLM copies the `anthropic-beta` header and an Anthropic OAuth `Authorization` header there and sends them to the provider; a caller can also send the field in the body |
+| a content block in `messages` or `system` (including blocks nested in a tool result or a document) that is a `container_upload`, or whose source is `file` or `url` | a file id names a file in the gateway's provider account, which every key shares; a URL is fetched by the provider from its own network. Only the block structure is read, never a tool call's input or text. Blocks nested deeper than the filter reads are refused |
+
+These pass: `model`, `messages`, `system`, `max_tokens`, `stop_sequences`, `temperature`,
+`top_p`, `top_k`, `stream`, `thinking`, `tool_choice`, `metadata` (Anthropic's `user_id`; the
+proxy's own metadata is `litellm_metadata`, and neither is scanned, as on chat),
+`context_management`, `output_config`, `cache_control`, and client tools (`name`,
+`input_schema`, no `type` or `type: custom`), and base64 or text image and document sources.
+Any other call type is refused with `GATEWAY_ROUTE_REFUSED`, as on 1.3.0. A client must not
+send `anthropic-beta`: the Claude Agent SDK runtime's model proxy sends only `anthropic-version`.
+
+**Not covered: `/v1/messages/count_tokens`.** LiteLLM matches a key's `allowed_routes` by exact
+path or prefix, so a key allowed `/v1/messages` also reaches `/v1/messages/count_tokens`. On
+LiteLLM 1.106.2 that handler calls no pre-call hook and is not given the caller's key, so neither
+the filter nor the key's model list applies there. It counts tokens through the gateway's
+provider credentials and runs no model. That makes it an oracle on the provider account, for
+example on whether a Files API id exists. The opt-in Docker test records its status and does not
+assert it.
+
+**Keys.** A key reaches `/v1/messages` only if its `allowed_routes` names it.
+`gateway_keys.key_routes(..., model_api="anthropic-messages")` adds `/v1/messages` to the chat
+and embeddings routes. On `main` nothing passes `model_api` yet: the deploy side, which reads
+`runtime.model_api` from the deploy manifest, is in the Claude Agent SDK runtime's PR (#1089 F7).
+A key with `/v1/messages` on a 1.0.0 to 1.2.0 gateway would reach the route with no filter. On
+1.3.0 the filter refuses the route. Use 1.4.0 for such a deployment.
+
+Written, not run: `AGENTBREEDER_DOCKER_TEST=1 pytest
+tests/test_gateway_messages_filter_docker.py --no-cov -s`. On 1.4.0 it sends a plain Messages
+request, which should reach its alias's provider. It also sends each refused field, tool, header
+and content, which should get the filter's 400 with no provider call. 1.3.0 is the control and
+should refuse the same plain request with `GATEWAY_ROUTE_REFUSED`.
 
 ### Gateway guardrails (preview)
 
