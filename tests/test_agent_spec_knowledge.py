@@ -229,6 +229,7 @@ def test_the_verified_combinations():
     assert agentspec.runtime_verified("runtime/adk@1.3.0")  # Northwind 61/61 (#1095)
     assert not agentspec.runtime_verified("runtime/adk@1.2.0")
     assert not agentspec.runtime_verified("runtime/langgraph@1.0.0")
+    assert not agentspec.runtime_verified("runtime/deepagents@1.0.0")  # #1083 F5: not verified
 
 
 def publish_echo(tmp_path: Path, root: Path, *names: str) -> list[str]:

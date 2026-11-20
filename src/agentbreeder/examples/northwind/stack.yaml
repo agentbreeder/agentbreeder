@@ -53,3 +53,8 @@ environment:
       sponsor: support-lead@example.com
       review_by: "2027-06-30"
       candidate: true
+    # The Deep Agents port (../northwind-deepagents, #1083 F5): same registry, same stack.
+    northwind-support-deepagents:
+      sponsor: support-lead@example.com
+      review_by: "2027-06-30"
+      candidate: true
