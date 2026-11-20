@@ -34,6 +34,23 @@ def register(commands) -> None:
     center.add_argument(
         "--yes", action="store_true", help="With DIR: confirm the grant and start its services"
     )
+    center.add_argument(
+        "--link",
+        action="store_true",
+        help="Print a one-time sign-in link at start (Enter in the terminal makes another)",
+    )
+    passwords = center.add_mutually_exclusive_group()
+    passwords.add_argument(
+        "--set-password",
+        action="store_true",
+        help="Set the console's first password from the terminal (read without echo, or one "
+        "line of stdin), then exit",
+    )
+    passwords.add_argument(
+        "--reset-password",
+        action="store_true",
+        help="Replace a forgotten console password and end every open session, then exit",
+    )
 
 
 def server_argv(args) -> list[str]:
@@ -56,6 +73,9 @@ def server_argv(args) -> list[str]:
         argv.append("--no-browser")
     if args.yes:
         argv.append("--yes")
+    for flag in ("link", "set_password", "reset_password"):
+        if getattr(args, flag, False):
+            argv.append("--" + flag.replace("_", "-"))
     if args.dir is not None:  # after `--`, so a path cannot be read as an option
         argv += ["--", str(Path(args.dir).expanduser().absolute())]
     return argv
@@ -79,6 +99,12 @@ def _running_url() -> str | None | bool:
 
 
 def run(args) -> int:
+    from agentbreeder.center.launch import exec_server
+
+    if getattr(args, "set_password", False) or getattr(args, "reset_password", False):
+        # No Docker checks and no running-console check: these only write center.sqlite3, and
+        # `--reset-password` is meant to run beside a live console.
+        return exec_server(server_argv(args))
     from agentbreeder.doctor import check_compose, check_docker
 
     url = _running_url()
@@ -89,6 +115,4 @@ def run(args) -> int:
     for check in check_docker() + check_compose():
         if not check.passed and check.required:
             print(f"FAIL {check.name}: {check.message}", file=sys.stderr)
-    from agentbreeder.center.launch import exec_server
-
     return exec_server(server_argv(args))  # the terminal and pid carry over

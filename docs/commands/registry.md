@@ -14,4 +14,6 @@ On `main`, not in a published preview (#1083 F2a): a runtime version that has a 
 
 On `main`, not in a published preview (#829): `registry trust URL [--whole-host] [--private] [--yes]`, `registry trust --list [--json]` and `registry trust URL --remove` keep your trusted-source list in `~/.agentbreeder/sources.yaml`, which every fetch from a git registry source checks. See [Trusting a source](../registry.md#trusting-a-source).
 
+On `main`, not in a published preview (#1085 S3): `registry conformance REF [--json]` prints the newest conformance report of a runtime version, whole: the newest under `~/.agentbreeder/conformance/<name>/<version>/` for an image built on it (the report `registry runtimes` summarises). `--json` prints `{"schema_version": 1, "ref", "report"}`, `report` null when there is none; text prints the report as `conformance` does, or `No conformance report for REF.` A ref that is not a pinned `runtime/` version is refused (exit 2, `REF_INVALID` or `REF_UNPINNED`). It reads no registry root, so the version does not need to be installed. See [`conformance`](conformance.md).
+
 Flags: `agentbreeder registry --help`.

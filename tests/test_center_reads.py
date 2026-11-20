@@ -38,6 +38,8 @@ ALLOWED = {
     "agentbreeder.strict_yaml",
     "agentbreeder.center",
     "agentbreeder.center.__main__",
+    # Sign-in (#818): password policy, scrypt and the backoff; standard library only.
+    "agentbreeder.center.auth",
     "agentbreeder.center.files",
     "agentbreeder.center.instance",
     "agentbreeder.center.jobs",
@@ -58,6 +60,9 @@ ALLOWED = {
     "agentbreeder.center.pinsreview",
     # Agents (#823): pure shaping of `list --all` and `audit list` answers.
     "agentbreeder.center.agents",
+    # Registry ▸ Runtimes and conformance (#1085 S3): answer checks and the build record read
+    # through registry.read_project_file; imports only registry.
+    "agentbreeder.center.conformance",
     # The tool execution log (#828): pure query and answer checks; imports only registry and
     # center.files.
     "agentbreeder.center.toollog",

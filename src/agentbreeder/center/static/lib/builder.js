@@ -108,7 +108,12 @@ export function defaultRuntime(runtimes) {
  */
 export function runtimeStatus(entry) {
   if (entry.verified) return "Run end to end (Northwind)";
-  if (entry.conformance) return entry.conformance.passed ? "Conformance passed; not run end to end" : "Conformance failed; not run end to end";
+  if (entry.conformance) {
+    if (entry.conformance.passed) return "Conformance passed; not run end to end";
+    // An incomplete report (a check that applies did not run) is not a pass and not a failure.
+    if (entry.conformance.result === "incomplete") return "Conformance incomplete; not run end to end";
+    return "Conformance failed; not run end to end";
+  }
   return "Not run end to end";
 }
 

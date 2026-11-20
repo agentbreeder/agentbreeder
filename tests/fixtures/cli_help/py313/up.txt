@@ -1,0 +1,20 @@
+usage: agentbreeder up [-h] [--environment ENVIRONMENT] [--port PORT]
+                       [--no-browser] [--yes] [--link] [--set-password |
+                       --reset-password]
+                       [dir]
+
+positional arguments:
+  dir                   A project with agent.yaml, stack.yaml
+
+options:
+  -h, --help            show this help message and exit
+  --environment ENVIRONMENT
+  --port PORT
+  --no-browser
+  --yes                 With DIR: confirm the grant and start its services
+  --link                Print a one-time sign-in link at start (Enter in the
+                        terminal makes another)
+  --set-password        Set the console's first password from the terminal
+                        (read without echo, or one line of stdin), then exit
+  --reset-password      Replace a forgotten console password and end every
+                        open session, then exit

@@ -72,7 +72,6 @@ def test_every_kind_lists_northwind_and_the_built_ins(page, console):
             "northwind-proxy",
             "postgres-pgvector",
         ],
-        "Runtimes": ["adk"],
     }
     for label, names in expected.items():
         nav.get_by_role("link", name=label, exact=True).click()
@@ -82,6 +81,14 @@ def test_every_kind_lists_northwind_and_the_built_ins(page, console):
         )
         for name in names:
             expect(row(page, label, name).first).to_be_visible()
+    # Runtimes are listed per version with the framework (#1085 S3, test_registry_runtimes.py).
+    nav.get_by_role("link", name="Runtimes", exact=True).click()
+    expect(page.locator("main h1")).to_contain_text("Runtimes")
+    expect(
+        page.get_by_role("table", name="Runtime versions").get_by_role(
+            "link", name="runtime/adk@1.4.0"
+        )
+    ).to_be_visible(timeout=60000)
     # Prompts: latest, version count, root, verify and how this project uses it.
     nav.get_by_role("link", name="Prompts", exact=True).click()
     prompt = row(page, "Prompts", "northwind-support")

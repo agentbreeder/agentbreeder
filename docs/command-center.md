@@ -88,9 +88,9 @@ On `main` the walkthrough column is replaced by a console shell (Preact + htm, n
 - **Sign-in states**: the one-time link is consumed before anything else and removed from the
   address bar. "Session ended" and "Sign in" pages say how to get a new link, and signing in again
   returns to the screen you were on. Sessions live in the console's memory, so "Session ended"
-  names both causes: the tab was open 8 hours or idle 1 hour, or the console was restarted
-  (#879). "Console not reachable at this address" (no answer at all) is a separate page that
-  retries every 5 seconds.
+  names every cause, a console restart included (#879). "Console not reachable at this address"
+  (no answer at all) is a separate page that retries every 5 seconds. From #818 the sign-in pages
+  also take the console password (below).
 - **Walkthrough fixes (#811)**:
   - Audit shows each row's time (from `at`), agent deployment, mode, reason codes and whether the
     actor was verified. Verify is one sentence ("Chain intact: 19 rows checked, head 63639e…" or
@@ -136,6 +136,66 @@ wheel built from `main` in a clean sandbox on macOS (2026-11-13), Northwind pass
 Docker and on `kind` through the console's API, every screen was opened in Chrome, and the teardown
 ran from the UI (three leftover Docker objects of the stack were then removed by hand). Onboarding,
 the grant review, a full release and the cluster connect and deploy were not clicked in the browser.
+
+### Sign-in (#818): on `main`, not in a published preview
+
+The console has one user, `admin@localhost`, and a password with no shared default.
+
+- **First run.** `agentbreeder up` prints a one-time setup link and opens it. The setup page asks
+  for the password (at least 12 characters; common passwords are refused). Only a session from
+  that terminal link can set the first password; a request without one gets 401. Headless:
+  `agentbreeder up --set-password` asks on the terminal without echo, or reads exactly one line of
+  stdin (`printf '%s\n' "$PW" | agentbreeder up --set-password`); never pass a password as an
+  argument. Setting it ends the link's session, and you sign in with the password next.
+- **A console from an earlier version** (projects, no password) goes to the same setup at its
+  next start; its projects and job history are kept (`center.sqlite3` moves to schema 4).
+- **Later runs.** `up` prints the address and opens the sign-in page; it prints no link unless you
+  ask: `agentbreeder up --link`, or Enter in the terminal running `up` (the link always works,
+  also during a wait below). A link is printed only to a terminal; when output goes to a file, the
+  link is written to the private `login.html` (mode 0600) in the console directory and only that
+  path is printed.
+- **Sign-in.** Email and password mint this tab's header token, kept in the tab's
+  `sessionStorage`; there is no cookie, because cookies would reach every other `127.0.0.1` port.
+  One sign-in per tab. A wrong email and a wrong password get the same answer after the same
+  scrypt work. After five wrong passwords in a row the console waits 30 seconds before it checks
+  another, doubling each time and never more than 5 minutes, for every caller at once; the page
+  says so and points to the terminal link. A new password (a change, or a reset from the
+  terminal) starts a fresh count. One password check runs at a time.
+- **Sessions.** A session ends after the session length (8 hours by default; 1, 4 or 24 in
+  Settings), after 1 hour idle (log follows, job and activity polls do not count as activity), when
+  the console restarts, when the password changes or is reset, and on "sign out everywhere". The
+  console re-reads its credential version on every request, so `agentbreeder up --reset-password`
+  run in another terminal ends the open sessions of a running console at once.
+- **A session that ends while a page is open** opens a sign-in dialog over the page: the route and
+  anything typed stay. Unsaved registry edits are also kept in the tab's `sessionStorage` and come
+  back when the editor opens again, which happens only after this tab has signed in.
+- **Settings** (user menu): change the password (needs the current one; this tab stays signed in
+  and every other session ends), session length, sign out everywhere, the theme, and the last 20
+  security events (sign-ins, failed sign-ins, waits, password set, change and reset, sign-outs;
+  time, outcome and source only, never a password or link). A forgotten password is reset only in
+  the terminal: `agentbreeder up --reset-password`.
+- `http://localhost:PORT/` redirects to `http://127.0.0.1:PORT/`, the one address the console
+  answers; the API never redirects.
+
+**What the password protects, and what it does not.** It keeps other users of the computer, web
+pages in your browser and local containers out of the console. On Docker Desktop a container can
+reach the console's port through `host.docker.internal`, so it can reach the sign-in form; the
+password and the wait are what stop it. It does not protect against programs running as your own
+OS account: they can read the console's files (`~/.agentbreeder`) and run the CLI directly. Open
+only the address `up` prints: if another program holds the console's usual port, `up` refuses to
+start on another one once a password exists, so a stale tab or bookmark never shows someone
+else's sign-in page.
+
+Stored: the password's scrypt hash (`n=2**15, r=8, p=1`, its parameters and a per-user salt
+stored with it) in `center.sqlite3` (0600), and the last 1000 security events. Sessions are only in
+the console's memory.
+
+Tested: unit and API tests of every refusal (setup without a link's session, a change without the
+current password, the sixth wrong password waiting and never more than 5 minutes, a reset from
+another process ending a running console's sessions), the terminal commands end to end as
+subprocesses, and Playwright with axe in light and dark for setup, sign-in, Settings and the
+re-auth dialog. Not yet run: the container check from inside a Northwind container, a Chrome
+click-through, and a run from a wheel built from `main` in a clean sandbox.
 
 ### Design system v2 (#1116): on `main`, not in a published preview
 
@@ -1141,8 +1201,10 @@ own note when its manifest has one; both are tied to the radio with `aria-descri
 text when there is one), and a change of framework or version is announced once ("Google ADK
 1.3.0: Run end to end (Northwind)"). The form starts on Google ADK's newest version, and each
 framework starts on its newest version. Frameworks with a version run end to end come first, then
-by name. **Only `runtime/adk` exists today, so the group shows Google ADK alone**; other frameworks
-appear when their runtimes land, with no console change. There are no logos.
+by name. **The built-in registry has Google ADK and, since #1163, LangGraph
+(`runtime/langgraph@1.0.0`)**. LangGraph is listed but has not been run end to end from the console:
+it is not in `agentspec.VERIFIED`, so Create stays off for it and no LangGraph agent was built here.
+Other frameworks appear when their runtimes land, with no console change. There are no logos.
 
 - **Where the list comes from.** `GET /api/builder/parts` gains `runtimes`: the engine's resolved
   view of every `runtime/` version, read by a CLI child (`agentbreeder registry runtimes --json`,
@@ -1404,6 +1466,53 @@ dark), with node unit tests (`tests/js/framework.test.mjs`, the router's query) 
 scripted `registry runtimes` answer. `runtime/langgraph@1.0.0` is on `main` (#1163, not run end to
 end in the console), but no LangGraph deployment was listed, opened or tried here, and no
 `MODEL_STEP_LIMIT` reached Try it from a real runtime. Not run against real deployments.
+
+### Registry ▸ Runtimes and conformance (#1085 S3): on `main`, not in a published preview
+
+**Registry ▸ Runtimes** lists every `runtime/` version in the project's search roots, one row per
+version, from `agentbreeder registry runtimes --project DIR --json` (`GET
+/api/projects/ID/runtimes`, allow-listed as Build's `parts.runtimes`): the framework's badge, the
+ref (a link to that version's detail, `#/registry/runtimes/NAME?version=X.Y.Z`), the protocol and
+profile, the kit version and the status in Build's words. A report whose result is `incomplete`
+(a check that applies did not run, which is every report while checks are unbuilt) now reads
+"Conformance incomplete; not run end to end", here and on Build, instead of "Conformance failed".
+A version the CLI cannot use is a text line with its code. A failed read shows its code and **Try
+again**.
+
+A runtime version's detail (the registry's version card) adds:
+
+- **Runtime**: the framework, status, protocol, capabilities, limits, reserved tool names, notes
+  and docs path, from the same view.
+- **Packages**: what the version's `requirements.in` names with its specifiers (the build installs
+  the hash-locked `requirements.lock`).
+- **Conformance**: the newest report for an image built on this version, from the new CLI read
+  `agentbreeder registry conformance REF --json` (`GET /api/projects/ID/conformance?ref=`, never
+  cached). It shows the result ("Incomplete: not a pass" for `incomplete`), the counts, the image
+  digest, its agent and when it finished, and "not the current build" when this project's build of
+  the version is another image. Checks are grouped; a group with a failed check is open, and each
+  check's status is a word, its detail text. "Not run for this runtime version." when there is no
+  report.
+- **Run conformance**: a job, `agentbreeder conformance IMAGE --project DIR`, on this project's
+  built image of the version. The image comes from the project's build record
+  (`deploy/<agent>.build.json`, read like `agent.yaml`: the record file itself must be a regular
+  file, not a link; its label's time is when the record was last written) and the server
+  refuses any other (`CONFORMANCE_IMAGE_UNKNOWN`), so the browser never names a free image. It is
+  off, with its reason, when the project has no build of the version ("No declared-mode image of
+  this runtime version in this project. Build an agent from agent.yaml on it first."), when
+  Docker is not reachable, and while a job runs in the project. A run that wrote a failed or
+  incomplete report (exit 1) ends as a warning, not a failed command, and the card reads the new
+  report when the job ends.
+
+Not in this slice, because code mode (#1083 F8) is not on `main`: **Registry ▸ Code** (there is no
+`code/` registry kind), code-mode reports on an agent's detail, and the guided path's Conformance
+step. Every report shown is a declared-mode one.
+
+Tested with Playwright against the fake CLI (`tests/ui/test_registry_runtimes.py`: the list, an
+incomplete status, a failed read, the detail with no report, a failing report expanded, a report
+for another image, Run conformance as a job, the version in the address, axe in light and dark),
+node unit tests (`tests/js/conformance.test.mjs`), the server (`tests/test_center_conformance.py`)
+and the CLI (`registry conformance`). The reports are scripted: **no conformance run has happened
+on a real Docker engine**, and none was started from the console.
 
 ### Traces (#907, console half): on `main`, not in a published preview
 

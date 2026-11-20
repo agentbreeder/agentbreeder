@@ -10,6 +10,7 @@ import { href } from "../lib/router.js";
 import { ToolFacts } from "./tool.js";
 import { KnowledgeFacts } from "./knowledge.js";
 import { SkillDiffNote, SkillFacts } from "./skill.js";
+import { RuntimeFacts, RuntimeList } from "./runtime.js";
 import {
   KINDS, ROOT_LABELS, codeLabel, deployedLines, diffStats, groupByName, hunkHeader, noHunkReason, usedByText, useText, verifyLabel, verifyState,
 } from "../lib/registry.js";
@@ -78,6 +79,8 @@ function VerifyBadge({ entry }) {
 
 /** The list for one kind. */
 export function registryList(meta) {
+  // Runtimes are listed per version, with the framework and status (#1085 S3).
+  if (meta.kind === "runtime") return RuntimeList;
   return function RegistryList({ project }) {
     const view = useRegistry(project);
     if (!view.data) return html`<${Card} title=${meta.nav} busy=${view.loading}><${ViewState} view=${view} /><//>`;
@@ -118,16 +121,18 @@ export function registryDetail(meta) {
   // Keyed by name and case: another name or case link (back, forward, a pasted address) starts
   // with its own latest version, a fresh diff picker and that case open.
   const Detail = detailBody(meta);
-  return function RegistryDetail({ project, params }) {
-    return html`<${Detail} key=${`${params.name} ${params.case || ""}`} project=${project} name=${params.name} focusCase=${params.case || null} />`;
+  return function RegistryDetail({ project, params, query = {} }) {
+    // `?version=` opens that version first (a Runtimes row links to its version, #1085 S3).
+    const version = /^[0-9]{1,6}(\.[0-9]{1,6}){2}$/.test(query.version || "") ? query.version : null;
+    return html`<${Detail} key=${`${params.name} ${params.case || ""} ${version || ""}`} project=${project} name=${params.name} focusCase=${params.case || null} initial=${version} />`;
   };
 }
 
 function detailBody(meta) {
-  return function DetailBody({ project, name, focusCase }) {
+  return function DetailBody({ project, name, focusCase, initial = null }) {
     const view = useRegistry(project);
     const entry = view.data ? groupByName(view.data, meta.kind).find((row) => row.name === name) : null;
-    const [selected, setSelected] = useState(null);
+    const [selected, setSelected] = useState(initial);
     const [saved, setSaved] = useState(null);
     // The deep link's case (gate-failed view) opens once: a save or another version drops it.
     const [focus, setFocus] = useState(focusCase);
@@ -193,6 +198,7 @@ function Version({ project, version, entry, kind, focusCase, onSaved, onMoved })
         <${ToolFacts} data=${data} project=${project} />
         <${KnowledgeFacts} data=${data} project=${project} />
         <${SkillFacts} data=${data} />
+        <${RuntimeFacts} data=${data} project=${project} />
         ${data.omitted ? html`<p class="muted small">Some files are not shown: the version's text budget ran out. <code>agentbreeder registry show</code> prints the same view.</p>` : null}
         <h3>Files</h3>
         <ul class="files">${(data.files || []).map((file) => html`<li key=${file.path}><${FileView} file=${file} /></li>`)}</ul>`

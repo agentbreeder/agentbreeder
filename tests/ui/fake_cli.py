@@ -74,6 +74,10 @@ DEFAULT = {
     "runtimes": None,
     # Seconds `registry runtimes` waits before answering (the Framework group's loading line).
     "runtimes_seconds": 0,
+    # `registry conformance REF --json` (#1085 S3): {ref: the newest report}; a ref not listed
+    # has none (null). `conformance IMAGE --project DIR` is a job: its argv is written to
+    # `conformance-argv.json` in the fake directory.
+    "conformance": {},
     # `new agent`: null writes the demo project into --dir; a {code, message} refuses.
     "new_error": None,
     # `registry used-by`: the deployments shown for a project that uses the ref.
@@ -823,6 +827,14 @@ def main(argv: list[str]) -> int:
         return real(argv)  # #826: the real edit and set-ref on the project's files
     elif head == ["registry", "import"]:
         return real(argv)  # #825: the real import into the project's registry
+    elif head == ["registry", "conformance"]:
+        ref = argv[2]
+        found = data["conformance"].get(ref)
+        print(json.dumps({"schema_version": 1, "ref": ref, "report": found}))
+    elif argv and argv[0] == "conformance":
+        directory = Path(os.environ.get("AGENTBREEDER_FAKE_DIR", ""))
+        (directory / "conformance-argv.json").write_text(json.dumps(argv))
+        return job("conformance", data)
     elif head == ["registry", "runtimes"]:
         time.sleep(float(data.get("runtimes_seconds", 0)))
         if data["runtimes"] is None:
