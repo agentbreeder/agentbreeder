@@ -1088,8 +1088,14 @@ verified provider with another model id is created, with a note that only its de
 been run end to end), the prompt, the eval
 cases (the eval-set case editor's rows, without the cited-sources check, at most 100 cases), and,
 under **Model calls and the eval gate**, model calls per turn (1 to 20), the pass threshold (0 to
-1) and retries (0 to 3). It starts with one example case to edit. Knowledge is not on the form
-yet. The browser never builds YAML: it sends the form as `new agent --from-spec`'s JSON spec
+1) and retries (0 to 3). It starts with one example case to edit. **Knowledge** (#1069) offers
+one `knowledge/` version from the roots a new project resolves (the built-ins and
+`AGENTBREEDER_REGISTRY_PATH`), with its embedding alias and dimensions; it is offered only for a
+provider with an embedding model (gemini, openai) and a framework that searches knowledge, and a
+version with no valid embedding is listed as text with why. The preview adds a "Knowledge the
+agent searches" table (the embedding model and alias, documents and chunks, top k). To use a
+directory of documents, publish or import it into a registry on `AGENTBREEDER_REGISTRY_PATH`
+first: the form does not import a path. The browser never builds YAML: it sends the form as `new agent --from-spec`'s JSON spec
 (`docs/commands/new.md`).
 
 **Framework** (#1085 S1, on `main`, not in a published preview) is the first field after the

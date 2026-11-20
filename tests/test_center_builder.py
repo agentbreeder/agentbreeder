@@ -203,7 +203,28 @@ def test_the_clis_own_refusal_is_shown(center, cookie, home, calls):
         ({"spec": spec(model="mistral")}, "MODEL_INVALID"),
         ({"spec": spec(model_id="gemini/a b")}, "MODEL_ID_INVALID"),
         ({"spec": spec(model_id=3)}, "MODEL_ID_INVALID"),
-        ({"spec": spec(knowledge=["knowledge/docs@0.1.0"])}, "SPEC_UNSUPPORTED"),
+        ({"spec": spec(knowledge=["knowledge/docs@0.1.0"])}, "SPEC_INVALID"),
+        ({"spec": spec(knowledge={"ref": "knowledge/docs@0.1.0"})}, "SPEC_INVALID"),
+        ({"spec": spec(knowledge=[{"ref": "tool/docs@0.1.0"}])}, "SPEC_INVALID"),
+        ({"spec": spec(knowledge=[{"ref": "knowledge/docs"}])}, "SPEC_INVALID"),
+        ({"spec": spec(knowledge=[{"ref": "knowledge/docs@0.1.0", "x": 1}])}, "SPEC_INVALID"),
+        ({"spec": spec(knowledge=[{"ref": "knowledge/docs@0.1.0", "top_k": 0}])}, "SPEC_INVALID"),
+        (
+            {"spec": spec(knowledge=[{"ref": "knowledge/docs@0.1.0", "top_k": True}])},
+            "SPEC_INVALID",
+        ),
+        (
+            {"spec": spec(knowledge=[{"ref": "knowledge/docs@0.1.0", "extra_searches": 6}])},
+            "SPEC_INVALID",
+        ),
+        (
+            {"spec": spec(knowledge=[{"ref": "knowledge/a@0.1.0"}, {"ref": "knowledge/b@0.1.0"}])},
+            "SPEC_INVALID",
+        ),
+        (
+            {"spec": spec(model="anthropic", knowledge=[{"ref": "knowledge/docs@0.1.0"}])},
+            "SPEC_UNSUPPORTED",
+        ),
         ({"spec": spec(tools="tool/clock@0.1.0")}, "SPEC_INVALID"),
         ({"spec": spec(tools=["tool/clock"])}, "SPEC_INVALID"),
         ({"spec": spec(tools=["mcp/github@1.0.0"])}, "SPEC_INVALID"),
@@ -1342,3 +1363,116 @@ def test_a_path_runtime_is_listed_from_its_root_and_previewed_as_code(
     assert shown["runs_code"] is True and shown["combination"]["verified"] is False
     [ref] = shown["refs"]
     assert (ref["ref"], ref["root_kind"], ref["runs_code"]) == (path_runtime, "path", True)
+
+
+# -- knowledge (#1069) ---------------------------------------------------------------------------
+
+
+def test_the_embedding_providers_match_the_cli():
+    from agentbreeder import agentspec, stackfor
+
+    assert builder.EMBEDDING_PROVIDERS == tuple(sorted(agentspec.EMBEDDINGS))
+    assert builder.ALIAS.pattern == stackfor.ALIAS.pattern
+    from agentbreeder import knowledge
+
+    assert builder.DEFAULT_DIMENSIONS == knowledge.DEFAULT_DIMENSIONS
+    assert builder.MAX_DIMENSIONS == knowledge.MAX_DIMENSIONS
+    # The browser's copy of the providers (lib/builder.js) is the same list.
+    source = (Path(builder.__file__).parent / "static" / "lib" / "builder.js").read_text()
+    assert 'export const EMBEDDING_PROVIDERS = ["gemini", "openai"];' in source
+    fields = agentspec.Knowledge.model_fields
+    assert builder.TOP_K == (fields["top_k"].metadata[0].ge, fields["top_k"].metadata[1].le)
+    assert builder.EXTRA_SEARCHES == (
+        fields["extra_searches"].metadata[0].ge,
+        fields["extra_searches"].metadata[1].le,
+    )
+
+
+@pytest.mark.parametrize("model", ["gemini", "openai"])
+def test_one_knowledge_version_is_accepted_for_a_provider_with_embeddings(model):
+    entry = {"ref": "knowledge/docs@0.1.0", "top_k": 5, "extra_searches": 1}
+    name, checked = builder.request({"spec": spec(model=model, knowledge=[entry])})
+    assert name == "helper" and checked["knowledge"] == [entry]
+
+
+KNOWLEDGE_ROW = {
+    "ref": "knowledge/docs@0.1.0",
+    "alias": "docs-embedding",
+    "dimensions": 768,
+    "embedding_model": "gemini/gemini-embedding-2",
+    "top_k": 5,
+    "extra_searches": 1,
+    "documents": 3,
+    "chunks": 12,
+}
+
+
+def test_summary_shows_the_knowledge_row():
+    shown = builder.summary(answer(knowledge=[KNOWLEDGE_ROW]), *ASKED)
+    assert shown["knowledge"] == [KNOWLEDGE_ROW]
+    assert builder.summary(answer(), *ASKED)["knowledge"] == []
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        KNOWLEDGE_ROW | {"ref": "tool/docs@0.1.0"},
+        KNOWLEDGE_ROW | {"alias": "bad alias"},
+        KNOWLEDGE_ROW | {"embedding_model": "x y"},
+        KNOWLEDGE_ROW | {"dimensions": True},
+        KNOWLEDGE_ROW | {"chunks": -1},
+        "knowledge/docs@0.1.0",
+    ],
+)
+def test_summary_refuses_a_knowledge_row_off_contract(row):
+    with pytest.raises(builder.BadOutput):
+        builder.summary(answer(knowledge=[row]), *ASKED)
+    with pytest.raises(builder.BadOutput):
+        builder.summary(answer(knowledge=[KNOWLEDGE_ROW, KNOWLEDGE_ROW]), *ASKED)
+
+
+def _knowledge(root: Path, name: str, version: str, embedding: str) -> None:
+    source = root.parent / f"kb-{name}-{version}"
+    source.mkdir(parents=True)
+    (source / "manifest.yaml").write_text(
+        f"kind: knowledge\nname: {name}\nversion: {version}\ndescription: Help articles.\n"
+        f"chunking: paragraph\n{embedding}store: pgvector\n"
+    )
+    (source / "docs").mkdir()
+    (source / "docs" / "a.md").write_text("# A\n\nOne paragraph.\n")
+    registry.publish(source, root)
+
+
+def test_parts_offers_knowledge_versions_with_their_embedding(tmp_path, monkeypatch):
+    root = tmp_path / "path-registry"
+    _knowledge(root, "help", "1.0.0", "embedding: {alias: help-embedding, dimensions: 768}\n")
+    _knowledge(root, "bare", "1.0.0", "")
+    shown = {e["ref"]: e for e in builder.parts([root])["knowledge"]}
+    assert shown["knowledge/help@1.0.0"]["embedding"] == {
+        "alias": "help-embedding",
+        "dimensions": 768,
+    }
+    assert "unusable" not in shown["knowledge/help@1.0.0"]
+    assert shown["knowledge/help@1.0.0"]["description"] == "Help articles."
+    assert shown["knowledge/bare@1.0.0"]["embedding"] is None
+    assert "no valid embedding" in shown["knowledge/bare@1.0.0"]["unusable"]
+
+
+@pytest.mark.parametrize(
+    ("embedding", "expected"),
+    [
+        ({"alias": "a"}, {"alias": "a", "dimensions": 768}),
+        ({"alias": "a", "dimensions": "1536"}, {"alias": "a", "dimensions": 1536}),
+        ({"alias": "a", "dimensions": 16000}, {"alias": "a", "dimensions": 16000}),
+        ({"alias": "a", "dimensions": 16001}, None),
+        ({"alias": "a", "dimensions": 0}, None),
+        ({"alias": "a", "dimensions": True}, None),
+        ({"alias": "a", "dimensions": "x"}, None),
+        ({"alias": "bad alias"}, None),
+        ({}, None),
+        ("text", None),
+    ],
+)
+def test_the_embedding_is_read_as_the_cli_reads_it(embedding, expected):
+    assert builder._embedding({"embedding": embedding}) == expected
+    assert builder._embedding({}) is None
