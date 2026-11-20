@@ -1,11 +1,10 @@
 # Northwind support agent on Deep Agents
 
-**Status: built, not run end to end.** This is Northwind (`../northwind`) on
-`runtime/deepagents@1.0.0`, Deep Agents on AgentBreeder's runtime kit (#1083 F5). The runtime's
-own tests ran against real Deep Agents 0.7.32 with a scripted gateway, and the port builds
-`--locked` from Northwind's registry. Nothing has run on Docker, `kind` or a real model: the
-61-case eval gate, conformance and the rest of the acceptance are written as an opt-in test
-(below) and have not been run. arm64 has not been run. Deep Agents is not a supported framework.
+**Status: run end to end on macOS x86_64 (2026-11-20), not verified.** This is Northwind
+(`../northwind`) on `runtime/deepagents@1.0.0`, Deep Agents on AgentBreeder's runtime kit (#1083
+F5). With real Gemini it passed the 61-case eval gate on local Docker (twice) and on `kind`, and
+conformance gave 26 pass, 0 fail and 13 not run. arm64 has not been run. Deep Agents is not a
+supported framework.
 
 `agent.yaml` is Northwind's file with two lines changed, `name` and `runtime`. The prompt, model
 alias, tools, knowledge, memory and eval set are Northwind's, from Northwind's registry, and
@@ -63,7 +62,7 @@ meant to run side by side (sharing the `support` database's tables); that has no
 `agentbreeder example` does not list this directory: it needs Northwind beside it, so it is run
 from a checkout.
 
-## The acceptance run (written, not run)
+## The acceptance run
 
 `tests/test_northwind_deepagents_docker.py` runs the spec's acceptance steps against a real stack
 when `AGENTBREEDER_DOCKER_TEST=1` and `AGENTBREEDER_NORTHWIND_DEEPAGENTS=1` are set:
@@ -75,5 +74,8 @@ AGENTBREEDER_DOCKER_TEST=1 AGENTBREEDER_NORTHWIND_DEEPAGENTS=1 \
 
 It uses the Northwind directory you ran `services up` in (this checkout's, or the one named by
 `AGENTBREEDER_NORTHWIND_DIR`). It needs the Northwind stack up with real keys, and
-`AGENTBREEDER_KIND_TEST=1` with `agentbreeder cluster up` done for the `kind` test. The record of
-what has and has not run is `docs/superpowers/verification/F5-deepagents.md`.
+`AGENTBREEDER_KIND_TEST=1` with `agentbreeder cluster up` done for the `kind` test. It passed on
+2026-11-20 (macOS x86_64). On Gemini with Northwind's prompt, the model declines the file-tool
+requests and does not choose `task`, so those two tests show only that nothing leaks and that
+the cap holds; the tools themselves were checked with a probe deployment. The record is
+`docs/superpowers/verification/F5-deepagents.md`.

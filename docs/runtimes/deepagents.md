@@ -1,12 +1,12 @@
 # `runtime/deepagents@1.0.0`
 
-**Status:** on `main` (#1083 F5), not in a published preview. **Built, not run end to
-end.** The runtime's own tests ran against real Deep Agents 0.7.32 with a scripted gateway
-behind the kit's real proxy (macOS x86_64), and Northwind's port builds `--locked` with a
-recorder in place of `docker build`. Nothing has run on Docker, `kind`, arm64 or a real model:
-conformance, the 61-case eval gate and the rest of the acceptance are written as an opt-in test
-and have not been run. Deep Agents is not a supported framework. What has and has not run is in
-[the F5 record](../superpowers/verification/F5-deepagents.md).
+**Status:** on `main` (#1083 F5), not in a published preview. Run end to end on macOS x86_64
+(2026-11-20): Northwind passed its 61-case eval gate on local Docker and on `kind`, and
+`agentbreeder conformance` gave 26 pass, 0 fail and 13 not run of 39. On real Gemini, the `task`
+sub-agent's calls counted against the turn's cap, the file tools saw only the turn's state, and
+the image's unused vendor SDKs could not reach out. arm64 has not been run, the kit-profile
+conformance checks are not built, and Deep Agents is not a supported framework. What has and has
+not run is in [the F5 record](../superpowers/verification/F5-deepagents.md).
 
 Deep Agents on AgentBreeder's **runtime kit** (#1083, multi-framework spec
 `docs/superpowers/specs/2026-11-16-multi-framework-agents-design.md` §7 and §8.3), the second kit

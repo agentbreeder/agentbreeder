@@ -966,7 +966,7 @@
   },
   "examples/northwind-deepagents/README.md": {
    "exec": false,
-   "sha256": "5d13f40efbcc683063f6c9fd5f2836651eb884db20414d05fed8c6d07a15d4b6"
+   "sha256": "4f37133529e3f8cd71314923dc1a317cc9568f8eb40f9265590f8a3f4379d820"
   },
   "examples/northwind-deepagents/agent.lock": {
    "exec": false,
@@ -974,7 +974,7 @@
   },
   "examples/northwind-deepagents/agent.yaml": {
    "exec": false,
-   "sha256": "14b52ffcbe88bc0003277ba427b07cdeb5b0a086cd36ee49b7924f7545c95408"
+   "sha256": "e50a6cdc45e94a5d275b88d7be2032beef3635d6ef677a5eef251aec364dd06a"
   },
   "examples/northwind-langgraph/README.md": {
    "exec": false,

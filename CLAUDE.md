@@ -301,7 +301,8 @@ a runtime manifest, the reply's `framework`/`runtime` or the deploy manifest's `
 change until release R. Cloud: a `CLAUDE.md` note only; it has no code that runs `up`, calls the
 console API or reads `center.sqlite3` (the console API is private and unversioned).
 
-**Deep Agents, #1083 F5 (multi-framework), per side.** OSS (on `main`; built, not run end to end):
+**Deep Agents, #1083 F5 (multi-framework), per side.** OSS (on `main`; run end to end on macOS
+x86_64 on 2026-11-20, 61/61 local and on `kind`, conformance 26/39, no arm64; not verified):
 `runtime/deepagents@1.0.0` on the unchanged kit 1.0.0 (state backend only; reserved tool names
 `ls`, `read_file`, `write_file`, `edit_file`, `delete`, `glob`, `grep`, `task`; the `task`
 sub-agent counts against the turn's step cap, D10) and `examples/northwind-deepagents`

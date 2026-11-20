@@ -443,7 +443,8 @@ generated file are the only place `build`, `new agent` and the registry commands
 facts from. Nothing in the engine branches on a framework's name. Three runtimes ship:
 `runtime/adk`, `runtime/langgraph@1.0.0` (#1083 F3, the first on the runtime kit; built and
 run end to end on macOS x86_64, **not verified**, see [runtimes/langgraph.md](runtimes/langgraph.md))
-and `runtime/deepagents@1.0.0` (#1083 F5, on the same kit; built, **not run end to end**, see
+and `runtime/deepagents@1.0.0` (#1083 F5, on the same kit; built and run end to end on macOS
+x86_64, **not verified**, see
 [runtimes/deepagents.md](runtimes/deepagents.md)).
 
 **Manifest keys** (beside `port`, `health_path`, `secrets` and `environment`):
