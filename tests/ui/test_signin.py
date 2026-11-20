@@ -177,6 +177,24 @@ def test_a_reset_while_signed_in_opens_the_re_auth_dialog_over_the_route(page, c
     expect(page).to_have_url(re.compile(r"#/deployments$"))
 
 
+def test_session_ended_after_a_reset_names_the_password_cause(page, console):
+    """#879 and the M2 run: a reset from the terminal ends the session, and the page says so."""
+    sign_in(page, console)
+    page.goto(f"{console.origin}/#/audit")
+    expect(h1(page)).to_contain_text("Audit")
+    console.reset_password(NEW)
+    page.reload()
+    expect(h1(page)).to_have_text("Session ended")
+    main = page.locator("main")
+    expect(main).to_contain_text("or the console was restarted")
+    expect(main).to_contain_text("or you signed out everywhere")
+    expect(main).to_contain_text(
+        "the password was changed in another tab or reset with agentbreeder up --reset-password"
+    )
+    fill_sign_in(page, NEW)
+    expect(h1(page)).to_contain_text("Audit")
+
+
 def test_a_401_during_an_edit_keeps_the_draft_and_the_route(page, console):
     open_prompt(page, console)
     editor = page.get_by_role("region", name="Edit 1.0.1")
@@ -254,6 +272,10 @@ def test_settings_change_password_needs_the_current_one(page, console):
     other.goto(f"{console.origin}/#/audit")
     other.reload()
     expect(h1(other)).to_have_text("Session ended")
+    # The page names a password change in another tab as a cause (#879, the M2 run).
+    expect(other.locator("main")).to_contain_text(
+        "the password was changed in another tab or reset with agentbreeder up --reset-password"
+    )
     fill_sign_in(other, NEW)
     expect(h1(other)).to_contain_text("Audit")
 

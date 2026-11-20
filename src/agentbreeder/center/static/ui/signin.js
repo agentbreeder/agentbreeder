@@ -77,7 +77,7 @@ export function SignInForm({ client, onSignedIn, autoFocus = true }) {
 }
 
 const REASONS = {
-  ended: ["Session ended", "This tab's session ended: it was open longer than the session length or idle 1 hour, or the console was restarted, or you signed out everywhere."],
+  ended: ["Session ended", "This tab's session ended: it was open longer than the session length or idle 1 hour, or the console was restarted, or you signed out everywhere, or the password was changed in another tab or reset with agentbreeder up --reset-password."],
   used: ["Sign in", "This link was already used or has expired."],
   set: ["Sign in", `Password set for ${EMAIL}. Sign in with it.`],
   everywhere: ["Signed out", "You signed out everywhere: every tab and browser must sign in again."],
