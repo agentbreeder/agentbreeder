@@ -20,7 +20,9 @@ test("the backoff wait comes from the 429 reply, capped at five minutes", () => 
 });
 
 test("security events in words; unknown values as they are", () => {
-  assert.deepEqual(eventWords({ event: "sign-in", outcome: "failed", source: "browser" }), { event: "Sign-in with the password", outcome: "Wrong password", source: "Browser" });
+  // The server cannot tell a browser from curl or a container (#1180): HTTP events name the channel.
+  assert.deepEqual(eventWords({ event: "sign-in", outcome: "failed", source: "browser" }), { event: "Sign-in with the password", outcome: "Wrong password", source: "Console (HTTP)" });
+  assert.deepEqual(eventWords({ event: "sign-in", outcome: "ok", source: "terminal-link" }).source, "Terminal link");
   assert.deepEqual(eventWords({ event: "password-reset", outcome: "ok", source: "terminal" }), { event: "Password reset", outcome: "Succeeded", source: "Terminal" });
   assert.deepEqual(eventWords({ event: "new-kind", outcome: "backoff", source: "x" }), { event: "new-kind", outcome: "Refused: too many attempts", source: "x" });
   assert.deepEqual(eventWords({ event: "toString", outcome: undefined, source: null }), { event: "toString", outcome: "", source: "" });

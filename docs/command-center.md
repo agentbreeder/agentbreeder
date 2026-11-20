@@ -88,7 +88,9 @@ On `main` the walkthrough column is replaced by a console shell (Preact + htm, n
 - **Sign-in states**: the one-time link is consumed before anything else and removed from the
   address bar. "Session ended" and "Sign in" pages say how to get a new link, and signing in again
   returns to the screen you were on. Sessions live in the console's memory, so "Session ended"
-  names every cause, a console restart included (#879). "Console not reachable at this address"
+  names every cause: the session length or 1 hour idle, a console restart (#879), signing out
+  everywhere, and a password changed in another tab or reset with `up --reset-password` (the M2
+  run). "Console not reachable at this address"
   (no answer at all) is a separate page that retries every 5 seconds. From #818 the sign-in pages
   also take the console password (below).
 - **Walkthrough fixes (#811)**:
@@ -201,8 +203,10 @@ The console has one user, `admin@localhost`, and a password with no shared defau
 - **Settings** (user menu): change the password (needs the current one; this tab stays signed in
   and every other session ends), session length, sign out everywhere, the theme, and the last 20
   security events (sign-ins, failed sign-ins, waits, password set, change and reset, sign-outs;
-  time, outcome and source only, never a password or link). A forgotten password is reset only in
-  the terminal: `agentbreeder up --reset-password`.
+  time, outcome and source only, never a password or link). The source is "Console (HTTP)" for
+  anything that came through the console's HTTP API (the server cannot tell a browser from `curl`
+  or a local container), and "Terminal" or "Terminal link" for the terminal (#1180). A forgotten
+  password is reset only in the terminal: `agentbreeder up --reset-password`.
 - `http://localhost:PORT/` redirects to `http://127.0.0.1:PORT/`, the one address the console
   answers; the API never redirects.
 
