@@ -1,0 +1,23 @@
+# google-adk 2.14.0 (2026-11-07) is the first release whose OpenTelemetry cap (<=1.45.2) admits
+# the fixed opentelemetry-api; its only other core dependency change from 2.12.0 is
+# authlib>=1.9.1.
+# Newer than the two-week rule allows: a recorded exception (owner-approved dependency update,
+# 2026-11-20).
+google-adk[db]==2.14.0
+# litellm 1.108.3 (2026-11-07) is newer than the two-week rule allows. Owner decision 2026-11-07:
+# take it, because it is the first release allowing filelock>=4 (fixes 13 filelock CVEs, some High).
+litellm[mcp]==1.108.3
+mcp==2.3.0
+psycopg[binary]==3.3.6
+# Dependency update (pip-audit, 2026-11-20): opentelemetry 1.45.2 fixes CVE-2026-114603 and
+# CVE-2026-126360 in opentelemetry-api 1.42.1. 1.45.2 (2026-10-29) is newer than the
+# two-week rule allows; it is the only release with both fixes, so it is a recorded exception.
+opentelemetry-api==1.45.2
+opentelemetry-sdk==1.45.2
+opentelemetry-exporter-otlp-proto-http==1.45.2
+# Security (pip-audit, 2026-11-07):
+# - pyasn1 0.6.5 (2026-10-27) fixes CVE-2026-119194..119197. It is newer than the two-week rule
+#   allows; it is the only release with the fix, so it is a recorded exception.
+# - filelock>=4.2.1 fixes CVE-2026-112907..112940 (needs litellm>=1.108.3, above).
+pyasn1==0.6.5
+filelock>=4.2.1
