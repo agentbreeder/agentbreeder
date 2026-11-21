@@ -280,7 +280,7 @@ def run_stateful(
     same error handling; an int it returns ends the command. `existing` refuses a missing state.
     `near` (the file the command was given) lets an error name a fix such as `--stack`.
     `readonly` opens existing state with `Store.open_readonly` (needs `service=False`)."""
-    store = None
+    store = service_ = None
     try:
         if before is not None and (early := before()) is not None:
             return early
@@ -292,7 +292,8 @@ def run_stateful(
         if not service:
             return action(store)
         operator = load_operator_config()
-        return action(DeploymentService(store, Docker(), operator), operator)
+        service_ = DeploymentService(store, Docker(), operator)
+        return action(service_, operator)
     except (
         ManifestError,
         DeploymentError,
@@ -309,6 +310,8 @@ def run_stateful(
         )
         return 2
     finally:
+        if service_:
+            service_.close()
         if store:
             store.close()
 

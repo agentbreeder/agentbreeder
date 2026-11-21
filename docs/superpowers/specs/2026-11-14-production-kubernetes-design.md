@@ -110,7 +110,11 @@ deployment record's `context` becomes `kind|<context>|<uid>|<namespace>|<kubecon
 namespace), with a store migration that reads 4-field records as `kind`. `authorize(context)` rebuilds
 the provider from the record, never from the live operator config, and checks the row's digest against
 the one in the deployment's audit event, so an edited `cluster_bindings` row (a new server or CA pin)
-is refused with `KUBERNETES_BINDING_CHANGED` rather than receiving a token (T12). `DeploymentService`
+is refused with `KUBERNETES_BINDING_CHANGED` rather than receiving a token (T12). *(K0 as built,
+#771: the check compares the row with the `deployment_created` events for its binding ID; it does
+not yet compare the row's environment with the deployment's. **K1 blocker:** before the first
+by-reference provider ships, `authorize` takes the deployment's environment and refuses a row from
+another one, so a record swapped to another environment's binding ID is refused.)* `DeploymentService`
 takes an injectable provider session. `kind` behaviour is byte-identical in K0 (the existing tests and the
 help goldens pass unchanged); the deployer changes of §4.3 come later (K2, K8) and apply to `kind` too. #908 §4 has the full shape.
 
