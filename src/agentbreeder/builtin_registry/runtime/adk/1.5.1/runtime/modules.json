@@ -1,0 +1,367 @@
+{
+ "schema_version": 1,
+ "modules": [
+  "agent",
+  "config",
+  "mcp_client",
+  "memory",
+  "rag",
+  "redaction",
+  "server",
+  "skill_hash",
+  "skills",
+  "subagents",
+  "telemetry",
+  "tools",
+  "turns"
+ ],
+ "imports": {
+  "aiohappyeyeballs": [
+   "aiohappyeyeballs"
+  ],
+  "aiohttp": [
+   "aiohttp"
+  ],
+  "aiosignal": [
+   "aiosignal"
+  ],
+  "aiosqlite": [
+   "aiosqlite"
+  ],
+  "alembic": [
+   "alembic"
+  ],
+  "annotated-doc": [
+   "annotated_doc"
+  ],
+  "annotated-types": [
+   "annotated_types"
+  ],
+  "anyio": [
+   "anyio"
+  ],
+  "attrs": [
+   "attr",
+   "attrs"
+  ],
+  "authlib": [
+   "authlib"
+  ],
+  "boto3": [
+   "boto3"
+  ],
+  "botocore": [
+   "botocore"
+  ],
+  "certifi": [
+   "certifi"
+  ],
+  "cffi": [
+   "_cffi_backend",
+   "cffi"
+  ],
+  "charset-normalizer": [
+   "charset_normalizer"
+  ],
+  "click": [
+   "click"
+  ],
+  "cryptography": [
+   "cryptography"
+  ],
+  "distro": [
+   "distro"
+  ],
+  "fastapi": [
+   "fastapi"
+  ],
+  "fastuuid": [
+   "fastuuid"
+  ],
+  "filelock": [
+   "filelock"
+  ],
+  "frozenlist": [
+   "frozenlist"
+  ],
+  "fsspec": [
+   "fsspec"
+  ],
+  "google-adk": [
+   "google"
+  ],
+  "google-api-core": [
+   "google"
+  ],
+  "google-auth": [
+   "google"
+  ],
+  "google-cloud-core": [
+   "google"
+  ],
+  "google-cloud-monitoring": [
+   "google"
+  ],
+  "google-cloud-spanner": [
+   "google"
+  ],
+  "google-genai": [
+   "google"
+  ],
+  "googleapis-common-protos": [
+   "google"
+  ],
+  "graphviz": [
+   "graphviz"
+  ],
+  "greenlet": [
+   "greenlet"
+  ],
+  "grpc-google-iam-v1": [
+   "google"
+  ],
+  "grpc-interceptor": [
+   "grpc_interceptor"
+  ],
+  "grpcio": [
+   "grpc"
+  ],
+  "grpcio-status": [
+   "grpc_status"
+  ],
+  "h11": [
+   "h11"
+  ],
+  "h2": [
+   "h2"
+  ],
+  "hf-xet": [
+   "hf_xet"
+  ],
+  "hpack": [
+   "hpack"
+  ],
+  "httpcore": [
+   "httpcore"
+  ],
+  "httpcore2": [
+   "httpcore2"
+  ],
+  "httpx": [
+   "httpx"
+  ],
+  "httpx2": [
+   "httpx2"
+  ],
+  "huggingface-hub": [
+   "huggingface_hub"
+  ],
+  "hyperframe": [
+   "hyperframe"
+  ],
+  "idna": [
+   "idna"
+  ],
+  "importlib-metadata": [
+   "importlib_metadata"
+  ],
+  "jinja2": [
+   "jinja2"
+  ],
+  "jiter": [
+   "jiter"
+  ],
+  "jmespath": [
+   "jmespath"
+  ],
+  "joserfc": [
+   "joserfc"
+  ],
+  "jsonschema": [
+   "jsonschema"
+  ],
+  "jsonschema-specifications": [
+   "jsonschema_specifications"
+  ],
+  "litellm": [
+   "litellm"
+  ],
+  "mako": [
+   "mako"
+  ],
+  "markupsafe": [
+   "markupsafe"
+  ],
+  "mcp": [
+   "mcp"
+  ],
+  "mcp-types": [
+   "mcp_types"
+  ],
+  "mmh3": [
+   "mmh3"
+  ],
+  "multidict": [
+   "multidict"
+  ],
+  "openai": [
+   "openai"
+  ],
+  "opentelemetry-api": [
+   "opentelemetry"
+  ],
+  "opentelemetry-exporter-http-transport": [
+   "opentelemetry"
+  ],
+  "opentelemetry-exporter-otlp-common": [
+   "opentelemetry"
+  ],
+  "opentelemetry-exporter-otlp-proto-common": [
+   "opentelemetry"
+  ],
+  "opentelemetry-exporter-otlp-proto-http": [
+   "opentelemetry"
+  ],
+  "opentelemetry-proto": [
+   "opentelemetry"
+  ],
+  "opentelemetry-resourcedetector-gcp": [
+   "opentelemetry"
+  ],
+  "opentelemetry-sdk": [
+   "opentelemetry"
+  ],
+  "opentelemetry-semantic-conventions": [
+   "opentelemetry"
+  ],
+  "packaging": [
+   "packaging"
+  ],
+  "propcache": [
+   "propcache"
+  ],
+  "proto-plus": [
+   "proto"
+  ],
+  "protobuf": [
+   "google"
+  ],
+  "psycopg": [
+   "psycopg"
+  ],
+  "psycopg-binary": [
+   "psycopg_binary"
+  ],
+  "pyasn1": [
+   "pyasn1"
+  ],
+  "pyasn1-modules": [
+   "pyasn1_modules"
+  ],
+  "pycparser": [
+   "pycparser"
+  ],
+  "pydantic": [
+   "pydantic"
+  ],
+  "pydantic-core": [
+   "pydantic_core"
+  ],
+  "pydantic-settings": [
+   "pydantic_settings"
+  ],
+  "pyjwt": [
+   "jwt"
+  ],
+  "python-dateutil": [
+   "dateutil"
+  ],
+  "python-dotenv": [
+   "dotenv"
+  ],
+  "python-multipart": [
+   "multipart",
+   "python_multipart"
+  ],
+  "pyyaml": [
+   "_yaml",
+   "yaml"
+  ],
+  "referencing": [
+   "referencing"
+  ],
+  "regex": [
+   "regex"
+  ],
+  "requests": [
+   "requests"
+  ],
+  "rpds-py": [
+   "rpds"
+  ],
+  "s3transfer": [
+   "s3transfer"
+  ],
+  "six": [
+   "six"
+  ],
+  "sniffio": [
+   "sniffio"
+  ],
+  "sqlalchemy": [
+   "sqlalchemy"
+  ],
+  "sqlalchemy-spanner": [
+   "google"
+  ],
+  "sqlparse": [
+   "sqlparse"
+  ],
+  "sse-starlette": [
+   "sse_starlette"
+  ],
+  "starlette": [
+   "starlette"
+  ],
+  "tenacity": [
+   "tenacity"
+  ],
+  "tiktoken": [
+   "tiktoken",
+   "tiktoken_ext"
+  ],
+  "tokenizers": [
+   "tokenizers"
+  ],
+  "tqdm": [
+   "tqdm"
+  ],
+  "truststore": [
+   "truststore"
+  ],
+  "typing-extensions": [
+   "typing_extensions"
+  ],
+  "typing-inspection": [
+   "typing_inspection"
+  ],
+  "urllib3": [
+   "urllib3"
+  ],
+  "uvicorn": [
+   "uvicorn"
+  ],
+  "watchdog": [
+   "watchdog"
+  ],
+  "websockets": [
+   "websockets"
+  ],
+  "yarl": [
+   "yarl"
+  ],
+  "zipp": [
+   "zipp"
+  ]
+ }
+}

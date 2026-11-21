@@ -198,7 +198,8 @@ The console has one user, `admin@localhost`, and a password with no shared defau
   console re-reads its credential version on every request, so `agentbreeder up --reset-password`
   run in another terminal ends the open sessions of a running console at once.
 - **A session that ends while a page is open** opens a sign-in dialog over the page: the route and
-  anything typed stay. Unsaved registry edits are also kept in the tab's `sessionStorage` and come
+  anything typed stay. A view whose read got the 401 is read again after signing in there; views
+  that already had their answer keep it (#1188). Unsaved registry edits are also kept in the tab's `sessionStorage` and come
   back when the editor opens again, which happens only after this tab has signed in.
 - **Settings** (user menu): change the password (needs the current one; this tab stays signed in
   and every other session ends), session length, sign out everywhere, the theme, and the last 20
@@ -1149,6 +1150,15 @@ describe them, and they show nothing until a 1.4.0 runtime and CLI send them.
   matched text.
 - Older runtimes send none of these fields, and nothing is shown for them. Each value is checked
   for type and size, and a cached figure above the prompt tokens is dropped.
+
+`runtime/adk@1.5.0` replies also carry the turn's sub-agents and skills (#1193). Turn details
+lists them as plain text: **Sub-agents** shows each name, how many times it was called, its model
+calls and the tools it called ("billing: called once, 2 model calls; tools: file_refund"), and
+**Skills** shows each skill loaded, its version and the reference files read ("refund-policy
+1.2.0, read eu-rules.md"). The server passes on only names that match the sub-agent and registry
+name rules, at most 5 sub-agents and 10 skills, and drops a sub-agent's cost and aliases. Runtimes
+before 1.5.0 send neither, and nothing is shown. Tested with a fake CLI; not yet shown live in the
+console against a 1.5.0 agent.
 
 A later message continues the conversation's session (`--session`); **New conversation** starts a
 new one. **Customer ID** is optional and sent as `--customer`.

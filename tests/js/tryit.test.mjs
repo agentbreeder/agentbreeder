@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import {
   MAX_MESSAGE, MAX_TURNS, addPending, canTry, costText, customerProblem, emptyConversation, failureText, latencyText,
-  messageProblem, namesText, pending, productionRow, settle, thrownEnvelope, tokensText, unavailable,
+  messageProblem, namesText, pending, productionRow, settle, skillsLines, subagentsLines, thrownEnvelope, tokensText, unavailable,
 } from "../../src/agentbreeder/center/static/lib/tryit.js";
 
 const ROWS = [
@@ -125,4 +125,22 @@ test("a request the console refused (4xx) was not sent; no answer or a 5xx is un
     assert.equal(settle(conversation, id, envelope).turns[0].problem.sent, true);
   }
   assert.equal(thrownEnvelope({ kind: "unreachable", message: "gone" }).error.code, "UNREACHABLE");
+});
+
+test("a turn's sub-agents and skills in words (runtime/adk@1.5.0, #1193)", () => {
+  assert.deepEqual(subagentsLines([{ name: "billing", calls: 1, model_calls: 2, tools: ["file_refund"] }]), ["billing: called once, 2 model calls; tools: file_refund"]);
+  assert.deepEqual(subagentsLines([{ name: "tickets", calls: 2, model_calls: 1, tools: ["escalate_to_human", "lookup"] }]), ["tickets: called 2 times, 1 model call; tools: escalate_to_human, lookup"]);
+  assert.deepEqual(subagentsLines([{ name: "quiet", calls: 1, model_calls: 0, tools: [] }]), ["quiet: called once, 0 model calls; no tools"]);
+  // Counts the server could not read are left out, never guessed.
+  assert.deepEqual(subagentsLines([{ name: "odd", calls: null, model_calls: "2", tools: "x" }]), ["odd: no tools"]);
+  assert.deepEqual(skillsLines([{ name: "refund-policy", version: "1.2.0", resources: ["eu-rules.md", "us-rules.txt"] }]), ["refund-policy 1.2.0, read eu-rules.md, us-rules.txt"]);
+  assert.deepEqual(skillsLines([{ name: "tone", version: null, resources: [] }]), ["tone"]);
+  // Untrusted: anything that is not an entry with a string name is dropped; text stays text.
+  const odd = [null, "billing", { name: 7 }, { name: "" }, { name: "<b>x</b>", calls: 1, model_calls: 1, tools: [] }];
+  assert.deepEqual(subagentsLines(odd), ["<b>x</b>: called once, 1 model call; no tools"]);
+  assert.deepEqual(skillsLines(odd), ["<b>x</b>"]);
+  for (const none of [undefined, null, [], "x", {}]) {
+    assert.deepEqual(subagentsLines(none), []);
+    assert.deepEqual(skillsLines(none), []);
+  }
 });
