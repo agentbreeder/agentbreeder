@@ -541,7 +541,7 @@ class DeploymentService:
                 )
             self.store.transition(identifier, "starting", resource=info["Id"])
             if kit:
-                self.kit.start_sidecar(record)
+                self.kit.start_sidecar(record, manifest)
             if not info["State"]["Running"]:
                 runtime.start(info)
             info = runtime.inspect(record)
@@ -703,7 +703,11 @@ class DeploymentService:
                 # Under a guardrails floor, or with agent guardrails, the key reaches only the
                 # routes the Presidio hook covers (#1024 G1b): not `/openai/*` passthrough,
                 # `/v1/moderations` or admin.
-                routes=gateway_keys.key_routes(environment, manifest.guardrails),
+                routes=gateway_keys.key_routes(
+                    environment,
+                    manifest.guardrails,
+                    manifest.runtime.model_api if manifest.runtime is not None else None,
+                ),
             )
             if manifest.guardrails:
                 # #1053: before the key value is written anywhere, so it is never usable
@@ -1138,7 +1142,7 @@ class DeploymentService:
         except DeploymentError:
             return "unreachable"
         try:
-            self.kit.start_sidecar(record)
+            self.kit.start_sidecar(record, manifest)
             self._verify_kit(record, manifest, record["environment"])
             endpoint = self.kit.endpoint(record)
             if endpoint != record.get("endpoint"):

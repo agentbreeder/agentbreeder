@@ -1348,6 +1348,130 @@
    "exec": false,
    "sha256": "fe0a050a0275f7c24250edc95c5c54e2df317147ad9605a0dec70de538c4aba5"
   },
+  "examples/northwind-claude-agent-sdk/README.md": {
+   "exec": false,
+   "sha256": "8de99f5f50f745a04b9c74536db0cfd0e8a9b9983e6251bdfca9e3d54f929486"
+  },
+  "examples/northwind-claude-agent-sdk/agent.lock": {
+   "exec": false,
+   "sha256": "20ba238a15bf67c0d9753b24101ef4e3066497f6db0db9af7d42eda9b04b3408"
+  },
+  "examples/northwind-claude-agent-sdk/agent.yaml": {
+   "exec": false,
+   "sha256": "8929a0c89aab2cfd145685811434cc1133bf8667829dc02d4fbfb1f82c932521"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/Dockerfile": {
+   "exec": false,
+   "sha256": "44430a2696b3f547bdd6188164ee2acaa9c77973f5e8c5f0f871f10d4e005fbb"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/manifest.yaml": {
+   "exec": false,
+   "sha256": "17eeda58ff50d7a4feccef37e13eff6bcb32b399cef9f9bb824d8f5ad5a34179"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/anthropic_proxy.py": {
+   "exec": false,
+   "sha256": "4552816d18ab4525fa58337fddcc4c374af8c9a559b07bc85c5e9e8ce9a049d7"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/claude_adapter.py": {
+   "exec": false,
+   "sha256": "50b616b87f55c2c835cef504c884b26f954c2940eca01a4a76d4aaf40690e0d0"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/cli_host.py": {
+   "exec": false,
+   "sha256": "6e867696fda36f19a09c273e2d3683134a99d911b62d97a2741ce9bad2e7c927"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/cli_link.py": {
+   "exec": false,
+   "sha256": "358f4a1730996f296326c343e7ff5af4d58b057b143209ade06473e18333331a"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/kit/__init__.py": {
+   "exec": false,
+   "sha256": "065afacf6071a29edc4fb4ae58f6033a0cfbca3b75b58415028a84cfabd24d78"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/kit/adapter.py": {
+   "exec": false,
+   "sha256": "e24552b9e63c2a98da1ba7fa87c2700139b0e2be5a98e5dc6b4b1f5a4da0309d"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/kit/config.py": {
+   "exec": false,
+   "sha256": "e3af62baa512e51e9adfa8aec76c431c141ddb719049f76b8347d212939f4d31"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/kit/context.py": {
+   "exec": false,
+   "sha256": "0634e53790030524b45bdb07dd023e4d108e68d5c21ce0947b6e98026c5f6eba"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/kit/errors.py": {
+   "exec": false,
+   "sha256": "8d06a4236e7c97d7210b67267fcbd700ab212f151f024ef3c52b361afb3dacf1"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/kit/logs.py": {
+   "exec": false,
+   "sha256": "66d0bb1c934594a03ee3eb0836e17381806da8bc0d4527bfa06286f81d069605"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/kit/memory.py": {
+   "exec": false,
+   "sha256": "7da42efa6376978fb91745feff4cb03591db0e0a3c10dd014dd3584bb22073fd"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/kit/proxy.py": {
+   "exec": false,
+   "sha256": "c41360e4946b1eab8f9dfb14ed5e847560e61a677e8a2ac647f8525975137b74"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/kit/rag.py": {
+   "exec": false,
+   "sha256": "5d250ea7682371a40697eefaa39d90de4b0f65d58aba0b2c72a5b25724d1b0e7"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/kit/redaction.py": {
+   "exec": false,
+   "sha256": "0d50966adb45b77c7dfa2c777fb4bdaf6ba0d2ecba3a202a89e5ba20fb520347"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/kit/server.py": {
+   "exec": false,
+   "sha256": "afc430400c3cd1bec6d3fb1dad45a91adedb67c0ec3ab97cfc2fe23c323c0aeb"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/kit/telemetry.py": {
+   "exec": false,
+   "sha256": "93f5efb15f975fa27d78fc149b733d92f00cf066fcdc46030440f69a2685a353"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/kit/tools.py": {
+   "exec": false,
+   "sha256": "6de79f5960cfe2d7c3cee7aedc8994f3951f8505c6dd7f61dbfaca0e1c4723fc"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/kit/turn.py": {
+   "exec": false,
+   "sha256": "fab6555b8598f6da1197d4821bf40683eeb1baa65db821b9548b311029ab8f43"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/link_protocol.py": {
+   "exec": false,
+   "sha256": "eee24a466b1c2b200c8044fecc90c359222b42ccd384a0b666d334581e704ec9"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/modules.json": {
+   "exec": false,
+   "sha256": "8e2f63e41f3c414afdadec12b01dd14da2bb2ff9bc03da32e1153d38b142d0c5"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/requirements.in": {
+   "exec": false,
+   "sha256": "97caed044daef292b19d7f13c895d5dde1acd9ecf13e5af92a9c9e9430234839"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/requirements.lock": {
+   "exec": false,
+   "sha256": "d15687e26124f61a1008b2630750809cc0760e25b8b3b94b90b1585eefb37381"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/server.py": {
+   "exec": false,
+   "sha256": "46379ee0a0cbc96549b04d45fb5064609379a0609e94e993ed82e8fa03fedf40"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/settings.json": {
+   "exec": false,
+   "sha256": "f5399a07d2a1cac325f14ec2b746450b2861d5e06460122b5754f432563e17ba"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime/transcript.py": {
+   "exec": false,
+   "sha256": "79407b3b8b8037633e6e82a99057d1341a99a3aa9b62a38fe472ad52c89fe691"
+  },
+  "examples/northwind-claude-agent-sdk/registry/runtime/claude-agent-sdk/1.0.0/runtime_tests/test_claude_adapter.py": {
+   "exec": false,
+   "sha256": "1540f09296c0d797918038d3039ad3b3c8ca7d9759304652401b36a742e4a505"
+  },
   "examples/northwind-crewai/README.md": {
    "exec": false,
    "sha256": "4a867e03d0f5a3ab49ccd40b0696c6a52b302b3123990590ae31fd1d687e9605"
@@ -1606,7 +1730,7 @@
   },
   "examples/northwind/stack.yaml": {
    "exec": false,
-   "sha256": "3de85a4f35a1a96bb3b3aa2acfe0871c12d24110f49eea81b69d772797aafaf6"
+   "sha256": "31da69d2c4cd24675e75fb46eccf58b4d9f2406100bf0dbd95309177d0b6e682"
   },
   "examples/northwind/stack/.dockerignore": {
    "exec": false,

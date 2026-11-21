@@ -189,9 +189,10 @@ guardrails floor. 1.0.0 to 1.2.0 unchanged (they still honour `custom_llm_provid
 Northwind not relocked. No manifest, JSON Schema or `agent.lock` format change. Website: no change
 until release R. Cloud: a `CLAUDE.md` note only.
 
-**Gateway Messages route, #1089, per side.** OSS (on `main`; unit-tested, the opt-in Docker test is
-written and not run): built-in `service/litellm@1.4.0` (1.3.0's image, launcher and `service.yaml`,
-a new filter) also serves `/v1/messages` (`anthropic_messages`), with 1.3.0's refusals plus
+**Gateway Messages route, #1089, per side.** OSS (on `main`; unit-tested, and the opt-in Docker test
+passed on 2026-11-20 against the real LiteLLM 1.106.2 image with stub providers, PR #1187):
+built-in `service/litellm@1.4.0` (1.3.0's image, launcher and `service.yaml`, a new filter)
+also serves `/v1/messages` (`anthropic_messages`), with 1.3.0's refusals plus
 `mcp_servers`, `container`, `service_tier`, `speed`, `inference_geo`, betas, `compaction`,
 `safeguards`, typed tools, provider headers other than `anthropic-version`, and Files API or URL
 content (`GATEWAY_PARAM_REFUSED`); chat and embeddings are filtered as on 1.3.0.
@@ -348,6 +349,20 @@ span per model call written by the adapter;
 `agentspec.VERIFIED` or `RUNTIMES_RUN`. No `agent.yaml` field, manifest, JSON Schema,
 `SCHEMA_VERSION` or `agent.lock` format change. Website: no change until CrewAI passes its
 acceptance. Cloud: a `CLAUDE.md` note only, as for F3.
+
+**Claude Agent SDK runtime and two-uid deploys, #1089 F7 (multi-framework), per side.** OSS (on
+`main`; run end to end on macOS x86_64 2026-11-20, 61/61 local and on `kind` on a 1.4.0 copy,
+conformance blocked by #1199, no arm64; not supported): `runtime/claude-agent-sdk@1.0.0` lives
+in `examples/northwind-claude-agent-sdk/registry/`, never `builtin_registry` (D8: AgentBreeder
+does not ship the CLI). New runtime manifest key `isolation: two-uid`; the deploy manifest's
+`runtime` gains optional `model_api: anthropic-messages` and `isolation: two-uid` (JSON Schema
+updated; written only when declared, so digests are unchanged). Deploy runs a second, secret-less
+CLI container (uid 65533; `--network none` on Docker, a second pod container on `kind`), keys get
+`/v1/messages` for `anthropic-messages`, and the gate refuses that wherever guardrails apply
+(`RUNTIME_GUARDRAILS_UNSUPPORTED`). Kit 1.0.0 is unchanged (the Anthropic route is a runtime-local
+proxy subclass). It needs `service/litellm@1.4.0` (#1187); Northwind's stack stays on 1.0.0 and
+the opt-in acceptance runs on a copy pinned to 1.4.0. Website: no change until the runtime passes its acceptance and D15's support
+call. Cloud: a `CLAUDE.md` note only; it has no code that reads the deploy manifest's `runtime`.
 
 **Console sign-in, #818 M2 (epic #1054), per side.** OSS (on `main`): `up --set-password`,
 `--reset-password` and `--link`; `center.sqlite3` schema 4 (`users` with scrypt hashes, and

@@ -14,6 +14,7 @@ from pydantic import (
     Field,
     ValidationError,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -174,6 +175,20 @@ class RuntimeInfo(BaseModel):
 
     ref: str = Field(pattern=r"^runtime/[a-z0-9][a-z0-9-]{0,62}@[0-9]+\.[0-9]+\.[0-9]+$")
     profile: Literal["kit"]
+    # #1089 (both written only when the runtime manifest declares them, so every other
+    # manifest, package and digest keeps its bytes): the Anthropic Messages route, which adds
+    # `/v1/messages` to the deployment's gateway key (owner decision D17); and the two-uid
+    # contract (D15), which runs a second, secret-less container from the image.
+    model_api: Literal["anthropic-messages"] | None = None
+    isolation: Literal["two-uid"] | None = None
+
+    @model_serializer(mode="wrap")
+    def _without_unset(self, handler):
+        data = handler(self)
+        for name in ("model_api", "isolation"):
+            if data.get(name) is None:
+                data.pop(name, None)
+        return data
 
 
 class Manifest(BaseModel):

@@ -46,7 +46,7 @@ def _manifest() -> dict[str, dict]:
 
 
 # Shipped examples that are not copied on their own: a framework port of Northwind (#1083 F3,
-# F4, F5, F6) uses Northwind's registry and stack from `../northwind`, so it is run from a
+# F4, F5, F6, F7) uses Northwind's registry and stack from `../northwind`, so it is run from a
 # checkout.
 PORTS = frozenset(
     {
@@ -54,6 +54,7 @@ PORTS = frozenset(
         "northwind-openai-agents",
         "northwind-deepagents",
         "northwind-crewai",
+        "northwind-claude-agent-sdk",
     }
 )
 

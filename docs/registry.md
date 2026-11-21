@@ -463,13 +463,14 @@ same kit) is built and run end to end on macOS x86_64, **not verified**, see
 | `capabilities` | What the runtime supports: `mcp`, `knowledge`, `notes`, `subagents`, `skills`, `skill_scripts`. `build` refuses an `agent.yaml` part whose capability is missing |
 | `limits` | `{knowledge, tools, mcp_servers}`: how many of each the runtime takes, at most `agent.yaml`'s own ceilings (5, 50 and 10). A part left out keeps the limit every runtime had before: 1, 50 and 10 |
 | `reserved_tool_names` | Up to 100 tool names the runtime keeps for itself. `build` refuses an MCP tool with one of these names (`MCP_TOOL_RESERVED`), and a function tool named like one (`TOOL_NAME_RESERVED`) |
-| `model_api` | `openai-chat` or `anthropic-messages`. Read and checked; nothing uses it yet |
+| `model_api` | `openai-chat` or `anthropic-messages`. `build` writes `anthropic-messages` into the deploy manifest's `runtime` field (#1089): the gateway key gets `/v1/messages` |
+| `isolation` | Optional, `two-uid` only, with `profile: kit` (#1089, owner decision D15): deploy runs a second container from the image, as uid 65533 with no secret mount, for the framework's subprocess. See [runtimes/claude-agent-sdk.md](runtimes/claude-agent-sdk.md) |
 | `notes` | An optional one-line note, at most 300 characters |
 | `docs` | An optional relative path to the runtime's docs page |
 
 An invalid key is `ARTIFACT_INVALID` and names the key only (`invalid limits.tools`), never its
 value. So is one of `profile`, `kit`, `display_name`, `limits`, `reserved_tool_names`,
-`model_api`, `notes` or `docs` in a manifest without `protocol` (`limits needs protocol`): it
+`model_api`, `isolation`, `notes` or `docs` in a manifest without `protocol` (`limits needs protocol`): it
 is not read as a legacy version with those keys dropped.
 
 **Legacy versions.** Published versions are append-only, so the `runtime/adk` versions that

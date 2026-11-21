@@ -202,6 +202,8 @@ def test_undeclared_limits_are_the_limits_every_runtime_had():
         ({"capabilities": "mcp"}, "capabilities"),
         ({"capabilities": [f"c{i}" for i in range(33)]}, "capabilities"),
         ({"model_api": "grpc"}, "model_api"),
+        ({"isolation": "root"}, "isolation"),
+        ({"isolation": "two-uid", "profile": "v1", "kit": None}, "isolation"),
     ],
 )
 def test_an_invalid_key_is_refused_by_name_only(change, what):
@@ -222,7 +224,8 @@ def test_a_protocol_key_without_protocol_is_refused_not_read_as_legacy(key):
     data = yaml.safe_load(KIT)
     del data["protocol"]
     with pytest.raises(ProfileError) as caught:
-        runtime_profile.from_manifest({"kind": "runtime", key: data[key]})
+        # `isolation` is not in the fixture (#1089): any value shows the rule.
+        runtime_profile.from_manifest({"kind": "runtime", key: data.get(key, "two-uid")})
     assert (caught.value.code, caught.value.message) == (
         "ARTIFACT_INVALID",
         f"{key} needs protocol",
@@ -1119,3 +1122,14 @@ def test_a_legacy_version_must_not_gain_a_modules_file(tmp_path):
     assert generator.problems(version_dir) == []
     (version_dir / "runtime" / "modules.json").write_text(MODULES)
     assert "must not ship one" in generator.problems(version_dir)[0]
+
+
+def test_isolation_two_uid_is_read_and_listed_only_when_declared():
+    """#1089: `isolation: two-uid` (owner decision D15) is a kit-only key; unset it is absent
+    from the profile's JSON, so every other runtime's listing keeps its bytes."""
+    data = yaml.safe_load(KIT)
+    assert "isolation" not in runtime_profile.from_manifest(data).as_json()
+    data["isolation"] = "two-uid"
+    profile = runtime_profile.from_manifest(data)
+    assert profile.isolation == "two-uid"
+    assert profile.as_json()["isolation"] == "two-uid"

@@ -353,6 +353,16 @@ class IdentityGate:
                     "SECRET_RESERVED",
                     f"{', '.join(reserved)} may not be mounted when guardrails apply",
                 )
+        if (required or manifest.guardrails) and (
+            manifest.runtime is not None and manifest.runtime.model_api == "anthropic-messages"
+        ):
+            # #1089, owner decision D17: blocking and input masking on /v1/messages were run
+            # with a Presidio stub only; output masking and the real images were not.
+            return decision.deny(
+                "RUNTIME_GUARDRAILS_UNSUPPORTED",
+                f"{manifest.runtime.ref} calls the gateway's Anthropic Messages route, where "
+                "guardrails have not been verified; deploy it where no guardrails apply",
+            )
         if required:
             evaluated.append("guardrails")
             denied = _guardrails_failure(environment.guardrails, context.environment)
