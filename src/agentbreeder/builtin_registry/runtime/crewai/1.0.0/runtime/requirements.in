@@ -1,0 +1,13 @@
+# runtime/crewai@1.0.0 (#1090, #1083 F6). The versions F0 probed (multi-framework spec §6.1,
+# §8.5), plus the kit's own packages (h11 for the model proxy's listener, httpx for its upstream
+# calls, psycopg for memory and knowledge, OpenTelemetry for traces). No crewai-tools. crewai
+# pulls chromadb, lancedb and onnxruntime, which only its memory and RAG storage import; both
+# are off, and the packages stay in the lock so pip-audit covers them (§13.5).
+crewai==1.15.34
+openinference-instrumentation-crewai==1.1.22
+opentelemetry-sdk==1.45.2
+opentelemetry-exporter-otlp-proto-http==1.45.2
+psycopg[binary]==3.3.6
+pyyaml==6.0.3
+h11==0.16.0
+httpx==0.28.1

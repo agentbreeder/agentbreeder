@@ -1,0 +1,454 @@
+{
+ "schema_version": 1,
+ "modules": [
+  "crewai_adapter",
+  "crewai_confine",
+  "crewai_schema",
+  "kit",
+  "server"
+ ],
+ "imports": {
+  "aiofiles": [
+   "aiofiles"
+  ],
+  "aiohappyeyeballs": [
+   "aiohappyeyeballs"
+  ],
+  "aiohttp": [
+   "aiohttp"
+  ],
+  "aiosignal": [
+   "aiosignal"
+  ],
+  "aiosqlite": [
+   "aiosqlite"
+  ],
+  "annotated-doc": [
+   "annotated_doc"
+  ],
+  "annotated-types": [
+   "annotated_types"
+  ],
+  "anyio": [
+   "anyio"
+  ],
+  "appdirs": [
+   "appdirs"
+  ],
+  "attrs": [
+   "attr",
+   "attrs"
+  ],
+  "bcrypt": [
+   "bcrypt"
+  ],
+  "build": [
+   "build"
+  ],
+  "cel-python": [
+   "celpy"
+  ],
+  "certifi": [
+   "certifi"
+  ],
+  "cffi": [
+   "_cffi_backend",
+   "cffi"
+  ],
+  "charset-normalizer": [
+   "charset_normalizer"
+  ],
+  "chromadb": [
+   "chromadb",
+   "chromadb_rust_bindings",
+   "schemas"
+  ],
+  "click": [
+   "click"
+  ],
+  "crewai": [
+   "crewai"
+  ],
+  "crewai-cli": [
+   "crewai_cli"
+  ],
+  "crewai-core": [
+   "crewai_core"
+  ],
+  "cryptography": [
+   "cryptography"
+  ],
+  "deprecation": [
+   "deprecation"
+  ],
+  "distro": [
+   "distro"
+  ],
+  "docstring-parser": [
+   "docstring_parser"
+  ],
+  "durationpy": [
+   "durationpy"
+  ],
+  "et-xmlfile": [
+   "et_xmlfile"
+  ],
+  "filelock": [
+   "filelock"
+  ],
+  "flatbuffers": [
+   "flatbuffers"
+  ],
+  "frozenlist": [
+   "frozenlist"
+  ],
+  "fsspec": [
+   "fsspec"
+  ],
+  "google-re2": [
+   "re2"
+  ],
+  "googleapis-common-protos": [
+   "google"
+  ],
+  "grpcio": [
+   "grpc"
+  ],
+  "h11": [
+   "h11"
+  ],
+  "hf-xet": [
+   "hf_xet"
+  ],
+  "httpcore": [
+   "httpcore"
+  ],
+  "httpcore2": [
+   "httpcore2"
+  ],
+  "httptools": [
+   "httptools"
+  ],
+  "httpx": [
+   "httpx"
+  ],
+  "httpx-sse": [
+   "httpx_sse"
+  ],
+  "httpx2": [
+   "httpx2"
+  ],
+  "huggingface-hub": [
+   "huggingface_hub"
+  ],
+  "idna": [
+   "idna"
+  ],
+  "importlib-resources": [
+   "importlib_resources"
+  ],
+  "instructor": [
+   "instructor"
+  ],
+  "jinja2": [
+   "jinja2"
+  ],
+  "jiter": [
+   "jiter"
+  ],
+  "jmespath": [
+   "jmespath"
+  ],
+  "json-repair": [
+   "json_repair"
+  ],
+  "json5": [
+   "json5"
+  ],
+  "jsonref": [
+   "jsonref",
+   "proxytypes"
+  ],
+  "jsonschema": [
+   "jsonschema"
+  ],
+  "jsonschema-specifications": [
+   "jsonschema_specifications"
+  ],
+  "kubernetes": [
+   "kubernetes"
+  ],
+  "lance-namespace": [
+   "lance_namespace"
+  ],
+  "lance-namespace-urllib3-client": [
+   "lance_namespace_urllib3_client"
+  ],
+  "lancedb": [
+   "lancedb"
+  ],
+  "lark": [
+   "lark"
+  ],
+  "linkify-it-py": [
+   "linkify_it"
+  ],
+  "markdown-it-py": [
+   "markdown_it"
+  ],
+  "markupsafe": [
+   "markupsafe"
+  ],
+  "mcp": [
+   "mcp"
+  ],
+  "mdit-py-plugins": [
+   "mdit_py_plugins"
+  ],
+  "mdurl": [
+   "mdurl"
+  ],
+  "mmh3": [
+   "mmh3"
+  ],
+  "multidict": [
+   "multidict"
+  ],
+  "numpy": [
+   "numpy"
+  ],
+  "oauthlib": [
+   "oauthlib"
+  ],
+  "onnxruntime": [
+   "onnxruntime"
+  ],
+  "openai": [
+   "openai"
+  ],
+  "openinference-instrumentation": [
+   "openinference"
+  ],
+  "openinference-instrumentation-crewai": [
+   "openinference"
+  ],
+  "openinference-semantic-conventions": [
+   "openinference"
+  ],
+  "openpyxl": [
+   "openpyxl"
+  ],
+  "opentelemetry-api": [
+   "opentelemetry"
+  ],
+  "opentelemetry-exporter-http-transport": [
+   "opentelemetry"
+  ],
+  "opentelemetry-exporter-otlp-common": [
+   "opentelemetry"
+  ],
+  "opentelemetry-exporter-otlp-proto-common": [
+   "opentelemetry"
+  ],
+  "opentelemetry-exporter-otlp-proto-grpc": [
+   "opentelemetry"
+  ],
+  "opentelemetry-exporter-otlp-proto-http": [
+   "opentelemetry"
+  ],
+  "opentelemetry-instrumentation": [
+   "opentelemetry"
+  ],
+  "opentelemetry-proto": [
+   "opentelemetry"
+  ],
+  "opentelemetry-sdk": [
+   "opentelemetry"
+  ],
+  "opentelemetry-semantic-conventions": [
+   "opentelemetry"
+  ],
+  "orjson": [
+   "orjson"
+  ],
+  "overrides": [
+   "overrides"
+  ],
+  "packaging": [
+   "packaging"
+  ],
+  "pdfminer-six": [
+   "pdfminer"
+  ],
+  "pdfplumber": [
+   "pdfplumber"
+  ],
+  "pendulum": [
+   "pendulum"
+  ],
+  "pillow": [
+   "PIL"
+  ],
+  "platformdirs": [
+   "platformdirs"
+  ],
+  "portalocker": [
+   "portalocker"
+  ],
+  "propcache": [
+   "propcache"
+  ],
+  "protobuf": [
+   "google"
+  ],
+  "psycopg": [
+   "psycopg"
+  ],
+  "psycopg-binary": [
+   "psycopg_binary"
+  ],
+  "pyarrow": [
+   "pyarrow"
+  ],
+  "pybase64": [
+   "pybase64"
+  ],
+  "pycparser": [
+   "pycparser"
+  ],
+  "pydantic": [
+   "pydantic"
+  ],
+  "pydantic-core": [
+   "pydantic_core"
+  ],
+  "pydantic-settings": [
+   "pydantic_settings"
+  ],
+  "pygments": [
+   "pygments"
+  ],
+  "pyjwt": [
+   "jwt"
+  ],
+  "pypdfium2": [
+   "pypdfium2",
+   "pypdfium2_cfg",
+   "pypdfium2_cli",
+   "pypdfium2_raw"
+  ],
+  "pypika": [
+   "pypika"
+  ],
+  "pyproject-hooks": [
+   "pyproject_hooks"
+  ],
+  "python-dateutil": [
+   "dateutil"
+  ],
+  "python-dotenv": [
+   "dotenv"
+  ],
+  "python-multipart": [
+   "multipart",
+   "python_multipart"
+  ],
+  "pyyaml": [
+   "_yaml",
+   "yaml"
+  ],
+  "referencing": [
+   "referencing"
+  ],
+  "regex": [
+   "regex"
+  ],
+  "requests": [
+   "requests"
+  ],
+  "requests-oauthlib": [
+   "requests_oauthlib"
+  ],
+  "rich": [
+   "rich"
+  ],
+  "rpds-py": [
+   "rpds"
+  ],
+  "shellingham": [
+   "shellingham"
+  ],
+  "six": [
+   "six"
+  ],
+  "sniffio": [
+   "sniffio"
+  ],
+  "sse-starlette": [
+   "sse_starlette"
+  ],
+  "starlette": [
+   "starlette"
+  ],
+  "tenacity": [
+   "tenacity"
+  ],
+  "textual": [
+   "textual"
+  ],
+  "tokenizers": [
+   "tokenizers"
+  ],
+  "tomli": [
+   "tomli"
+  ],
+  "tomli-w": [
+   "tomli_w"
+  ],
+  "tqdm": [
+   "tqdm"
+  ],
+  "truststore": [
+   "truststore"
+  ],
+  "typer": [
+   "typer"
+  ],
+  "typing-extensions": [
+   "typing_extensions"
+  ],
+  "typing-inspection": [
+   "typing_inspection"
+  ],
+  "tzdata": [
+   "tzdata"
+  ],
+  "urllib3": [
+   "urllib3"
+  ],
+  "uv": [
+   "uv"
+  ],
+  "uvicorn": [
+   "uvicorn"
+  ],
+  "uvloop": [
+   "uvloop"
+  ],
+  "watchfiles": [
+   "watchfiles"
+  ],
+  "websocket-client": [
+   "websocket"
+  ],
+  "websockets": [
+   "websockets"
+  ],
+  "wrapt": [
+   "wrapt"
+  ],
+  "yarl": [
+   "yarl"
+  ]
+ }
+}

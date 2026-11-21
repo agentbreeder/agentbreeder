@@ -46,7 +46,7 @@ def _files(directory: Path) -> dict[str, bytes]:
 
 
 def test_there_is_a_kit_runtime():
-    assert {"langgraph", "openai-agents"} <= set(kit_runtimes())
+    assert {"crewai", "langgraph", "openai-agents"} <= set(kit_runtimes())
 
 
 def test_each_kit_runtime_vendors_the_kit_byte_for_byte():

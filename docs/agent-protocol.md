@@ -179,7 +179,8 @@ A runtime manifest's `profile` says which additions the runtime serves on top of
   x86_64 for the starter and one tool with Gemini only, see [runtimes/langgraph.md](runtimes/langgraph.md); by `runtime/openai-agents@1.0.0`, run
   end to end on macOS x86_64 and not verified, see [runtimes/openai-agents.md](runtimes/openai-agents.md); and by
   `runtime/deepagents@1.0.0`, likewise run end to end on macOS x86_64 and not verified, see
-  [runtimes/deepagents.md](runtimes/deepagents.md)): `GET /health` is 503 until the
+  [runtimes/deepagents.md](runtimes/deepagents.md); and by `runtime/crewai@1.0.0`, likewise run end
+  to end on macOS x86_64 and not verified, see [runtimes/crewai.md](runtimes/crewai.md)): `GET /health` is 503 until the
   agent is built and after a failed start, and 200 only when it is ready; on SIGTERM the turn in
   flight finishes or times out within the stop grace; a turn that reaches its model-call limit
   with the model still asking for tools fails with `MODEL_STEP_LIMIT`. A `kit` runtime still

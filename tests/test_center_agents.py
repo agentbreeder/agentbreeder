@@ -317,6 +317,12 @@ def test_identity_view_shows_what_stack_yaml_declares(center, project, cookie, p
                 "review_by": "2027-06-30",
                 "candidate": True,
             },
+            # And the CrewAI port's (#1090).
+            "northwind-support-crewai": {
+                "sponsor": "support-lead@example.com",
+                "review_by": "2027-06-30",
+                "candidate": True,
+            },
         },
     }
 
