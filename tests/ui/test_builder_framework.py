@@ -5,10 +5,10 @@ makes invalid (each removable, one announcement, cleared by switching back), the
 `runtime:` line, Create off for what has not been run end to end, the code confirm for a runtime
 from outside the built-ins, reflow at 320 px and 200% zoom, and axe in light and dark.
 
-The built-ins have `runtime/adk`, `runtime/langgraph`, `runtime/openai-agents` and
-`runtime/deepagents`, so the tests that need other frameworks give the fake CLI a scripted
-`registry runtimes` answer; nothing is previewed or created on a runtime that does not exist.
-The other tests hand both
+The built-ins have `runtime/adk`, `runtime/langgraph`, `runtime/openai-agents`,
+`runtime/deepagents` and `runtime/crewai`, so the tests that need other frameworks give the fake
+CLI a scripted `registry runtimes` answer; nothing is previewed or created on a runtime that does
+not exist. The other tests hand both
 `registry runtimes` and `new agent --from-spec` to the real commands."""
 
 from __future__ import annotations
@@ -175,9 +175,11 @@ def test_adk_1_2_0_and_1_3_0_are_usable_google_adk_through_the_legacy_profile(pa
     the engine's legacy profile names each one."""
     open_builder(page, console)
     radios = group(page).get_by_role("radio")
-    expect(radios).to_have_count(4)  # the frameworks with a built-in runtime today
+    expect(radios).to_have_count(5)  # the frameworks with a built-in runtime today
     # Run end to end first, then by name.
-    for index, name in enumerate(("Google ADK", "LangGraph", "Deep Agents", "OpenAI Agents SDK")):
+    for index, name in enumerate(
+        ("Google ADK", "LangGraph", "CrewAI", "Deep Agents", "OpenAI Agents SDK")
+    ):
         expect(radios.nth(index)).to_have_accessible_name(name)
     adk = group(page).get_by_role("radio", name="Google ADK")
     expect(adk).to_be_checked()
@@ -187,8 +189,12 @@ def test_adk_1_2_0_and_1_3_0_are_usable_google_adk_through_the_legacy_profile(pa
     expect(langgraph).to_have_accessible_description(
         "runtime/langgraph@1.0.0 · Run end to end (Northwind)"
     )
-    # runtime/deepagents@1.0.0 (#1083 F5) and runtime/openai-agents@1.0.0 (#1083 F4) are listed
-    # but not in RUNTIMES_RUN, so they sort after LangGraph, by name.
+    # runtime/crewai@1.0.0 (#1090), runtime/deepagents@1.0.0 (#1083 F5) and
+    # runtime/openai-agents@1.0.0 (#1083 F4) are listed but not in RUNTIMES_RUN, so they sort
+    # after LangGraph, by name.
+    crewai = group(page).get_by_role("radio", name="CrewAI")
+    expect(crewai).not_to_be_checked()
+    expect(crewai).to_have_accessible_description("runtime/crewai@1.0.0 · Not run end to end")
     deepagents = group(page).get_by_role("radio", name="Deep Agents")
     expect(deepagents).not_to_be_checked()
     expect(deepagents).to_have_accessible_description(
