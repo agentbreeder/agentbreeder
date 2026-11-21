@@ -12,7 +12,7 @@ import time
 import pytest
 from test_center import api, center, cookie, project, project_dir  # noqa: F401 (fixtures)
 
-from agentbreeder import agentfile, invoke
+from agentbreeder import agentfile, invoke, registry, skill_check
 from agentbreeder.center import jobs, server, tryit
 
 REPLY = {
@@ -147,6 +147,15 @@ def test_the_name_rule_and_limits_match_the_cli():
     assert route.regex.fullmatch(f"/api/projects/0123456789ab/agents/{'a' * 53}/try")
 
 
+def test_the_subagent_and_skill_rules_match_the_cli():
+    assert f"^{tryit.SUBAGENT.pattern}$" == agentfile.SUBAGENT_NAME
+    assert tryit.MAX_SUBAGENTS == agentfile.MAX_SUBAGENTS
+    assert tryit.SKILL.pattern == registry.NAME.pattern
+    assert tryit.VERSION.pattern == registry.VERSION.pattern
+    assert tryit.REFERENCE.pattern == skill_check.REFERENCE_NAME.pattern
+    assert tryit.MAX_RESOURCES == skill_check.REFERENCES_MAX
+
+
 # -- the answer -----------------------------------------------------------------------------------
 
 
@@ -171,6 +180,8 @@ def test_a_reply_is_allow_listed_with_latency_and_seams(center, project, cookie)
         "fallbacks": None,  # REPLY is a runtime before adk 1.3.0: no route facts
         "served_by": [],
         "unknown_tools": [],
+        "subagents": [],  # REPLY is a runtime before adk 1.5.0: no sub-agents or skills
+        "skills": [],
         "latency_ms": turn["latency_ms"],
         "trace": {"id": "a" * 32, "url": None},
         "cost": None,  # REPLY is a runtime before adk 1.2.0: no `cost_usd`
@@ -514,3 +525,65 @@ def test_read_with_input_writes_stdin_and_without_it_gives_devnull(tmp_path):
     runner = jobs.Runner(jobs.CenterState(tmp_path / "c"), tmp_path, [sys.executable, str(script)])
     assert runner.read([], cache=False, input="héllo ✓")["data"] == {"in": "héllo ✓"}
     assert runner.read([], cache=False)["data"] == {"in": ""}
+
+
+# -- sub-agents and skills (runtime/adk@1.5.0, #1193) ---------------------------------------------
+
+SUBAGENTS = [
+    {
+        "name": "billing",
+        "calls": 1,
+        "model_calls": 2,
+        "tools": ["file_refund"],
+        "cost_usd": None,
+        "cost_unknown": 0,
+        "served_by": [],
+    }
+]
+SKILLS = [{"name": "refund-policy", "version": "1.2.0", "resources": ["eu-rules.md"]}]
+
+
+def test_a_reply_carries_its_subagents_and_skills(center, project, cookie, tmp_path):  # noqa: F811
+    answer(tmp_path, dict(ANSWER, response=dict(REPLY, subagents=SUBAGENTS, skills=SKILLS)))
+    turn = send(center, project, cookie, {"message": "hi"})[1]["data"]
+    # Only the names, counts, tool names and reference files are passed on.
+    assert turn["subagents"] == [
+        {"name": "billing", "calls": 1, "model_calls": 2, "tools": ["file_refund"]}
+    ]
+    assert turn["skills"] == SKILLS
+
+
+def test_odd_subagents_and_skills_are_dropped(center, project, cookie, tmp_path):  # noqa: F811
+    subagents = [
+        {"name": "Bad-Name", "calls": 1},
+        {"name": "<b>x</b>"},
+        "billing",
+        None,
+        {"name": "tickets", "calls": True, "model_calls": -1, "tools": "escalate", "html": "<i>"},
+        *[{"name": f"s{i}", "calls": 1} for i in range(8)],
+    ]
+    skills = [
+        {"name": "Refund Policy", "version": "1.0.0"},
+        {"name": "ok", "version": "v1", "resources": ["a.md"]},
+        {"name": "fine", "version": "1.0.0", "resources": ["../etc/passwd", "a.md", 7, "b.txt"]},
+        *[{"name": f"k{i}", "version": "0.1.0"} for i in range(12)],
+    ]
+    reply = dict(REPLY, subagents=subagents, skills=skills)
+    answer(tmp_path, dict(ANSWER, response=reply))
+    turn = send(center, project, cookie, {"message": "hi"})[1]["data"]
+    # Only entries with a valid name are kept, at most MAX_SUBAGENTS of the first ones checked.
+    assert turn["subagents"][0] == {
+        "name": "tickets",
+        "calls": None,
+        "model_calls": None,
+        "tools": [],
+    }
+    assert [s["name"] for s in turn["subagents"]] == ["tickets", "s0", "s1", "s2", "s3"]
+    assert turn["skills"][0] == {"name": "ok", "version": None, "resources": ["a.md"]}
+    fine = {"name": "fine", "version": "1.0.0", "resources": ["a.md", "b.txt"]}
+    assert turn["skills"][1] == fine
+    assert len(turn["skills"]) == tryit.MAX_SKILLS
+    for value in ("billing", {"name": "x"}, 3):
+        answer(tmp_path, dict(ANSWER, response=dict(REPLY, subagents=value, skills=value)))
+        turn = send(center, project, cookie, {"message": "hi"})[1]["data"]
+        assert turn["subagents"] == [] and turn["skills"] == []

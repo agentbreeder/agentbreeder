@@ -88,7 +88,9 @@ On `main` the walkthrough column is replaced by a console shell (Preact + htm, n
 - **Sign-in states**: the one-time link is consumed before anything else and removed from the
   address bar. "Session ended" and "Sign in" pages say how to get a new link, and signing in again
   returns to the screen you were on. Sessions live in the console's memory, so "Session ended"
-  names every cause, a console restart included (#879). "Console not reachable at this address"
+  names every cause: the session length or 1 hour idle, a console restart (#879), signing out
+  everywhere, and a password changed in another tab or reset with `up --reset-password` (the M2
+  run). "Console not reachable at this address"
   (no answer at all) is a separate page that retries every 5 seconds. From #818 the sign-in pages
   also take the console password (below).
 - **Walkthrough fixes (#811)**:
@@ -201,8 +203,10 @@ The console has one user, `admin@localhost`, and a password with no shared defau
 - **Settings** (user menu): change the password (needs the current one; this tab stays signed in
   and every other session ends), session length, sign out everywhere, the theme, and the last 20
   security events (sign-ins, failed sign-ins, waits, password set, change and reset, sign-outs;
-  time, outcome and source only, never a password or link). A forgotten password is reset only in
-  the terminal: `agentbreeder up --reset-password`.
+  time, outcome and source only, never a password or link). The source is "Console (HTTP)" for
+  anything that came through the console's HTTP API (the server cannot tell a browser from `curl`
+  or a local container), and "Terminal" or "Terminal link" for the terminal (#1180). A forgotten
+  password is reset only in the terminal: `agentbreeder up --reset-password`.
 - `http://localhost:PORT/` redirects to `http://127.0.0.1:PORT/`, the one address the console
   answers; the API never redirects.
 
@@ -1146,6 +1150,15 @@ describe them, and they show nothing until a 1.4.0 runtime and CLI send them.
 - Older runtimes send none of these fields, and nothing is shown for them. Each value is checked
   for type and size, and a cached figure above the prompt tokens is dropped.
 
+`runtime/adk@1.5.0` replies also carry the turn's sub-agents and skills (#1193). Turn details
+lists them as plain text: **Sub-agents** shows each name, how many times it was called, its model
+calls and the tools it called ("billing: called once, 2 model calls; tools: file_refund"), and
+**Skills** shows each skill loaded, its version and the reference files read ("refund-policy
+1.2.0, read eu-rules.md"). The server passes on only names that match the sub-agent and registry
+name rules, at most 5 sub-agents and 10 skills, and drops a sub-agent's cost and aliases. Runtimes
+before 1.5.0 send neither, and nothing is shown. Tested with a fake CLI; not yet shown live in the
+console against a 1.5.0 agent.
+
 A later message continues the conversation's session (`--session`); **New conversation** starts a
 new one. **Customer ID** is optional and sent as `--customer`.
 
@@ -1248,6 +1261,8 @@ from a wheel in a clean sandbox, driven by Playwright in Chrome
 ([record](superpowers/verification/verify-langgraph-adk150.md)).
 The OpenAI Agents SDK (`runtime/openai-agents@1.0.0`, #1083 F4) is listed but not in
 `agentspec.VERIFIED`, so Create stays off for it; it has not been run end to end from the console.
+CrewAI (`runtime/crewai@1.0.0`, #1090) is listed the same way and has not been run end to end
+from the console.
 Other frameworks appear when their runtimes land, with no console change. There are no logos.
 
 - **Where the list comes from.** `GET /api/builder/parts` gains `runtimes`: the engine's resolved

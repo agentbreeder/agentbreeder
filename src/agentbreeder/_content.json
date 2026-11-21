@@ -748,6 +748,102 @@
    "exec": false,
    "sha256": "d41c0e3b1f35beb196f3135209b14069c448c3c55c6036874ea6e82fe2b4c1dc"
   },
+  "builtin_registry/runtime/crewai/1.0.0/Dockerfile": {
+   "exec": false,
+   "sha256": "19174a61c0dc325473aa268da1e3c709bccec8c67c9138d018fd78d5d2fa648a"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/manifest.yaml": {
+   "exec": false,
+   "sha256": "3e2e0a55d0acd178200620160ceb48d40cb3fbfffbc679074716817ba59b2767"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/crewai_adapter.py": {
+   "exec": false,
+   "sha256": "ec622516688747074949864fb7da460cd623eb35fcc68dd012d8be4e1c74222f"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/crewai_confine.py": {
+   "exec": false,
+   "sha256": "0d24b6e6860bb099aff6f24432776e013e7795b353f57407041122b12e92d4f3"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/crewai_schema.py": {
+   "exec": false,
+   "sha256": "9c93d88ab0088c707631ff8b8ba10f1c1155b28d95266e42e86b9ef946119458"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/kit/__init__.py": {
+   "exec": false,
+   "sha256": "065afacf6071a29edc4fb4ae58f6033a0cfbca3b75b58415028a84cfabd24d78"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/kit/adapter.py": {
+   "exec": false,
+   "sha256": "e24552b9e63c2a98da1ba7fa87c2700139b0e2be5a98e5dc6b4b1f5a4da0309d"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/kit/config.py": {
+   "exec": false,
+   "sha256": "e3af62baa512e51e9adfa8aec76c431c141ddb719049f76b8347d212939f4d31"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/kit/context.py": {
+   "exec": false,
+   "sha256": "0634e53790030524b45bdb07dd023e4d108e68d5c21ce0947b6e98026c5f6eba"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/kit/errors.py": {
+   "exec": false,
+   "sha256": "8d06a4236e7c97d7210b67267fcbd700ab212f151f024ef3c52b361afb3dacf1"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/kit/logs.py": {
+   "exec": false,
+   "sha256": "66d0bb1c934594a03ee3eb0836e17381806da8bc0d4527bfa06286f81d069605"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/kit/memory.py": {
+   "exec": false,
+   "sha256": "7da42efa6376978fb91745feff4cb03591db0e0a3c10dd014dd3584bb22073fd"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/kit/proxy.py": {
+   "exec": false,
+   "sha256": "c41360e4946b1eab8f9dfb14ed5e847560e61a677e8a2ac647f8525975137b74"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/kit/rag.py": {
+   "exec": false,
+   "sha256": "5d250ea7682371a40697eefaa39d90de4b0f65d58aba0b2c72a5b25724d1b0e7"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/kit/redaction.py": {
+   "exec": false,
+   "sha256": "0d50966adb45b77c7dfa2c777fb4bdaf6ba0d2ecba3a202a89e5ba20fb520347"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/kit/server.py": {
+   "exec": false,
+   "sha256": "afc430400c3cd1bec6d3fb1dad45a91adedb67c0ec3ab97cfc2fe23c323c0aeb"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/kit/telemetry.py": {
+   "exec": false,
+   "sha256": "93f5efb15f975fa27d78fc149b733d92f00cf066fcdc46030440f69a2685a353"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/kit/tools.py": {
+   "exec": false,
+   "sha256": "6de79f5960cfe2d7c3cee7aedc8994f3951f8505c6dd7f61dbfaca0e1c4723fc"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/kit/turn.py": {
+   "exec": false,
+   "sha256": "fab6555b8598f6da1197d4821bf40683eeb1baa65db821b9548b311029ab8f43"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/modules.json": {
+   "exec": false,
+   "sha256": "2761c8700e05db38fde354405ce00d19feda62189351b4cf8f62251e721f7633"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/requirements.in": {
+   "exec": false,
+   "sha256": "83d2f72a023e81e9b4103be78e9314f3473172853a4b74c2e288dcfc20e5eebd"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/requirements.lock": {
+   "exec": false,
+   "sha256": "026c45794c41562e1e5ae5af93e83df67442315c8f43b37850f4931d4220673b"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime/server.py": {
+   "exec": false,
+   "sha256": "58d76d60f8f4a400a1e865af44091d91a4b366027032bf63bfd5a04e14bb56b5"
+  },
+  "builtin_registry/runtime/crewai/1.0.0/runtime_tests/test_crewai.py": {
+   "exec": false,
+   "sha256": "1bd3bc0f2b2f27028ef3848324b7b184fa6888d2ba0b4ddb09480dab5c11b75d"
+  },
   "builtin_registry/runtime/deepagents/1.0.0/Dockerfile": {
    "exec": false,
    "sha256": "090b1b435e89e376af9714ae0d94fe26ae587cd36278d4d404cf782710cd5f56"
@@ -1252,6 +1348,18 @@
    "exec": false,
    "sha256": "fe0a050a0275f7c24250edc95c5c54e2df317147ad9605a0dec70de538c4aba5"
   },
+  "examples/northwind-crewai/README.md": {
+   "exec": false,
+   "sha256": "4a867e03d0f5a3ab49ccd40b0696c6a52b302b3123990590ae31fd1d687e9605"
+  },
+  "examples/northwind-crewai/agent.lock": {
+   "exec": false,
+   "sha256": "918dd50b8b7b510d5eda67f6fb8dbb532408faaab8090e1c0b27c90adc297c1f"
+  },
+  "examples/northwind-crewai/agent.yaml": {
+   "exec": false,
+   "sha256": "b2f3736bad6641240e23a8579d72803d3fbd9ad4a0153e147dbb3aa680040912"
+  },
   "examples/northwind-deepagents/README.md": {
    "exec": false,
    "sha256": "4f37133529e3f8cd71314923dc1a317cc9568f8eb40f9265590f8a3f4379d820"
@@ -1498,7 +1606,7 @@
   },
   "examples/northwind/stack.yaml": {
    "exec": false,
-   "sha256": "1c92a629d3f36f200610d8034594ca3c3e73609b9550d363f9443d2388f14499"
+   "sha256": "3de85a4f35a1a96bb3b3aa2acfe0871c12d24110f49eea81b69d772797aafaf6"
   },
   "examples/northwind/stack/.dockerignore": {
    "exec": false,

@@ -1,0 +1,37 @@
+kind: runtime
+name: crewai
+version: 1.0.0
+description: >-
+  AgentBreeder's CrewAI runtime (crewai 1.15.34), on the shared runtime kit (kit 1.0.0, vendored
+  in runtime/kit/). It builds the agent from the data-only agent.config.json that `agentbreeder
+  build` generates: the prompt, model alias, registry tools, knowledge and notes mean what they
+  mean on runtime/adk@1.3.0. Each turn runs one CrewAI Agent (role from the agent's name, goal
+  from its description, backstory the prompt and the customer's notes) with Agent.kickoff_async,
+  the conversation's user and assistant text from the agent's own `turns` table as structured
+  messages; no Crew is built. Memory, planning, reasoning, delegation, code execution, context
+  summarising and the tool cache are off, and CrewAI's task-output SQLite store and console
+  output are switched off, so that no customer text is kept outside `turns`. CrewAI reaches models
+  only through the kit's loopback model proxy, which holds the gateway key and owns retries, the
+  cost tally, coded model errors (as 1.3.0), the model alias and the step cap: the last allowed
+  call goes with function calling off, and an answer that still calls a tool is withheld and the
+  turn fails MODEL_STEP_LIMIT. /health is 503 until the agent is built. No MCP, sub-agents or
+  skills in this version. Not run end to end on a real stack yet.
+# The agent protocol this runtime serves and what the engine may build for it (#1083 F1, F6).
+protocol: 1
+profile: kit
+kit: 1.0.0
+framework: crewai
+display_name: CrewAI
+model_api: openai-chat
+port: 8080
+health_path: /health
+capabilities: [knowledge, notes]
+limits: {knowledge: 1, tools: 50, mcp_servers: 0}
+# The knowledge tool the kit adds when the agent has knowledge.
+reserved_tool_names: [search_knowledge_base]
+docs: docs/runtimes/crewai.md
+# The memory schema version this runtime writes: runtime/adk@1.3.0's tables, unchanged.
+memory_schema: 2
+secrets: [DATABASE_URL, LLM_GATEWAY_KEY]
+environment: [AGENTBREEDER_GATEWAY_URL, AGENTBREEDER_SERVICE_TRACES_URL,
+  AGENTBREEDER_SERVICE_TOOLS_PROXY_URL, AGENTBREEDER_DEPLOYMENT_ID]

@@ -30,8 +30,10 @@ import {
   pending,
   productionRow,
   settle,
+  skillsLines,
   spanFacts,
   spanTree,
+  subagentsLines,
   thrownEnvelope,
   tokensText,
   traceFlags,
@@ -222,12 +224,16 @@ function Inspector({ turn, project }) {
   const cost = costText(turn.cost);
   const fallback = fallbackText(turn.fallbacks, turn.served_by);
   const unknown = unknownToolsText(turn.unknown_tools);
+  const subagents = subagentsLines(turn.subagents);
+  const skills = skillsLines(turn.skills);
   const { runtimes } = useRuntimes();
   return html`<details class="inspector">
     <summary>Turn details <span class="muted small">${latencyText(turn.latency_ms)} · ${tokensText(turn.tokens)} tokens${cost ? ` · ${cost}` : ""}</span></summary>
     <dl class="facts">
       <dt>Tools</dt><dd><${Text} value=${namesText(turn.tools)} /></dd>
       ${unknown ? html`<dt>Unknown tools</dt><dd><${Text} value=${unknown} /></dd>` : null}
+      ${subagents.length ? html`<dt>Sub-agents</dt><dd><ul class="plain">${subagents.map((line) => html`<li><${Text} value=${line} /></li>`)}</ul></dd>` : null}
+      ${skills.length ? html`<dt>Skills</dt><dd><ul class="plain">${skills.map((line) => html`<li><${Text} value=${line} /></li>`)}</ul></dd>` : null}
       <dt>Sources</dt><dd><${Text} value=${namesText(turn.sources)} /></dd>
       <dt>Latency</dt><dd>${latencyText(turn.latency_ms)} <span class="muted small">(console to reply, through invoke)</span></dd>
       <dt>Tokens</dt><dd>${tokensText(turn.tokens)}${Number.isInteger(turn.model_calls) ? html` <span class="muted small">over ${turn.model_calls} model call${turn.model_calls === 1 ? "" : "s"}</span>` : null}</dd>
