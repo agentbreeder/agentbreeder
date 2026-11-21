@@ -189,6 +189,9 @@ function App({ initial }) {
   // A 401 while the page is shown opens the re-auth dialog over it (spec §8.2): the page, the
   // route and an editor's text stay; polls stop until a new sign-in.
   const [reauth, setReauth] = useState(false);
+  // Counts sign-ins from the re-auth dialog: a view whose read got the 401 reads again on the
+  // next one (useView), so it does not stay on its loading state.
+  const [signIns, setSignIns] = useState(0);
   const live = phase.name === "ready" && !reauth;
   const [docker, retryDocker] = useDocker(client, live, () => readOverview());
   const [guide, reloadGuide] = useGuide(scoped ? scoped.id : null, scoped ? jobs.version(scoped.id) : 0, live);
@@ -216,6 +219,7 @@ function App({ initial }) {
     sessionKind.set(data.kind || "password");
     if (overPage) {
       setReauth(false);
+      setSignIns((n) => n + 1);
       jobs.begin();
       loadProjects().catch(() => {});
       readOverview();
@@ -427,6 +431,7 @@ function App({ initial }) {
       signedIn(data, true);
     },
     versionOf: (id) => jobs.version(id),
+    signIns,
     jobsEnded: () => jobs.ended(),
     jobsRunning: () => jobs.running().length,
     projectName: (id) => visible((projects.find((p) => p.id === id) || {}).name || ""),
