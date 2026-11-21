@@ -566,8 +566,8 @@ that platform) and by stub-builder build tests. Docker rerun on macOS x86_64, 20
 (opt-in `tests/test_runtime_adk_otel_patch_docker.py`;
 [record](superpowers/verification/1190-adk-otel-patch-docker.md)): both images build with the new
 pins, conformance is identical check for check to `1.4.0`'s and `1.5.0`'s, Northwind passes 61/61
-on `1.5.1`, and the Phoenix spans and attribute keys are unchanged. Neither is labelled run end to
-end yet (an owner decision on the google-adk move and the schema setting comes first), so
+on `1.5.1`, and the Phoenix spans and attribute keys are unchanged. The google-adk move and the
+schema setting are accepted; neither version is labelled run end to end yet (#1198), so
 Northwind stays on `1.5.0` and the `new agent` starter on `1.4.0`. Every earlier version is
 unchanged; pin a new one with [`agent set-ref`](commands/agent.md).
 

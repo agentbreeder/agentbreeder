@@ -6,9 +6,9 @@ new pins, their conformance reports are identical check for check to their base 
 span tree and attribute keys are unchanged. arm64 and `kind` were not run.
 
 What this does **not** change: neither version is added to `agentspec.RUNTIMES_RUN` or
-`VERIFIED`, and the starter, Northwind and the console's `STARTER_RUNTIME` are not repinned. Those
-wait for the owner's decisions on the google-adk 2.12.0 → 2.14.0 move and on the legacy telemetry
-schema opt-in (below).
+`VERIFIED`, and the starter, Northwind and the console's `STARTER_RUNTIME` are not repinned. The
+owner accepted the google-adk 2.12.0 → 2.14.0 move and the legacy telemetry schema opt-in on
+2026-11-20 (below); adding the versions to `RUNTIMES_RUN` and any repin are #1198.
 
 ## Setup
 
@@ -103,7 +103,13 @@ LiteLLM's spend log, read before the stack was purged: **$0.26011** over 262 cal
 - A guardrail-blocked turn with Presidio on 1.5.1 (the #1106 live check was run on 1.5.0 only).
 - The console.
 
-## Recommendation (owner decisions)
+## Owner decisions (2026-11-20)
+
+Accepted: google-adk 2.12.0 → 2.14.0, and keeping `ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN=1`. Follow-ups:
+#1197 (move to ADK's v2 telemetry schema before 2027-03-31) and #1198 (add 1.4.1 and 1.5.1 to
+`RUNTIMES_RUN`; decide on repinning the starter, Northwind and `STARTER_RUNTIME`).
+
+### Recommendation as made
 
 1. **google-adk 2.12.0 → 2.14.0.** Nothing in this run moved with it: conformance, Northwind's 61
    cases, the span tree and memory match 1.5.0. Recommend accepting it.

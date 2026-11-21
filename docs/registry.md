@@ -543,8 +543,8 @@ so a reader such as the local console needs no knowledge of profiles:
   `verified: false` in `new agent`'s output, and the console's form starts on `1.4.0` even though
   `1.5.0` is newer and labelled run end to end.
   `runtime/adk@1.4.1` and `runtime/adk@1.5.1` (a dependency update, #1190) are listed with
-  `verified: false`: their Docker rerun passed (macOS x86_64, 2026-11-20), and the label waits for
-  an owner decision.
+  `verified: false`: their Docker rerun passed (macOS x86_64, 2026-11-20), and adding them to the
+  run-end-to-end list is a follow-up (#1198).
 - A version the engine cannot use is still listed, with `usable: false`, a `code` and a
   `reason` and without the profile fields: an invalid manifest or a missing `modules.json`
   (`ARTIFACT_INVALID`), an unknown protocol (`PROTOCOL_UNSUPPORTED`), a version under a
