@@ -5,6 +5,11 @@ pinned image digests, prepares a `restricted` namespace, and attaches the node t
 agents network, so pods reach the stack's services under the same names a local container does.
 It only ever touches resources with those names. Services still run in Docker: this demonstrates
 the deployer, it is not a production topology.
+
+With `--restricted` (#770 K2, preview, not yet run on kind) it also installs the service accounts
+and Roles of #770 §7.1, the admission policies of §7.2 and their `ab-grants` parameters, and
+records a kubeconfig for the `ab-deployer` service account instead of the admin one, so deploys on
+the laptop meet the same RBAC and policies as on a cluster.
 """
 
 from __future__ import annotations
@@ -22,7 +27,8 @@ from pathlib import Path
 
 import yaml
 
-from agentbreeder.kubernetes import MANAGED_BY, POD_SECURITY
+from agentbreeder import kubernetes_admission as admission
+from agentbreeder.kubernetes import DEPLOYMENT_LABEL, MANAGED_BY, POD_SECURITY
 from agentbreeder.kubernetes_providers import KIND, Binding, KindProvider
 from agentbreeder.operator_config import agents_range
 from agentbreeder.services.schema import ServiceError
@@ -59,6 +65,10 @@ containerdConfigPatches:
   [plugins."io.containerd.grpc.v1.cri".registry]
     config_path = "/etc/containerd/certs.d"
 """
+RESTRICTED = "kubernetes_restricted"  # state key: `cluster up --restricted` ran
+DEPLOYER_KUBECONFIG = "kubeconfig-deployer"
+# The deployer token's lifetime; `cluster up --restricted` mints a new one on every run.
+TOKEN_DURATION = "720h"
 INSTALL = {
     "kind": "https://kind.sigs.k8s.io/docs/user/quick-start/#installation",
     "kubectl": "https://kubernetes.io/docs/tasks/tools/",
@@ -288,18 +298,20 @@ def agents_cidrs(agents_network: str) -> list[str]:
     return [item["Subnet"] for item in ipam or [] if agents_range(item.get("Subnet", ""))]
 
 
-def block_for(state, agents_network: str) -> dict:
-    """The `kubernetes` block for this stack: cluster prepared, node attached to its network."""
+def block_for(state, agents_network: str, *, restricted: bool = False) -> dict:
+    """The `kubernetes` block for this stack: cluster prepared, node attached to its network.
+    With `restricted`, deploys use the `ab-deployer` service account's kubeconfig."""
     path = state.directory / "kubeconfig"
     write_kubeconfig(path)
     ensure_namespace(path)
+    sweep_legacy_secrets(path)
     uid = kubectl(path, "get", "namespace", "kube-system", "-o", "jsonpath={.metadata.uid}")
     connect(NODE, agents_network)
     # Measured at connect through the provider (#770 §4.1), from the binding being written.
     provider = KindProvider(
         Binding(KIND, uid, NAMESPACE, {"context": CONTEXT, "kubeconfig": str(path)})
     )
-    return {
+    block = {
         "kubeconfig": str(path),
         "context": CONTEXT,
         "cluster_uid": uid,
@@ -308,6 +320,119 @@ def block_for(state, agents_network: str) -> dict:
         "blocked_cidrs": provider.blocked_cidrs(None, agents_network=agents_network),
         "agents_cidrs": agents_cidrs(agents_network),
     }
+    if restricted:
+        block["kubeconfig"] = str(install_restricted(path, state.directory / DEPLOYER_KUBECONFIG))
+    return block
+
+
+def sweep_legacy_secrets(path: Path) -> list[str]:
+    """Delete the Secrets deployments made before #770 K2 left behind: created beside their
+    Deployment without an owner, so removing the Deployment no longer deletes them. Only a
+    Secret with AgentBreeder's labels and name, no owner, and no Deployment of that name."""
+    selector = f"{MANAGED_BY}=agentbreeder,{DEPLOYMENT_LABEL}"
+    # Names and owner kinds only: the Secrets' values never reach this process.
+    listed = kubectl(
+        path, "get", "secrets", "--namespace", NAMESPACE, "--selector", selector, "-o",
+        'jsonpath={range .items[*]}{.metadata.name}{" "}{.metadata.ownerReferences[*].kind}'
+        '{"\\n"}{end}',
+    )  # fmt: skip
+    deployments = set(
+        kubectl(
+            path, "get", "deployments", "--namespace", NAMESPACE, "--selector", selector,
+            "-o", "jsonpath={.items[*].metadata.name}",
+        ).split()
+    )  # fmt: skip
+    removed = []
+    for line in listed.splitlines():
+        name, _, owners = line.strip().partition(" ")
+        if (
+            re.fullmatch(r"agentbreeder-[0-9a-f]{32}", name)
+            and not owners.strip()
+            and name not in deployments
+        ):
+            kubectl(path, "delete", "secret", name, "--namespace", NAMESPACE, "--ignore-not-found")
+            removed.append(name)
+    return removed
+
+
+def server_version(path: Path) -> tuple[int, int]:
+    try:
+        info = json.loads(kubectl(path, "version", "-o", "json"))["serverVersion"]
+        return int(info["major"]), int(re.match(r"[0-9]+", info["minor"])[0])
+    except (ValueError, KeyError, TypeError) as error:
+        raise ServiceError("CLUSTER_FAILED", "Cannot read the cluster's version") from error
+
+
+def install_restricted(admin: Path, deployer: Path) -> Path:
+    """Install the §7.1 accounts and Roles and the §7.2 policies with the admin kubeconfig, then
+    write `deployer`: a private kubeconfig for `ab-deployer` with a bound token. The token goes
+    from kubectl's stdout into the file, never to argv or the log."""
+    version = server_version(admin)
+    if version < admission.MINIMUM_VERSION:
+        raise ServiceError(
+            "CLUSTER_VERSION_OLD",
+            "the restricted accounts need Kubernetes 1.30 or later (ValidatingAdmissionPolicy)",
+        )
+    for objects in (admission.roles(NAMESPACE), admission.policies(NAMESPACE)):
+        document = {"apiVersion": "v1", "kind": "List", "items": objects}
+        kubectl(admin, "apply", "-f", "-", stdin=json.dumps(document).encode())
+    token = kubectl(
+        admin, "create", "token", admission.account("deployer"), "--namespace", NAMESPACE,
+        "--duration", TOKEN_DURATION,
+    )  # fmt: skip
+    if not re.fullmatch(r"[A-Za-z0-9._-]{20,8192}", token):
+        raise ServiceError("CLUSTER_FAILED", "kubectl returned no service account token")
+    config = yaml.safe_load(admin.read_text())
+    context = next(c["context"] for c in config["contexts"] if c["name"] == CONTEXT)
+    cluster = next(c for c in config["clusters"] if c["name"] == context["cluster"])
+    account = admission.account("deployer")
+    document = {
+        "apiVersion": "v1",
+        "kind": "Config",
+        "clusters": [cluster],
+        "users": [{"name": account, "user": {"token": token}}],
+        "contexts": [
+            {
+                "name": CONTEXT,
+                "context": {"cluster": cluster["name"], "user": account, "namespace": NAMESPACE},
+            }
+        ],
+        "current-context": CONTEXT,
+    }
+    write_private(deployer, yaml.safe_dump(document).encode())
+    return deployer
+
+
+def grants_for(state, block: dict) -> admission.Grants:
+    """`ab-grants` on kind: the block's registry and ranges, and an empty grant per agent the
+    stack's environments name (services stay in Docker, so no agent uses an in-cluster
+    service, binding by reference, store or pod identity there)."""
+    agents: set[str] = set()
+    for environment in state.environments():
+        path = state.env_dir(environment) / "operator.yaml"
+        if path.exists():
+            config = (yaml.safe_load(path.read_text()) or {}).get("environments", {})
+            agents |= set(((config.get(environment) or {}).get("agents") or {}).keys())
+    return admission.Grants(
+        registry=block["registry"],
+        blocked=tuple(block["blocked_cidrs"]),
+        agentnet=tuple(block.get("agents_cidrs") or ()),
+        agents={name: admission.AgentGrant() for name in sorted(agents)},
+    )
+
+
+def write_grants(state) -> None:
+    """Write `ab-grants` (admin kubeconfig) when `cluster up --restricted` ran for this stack."""
+    block = json.loads(state.get("kubernetes") or "null")
+    if not block or state.get(RESTRICTED) != "1":
+        return
+    try:
+        configmap = admission.grants_configmap(NAMESPACE, grants_for(state, block))
+    except admission.AdmissionError as error:
+        raise ServiceError("CLUSTER_FAILED", str(error)) from None
+    kubectl(
+        state.directory / "kubeconfig", "apply", "-f", "-", stdin=json.dumps(configmap).encode()
+    )
 
 
 LOCK_NAME = "cluster.lock"
@@ -347,16 +472,29 @@ def cluster_lock() -> Iterator[None]:
 
 
 def up(
-    project: Path, environment: str, *, confirm=None, expect_grant=None, log=lambda _: None
+    project: Path,
+    environment: str,
+    *,
+    confirm=None,
+    expect_grant=None,
+    restricted: bool = False,
+    log=lambda _: None,
 ) -> dict:
     """Prepare the cluster and record it. With `confirm`, also accept the changed grant; without
     it the caller reviews the grant (`services plan`) and confirms with `services up`."""
     require_tools()
     with cluster_lock():
-        return _up(project, environment, confirm=confirm, expect_grant=expect_grant, log=log)
+        return _up(
+            project,
+            environment,
+            confirm=confirm,
+            expect_grant=expect_grant,
+            restricted=restricted,
+            log=log,
+        )
 
 
-def _up(project: Path, environment: str, *, confirm, expect_grant, log) -> dict:
+def _up(project: Path, environment: str, *, confirm, expect_grant, restricted, log) -> dict:
     from agentbreeder.services.engine import Engine, check_locked, write_lock
 
     with write_lock(project) as locked:  # S-11: cluster lock, then stack lock, before Engine()
@@ -374,10 +512,27 @@ def _up(project: Path, environment: str, *, confirm, expect_grant, log) -> dict:
             ensure_registry()
             log("Creating the kind cluster (the first run pulls its image) ...")
             ensure_cluster(engine.state.directory / "kubeconfig")
-            engine.state.put("kubernetes", json.dumps(block_for(engine.state, network)))
+            if restricted != (engine.state.get(RESTRICTED) == "1"):
+                # A deployment records its kubeconfig path; switching accounts under it would
+                # make its next redeploy read as another cluster (KUBERNETES_BINDING_CHANGED).
+                active = engine.active_cluster_deployments()
+                if active:
+                    raise ServiceError(
+                        "CLUSTER_IN_USE",
+                        "remove these cluster deployments before switching --restricted "
+                        "(remove ID --cluster): " + ", ".join(active),
+                    )
+            if restricted:
+                log("Installing the restricted accounts and admission policies ...")
+            block = block_for(engine.state, network, restricted=restricted)
+            engine.state.put("kubernetes", json.dumps(block))
+            engine.state.put(RESTRICTED, "1" if restricted else "")
             if confirm is None:
+                # ab-grants is written by `services up` once the operator config holds this
+                # block, so the two never disagree (until then the policies deny).
                 return {"cluster": CONTEXT, "grant": "review the change with services plan"}
             log("Recording the cluster in the stack's grant ...")
+            # `engine.up` writes ab-grants once the operator config names the agents.
             return engine.up(environment, confirm=confirm, expect_grant=expect_grant)
         finally:
             engine.close()
@@ -462,7 +617,9 @@ def _down(project: Path) -> dict:
                     what="removing the registry",
                 )
             (engine.state.directory / "kubeconfig").unlink(missing_ok=True)
+            (engine.state.directory / DEPLOYER_KUBECONFIG).unlink(missing_ok=True)
             engine.state.put("kubernetes", "")
+            engine.state.put(RESTRICTED, "")
             return {"removed": [NAME, REGISTRY]}
         finally:
             engine.close()

@@ -341,13 +341,15 @@ def test_cli_status_and_errors(monkeypatch, capsys):
 def test_cli_up_passes_confirmation(monkeypatch, capsys):
     seen = {}
 
-    def fake_up(project, environment, *, confirm, expect_grant, log):
-        seen.update(environment=environment, expect_grant=expect_grant)
+    def fake_up(project, environment, *, confirm, expect_grant, restricted, log):
+        seen.update(environment=environment, expect_grant=expect_grant, restricted=restricted)
         return {"ok": True}
 
     monkeypatch.setattr(cluster, "up", fake_up)
     assert cli.main(["cluster", "up", "--environment", "dev", "--yes"]) == 0
-    assert seen == {"environment": "dev", "expect_grant": None}
+    assert seen == {"environment": "dev", "expect_grant": None, "restricted": False}
+    assert cli.main(["cluster", "up", "--environment", "dev", "--restricted"]) == 0
+    assert seen["restricted"] is True
 
 
 # -- S-11: one cluster up/down at a time on this machine ---------------------------------------
