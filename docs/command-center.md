@@ -1146,6 +1146,15 @@ describe them, and they show nothing until a 1.4.0 runtime and CLI send them.
 - Older runtimes send none of these fields, and nothing is shown for them. Each value is checked
   for type and size, and a cached figure above the prompt tokens is dropped.
 
+`runtime/adk@1.5.0` replies also carry the turn's sub-agents and skills (#1193). Turn details
+lists them as plain text: **Sub-agents** shows each name, how many times it was called, its model
+calls and the tools it called ("billing: called once, 2 model calls; tools: file_refund"), and
+**Skills** shows each skill loaded, its version and the reference files read ("refund-policy
+1.2.0, read eu-rules.md"). The server passes on only names that match the sub-agent and registry
+name rules, at most 5 sub-agents and 10 skills, and drops a sub-agent's cost and aliases. Runtimes
+before 1.5.0 send neither, and nothing is shown. Tested with a fake CLI; not yet shown live in the
+console against a 1.5.0 agent.
+
 A later message continues the conversation's session (`--session`); **New conversation** starts a
 new one. **Customer ID** is optional and sent as `--customer`.
 
