@@ -137,10 +137,15 @@ def _reader(state):
     return read
 
 
-def _pod(row: dict) -> dict | None:
-    """{"running", "reason"} for a ready Kubernetes deployment, or None if unreadable."""
+def _pod(row: dict, state=None) -> dict | None:
+    """{"running", "reason"} for a ready Kubernetes deployment, or None if unreadable. With the
+    stack's `state`, a by-reference cluster binding is read from the row's environment's store
+    (#771 K0); an inline (`kind`) binding needs none."""
+    runtime = None
     try:
         runtime = logs_command._kubernetes()
+        if state is not None and row.get("environment"):
+            runtime.bindings = _bindings(state, row)
         runtime.authorize(row["context"])
         info = runtime.inspect(row)
         if info is None:
@@ -149,6 +154,21 @@ def _pod(row: dict) -> dict | None:
         return {"running": pod["reason"] is None and pod["readable"], "reason": pod["reason"]}
     except Exception:  # noqa: BLE001 - kubectl missing, cluster down: the pod is unknown
         return None
+    finally:
+        logs_command._close(runtime, "kubernetes")
+
+
+def _bindings(state, row: dict):
+    from agentbreeder.kubernetes_providers import Snapshot, parse_inline
+    from agentbreeder.store import Store
+
+    if parse_inline(row["context"]) is not None:
+        return None
+    store = Store.open_readonly(state.deploy_state(row["environment"]))
+    try:
+        return Snapshot.read(store, row["context"])
+    finally:
+        store.close()
 
 
 def _target(row: dict) -> str:
@@ -192,7 +212,7 @@ def _status(state, docker, deployments: dict[str, dict]) -> dict:
             "state": row["state"],
         }
         if entry["target"] == "kubernetes" and row["state"] == "ready":
-            entry["pod"] = _pod(row)
+            entry["pod"] = _pod(row, state)
         shown.append(entry)
     return {
         "schema_version": 1,

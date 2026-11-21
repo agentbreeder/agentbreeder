@@ -14,24 +14,19 @@ from __future__ import annotations
 import base64
 import ipaddress
 import json
-import os
 import queue
 import re
 import subprocess
 import threading
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import Iterator, Mapping
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
 
+from agentbreeder import kubernetes_providers as providers
+from agentbreeder.kubernetes_providers import PROVIDERS, Binding, Session
 from agentbreeder.manifest import Manifest
-from agentbreeder.operator_config import (
-    OperatorConfig,
-    OperatorConfigError,
-    parse_yaml,
-    read_private,
-)
+from agentbreeder.operator_config import OperatorConfig
 from agentbreeder.runtime import probe_http
 from agentbreeder.secret_files import MOUNT_ROOT
 from agentbreeder.store import DeploymentError
@@ -47,8 +42,6 @@ CLI_SHARED_DIR = "/run/agentbreeder-cli"
 SCHEME = "kubernetes://"
 ROLLOUT_TIMEOUT = 180
 _KINDS = "deployment,service,networkpolicy,secret"
-_CLUSTER_KEYS = {"server", "certificate-authority-data"}  # no proxy-url, no insecure-skip
-_USER_KEYS = {"client-certificate-data", "client-key-data", "token"}  # no exec, no auth-provider
 _FAILED_REASONS = {
     "ErrImagePull",
     "ImagePullBackOff",
@@ -60,9 +53,25 @@ _FAILED_REASONS = {
 
 
 class Kubernetes:
-    def __init__(self, operator: OperatorConfig | None = None):
+    def __init__(
+        self,
+        operator: OperatorConfig | None = None,
+        *,
+        providers: Mapping[str, type] | None = None,
+        bindings=None,
+    ):
         self.operator = operator
-        self.context = ""  # recorded binding: "<kube context>|<uid>|<namespace>|<kubeconfig>"
+        # The cluster providers (#770 §4.1); injectable so tests and later slices can add one.
+        self.providers = dict(providers if providers is not None else PROVIDERS)
+        # Where by-reference bindings live: the store (`DeploymentService` sets it).
+        self.bindings = bindings
+        self.binding: Binding | None = None
+        self.provider = None
+        self._session: Session | None = None
+        self._sessions = ExitStack()
+        # Recorded binding: "kind|<kube context>|<uid>|<namespace>|<kubeconfig>" or
+        # "<provider>|<binding id>" (kubernetes_providers).
+        self.context = ""
         self.kubeconfig = ""
         self.kube_context = ""
         self.cluster_uid = ""
@@ -79,57 +88,81 @@ class Kubernetes:
             raise DeploymentError(
                 f"[KUBERNETES_UNCONFIGURED] Environment {environment} has no kubernetes block"
             )
-        self.kube_context = target.context
-        self.cluster_uid = target.cluster_uid
-        self.namespace = target.namespace
-        self.kubeconfig = target.kubeconfig
+        binding = providers.from_target(environment or "", target, self.providers)
+        self._bind(providers.record(binding, self.bindings))
         self.blocked = tuple(target.blocked_cidrs)
         self.allowed = tuple(target.agents_cidrs)
-        self.context = "|".join(
-            (target.context, target.cluster_uid, target.namespace, target.kubeconfig)
-        )
 
-    def _binary(self, *arguments: str) -> list[str]:
-        return [
-            "kubectl",
-            "--kubeconfig",
-            self.kubeconfig,
-            "--context",
-            self.kube_context,
-            *arguments,
-        ]
+    def _bind(self, binding: Binding) -> None:
+        """Use `binding`. The same binding keeps its provider and open session, so a loop of
+        operations (reconcile, the kill switch) does not start a session per deployment."""
+        if self.provider is None or binding != self.binding:
+            self.close()
+            self.provider = self.providers[binding.provider](binding)
+        self.binding = binding
+        self.cluster_uid = binding.cluster_uid
+        self.namespace = binding.namespace
+        self.kube_context = str(binding.document.get("context") or "")
+        self.kubeconfig = str(binding.document.get("kubeconfig") or "")
+        self.context = binding.record()
+
+    def close(self) -> None:
+        """End the provider session (a `kind` session holds nothing)."""
+        self._session = None
+        self._sessions.close()
+
+    def __enter__(self) -> Kubernetes:
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
 
     @staticmethod
-    def _environment() -> dict[str, str]:
-        return {k: v for k, v in os.environ.items() if k != "KUBECONFIG"}
+    def same_binding(recorded: str, selected: str) -> bool:
+        """Whether a deployment's recorded binding is the one selected now: compared as parsed
+        inline bindings when both are (a record from before the tag reads as `kind`), else as
+        strings."""
+        first, second = (
+            providers.parse_inline_or_none(recorded),
+            providers.parse_inline_or_none(selected),
+        )
+        if first is not None and second is not None:
+            return first == second
+        return recorded == selected
+
+    def _current(self) -> Session:
+        if self.provider is None:
+            # Attributes set by hand (older callers and tests): the `kind` session for them.
+            # Never an empty kubeconfig or context, which kubectl would read as ~/.kube/config.
+            if not (self.kubeconfig and self.kube_context):
+                raise DeploymentError("[KUBERNETES_UNCONFIGURED] No cluster selected")
+            return Session(
+                ("--kubeconfig", self.kubeconfig, "--context", self.kube_context),
+                providers.kubectl_environment(),
+            )
+        if self._session is None:
+            self._session = self._sessions.enter_context(self.provider.session())
+        return self._session
+
+    def _binary(self, *arguments: str) -> list[str]:
+        return ["kubectl", *self._current().argv, *arguments]
+
+    def _environment(self) -> dict[str, str]:
+        return dict(self._current().env)
 
     def _check_kubeconfig(self) -> None:
-        """Only a private, static-credential kubeconfig for a loopback cluster is accepted."""
-        try:
-            config = parse_yaml(read_private(Path(self.kubeconfig), "Kubeconfig"), "Kubeconfig")
-            context = next(
-                c["context"] for c in config["contexts"] if c["name"] == self.kube_context
+        """The provider's checks, before kubectl runs (for `kind`: a private, static-credential
+        kubeconfig for a loopback cluster)."""
+        if self.provider is None:
+            self._bind(
+                Binding(
+                    provider=providers.KIND,
+                    cluster_uid=self.cluster_uid,
+                    namespace=self.namespace,
+                    document={"context": self.kube_context, "kubeconfig": self.kubeconfig},
+                )
             )
-            cluster = next(
-                c["cluster"] for c in config["clusters"] if c["name"] == context["cluster"]
-            )
-            user = next(u["user"] for u in config["users"] if u["name"] == context["user"])
-            host = urlsplit(cluster["server"]).hostname or ""
-            loopback = host == "localhost" or ipaddress.ip_address(host).is_loopback
-            unsafe = set(cluster) - _CLUSTER_KEYS or set(user) - _USER_KEYS
-        except OperatorConfigError as error:
-            raise DeploymentError(f"[KUBECONFIG_INVALID] {error}") from error
-        except (ValueError, KeyError, TypeError, StopIteration) as error:
-            raise DeploymentError("[KUBECONFIG_INVALID] Cannot read the kubeconfig") from error
-        if unsafe:
-            raise DeploymentError(
-                "[KUBECONFIG_INVALID] Only static credentials and a direct connection are accepted"
-            )
-        if not loopback:
-            raise DeploymentError(
-                "[KUBERNETES_NOT_LOCAL] Only a local (loopback) cluster is supported in this "
-                "preview"
-            )
+        self.provider.check(self._current())
 
     def command(self, *arguments: str, timeout: int = 30, stdin: bytes | None = None) -> str:
         try:
@@ -157,11 +190,7 @@ class Kubernetes:
         """Verify the cluster and namespace. A recorded `context` wins over the selection, so
         later operations act on the cluster the deployment was created in."""
         if context:
-            parts = context.split("|")
-            if len(parts) != 4:
-                raise DeploymentError("Cannot read this deployment's cluster binding")
-            self.kube_context, self.cluster_uid, self.namespace, self.kubeconfig = parts
-            self.context = context
+            self._bind(providers.resolve(context, self.bindings, self.providers))
         if not self.context:
             raise DeploymentError("[KUBERNETES_UNCONFIGURED] No cluster selected")
         self._check_kubeconfig()

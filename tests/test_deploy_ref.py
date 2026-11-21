@@ -363,7 +363,7 @@ def test_a_v3_state_upgrades_and_keeps_its_rows(tmp_path):
         Store.open_readonly(directory)
     upgraded = Store(directory)
     try:
-        assert upgraded.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 4
+        assert upgraded.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 5
         assert upgraded.get("d1")["package"] is None and upgraded.get("d1")["name"] == "x"
     finally:
         upgraded.close()
@@ -704,5 +704,5 @@ def test_migrate_reports_a_v3_upgrade(tmp_path, capsys):
     _as_v3(directory)
     assert cli.main(["migrate", "--state-dir", str(directory), "--json"]) == 0
     result = json.loads(capsys.readouterr().out)
-    assert result["previous_version"] == 3 and result["schema_version"] == 4
+    assert result["previous_version"] == 3 and result["schema_version"] == 5
     assert result["migrated"] is True

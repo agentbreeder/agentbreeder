@@ -2036,6 +2036,16 @@ Local clusters only. `kind` is the verified path.
   must point at a loopback API server. The cluster's `kube-system` UID must match the operator config. That UID identifies a
   cluster, it does not authenticate one.
 - The namespace must be labelled for AgentBreeder and enforce the `restricted` Pod Security level.
+- Each deployment records the cluster it was created on, tagged with its provider:
+  `kind|<context>|<uid>|<namespace>|<kubeconfig>` (state schema v5, #771 K0). `remove`, the kill
+  switch, `reconcile`, `logs`, `forward` and `watch` rebuild the binding from that record, never from
+  the current operator config. `kind` is the only provider (`kubernetes.provider`, omitted means
+  `kind`); a redeploy whose operator config now names another cluster or namespace is refused with
+  `KUBERNETES_BINDING_CHANGED`. Bindings recorded by reference (a `cluster_bindings` row whose digest
+  is checked against the deployment's audit event) exist for later providers and are not used by
+  `kind`. That check compares two tables of the same state file; it is not tamper-evidence,
+  since whoever can write the file can edit both. Unit-tested; the `kind` lifecycle regression
+  for it is written and not yet run (on `main`, not in a published preview).
 - The agent runs as UID 65532 with a read-only root filesystem, no capabilities, resource limits and
   no service account token. Secrets are mounted read-only and go to `kubectl` on stdin. Images are
   referenced by digest.

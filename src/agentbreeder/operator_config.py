@@ -124,6 +124,8 @@ class KubernetesTarget(_Strict):
     """The cluster agents in this environment deploy to. `KUBECONFIG` and `current-context` are
     never used, and `cluster_uid` (the UID of `kube-system`) must match the cluster."""
 
+    # Which kind of cluster (#770 §4.1). Only `kind` exists; omitted means `kind`.
+    provider: Literal["kind"] = "kind"
     kubeconfig: str = Field(max_length=1024, pattern=r"^/[^|\s]*$")
     context: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$")
     cluster_uid: str = Field(pattern=r"^[0-9a-f-]{36}$")

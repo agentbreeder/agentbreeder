@@ -7,6 +7,7 @@ import json
 import os
 import sqlite3
 import stat
+import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,7 +16,7 @@ from urllib.parse import quote
 from agentbreeder import audit as audit_log
 from agentbreeder.audit import AuditError, AuditEvent
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 _V2_DEPLOYMENT_COLUMNS = (
     ("principal_key", "TEXT"),
     ("principal", "TEXT"),
@@ -55,6 +56,28 @@ _V3_TABLES = (
     )
     """,
     "CREATE INDEX held_calls_binding ON held_calls (deployment_id, binding)",
+)
+
+# v5 (#771 K0): the cluster a by-reference deployment binds to (`<provider>|<id>` in
+# `deployments.context`), one row per environment, cluster and namespace, with its digest.
+_V5_TABLES = (
+    """
+    CREATE TABLE IF NOT EXISTS cluster_bindings (
+        id TEXT PRIMARY KEY, environment TEXT NOT NULL, cluster_uid TEXT NOT NULL,
+        namespace TEXT NOT NULL, provider TEXT NOT NULL, document TEXT NOT NULL,
+        digest TEXT NOT NULL, created TEXT NOT NULL,
+        UNIQUE (environment, cluster_uid, namespace)
+    )
+    """,
+)
+# v5: a Kubernetes record written before the provider tag (`<context>|<uid>|<namespace>|
+# <kubeconfig>`, exactly three separators) becomes `kind|…`. Neither field may hold `|`.
+_V5_TAG_KIND = (
+    "UPDATE deployments SET context='kind|' || context "
+    "WHERE json_valid(manifest) "
+    "AND COALESCE(CASE WHEN json_valid(manifest) THEN json_extract(manifest,'$.target') END,"
+    "'local')='kubernetes' "
+    "AND length(context) - length(replace(context,'|','')) = 3"
 )
 
 
@@ -155,7 +178,7 @@ class Store:
                 tables = self.db.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 ).fetchall()
-                if version not in (0, 1, 2, 3, SCHEMA_VERSION) or (version == 0 and tables):
+                if version not in (0, 1, 2, 3, 4, SCHEMA_VERSION) or (version == 0 and tables):
                     raise DeploymentError(UNSUPPORTED_SCHEMA)
                 if version == 0:
                     self.db.execute("""
@@ -185,6 +208,10 @@ class Store:
                     columns = {row[1] for row in self.db.execute("PRAGMA table_info(deployments)")}
                     if "package" not in columns:
                         self.db.execute("ALTER TABLE deployments ADD COLUMN package TEXT")
+                if version in (0, 1, 2, 3, 4):
+                    for statement in _V5_TABLES:
+                        self.db.execute(statement)
+                    self.db.execute(_V5_TAG_KIND)
                     self.db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         except Exception:
             self.db.close()
@@ -237,7 +264,7 @@ class Store:
                 ) from error
             if version == SCHEMA_VERSION:
                 pass
-            elif version in (1, 2, 3) or (version == 0 and not has_tables):
+            elif version in (1, 2, 3, 4) or (version == 0 and not has_tables):
                 raise StateNeedsMigration(
                     f"The local state at {directory} uses schema v{version} and this "
                     f"AgentBreeder uses v{SCHEMA_VERSION}; " + _migrate_hint()
@@ -469,6 +496,79 @@ class Store:
                 audit.deployment_id = identifier
             self._append(audit)
         return self.get(identifier)
+
+    # --- cluster bindings (#771 K0) ---------------------------------------------------------
+
+    def cluster_binding(self, identifier: str) -> dict | None:
+        row = self.db.execute(
+            "SELECT * FROM cluster_bindings WHERE id=?", (identifier,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def cluster_binding_audit(self, identifier: str) -> list[str]:
+        """The binding digest every `deployment_created` audit event for this binding recorded
+        (an unreadable one as an empty string, so it never matches)."""
+        found = []
+        for (text,) in self.db.execute(
+            "SELECT context FROM audit WHERE action='deployment_created' "
+            "AND CASE WHEN json_valid(context) "
+            "THEN json_extract(context,'$.cluster_binding.id') END=?",
+            (identifier,),
+        ):
+            try:
+                value = json.loads(text)["cluster_binding"]["digest"]
+            except (ValueError, KeyError, TypeError):
+                value = ""
+            found.append(value if isinstance(value, str) else "")
+        return found
+
+    def ensure_cluster_binding(
+        self,
+        *,
+        provider: str,
+        environment: str,
+        cluster_uid: str,
+        namespace: str,
+        document: str,
+        digest: str,
+    ) -> str:
+        """The ID of the environment's binding to this cluster and namespace with these pins:
+        the existing row when its document and digest are the configured ones, else a new row
+        that replaces it. A row a live deployment uses is never replaced, and an edited one is
+        never reused (KUBERNETES_BINDING_CHANGED)."""
+        with self.transaction():
+            row = self.db.execute(
+                "SELECT id, provider, document, digest FROM cluster_bindings "
+                "WHERE environment=? AND cluster_uid=? AND namespace=?",
+                (environment, cluster_uid, namespace),
+            ).fetchone()
+            if (
+                row
+                and row["digest"] == digest
+                and row["provider"] == provider
+                and row["document"] == document
+            ):
+                return row["id"]
+            if row:
+                live = self.db.execute(
+                    "SELECT 1 FROM deployments WHERE context=? AND state!='removed' LIMIT 1",
+                    (f"{row['provider']}|{row['id']}",),
+                ).fetchone()
+                if live:
+                    raise DeploymentError(
+                        "[KUBERNETES_BINDING_CHANGED] Deployments run on this environment's "
+                        "recorded cluster binding, and the operator config now describes it "
+                        "differently; remove them first"
+                    )
+                self.db.execute("DELETE FROM cluster_bindings WHERE id=?", (row["id"],))
+            identifier = uuid.uuid4().hex
+            self.db.execute(
+                "INSERT INTO cluster_bindings (id,environment,cluster_uid,namespace,provider,"
+                "document,digest,created) VALUES (?,?,?,?,?,?,?,?)",
+                (identifier, environment, cluster_uid, namespace, provider, document, digest,
+                 _now()),
+            )  # fmt: skip
+            return identifier
 
     def transition(
         self,

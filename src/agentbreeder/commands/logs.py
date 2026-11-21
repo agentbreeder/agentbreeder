@@ -289,6 +289,14 @@ def _prepare(args):
             )
         if record["state"] == "removed":
             raise LogsError("REMOVED", f"{args.id} was removed; its container is gone")
+        bindings = None
+        if target == "kubernetes":
+            from agentbreeder.kubernetes_providers import Snapshot
+
+            try:  # a by-reference cluster binding, read before the store closes (#771 K0)
+                bindings = Snapshot.read(store, record["context"])
+            except sqlite3.Error as error:
+                raise LogsError("STATE_UNREADABLE", "cannot read the local state") from error
         found = redaction.collect(args.state_dir, store=store)
         redaction.deployment_copies(args.state_dir.absolute(), args.id, found)
         copies = args.state_dir.absolute() / "deployments" / args.id / "secrets"
@@ -309,20 +317,35 @@ def _prepare(args):
         )
     codes = TARGETS[target]
     runtime = _kubernetes() if target == "kubernetes" else _runtime()
+    if bindings is not None:
+        runtime.bindings = bindings
     try:
-        runtime.authorize(record["context"])
-    except DeploymentError as error:
-        # Kubernetes messages name the recorded namespace: excerpt, as other state-derived text.
-        raise LogsError(codes["unavailable"], safe_text.excerpt(str(error), 400)) from error
-    try:
-        info = runtime.inspect(record)
-    except DeploymentError as error:
-        raise LogsError(
-            "CONTAINER_MISMATCH", f"the container of {args.id} is not the recorded one: {error}"
-        ) from error
-    if info is None:
-        raise LogsError("CONTAINER_GONE", f"the container of {args.id} no longer exists")
+        try:
+            runtime.authorize(record["context"])
+        except DeploymentError as error:
+            # Kubernetes messages name the recorded namespace: excerpt, as other state-derived
+            # text.
+            raise LogsError(codes["unavailable"], safe_text.excerpt(str(error), 400)) from error
+        try:
+            info = runtime.inspect(record)
+        except DeploymentError as error:
+            raise LogsError(
+                "CONTAINER_MISMATCH",
+                f"the container of {args.id} is not the recorded one: {error}",
+            ) from error
+        if info is None:
+            raise LogsError("CONTAINER_GONE", f"the container of {args.id} no longer exists")
+    except BaseException:
+        _close(runtime, target)
+        raise
     return record, target, runtime, info, redaction.Redactor(found.values)
+
+
+def _close(runtime, target: str) -> None:
+    """End a Kubernetes provider session (#771 K0); local Docker holds none."""
+    close = getattr(runtime, "close", None) if target == "kubernetes" else None
+    if callable(close):
+        close()
 
 
 # Per target: the error codes for an unreachable engine and a failing log read.
@@ -402,9 +425,16 @@ def leveled(lines: list[str], fmt: str | None, threshold: str | None):
 
 
 def _deployment(args) -> int:
+    record, target, runtime, info, redact = _prepare(args)
+    try:
+        return _read_deployment(args, record, target, runtime, info, redact)
+    finally:
+        _close(runtime, target)
+
+
+def _read_deployment(args, record, target, runtime, info, redact) -> int:
     from agentbreeder.store import DeploymentError
 
-    record, target, runtime, info, redact = _prepare(args)
     fmt = agent_format(getattr(args, "stack", None), record["name"])
     check_level(
         args, fmt, "this deployment (pass --stack DIR so its build record names the runtime)"

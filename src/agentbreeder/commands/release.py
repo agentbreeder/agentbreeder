@@ -43,7 +43,7 @@ def run(args) -> int:
     from agentbreeder.build import BuildError
     from agentbreeder.release import ReleaseError, release, rollback
 
-    store = None
+    store = service = None
     where = _where(args)
     if args.rollback and args.version is not None:
         print("[VERSION_INVALID] --version is for a release, not --rollback", file=sys.stderr)
@@ -99,6 +99,8 @@ def run(args) -> int:
             return 1  # PACKAGE_KEPT_UNVERIFIED (spec §15)
         return 3 if getattr(error, "code", "") == "APPROVAL_REQUIRED" else 2
     finally:
+        if service:
+            service.close()
         if store:
             store.close()
     if outcome.code == 5 and outcome.details.get("eval"):  # the eval gate failed (#827)

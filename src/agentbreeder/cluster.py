@@ -23,6 +23,7 @@ from pathlib import Path
 import yaml
 
 from agentbreeder.kubernetes import MANAGED_BY, POD_SECURITY
+from agentbreeder.kubernetes_providers import KIND, Binding, KindProvider
 from agentbreeder.operator_config import agents_range
 from agentbreeder.services.schema import ServiceError
 from agentbreeder.services.state import private_dir, write_private
@@ -294,13 +295,17 @@ def block_for(state, agents_network: str) -> dict:
     ensure_namespace(path)
     uid = kubectl(path, "get", "namespace", "kube-system", "-o", "jsonpath={.metadata.uid}")
     connect(NODE, agents_network)
+    # Measured at connect through the provider (#770 §4.1), from the binding being written.
+    provider = KindProvider(
+        Binding(KIND, uid, NAMESPACE, {"context": CONTEXT, "kubeconfig": str(path)})
+    )
     return {
         "kubeconfig": str(path),
         "context": CONTEXT,
         "cluster_uid": uid,
         "namespace": NAMESPACE,
         "registry": f"localhost:{REGISTRY_PORT}/{NAME}",
-        "blocked_cidrs": blocked_cidrs(agents_network),
+        "blocked_cidrs": provider.blocked_cidrs(None, agents_network=agents_network),
         "agents_cidrs": agents_cidrs(agents_network),
     }
 

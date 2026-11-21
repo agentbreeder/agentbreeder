@@ -41,7 +41,7 @@ def run(args) -> int:
     from agentbreeder.promote import promote
     from agentbreeder.release import ReleaseError
 
-    store = None
+    store = service = None
     try:
         operator = load_operator_config()
         store = Store(args.state_dir)
@@ -78,6 +78,8 @@ def run(args) -> int:
         print(cli._message(error), file=sys.stderr)
         return 2
     finally:
+        if service:
+            service.close()
         if store:
             store.close()
     print(json.dumps(outcome.as_json(), indent=2) if args.json else outcome.message)
