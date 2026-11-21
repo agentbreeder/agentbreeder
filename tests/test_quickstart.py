@@ -292,7 +292,7 @@ class StatefulDocker:
         self.containers = {}
         self.removed = []
 
-    def authorize(self, context=None):
+    def authorize(self, context=None, environment=None):
         self.context = "test-context"
 
     def inspect(self, record):

@@ -140,15 +140,26 @@ class Kubernetes:
                 ("--kubeconfig", self.kubeconfig, "--context", self.kube_context),
                 providers.kubectl_environment(),
             )
+        if (
+            self._session is not None
+            and self._session.expires is not None
+            and time.monotonic() >= self._session.expires
+        ):
+            self.close()  # a fresh token before the old one expires (#770 §4.2)
         if self._session is None:
             self._session = self._sessions.enter_context(self.provider.session())
         return self._session
 
     def _binary(self, *arguments: str) -> list[str]:
-        return ["kubectl", *self._current().argv, *arguments]
+        session = self._current()
+        if session.verify is not None:
+            session.verify()  # a pinned kubectl is re-checked before every exec
+        return [session.binary, *session.argv, *arguments]
 
     def _environment(self) -> dict[str, str]:
-        return dict(self._current().env)
+        # Every caller builds argv first (`_binary`, which renews an expiring session); the
+        # environment comes from that same session, never a newer one.
+        return dict((self._session or self._current()).env)
 
     def _check_kubeconfig(self) -> None:
         """The provider's checks, before kubectl runs (for `kind`: a private, static-credential
@@ -186,11 +197,12 @@ class Kubernetes:
     def _namespaced(self, *arguments: str, **options) -> str:
         return self.command("--namespace", self.namespace, *arguments, **options)
 
-    def authorize(self, context: str | None = None) -> None:
+    def authorize(self, context: str | None = None, environment: str | None = None) -> None:
         """Verify the cluster and namespace. A recorded `context` wins over the selection, so
-        later operations act on the cluster the deployment was created in."""
+        later operations act on the cluster the deployment was created in. `environment` is the
+        deployment's: a binding recorded by reference must belong to it (#770 §4.1)."""
         if context:
-            self._bind(providers.resolve(context, self.bindings, self.providers))
+            self._bind(providers.resolve(context, self.bindings, self.providers, environment))
         if not self.context:
             raise DeploymentError("[KUBERNETES_UNCONFIGURED] No cluster selected")
         self._check_kubeconfig()

@@ -868,7 +868,7 @@ def test_cli_forward_prints_the_loopback_url_until_interrupted(monkeypatch, caps
     # A stub module, not the process-wide time.sleep, so no other thread sees the interrupt.
     monkeypatch.setattr(forward, "time", Mock(sleep=Mock(side_effect=KeyboardInterrupt)))
     assert forward._forward(service, Mock(id="abc", port=0)) == 0
-    service.kubernetes.authorize.assert_called_once_with("ctx")
+    service.kubernetes.authorize.assert_called_once_with("ctx", None)
     assert capsys.readouterr().out.startswith("http://127.0.0.1:4321  (unauthenticated")
 
 

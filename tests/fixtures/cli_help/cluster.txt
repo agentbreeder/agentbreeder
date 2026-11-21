@@ -1,12 +1,14 @@
-usage: agentbreeder cluster [-h] {up,status,down} ...
+usage: agentbreeder cluster [-h] {up,status,down,connect} ...
 
 positional arguments:
-  {up,status,down}
-    up              Create the cluster and registry, and add them to the
-                    stack's grant
-    status          Show the cluster, the registry and the tools they need
-    down            Delete the cluster and registry (refused while something
-                    is deployed there)
+  {up,status,down,connect}
+    up                  Create the cluster and registry, and add them to the
+                        stack's grant
+    status              Show the cluster, the registry and the tools they need
+    down                Delete the cluster and registry (refused while
+                        something is deployed there)
+    connect             Check an existing cluster for AgentBreeder (preview;
+                        records nothing yet)
 
 options:
-  -h, --help        show this help message and exit
+  -h, --help            show this help message and exit

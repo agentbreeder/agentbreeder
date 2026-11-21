@@ -120,13 +120,138 @@ def agents_range(cidr: str) -> bool:
     )
 
 
+# Lower-case DNS labels; the 253-character cap is each field's max_length (pydantic's regex
+# engine has no look-ahead).
+_DNS_NAME = r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+_HEX64 = r"^[0-9a-f]{64}$"
+_ABSOLUTE = r"^/[^|\s]{0,1023}$"
+_SERVICE_ACCOUNT = r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+TOKEN_CONTEXT = "cluster"  # the fixed context name inside a `token` session kubeconfig
+_PEM_CERT = re.compile(
+    r"-----BEGIN CERTIFICATE-----\r?\n([A-Za-z0-9+/=\r\n]+?)-----END CERTIFICATE-----"
+)
+
+
+def api_server_refusal(server: str) -> str | None:
+    """Why `server` cannot be a `token` provider's API server, or None. An https URL whose host
+    is an IPv4 address or a DNS name, never loopback, link-local, unspecified, multicast,
+    reserved or the metadata address (#770 §4.2)."""
+    match = re.fullmatch(r"https://([A-Za-z0-9.-]{1,253})(:([0-9]{1,5}))?", server)
+    if match is None:
+        return "the API server is an https:// URL with a host and an optional port, no path"
+    host, port = match[1].lower(), match[3]
+    if port is not None and not 0 < int(port) < 65536:
+        return "the API server port is out of range"
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        if (
+            len(host) > 253
+            or not re.fullmatch(_DNS_NAME, host)
+            or host == "localhost"
+            or host.endswith(".localhost")
+        ):
+            return "the API server host is not a valid DNS name"
+        if re.fullmatch(r"[0-9.]+", host):
+            return "the API server host is not a valid IPv4 address"
+        return None
+    if (
+        address.is_loopback
+        or address.is_link_local
+        or address.is_unspecified
+        or address.is_multicast
+        or address.is_reserved
+        or str(address) == "169.254.169.254"
+    ):
+        return "the API server address is loopback, link-local, unspecified or reserved"
+    return None
+
+
+def pem_certificates(pem: str) -> list[bytes]:
+    """The DER bytes of each certificate in a PEM bundle; ValueError on anything else."""
+    import base64
+    import binascii
+
+    blocks = _PEM_CERT.findall(pem)
+    rest = _PEM_CERT.sub("", pem)
+    if not blocks or rest.strip():
+        raise ValueError("not a PEM certificate bundle")
+    try:
+        return [base64.b64decode("".join(block.split()), validate=True) for block in blocks]
+    except (binascii.Error, ValueError) as error:
+        raise ValueError("not a PEM certificate bundle") from error
+
+
+class TokenServiceAccounts(_Strict):
+    """The four service accounts a `token` binding mints for (#770 §7.1)."""
+
+    deployer: str = Field(default="ab-deployer", pattern=_SERVICE_ACCOUNT)
+    installer: str = Field(default="ab-installer", pattern=_SERVICE_ACCOUNT)
+    operator: str = Field(default="ab-operator", pattern=_SERVICE_ACCOUNT)
+    canary: str = Field(default="ab-canary", pattern=_SERVICE_ACCOUNT)
+
+    @model_validator(mode="after")
+    def distinct(self) -> TokenServiceAccounts:
+        names = [self.deployer, self.installer, self.operator, self.canary]
+        if len(set(names)) != len(names):
+            raise ValueError("[KUBERNETES_TOKEN_INVALID] the four service accounts are distinct")
+        return self
+
+
+class TokenBinding(_Strict):
+    """How a `token` provider reaches a cluster (#770 §4.2). Non-secret pins only: the server,
+    its CA bundle and hash, the operator's dedicated mint kubeconfig by path and hash (and its
+    exec plugin's hash), the service accounts and the token lifetime."""
+
+    server: str = Field(max_length=300)
+    tls_server_name: str | None = Field(default=None, max_length=253, pattern=_DNS_NAME)
+    ca_pem: str = Field(max_length=64 * 1024)
+    ca_sha256: str = Field(pattern=_HEX64)
+    mint_kubeconfig: str = Field(pattern=_ABSOLUTE)
+    mint_kubeconfig_sha256: str = Field(pattern=_HEX64)
+    mint_exec_sha256: str | None = Field(default=None, pattern=_HEX64)
+    service_accounts: TokenServiceAccounts = Field(default_factory=TokenServiceAccounts)
+    token_minutes: int = Field(default=30, ge=10, le=60)
+
+    @field_validator("server")
+    @classmethod
+    def api_server(cls, value: str) -> str:
+        refusal = api_server_refusal(value)
+        if refusal:
+            raise ValueError(f"[KUBERNETES_SERVER_REFUSED] {refusal}")
+        return value
+
+    @model_validator(mode="after")
+    def ca_pinned(self) -> TokenBinding:
+        try:
+            pem_certificates(self.ca_pem)
+        except ValueError:
+            raise ValueError(
+                "[KUBERNETES_CA_INVALID] ca_pem is a PEM certificate bundle"
+            ) from None
+        if hashlib.sha256(self.ca_pem.encode()).hexdigest() != self.ca_sha256:
+            raise ValueError("[KUBERNETES_CA_CHANGED] ca_pem does not match ca_sha256")
+        return self
+
+
+class KubernetesTools(_Strict):
+    """External tools a `token` binding runs, by absolute path and hash (re-hashed before use)."""
+
+    kubectl: str = Field(pattern=_ABSOLUTE)
+    kubectl_sha256: str = Field(pattern=_HEX64)
+
+
 class KubernetesTarget(_Strict):
     """The cluster agents in this environment deploy to. `KUBECONFIG` and `current-context` are
     never used, and `cluster_uid` (the UID of `kube-system`) must match the cluster."""
 
-    # Which kind of cluster (#770 §4.1). Only `kind` exists; omitted means `kind`.
-    provider: Literal["kind"] = "kind"
-    kubeconfig: str = Field(max_length=1024, pattern=r"^/[^|\s]*$")
+    # Which kind of cluster (#770 §4.1): a local `kind` cluster (omitted means `kind`), or any
+    # conformant cluster reached with short-lived service account tokens (`token`, §4.2).
+    provider: Literal["kind", "token"] = "kind"
+    # `kind` only: its private static kubeconfig. `token` has no persistent kubeconfig.
+    kubeconfig: str | None = Field(default=None, max_length=1024, pattern=r"^/[^|\s]*$")
+    token: TokenBinding | None = None
+    tools: KubernetesTools | None = None
     context: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$")
     cluster_uid: str = Field(pattern=r"^[0-9a-f-]{36}$")
     namespace: str = Field(pattern=r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
@@ -151,6 +276,33 @@ class KubernetesTarget(_Strict):
         if not all(agents_range(cidr) for cidr in value):
             raise ValueError("agents_cidrs are private IPv4 network blocks of /12 or longer")
         return value
+
+    @model_validator(mode="after")
+    def provider_fields(self) -> KubernetesTarget:
+        """Each provider's own fields, and no other's: a `token` binding cannot be relabelled
+        `kind` (or the reverse) to skip the other's checks."""
+        if self.provider == "kind":
+            if self.kubeconfig is None:
+                raise ValueError("[KUBERNETES_PROVIDER_FIELDS] provider kind needs kubeconfig")
+            if self.token is not None or self.tools is not None:
+                raise ValueError(
+                    "[KUBERNETES_PROVIDER_FIELDS] token and tools are for provider token only"
+                )
+        else:
+            if self.kubeconfig is not None:
+                raise ValueError(
+                    "[KUBERNETES_PROVIDER_FIELDS] provider token has no kubeconfig; it mints a "
+                    "token per operation"
+                )
+            if self.token is None or self.tools is None:
+                raise ValueError(
+                    "[KUBERNETES_PROVIDER_FIELDS] provider token needs token and tools"
+                )
+            if self.context != TOKEN_CONTEXT:
+                raise ValueError(
+                    f"[KUBERNETES_PROVIDER_FIELDS] provider token uses context {TOKEN_CONTEXT}"
+                )
+        return self
 
 
 # The provider credential names LiteLLM's config imports (gateway_keys.PROVIDER_KEYS). Kept here

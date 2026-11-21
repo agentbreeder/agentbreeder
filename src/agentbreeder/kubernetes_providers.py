@@ -33,7 +33,7 @@ import json
 import os
 import re
 import sqlite3
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -63,10 +63,16 @@ CHANGED = (
 
 @dataclass(frozen=True)
 class Session:
-    """What kubectl runs with: an argv prefix after `kubectl` and its whole environment."""
+    """What kubectl runs with: an argv prefix after the kubectl binary and its whole
+    environment. `binary` is `kubectl` from `PATH` for `kind`; a provider that pins its tools
+    gives an absolute path and a `verify` that re-checks it before every exec. `expires` is a
+    `time.monotonic()` deadline after which the session is reopened (a fresh token)."""
 
     argv: tuple[str, ...]
     env: Mapping[str, str]
+    binary: str = "kubectl"
+    verify: Callable[[], None] | None = field(default=None, compare=False)
+    expires: float | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -284,10 +290,14 @@ def parse_inline_or_none(context: str) -> Binding | None:
         return None
 
 
-def resolve(context: str, bindings, providers: Mapping[str, type]) -> Binding:
+def resolve(
+    context: str, bindings, providers: Mapping[str, type], environment: str | None = None
+) -> Binding:
     """The binding a deployment record names. A by-reference binding is read from the store
     (`bindings`: `cluster_binding(id)` and `cluster_binding_audit(id)`) and refused with
-    KUBERNETES_BINDING_CHANGED when its row, its digest and the audit disagree."""
+    KUBERNETES_BINDING_CHANGED when its row, its digest and the audit disagree, or when the row
+    belongs to another environment than the deployment's (`environment`, required for such a
+    binding: a record swapped to another environment's binding ID is refused, #770 §4.1)."""
     inline = parse_inline(context)
     if inline is not None:
         return inline
@@ -321,6 +331,8 @@ def resolve(context: str, bindings, providers: Mapping[str, type]) -> Binding:
         raise DeploymentError(CHANGED)
     found = digest(provider, row["environment"], row["cluster_uid"], row["namespace"], document)
     if found != row["digest"] or not recorded or any(value != found for value in recorded):
+        raise DeploymentError(CHANGED)
+    if not environment or row["environment"] != environment:
         raise DeploymentError(CHANGED)
     return Binding(
         provider=provider,
@@ -390,3 +402,10 @@ class Snapshot:
 
     def cluster_binding_audit(self, identifier: str) -> list[str]:
         return list(self.audit.get(identifier, []))
+
+
+# The `token` provider (#770 §4.2) lives in its own module, which imports this one; it is
+# registered here, after every name it imports is defined.
+from agentbreeder.kubernetes_token import TOKEN, TokenProvider  # noqa: E402
+
+PROVIDERS[TOKEN] = TokenProvider

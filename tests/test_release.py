@@ -32,7 +32,7 @@ class FakeRuntime:
     def image_present(self, image):
         return image not in self.missing_images
 
-    def authorize(self, context=None):
+    def authorize(self, context=None, environment=None):
         return None
 
     def inspect(self, record):

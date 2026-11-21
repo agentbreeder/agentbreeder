@@ -458,7 +458,7 @@ def test_watch_status_with_a_kubernetes_pod_and_unreadable_compose(
     _deploy(stack, identifier=OTHER, name="gone", target="kubernetes")
 
     class Kube:
-        def authorize(self, context):
+        def authorize(self, context, environment=None):
             pass
 
         def inspect(self, row):

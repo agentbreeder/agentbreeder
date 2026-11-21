@@ -52,7 +52,7 @@ class FakeDocker:
         self.calls = []
         self.process = None
 
-    def authorize(self, context=None):
+    def authorize(self, context=None, environment=None):
         self.calls.append(("authorize", context))
 
     def inspect(self, record):
@@ -260,7 +260,7 @@ def test_container_checks(state, docker, capsys):
     assert run(state, IDENTIFIER) == 2
     assert capsys.readouterr().err.startswith("[CONTAINER_MISMATCH]")
 
-    def down(context=None):
+    def down(context=None, environment=None):
         raise DeploymentError("Cannot reach the Docker engine for this context")
 
     fake = docker.install(FakeDocker())
@@ -535,7 +535,7 @@ from agentbreeder import cli
 from agentbreeder.commands import logs
 
 class Fake:
-    def authorize(self, context=None):
+    def authorize(self, context=None, environment=None):
         pass
     def inspect(self, record):
         return {"Id": "c" * 64}
