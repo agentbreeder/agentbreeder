@@ -4,7 +4,7 @@
 When P1 shipped no `service/litellm` version declared the new providers' imports (each provider
 slice adds its own), so these tests review configs for a fixture gateway (`FULL`) that does,
 and check that the built-in 1.0.0 refuses every new provider. The Vertex rules are re-run on
-the real built-in 1.4.0 in tests/test_vertex_gateway.py (#1025 V1).
+the real built-in 1.5.0 in tests/test_vertex_gateway.py (#1025 V1).
 """
 
 from __future__ import annotations

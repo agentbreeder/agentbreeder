@@ -1,0 +1,42 @@
+kind: runtime
+name: claude-agent-sdk
+version: 1.0.0
+description: >-
+  A Claude Agent SDK runtime on the shared runtime kit (claude-agent-sdk 0.2.177, whose wheel
+  bundles the Claude Code CLI 2.1.317; kit 1.0.0, vendored in runtime/kit/). AgentBreeder does not
+  ship it (owner decision D8): it is an example a user adds to their own project registry, and
+  their own build installs the SDK wheel from PyPI, which means accepting Anthropic's terms for
+  Claude Code. It builds the agent from the data-only agent.config.json: the prompt, model alias,
+  registry tools, knowledge and notes mean what they mean on runtime/adk@1.3.0. The CLI runs in a
+  second container under another uid with no secret files (the two-uid contract, D15), with
+  every built-in tool off, verbatim prompts (no @path expansion or slash commands), the kit's
+  tools through an in-process MCP server, and history resumed from a transcript written per turn
+  from the agent's own `turns` table and deleted at turn end. The CLI reaches models only through
+  the kit's proxy on the Anthropic Messages route, which holds the gateway key and owns retries,
+  the cost tally, coded model errors, the model alias and the step cap. Not run end to end on a
+  real stack; not supported.
+# The agent protocol this runtime serves and what the engine may build for it (#1083 F1, F7).
+protocol: 1
+profile: kit
+kit: 1.0.0
+framework: claude-agent-sdk
+display_name: Claude Agent SDK
+model_api: anthropic-messages
+# The deploy runs a second container from this image for the CLI, under its own uid, with no
+# secret mount (owner decision D15; docs/runtimes/claude-agent-sdk.md).
+isolation: two-uid
+port: 8080
+health_path: /health
+capabilities: [knowledge, notes]
+limits: {knowledge: 1, tools: 50, mcp_servers: 0}
+# The knowledge tool the kit adds, and every built-in tool of the pinned CLI (all refused).
+reserved_tool_names: [search_knowledge_base, Bash, Read, Write, Edit, Glob, Grep, WebFetch,
+  WebSearch, Task, Agent, NotebookEdit, TodoWrite, Skill, ToolSearch, DeferredToolPlaceholder,
+  LSP, Monitor, KillShell, BashOutput, EnterPlanMode, ExitPlanMode, SendMessage, CronCreate]
+notes: Not shipped by AgentBreeder (D8); you install the SDK and accept Anthropic's terms. Not supported.
+docs: docs/runtimes/claude-agent-sdk.md
+# The memory schema version this runtime writes: runtime/adk@1.3.0's tables, unchanged.
+memory_schema: 2
+secrets: [DATABASE_URL, LLM_GATEWAY_KEY]
+environment: [AGENTBREEDER_GATEWAY_URL, AGENTBREEDER_SERVICE_TRACES_URL,
+  AGENTBREEDER_SERVICE_TOOLS_PROXY_URL, AGENTBREEDER_DEPLOYMENT_ID]

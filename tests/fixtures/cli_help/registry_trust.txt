@@ -1,0 +1,15 @@
+usage: agentbreeder registry trust [-h] [--list | --remove] [--whole-host]
+                                   [--private] [--yes] [--json]
+                                   [URL]
+
+positional arguments:
+  URL           scheme://host/path-prefix
+
+options:
+  -h, --help    show this help message and exit
+  --list        List trusted prefixes
+  --remove      Remove URL from the list
+  --whole-host  Allow a bare host (trusts every repository)
+  --private     Allow a host on a private or loopback address
+  --yes         Do not ask for confirmation
+  --json

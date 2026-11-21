@@ -436,14 +436,16 @@ def test_locked_accepts_a_configured_env_root(project, tmp_path, monkeypatch):
     assert error.value.code == "LOCK_STALE"
 
 
-def test_locked_remote_entry_is_source_offline(project, tmp_path):
+def test_locked_remote_entry_without_registries_is_stale(project, tmp_path):
+    # Slice 1b: a lock with sources and an agent.yaml without `registries:` is LOCK_STALE under
+    # --locked, before anything is read (it was SOURCE_OFFLINE in slice 1a).
     lock = Lock(
         entries={"tool/orders@1.0.0": {"sha256": HASH, "source": "remote:acme"}},
         sources=v2({})["sources"],
     )
     with pytest.raises(RegistryError) as error:
         run(project, tmp_path, lock, mode="locked")
-    assert error.value.code == "SOURCE_OFFLINE" and "'acme'" in str(error.value)
+    assert error.value.code == "LOCK_STALE" and "declares no registries" in str(error.value)
     assert not (tmp_path / "ctx").exists()
 
 
@@ -454,12 +456,14 @@ def test_locate_dispatches_remote_before_any_path_join(tmp_path):
     assert error.value.code == "SOURCE_OFFLINE"
 
 
-def test_plain_build_keeps_a_v2_lock_v2(project, tmp_path):
+def test_plain_build_without_registries_writes_v1_again(project, tmp_path):
+    # Spec §7: removing `registries:` writes v1 again (slice 1a kept a v2 lock v2).
     lock = Lock(sources={})
-    run(project, tmp_path, lock)
+    _, changed = run(project, tmp_path, lock)
     lock.save(project / "agent.lock")
-    assert json.loads((project / "agent.lock").read_text())["lock_version"] == 2
-    assert Lock.load(project / "agent.lock").sources == {}
+    assert changed
+    assert json.loads((project / "agent.lock").read_text())["lock_version"] == 1
+    assert Lock.load(project / "agent.lock").sources is None
 
 
 # -- release's eval set (spec §7 consumers) ------------------------------------------------------

@@ -27,6 +27,13 @@ def lines(page):
     return page.get_by_role("region", name="Log lines").locator(".logline")
 
 
+def tail_pick(page):
+    # The Lines select only. A label match is a substring match, and once the logs have loaded
+    # "Lines" also names the "Show lines" group, the Level select (its options say "All lines"),
+    # "Wrap lines", the Copy button and the "Log lines" region.
+    return page.get_by_role("combobox", name="Lines", exact=True)
+
+
 def open_service(page, console, name="litellm"):
     sign_in(page, console)
     page.get_by_role("link", name=f"Logs of {name}").click()
@@ -49,7 +56,7 @@ def test_a_service_row_opens_its_logs_with_the_notes(page, console):
 def test_ten_thousand_lines_are_windowed(page, console):
     console.scenario(generated_lines=10000)
     open_service(page, console)
-    page.get_by_label("Lines").select_option("10000")
+    tail_pick(page).select_option("10000")
     page.get_by_role("button", name="Read again").click()
     expect(page.locator(".log-notes")).to_contain_text("10000 lines read")
     # Only the rows in view (plus a margin) are in the page.
@@ -63,7 +70,7 @@ def test_ten_thousand_lines_are_windowed(page, console):
 
 def test_level_filter_text_filter_and_search(page, console):
     open_service(page, console)
-    page.get_by_label("Lines").select_option("1000")
+    tail_pick(page).select_option("1000")
     page.get_by_role("button", name="Read again").click()
     expect(page.locator(".log-notes")).to_contain_text("1000 lines read")
     page.get_by_label("Level").select_option("error")
@@ -226,7 +233,9 @@ def test_logs_with_lines_have_no_serious_axe_findings(scheme_page, console):  # 
 
 def test_read_again_keeps_focus_and_a_single_match_scrolls_back(page, console):
     open_service(page, console)
-    page.get_by_label("Lines").select_option("1000")
+    # Pick the tail after the first read has finished: the case a substring label match broke.
+    expect(lines(page).first).to_be_visible()
+    tail_pick(page).select_option("1000")
     button = page.get_by_role("button", name="Read again")
     button.focus()
     page.keyboard.press("Enter")

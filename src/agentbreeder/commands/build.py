@@ -27,6 +27,11 @@ def register(commands) -> None:
         metavar="REF",
         help="Accept new hashes for path refs (all or listed)",
     )
+    build.add_argument(
+        "--offline",
+        action="store_true",
+        help="Never use the network: remote registry sources come from the cache only",
+    )
     build.add_argument("--output", type=Path, help="Where to write manifests (default ./deploy)")
     build.add_argument("--json", action="store_true")
     cli.add_stack(build)
@@ -44,6 +49,7 @@ def run(args) -> int:
             mode=mode,
             update=set(args.update or []),
             output=args.output,
+            offline=args.offline,
         )
     except (
         BuildError,
@@ -57,6 +63,7 @@ def run(args) -> int:
     if args.json:
         print(json.dumps(result.as_json(), indent=2))
         return 0
+    _provenance(result)
     print(f"Built {result.name}: {result.image}")
     print(f"Manifest: {result.manifest_path}")
     if result.candidate_manifest_path:
@@ -65,3 +72,17 @@ def run(args) -> int:
     # Never a production `deploy`: production comes from `release`, behind the eval gate.
     print(hints.next_line("release", args.agent, stack=args.stack, environment=args.environment))
     return 0
+
+
+def _provenance(result) -> None:
+    """One line per remote ref: `tool/geo@1.2.0 <- acme @3f2a9c1` (#829 spec §12)."""
+    remote = [ref for ref in result.refs if ref["source"].startswith("remote:")]
+    if not remote:
+        return
+    from agentbreeder import sources
+    from agentbreeder.lock import Lock
+
+    table = Lock.load(result.lock_path).sources or {}
+    for ref in remote:
+        name = ref["source"].removeprefix("remote:")
+        print(f"{ref['ref']} <- {name} @{sources.short_pin(table.get(name))}")

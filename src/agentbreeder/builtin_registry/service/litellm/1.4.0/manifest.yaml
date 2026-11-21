@@ -21,9 +21,8 @@ description: >-
   parameters in requests (`GATEWAY_PARAM_REFUSED`) and serves chat completions and embeddings
   only (`GATEWAY_ROUTE_REFUSED`), so a key reaches only its aliases' configured providers
   (#1105). Same image as 1.0.0 to 1.2.0.
-  1.4.0 adds Vertex AI (`vertex_ai/gemini-…` and Vertex embedding entries): an optional
-  gateway-only import, VERTEX_SERVICE_ACCOUNT_JSON (a service-account key as one line of
-  JSON). The launcher accepts only a `service_account` key with Google's own token
-  endpoint, passes LiteLLM a re-serialised copy with seven known fields, and stops unless
-  every `vertex_ai/` entry reads that key and names the key's own project (#1025 V1).
-  Config-only: not yet run against Vertex AI. Same image as 1.0.0 to 1.3.0.
+  1.4.0 adds LiteLLM's Anthropic Messages route (`/v1/messages`, call type
+  `anthropic_messages`) to the filter, with 1.3.0's refusals plus the Messages fields that reach
+  provider-side tools, execution or storage (`mcp_servers`, `container`, typed server tools, Files
+  API and URL sources, `anthropic-beta`, `service_tier`, `inference_geo`, `speed`) (#1089). Chat
+  completions and embeddings are filtered exactly as in 1.3.0. Same image and launcher as 1.3.0.

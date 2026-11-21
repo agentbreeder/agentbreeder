@@ -9,8 +9,10 @@
 import { href } from "../lib/router.js";
 import { ToolFacts } from "./tool.js";
 import { KnowledgeFacts } from "./knowledge.js";
+import { SkillDiffNote, SkillFacts } from "./skill.js";
+import { RuntimeFacts, RuntimeList } from "./runtime.js";
 import {
-  KINDS, ROOT_LABELS, deployedLines, diffStats, groupByName, hunkHeader, noHunkReason, usedByText, useText, verifyLabel, verifyState,
+  KINDS, ROOT_LABELS, codeLabel, deployedLines, diffStats, groupByName, hunkHeader, noHunkReason, usedByText, useText, verifyLabel, verifyState,
 } from "../lib/registry.js";
 import { Action, Card, Notice, Table, Text, ViewState, useConfirm } from "../ui/components.js";
 import { GateCheck } from "../ui/icons.js";
@@ -77,6 +79,8 @@ function VerifyBadge({ entry }) {
 
 /** The list for one kind. */
 export function registryList(meta) {
+  // Runtimes are listed per version, with the framework and status (#1085 S3).
+  if (meta.kind === "runtime") return RuntimeList;
   return function RegistryList({ project }) {
     const view = useRegistry(project);
     if (!view.data) return html`<${Card} title=${meta.nav} busy=${view.loading}><${ViewState} view=${view} /><//>`;
@@ -84,13 +88,15 @@ export function registryList(meta) {
     const versions = view.data.versions || {};
     const inUse = view.data.in_use || {};
     const useErrors = (inUse.data && inUse.data.errors) || [];
+    // Skills add a Code column (#1059): a skill is code or text by its files, not its kind.
+    const skills = meta.kind === "skill";
     return html`<${Card} title=${meta.nav} busy=${view.loading}>
       <${VerifyNote} view=${view} />
       ${versions.error ? html`<p class="notice error" role="alert"><${Text} value=${versions.error.message} /></p>` : null}
       ${inUse.error ? html`<p class="muted">Used by is unavailable: <${Text} value=${inUse.error.message} /></p>` : null}
       ${useErrors.length ? html`<p class="muted">Used by may be incomplete: <${Text} value=${`${useErrors[0].file || "project"}: ${useErrors[0].error}`} /></p>` : null}
       ${rows.length
-        ? html`<${Table} label=${meta.nav} columns=${["Name", "Latest", "Versions", "Root", "Verify", "Used by this project"]}>
+        ? html`<${Table} label=${meta.nav} columns=${["Name", "Latest", "Versions", "Root", "Verify", "Used by this project", ...(skills ? ["Code"] : [])]}>
             ${rows.map((entry) => html`<tr key=${entry.name}>
               <td><a href=${href(`/registry/${meta.path}/:name`, { name: entry.name })}><${Text} value=${entry.name} /></a></td>
               <td class="nowrap"><code>${entry.latest.version}</code></td>
@@ -98,9 +104,12 @@ export function registryList(meta) {
               <td><${RootBadge} version=${entry.latest} /></td>
               <td><${VerifyBadge} entry=${entry} /></td>
               <td>${usedByText(entry) ? html`<${Text} value=${usedByText(entry)} />` : html`<span class="muted">not used</span>`}</td>
+              ${skills ? html`<td>${codeLabel(entry)}</td>` : null}
             </tr>`)}
           <//>`
-        : html`<p class="muted">No ${meta.nav.toLowerCase()} in this project's search roots. <code>agentbreeder registry new ${meta.kind} NAME</code> scaffolds one to publish.</p>`}
+        : skills
+          ? html`<p class="muted">No skill versions yet. Write one with <code>agentbreeder registry new skill NAME</code> or import one.</p>`
+          : html`<p class="muted">No ${meta.nav.toLowerCase()} in this project's search roots. <code>agentbreeder registry new ${meta.kind} NAME</code> scaffolds one to publish.</p>`}
       <${Roots} roots=${view.data.roots} />
       <p class="muted small"><a href=${href("/registry/import")}>Import a version from a directory</a></p>
     <//>`;
@@ -112,16 +121,18 @@ export function registryDetail(meta) {
   // Keyed by name and case: another name or case link (back, forward, a pasted address) starts
   // with its own latest version, a fresh diff picker and that case open.
   const Detail = detailBody(meta);
-  return function RegistryDetail({ project, params }) {
-    return html`<${Detail} key=${`${params.name} ${params.case || ""}`} project=${project} name=${params.name} focusCase=${params.case || null} />`;
+  return function RegistryDetail({ project, params, query = {} }) {
+    // `?version=` opens that version first (a Runtimes row links to its version, #1085 S3).
+    const version = /^[0-9]{1,6}(\.[0-9]{1,6}){2}$/.test(query.version || "") ? query.version : null;
+    return html`<${Detail} key=${`${params.name} ${params.case || ""} ${version || ""}`} project=${project} name=${params.name} focusCase=${params.case || null} initial=${version} />`;
   };
 }
 
 function detailBody(meta) {
-  return function DetailBody({ project, name, focusCase }) {
+  return function DetailBody({ project, name, focusCase, initial = null }) {
     const view = useRegistry(project);
     const entry = view.data ? groupByName(view.data, meta.kind).find((row) => row.name === name) : null;
-    const [selected, setSelected] = useState(null);
+    const [selected, setSelected] = useState(initial);
     const [saved, setSaved] = useState(null);
     // The deep link's case (gate-failed view) opens once: a save or another version drops it.
     const [focus, setFocus] = useState(focusCase);
@@ -156,12 +167,14 @@ function detailBody(meta) {
 }
 
 function Timeline({ entry, current, onSelect }) {
-  return html`<${Table} label="Versions, newest first" columns=${["Version", "Root", "Verify", "Used by this project", ""]}>
+  const skills = entry.latest.code !== null && entry.latest.code !== undefined;
+  return html`<${Table} label="Versions, newest first" columns=${["Version", "Root", "Verify", "Used by this project", ...(skills ? ["Code"] : []), ""]}>
     ${entry.versions.map((v, index) => html`<tr key=${v.version} aria-current=${v.version === current ? "true" : undefined} class=${v.version === current ? "current" : ""}>
       <td class="nowrap"><code>${v.version}</code>${index === 0 ? html` <span class="muted small">latest</span>` : null}${v.shadowed ? html` <span class="muted small" title="The same version in a later root is never resolved">(+${v.shadowed} shadowed)</span>` : null}</td>
       <td><${RootBadge} version=${v} /></td>
       <td><${VerifyBadge} entry=${v} />${v.problem ? html`<div class="small"><${Text} value=${v.problem} /></div>` : null}</td>
       <td>${useText(v) ? html`<${Text} value=${useText(v)} />` : html`<span class="muted">not used</span>`}</td>
+      ${skills ? html`<td>${codeLabel(v)}</td>` : null}
       <td>${v.version === current
         ? html`<span class="muted small">shown below</span>`
         : html`<${Action} tone="secondary" small onClick=${() => onSelect(v.version)}>Show ${v.version}<//>`}</td>
@@ -176,7 +189,7 @@ function Version({ project, version, entry, kind, focusCase, onSaved, onMoved })
     ${!data || view.error ? html`<${ViewState} view=${view} />` : null}
     ${data
       ? html`
-        ${data.description ? html`<p><${Text} value=${data.description} /></p>` : null}
+        ${data.description && kind !== "skill" ? html`<p><${Text} value=${data.description} /></p>` : null}
         <dl class="facts">
           <dt>Ref</dt><dd><code><${Text} value=${data.ref} /></code></dd>
           <dt>Version hash</dt><dd><code><${Text} value=${data.sha256} /></code></dd>
@@ -184,6 +197,8 @@ function Version({ project, version, entry, kind, focusCase, onSaved, onMoved })
         </dl>
         <${ToolFacts} data=${data} project=${project} />
         <${KnowledgeFacts} data=${data} project=${project} />
+        <${SkillFacts} data=${data} />
+        <${RuntimeFacts} data=${data} project=${project} />
         ${data.omitted ? html`<p class="muted small">Some files are not shown: the version's text budget ran out. <code>agentbreeder registry show</code> prints the same view.</p>` : null}
         <h3>Files</h3>
         <ul class="files">${(data.files || []).map((file) => html`<li key=${file.path}><${FileView} file=${file} /></li>`)}</ul>`
@@ -242,6 +257,7 @@ function Diff({ project, entry }) {
       ? html`<p role="status">${result.identical
           ? html`<${Text} value=${`${asked.from} and ${asked.to} are identical.`} />`
           : html`<${Text} value=${`${asked.from} → ${asked.to}: ${result.files.length} ${result.files.length === 1 ? "file" : "files"} changed, ${stats.added} lines added, ${stats.removed} removed.`} />`}</p>
+        <${SkillDiffNote} result=${result} />
         ${(result.files || []).map((file, index) => html`<${FileDiff} key=${`${file.path} ${index}`} file=${file} />`)}`
       : null}
   <//>`;

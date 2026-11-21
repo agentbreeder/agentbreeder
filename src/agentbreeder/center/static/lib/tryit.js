@@ -93,8 +93,9 @@ export function settle(conversation, id, envelope) {
   return { ...conversation, turns, session };
 }
 
-// A failed model call's code (runtime/adk@1.3.0; MODEL_BLOCKED from 1.4.0): `tryit.MODEL_CODES`.
-export const MODEL_CODES = ["MODEL_BLOCKED", "MODEL_BUDGET_EXCEEDED", "MODEL_RATE_LIMITED", "MODEL_ACCESS_DENIED", "MODEL_REQUEST_REFUSED", "MODEL_UNAVAILABLE"];
+// A failed model call's code (runtime/adk@1.3.0; MODEL_BLOCKED from 1.4.0; MODEL_STEP_LIMIT from a
+// kit runtime, agent protocol "Profiles"): `tryit.MODEL_CODES`.
+export const MODEL_CODES = ["MODEL_BLOCKED", "MODEL_BUDGET_EXCEEDED", "MODEL_RATE_LIMITED", "MODEL_ACCESS_DENIED", "MODEL_REQUEST_REFUSED", "MODEL_UNAVAILABLE", "MODEL_STEP_LIMIT"];
 const HEX32 = /^[0-9a-f]{32}$/;
 // The codes whose next step is to send the message again (the others say it won't help).
 const RETRYABLE = ["MODEL_RATE_LIMITED", "MODEL_UNAVAILABLE"];
@@ -117,6 +118,11 @@ function problemOf(error, data) {
  * its next step; the rest says whether the turn may have run. */
 export function failureText(problem) {
   const why = `${problem.message} [${problem.code}]`;
+  if (problem.code === "MODEL_STEP_LIMIT") {
+    // Not a failed call: the turn reached its model-call limit with the model still asking for tools
+    // (agent protocol "Profiles", #1085 S2). Only that is said: no kit runtime has sent it yet.
+    return `The agent reached its limit on model calls for one turn while the model still asked for tools, so there is no reply: ${why}. Sending it again starts a new turn.`;
+  }
   if (MODEL_CODES.includes(problem.code)) {
     // The runtime's 1.3.0 message already names the wait ("retry in 7 s"); say it only if not.
     const named = Number.isInteger(problem.retryAfter) && problem.message.includes(`retry in ${problem.retryAfter} s`);
@@ -206,6 +212,32 @@ export function costText(usd) {
   if (usd === 0) return "$0";
   if (usd < 0.000001) return "under $0.000001";
   return `$${usd.toFixed(usd < 0.01 ? 6 : 4)}`;
+}
+
+// A turn's sub-agents and skills (runtime/adk@1.5.0, #1193), one line each. The server passes on
+// only checked names, counts and file names; these are still shown as text, never markup.
+const entries = (value) => (Array.isArray(value) ? value.filter((item) => item && typeof item === "object" && typeof item.name === "string" && item.name) : []);
+const counted = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+/** Each sub-agent called this turn: "billing: called once, 2 model calls; tools: file_refund". */
+export function subagentsLines(subagents) {
+  return entries(subagents).map((sub) => {
+    const counts = [];
+    if (Number.isInteger(sub.calls)) counts.push(sub.calls === 1 ? "called once" : `called ${sub.calls} times`);
+    if (Number.isInteger(sub.model_calls)) counts.push(counted(sub.model_calls, "model call", "model calls"));
+    const tools = strings(sub.tools);
+    const used = tools.length ? `tools: ${tools.join(", ")}` : "no tools";
+    return `${sub.name}: ${counts.length ? `${counts.join(", ")}; ` : ""}${used}`;
+  });
+}
+
+/** Each skill loaded this turn: "refund-policy 1.2.0, read eu-rules.md". */
+export function skillsLines(skills) {
+  return entries(skills).map((skill) => {
+    const version = typeof skill.version === "string" && skill.version ? ` ${skill.version}` : "";
+    const read = strings(skill.resources);
+    return `${skill.name}${version}${read.length ? `, read ${read.join(", ")}` : ""}`;
+  });
 }
 
 /** A list of tool names or source titles in words; empty says "none". */

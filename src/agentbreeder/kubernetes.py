@@ -41,6 +41,9 @@ DEPLOYMENT_LABEL = "io.agentbreeder/deployment"
 SPEC_ANNOTATION = "io.agentbreeder/spec"
 IMAGE_ANNOTATION = "io.agentbreeder/image"
 POD_SECURITY = "pod-security.kubernetes.io/enforce"
+# The two-uid contract (#1089): the CLI container's uid and the directory it shares with the agent.
+CLI_UID = 65533
+CLI_SHARED_DIR = "/run/agentbreeder-cli"
 SCHEME = "kubernetes://"
 ROLLOUT_TIMEOUT = 180
 _KINDS = "deployment,service,networkpolicy,secret"
@@ -636,6 +639,43 @@ def _objects(
         )
         volumes.append({"name": "secrets", "secret": {"secretName": name, "defaultMode": 0o440}})
         volume_mounts.append({"name": "secrets", "mountPath": MOUNT_ROOT, "readOnly": True})
+    cli: list[dict] = []
+    if manifest.runtime is not None and manifest.runtime.isolation == "two-uid":
+        # #1089, owner decision D15: the framework's subprocess (the Claude Code CLI) runs in a
+        # second container from the same image, as its own uid, with no secret volume and no
+        # environment but its role. The two share only a small memory-backed directory; the
+        # runtime checks every peer's kernel credentials over it. In a pod both containers
+        # share the network namespace (on local Docker the CLI container has none).
+        volumes += [
+            {"name": "cli-tmp", "emptyDir": {"medium": "Memory", "sizeLimit": "64Mi"}},
+            {"name": "cli-shared", "emptyDir": {"medium": "Memory", "sizeLimit": "1Mi"}},
+        ]
+        volume_mounts.append({"name": "cli-shared", "mountPath": CLI_SHARED_DIR})
+        cli.append(
+            {
+                "name": "cli",
+                "image": manifest.image,
+                "imagePullPolicy": "IfNotPresent",
+                "env": [{"name": "AGENTBREEDER_ROLE", "value": "cli-host"}],
+                "securityContext": {
+                    "runAsUser": CLI_UID,
+                    "runAsGroup": CLI_UID,
+                    "allowPrivilegeEscalation": False,
+                    "readOnlyRootFilesystem": True,
+                    "capabilities": {"drop": ["ALL"]},
+                },
+                "resources": {
+                    "requests": {"cpu": "100m", "memory": "128Mi"},
+                    "limits": {"cpu": "1", "memory": "512Mi"},
+                },
+                # Read-only: the CLI only connects to the kit's sockets. The emptyDir itself
+                # is world-writable, so a writable mount would let the CLI's uid replace them.
+                "volumeMounts": [
+                    {"name": "cli-tmp", "mountPath": "/tmp"},
+                    {"name": "cli-shared", "mountPath": CLI_SHARED_DIR, "readOnly": True},
+                ],
+            }
+        )
     objects.append(
         {
             "apiVersion": "v1",
@@ -733,7 +773,8 @@ def _objects(
                                     "failureThreshold": 30,
                                 },
                                 "volumeMounts": volume_mounts,
-                            }
+                            },
+                            *cli,
                         ],
                         "volumes": volumes,
                     },

@@ -57,6 +57,14 @@ never claim runtime enforcement beyond MCP Streamable HTTP via the opt-in sideca
 8. **Never merge without tests** — CI blocks PRs with < 80% coverage on changed files
 9. **Never commit marketing/strategy content** — this is a public OSS repo. Positioning docs, growth/GTM plans, competitive strategy, website-audit artifacts, and similar internal material go in `docs/superpowers/private/` (gitignored) or outside the repo — never into tracked paths like `docs/superpowers/specs/`. Engineering specs/plans remain tracked as usual.
 
+## 🔐 Known security exceptions (read by `/security` and `/gate`; anything not listed blocks)
+
+- **Known exception: `chromadb==1.5.9` in `runtime/crewai@1.0.0`'s lock only**, IDs GHSA-f4j7-r4q5-qw2c, GHSA-36p7-vc44-83pf, GHSA-xph7-9rjv-w5fr, GHSA-2wm9-hf6c-p5cr
+  (pip-audit aliases, in order: PYSEC-2026-311/CVE-2026-45829, PYSEC-2026-3814/CVE-2026-45833, PYSEC-2026-3815/CVE-2026-45831, PYSEC-2026-3813/CVE-2026-45830)
+  (`src/agentbreeder/builtin_registry/runtime/crewai/1.0.0/runtime/requirements.lock`). Reason: the advisories (GitHub: 2 critical, 2 high) are in ChromaDB's HTTP server, which the runtime never starts; it imports `chromadb` only as a library.
+  No fixed version exists; re-check when chromadb ships a fix. Owner decision 2026-11-20 (#1090). Guarded by `tests/test_crewai_chromadb_exception.py`
+  and the runtime test `test_chromadb_is_a_library_only_no_server_client_or_port`. Any other ID, package, version or lock is not covered.
+
 ---
 
 ## 🚦 Standard Delivery Workflow (Definition of Done)
@@ -181,13 +189,26 @@ guardrails floor. 1.0.0 to 1.2.0 unchanged (they still honour `custom_llm_provid
 Northwind not relocked. No manifest, JSON Schema or `agent.lock` format change. Website: no change
 until release R. Cloud: a `CLAUDE.md` note only.
 
-**Vertex AI, #1025 V1, per side.** OSS (on `main`): built-in `service/litellm@1.4.0` (1.3.0 plus
+**Gateway Messages route, #1089, per side.** OSS (on `main`; unit-tested, and the opt-in Docker test
+passed on 2026-11-20 against the real LiteLLM 1.106.2 image with stub providers, PR #1187):
+built-in `service/litellm@1.4.0` (1.3.0's image, launcher and `service.yaml`, a new filter)
+also serves `/v1/messages` (`anthropic_messages`), with 1.3.0's refusals plus
+`mcp_servers`, `container`, `service_tier`, `speed`, `inference_geo`, betas, `compaction`,
+`safeguards`, typed tools, provider headers other than `anthropic-version`, and Files API or URL
+content (`GATEWAY_PARAM_REFUSED`); chat and embeddings are filtered as on 1.3.0.
+`gateway_keys.key_routes(..., model_api)` adds `/v1/messages` for `anthropic-messages`; nothing on
+`main` passes it yet (F7, #1177, does). `/v1/messages/count_tokens` is reachable with such a key
+and unfiltered (LiteLLM prefix-matches routes). 1.0.0 to 1.3.0, starters and Northwind unchanged.
+No manifest, JSON Schema or `agent.lock` change. Website: no change until release R. Cloud: a
+`CLAUDE.md` note only.
+
+**Vertex AI, #1025 V1, per side.** OSS (on `main`): built-in `service/litellm@1.5.0` (1.4.0 plus
 the gateway-only import `VERTEX_SERVICE_ACCOUNT_JSON`; the launcher accepts only a
 `service_account` key, re-serialises it and binds `vertex_project` to the key's project),
 `VERTEX_KEY_INVALID` at `services up`, and `new agent --model vertex --vertex-project
 --vertex-location` (plain starter only; not `--stack-for`, `--from-spec` or the console).
 **Config-only: not run against Vertex AI, `verified` false.** No manifest, JSON Schema or
-`agent.lock` format change; 1.0.0 to 1.3.0 unchanged. Website: no change until a recorded run.
+`agent.lock` format change; 1.0.0 to 1.4.0 unchanged. Website: no change until a recorded run.
 Cloud: a `CLAUDE.md` note only.
 
 **Agent guardrails, #1053, per side.** OSS (on `main`): `agent.yaml` and the manifest gain an
@@ -275,6 +296,101 @@ and empty directories refused in registry versions. `stack.lock` stays v1. No `a
 manifest or JSON Schema change. Website: no change until release R. Cloud: a `CLAUDE.md` note
 only; a grep of its tracked files on 2026-11-19 found no reader of `agent.lock` or
 `stack.lock`. Any future Cloud reader must accept v1 and v2 and refuse unknown keys.
+
+**Remote registry sources, #829 M9b slice 1b (git), per side.** OSS (on `main`, not in a
+published preview; tested only against a loopback `git http-backend`): `agent.yaml` gains
+optional `registries:` (git only), which makes `build` write `agent.lock` v2; `sources/git.py`
+(hardened fetcher), `trust.py` (`~/.agentbreeder/sources.yaml`, `AGENTBREEDER_REGISTRY_TRUST`),
+`cache.py`, `remote.py`; `registry trust`; `build --offline`; `build.json` and `package.json`
+`inputs.sources` carry the sources table (only with `registries:`); `package.py` and the
+console's `center/reads.py` accept lock v2 via `Lock.parse_bytes`. New
+`docs/agent-lock.schema.json`. Without `registries:` every output is byte-identical. Website: no
+change until release R. Cloud: a `CLAUDE.md` note only; a grep of its tracked files on
+2026-11-19 found no reader of `agent.lock`, `stack.lock`, `lock_version`, `package.json` inputs,
+`build.json`, `sources.yaml` or the trust variable.
+
+**Runtime kit and LangGraph, #1083 F2b + F3 (multi-framework), per side.** OSS (on `main`; run
+end to end on macOS x86_64, verified there for what the fresh-wheel run below covered): `src/agentbreeder/runtime_kit/` (protocol v1 `kit`
+profile, the turn, the loopback model proxy with 1.3.0's retries and codes and a step cap that
+withholds a tool-calling last answer, `MODEL_STEP_LIMIT`), vendored byte for byte as `runtime/kit/` in
+`runtime/langgraph@1.0.0` (capabilities `knowledge`, `notes`), and
+`examples/northwind-langgraph` (Northwind's registry and stack; Northwind's `stack.yaml` names
+the new agent). No `agent.yaml` field, manifest, JSON Schema, `SCHEMA_VERSION` or `agent.lock`
+format change; a kit runtime's deploy manifest carries F1's optional `runtime` field. In
+`agentspec.VERIFIED` and `RUNTIMES_RUN` since the fresh-wheel run below. The opt-in real-stack
+acceptance ran on 2026-11-19 (61/61 local and on
+`kind`, conformance 26/39 with 13 not built, no arm64), and Northwind's `commerce.sql` grants the
+agent role SELECT on six `turns` columns for kit history. Website: no change
+until LangGraph passes its acceptance. Cloud: a `CLAUDE.md` note only; it has no code that reads
+a runtime manifest, the reply's `framework`/`runtime` or the deploy manifest's `runtime`.
+
+**Verified LangGraph and ADK 1.5.0 (fresh-wheel run, owner decision 2026-11-19), per side.** OSS
+(on `main`): `RUNTIMES_RUN` gains `runtime/adk@1.5.0` and `runtime/langgraph@1.0.0`; `VERIFIED`
+gains `langgraph` (the starter and one tool, `gemini` on its default model, macOS x86_64 only;
+`BASE_RUNTIMES`, `RUNTIME_PROVIDERS`, `newagent.STARTER_RUNTIMES`); the console's form starts on
+`newagent.RUNTIME` (`STARTER_RUNTIME` in `builder.js`); conformance reports the span checks
+`not_run`, not `fail`, for an image built with `traces: none`. Record:
+`docs/superpowers/verification/verify-langgraph-adk150.md`. No manifest, JSON Schema or
+`agent.lock` change; `registry runtimes --json` changes only its `verified` values. Website: no
+change until release R. Cloud: a `CLAUDE.md` note only; it has no code that reads `registry
+runtimes` or a `new agent` summary.
+
+**OpenAI Agents SDK, #1083 F4 (multi-framework), per side.** OSS (on `main`; run end to end on
+macOS x86_64 2026-11-20, not verified): `runtime/openai-agents@1.0.0` (the SDK's `Agent` over
+Chat Completions on the vendored kit 1.0.0, kit-function tools only, every `OPENAI_*` variable
+removed before import, the instrumentor's exclusive processor replacing the SDK's OpenAI trace
+exporter) and `examples/northwind-openai-agents` (Northwind's registry and stack; `stack.yaml`
+names the agent). No `agent.yaml` field, manifest, JSON Schema, `SCHEMA_VERSION` or `agent.lock`
+format change. Not in `agentspec.VERIFIED` or `RUNTIMES_RUN`. The opt-in real-stack acceptance
+(`tests/test_northwind_openai_agents_docker.py`) ran on 2026-11-20 (61/61 local and on `kind`,
+conformance 26/39 with 13 not built, no arm64). Website: no change until it
+passes its acceptance. Cloud: a `CLAUDE.md` note only (not made by this lane); it has no code that
+reads a runtime manifest or the reply's `framework`/`runtime`.
+
+**CrewAI, #1090 (#1083 F6, multi-framework), per side.** OSS: `runtime/crewai@1.0.0` on kit 1.0.0
+(unchanged), run end to end on macOS x86_64 (2026-11-20: Northwind 61/61 local and on `kind`,
+conformance 26/39 with 13 not built, no arm64), not verified: `Agent.kickoff_async` per
+turn (no `Crew`), CrewAI's task-output SQLite store and console output switched off and checked at
+start-up, CrewAI's retry loop off per turn, tool schemas as generated pydantic models, one LLM
+span per model call written by the adapter;
+`examples/northwind-crewai` (Northwind's `stack.yaml` names the new agent; `example.PORTS`); CI job
+`runtime-crewai`; opt-in `tests/test_northwind_crewai_docker.py`. Not in
+`agentspec.VERIFIED` or `RUNTIMES_RUN`. No `agent.yaml` field, manifest, JSON Schema,
+`SCHEMA_VERSION` or `agent.lock` format change. Website: no change until CrewAI passes its
+acceptance. Cloud: a `CLAUDE.md` note only, as for F3.
+
+**Claude Agent SDK runtime and two-uid deploys, #1089 F7 (multi-framework), per side.** OSS (on
+`main`; run end to end on macOS x86_64 2026-11-20, 61/61 local and on `kind` on a 1.4.0 copy,
+conformance blocked by #1199, no arm64; not supported): `runtime/claude-agent-sdk@1.0.0` lives
+in `examples/northwind-claude-agent-sdk/registry/`, never `builtin_registry` (D8: AgentBreeder
+does not ship the CLI). New runtime manifest key `isolation: two-uid`; the deploy manifest's
+`runtime` gains optional `model_api: anthropic-messages` and `isolation: two-uid` (JSON Schema
+updated; written only when declared, so digests are unchanged). Deploy runs a second, secret-less
+CLI container (uid 65533; `--network none` on Docker, a second pod container on `kind`), keys get
+`/v1/messages` for `anthropic-messages`, and the gate refuses that wherever guardrails apply
+(`RUNTIME_GUARDRAILS_UNSUPPORTED`). Kit 1.0.0 is unchanged (the Anthropic route is a runtime-local
+proxy subclass). It needs `service/litellm@1.4.0` (#1187); Northwind's stack stays on 1.0.0 and
+the opt-in acceptance runs on a copy pinned to 1.4.0. Website: no change until the runtime passes its acceptance and D15's support
+call. Cloud: a `CLAUDE.md` note only; it has no code that reads the deploy manifest's `runtime`.
+
+**Console sign-in, #818 M2 (epic #1054), per side.** OSS (on `main`): `up --set-password`,
+`--reset-password` and `--link`; `center.sqlite3` schema 4 (`users` with scrypt hashes, and
+`security_events`); new console routes (`/api/auth`, `/api/setup`, `/api/password`,
+`/api/signout`, `/api/signout-everywhere`, `/api/settings`) and `POST /api/session` taking
+`{email, password}`. No manifest, JSON Schema, `agent.yaml` or `agent.lock` change. Website: no
+change until release R. Cloud: a `CLAUDE.md` note only; it has no code that runs `up`, calls the
+console API or reads `center.sqlite3` (the console API is private and unversioned).
+
+**Deep Agents, #1083 F5 (multi-framework), per side.** OSS (on `main`; run end to end on macOS
+x86_64 on 2026-11-20, 61/61 local and on `kind`, conformance 26/39, no arm64; not verified):
+`runtime/deepagents@1.0.0` on the unchanged kit 1.0.0 (state backend only; reserved tool names
+`ls`, `read_file`, `write_file`, `edit_file`, `delete`, `glob`, `grep`, `task`; the `task`
+sub-agent counts against the turn's step cap, D10) and `examples/northwind-deepagents`
+(Northwind's registry and stack; Northwind's `stack.yaml` names the new agent). No `agent.yaml`
+field, manifest, JSON Schema, `SCHEMA_VERSION` or `agent.lock` format change. Not in
+`agentspec.VERIFIED` or `RUNTIMES_RUN`. Website: no change until Deep Agents passes its
+acceptance. Cloud: a `CLAUDE.md` note only; it has no code that reads a runtime manifest, the
+reply's `framework`/`runtime` or the deploy manifest's `runtime`.
 
 ## 🎯 When Adding a New Feature
 

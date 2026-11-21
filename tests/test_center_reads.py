@@ -38,6 +38,8 @@ ALLOWED = {
     "agentbreeder.strict_yaml",
     "agentbreeder.center",
     "agentbreeder.center.__main__",
+    # Sign-in (#818): password policy, scrypt and the backoff; standard library only.
+    "agentbreeder.center.auth",
     "agentbreeder.center.files",
     "agentbreeder.center.instance",
     "agentbreeder.center.jobs",
@@ -50,6 +52,8 @@ ALLOWED = {
     "agentbreeder.center.registryimport",
     # The eval report viewer (#932): fixed argv and answer shape checks; imports only `re`.
     "agentbreeder.center.evals",
+    # Notifications (#827): fixed argv and event allow-list; imports `re` and center.files.
+    "agentbreeder.center.notifications",
     # Prompt editing and set-ref (#826): pure request checks and argv; imports only registry.
     "agentbreeder.center.edits",
     # MCP grant and revoke (#831): pure request/answer checks; imports registry, strict_yaml.
@@ -58,6 +62,9 @@ ALLOWED = {
     "agentbreeder.center.pinsreview",
     # Agents (#823): pure shaping of `list --all` and `audit list` answers.
     "agentbreeder.center.agents",
+    # Registry ▸ Runtimes and conformance (#1085 S3): answer checks and the build record read
+    # through registry.read_project_file; imports only registry.
+    "agentbreeder.center.conformance",
     # The tool execution log (#828): pure query and answer checks; imports only registry and
     # center.files.
     "agentbreeder.center.toollog",
@@ -217,6 +224,32 @@ def test_lock_entries_match_lock_load(project):
         assert Reads().lock(str(project))["error"]["code"] == "LOCK_INVALID"
     (project / "agent.lock").write_text(json.dumps({"lock_version": lock_module.LOCK_VERSION}))
     assert Reads().lock(str(project))["error"]["code"] == "LOCK_INVALID"
+
+
+def test_a_v2_lock_is_read_with_the_lock_rules(project):
+    """#829 slice 1b: the console accepts lock v2 by `Lock.parse`'s own rules (the follow-up from
+    #1156), and refuses what they refuse."""
+    from agentbreeder import lock as lock_module
+
+    source = {
+        "type": "git",
+        "url": "https://github.com/acme/reg.git",
+        "pin": {"commit": "a" * 40},
+    }
+    entries = {"tool/geo@1.0.0": {"sha256": "sha256:" + "b" * 64, "source": "remote:acme"}}
+    body = {"lock_version": 2, "sources": {"acme": source}, "entries": entries}
+    (project / "agent.lock").write_text(json.dumps(body))
+    answer = Reads().lock(str(project))
+    assert answer["data"] == entries == lock_module.Lock.load(project / "agent.lock").entries
+    for bad in (
+        {**body, "extra": 1},
+        {**body, "sources": {"acme": {**source, "url": "https://GitHub.com/acme/reg.git"}}},
+        {**body, "entries": {"tool/geo@1.0.0": {**entries["tool/geo@1.0.0"], "x": 1}}},
+        {"lock_version": 1, "entries": entries},
+        {"lock_version": 3, "entries": {}},
+    ):
+        (project / "agent.lock").write_text(json.dumps(bad))
+        assert Reads().lock(str(project))["error"]["code"] == "LOCK_INVALID", bad
 
 
 def _ready(read, timeout: float = 120) -> dict:

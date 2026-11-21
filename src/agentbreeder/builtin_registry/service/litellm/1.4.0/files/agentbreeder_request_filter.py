@@ -1,4 +1,4 @@
-"""AgentBreeder's request filter for the built-in gateway (#1105), loaded by files/start.py.
+"""AgentBreeder's request filter for the built-in gateway (#1105, #1089), loaded by files/start.py.
 
 A model alias's provider, endpoint and credentials come from the reviewed gateway config only.
 LiteLLM's router merges request fields over a deployment's `litellm_params`, so this filter
@@ -9,9 +9,45 @@ refuses, before any provider call:
   (`GATEWAY_PARAM_REFUSED`). Metadata is not scanned: the router does not route from it, the
   proxy writes its own keys there (`headers`, `user_api_key_*`), and LiteLLM's blocklist already
   covers its endpoint and credential names in metadata;
-- any call type other than chat completions and embeddings that reaches this hook (provider
-  pass-through, file upload, responses, messages and the rest; `GATEWAY_ROUTE_REFUSED`). Routes
-  that never call the hook are closed by the deployment key's `allowed_routes`.
+- any call type other than chat completions, embeddings and Anthropic messages that reaches this
+  hook (provider pass-through, file upload, responses and the rest; `GATEWAY_ROUTE_REFUSED`).
+  Routes that never call the hook are closed by the deployment key's `allowed_routes`.
+
+1.4.0 (#1089) serves LiteLLM's Anthropic Messages route (`/v1/messages`, call type
+`anthropic_messages`) for the Claude Agent SDK runtime. Chat completions and embeddings are
+decided exactly as in 1.3.0. A Messages request gets every check above, and is also refused
+(`GATEWAY_PARAM_REFUSED`) when it reaches provider-side tools, execution or storage, or picks a
+provider tier or region (read from LiteLLM 1.106.2's `/v1/messages` path):
+
+- `mcp_servers`: the provider connects to remote MCP servers from its own network;
+- `container`: a provider code-execution container and its skills;
+- `service_tier`, `speed`: a provider capacity tier or fast mode, priced outside the alias's
+  configured model and not checked against LiteLLM's cost map;
+- `inference_geo`: the provider region (1.3.0 refuses `region_name` and the like);
+- `betas`, `anthropic_beta`: beta flags switch on server tools and the Files API (LiteLLM adds
+  the betas its own features need);
+- `compaction`, `safeguards`: provider-side features LiteLLM turns into beta flags, which no
+  AgentBreeder runtime sends;
+- `tools` with any `type` but `custom`: provider server tools (web search and fetch, code
+  execution, tool search), Anthropic-defined tools (computer, bash, text editor, memory), MCP
+  toolsets, LiteLLM's MCP gateway (`mcp`) and advisor tools (a second model call, with
+  credentials it can take from the tool). A client tool passes when it has only CLIENT_TOOL_KEYS
+  (so no `allowed_callers`, which hands a tool to code execution); `tools` that is not a list of
+  objects is refused;
+- `provider_specific_header` carrying anything but `anthropic-version`: LiteLLM copies the
+  `anthropic-beta` header and an Anthropic OAuth `Authorization` there, and sends it to the
+  provider; a caller can also send the field in the body;
+- a content block in `messages` or `system` (and in a `tool_result`'s or a document's nested
+  content) that is a `container_upload`, or whose `source` is a Files API id (`file`: a file in
+  the gateway's provider account, which every key shares) or a `url` the provider would fetch
+  from its own network. Only the content-block structure is read, never a `tool_use` input or
+  text; content nested deeper than the filter reads is refused.
+
+`metadata` on this route is Anthropic's own (`user_id`); the proxy's is `litellm_metadata`.
+Neither is scanned, as on chat.
+
+Not covered: `/v1/messages/count_tokens`. LiteLLM matches a key's `allowed_routes` by prefix, so
+a key allowed `/v1/messages` reaches it, and its handler calls no pre-call hook.
 
 Top-level fields the proxy itself can add (`api_key`, `headers`, `organization`) only appear when
 `general_settings` turns on header forwarding, which the gateway config review refuses; the
@@ -133,8 +169,43 @@ ROUTING_FIELDS = frozenset(
         "vertex_ai_location",
     }
 )
-# LiteLLM's call types for chat completions and embeddings (streaming included).
-ALLOWED_CALL_TYPES = frozenset({"acompletion", "completion", "aembedding", "embeddings"})
+# LiteLLM's call types for chat completions, embeddings and Anthropic messages (streaming
+# included).
+MESSAGES_CALL_TYPES = frozenset({"anthropic_messages", "aanthropic_messages"})
+ALLOWED_CALL_TYPES = (
+    frozenset({"acompletion", "completion", "aembedding", "embeddings"}) | MESSAGES_CALL_TYPES
+)
+# Anthropic Messages fields refused on the Messages route (see the module docstring).
+MESSAGES_REFUSED_FIELDS = frozenset(
+    {
+        "mcp_servers",
+        "container",
+        "service_tier",
+        "speed",
+        "inference_geo",
+        "betas",
+        "anthropic_beta",
+        "compaction",
+        "safeguards",
+    }
+)
+# The keys a client tool may have (Anthropic's custom tool, without `allowed_callers`).
+CLIENT_TOOL_KEYS = frozenset(
+    {
+        "type",
+        "name",
+        "description",
+        "input_schema",
+        "cache_control",
+        "strict",
+        "input_examples",
+        "eager_input_streaming",
+        "defer_loading",
+    }
+)
+MESSAGES_HEADERS = frozenset({"anthropic-version"})  # all a Messages request may send on
+REFUSED_SOURCES = frozenset({"file", "url"})  # Files API ids; URLs the provider fetches
+REFUSED_BLOCKS = frozenset({"container_upload"})
 NESTED = ("extra_body", "litellm_embedding_config")
 FALLBACKS = ("fallbacks", "context_window_fallbacks", "content_policy_fallbacks")
 PARAM_REFUSED = "GATEWAY_PARAM_REFUSED"
@@ -142,6 +213,7 @@ ROUTE_REFUSED = "GATEWAY_ROUTE_REFUSED"
 _ALIAS = re.compile(r"agentbreeder-[A-Za-z0-9-]{1,64}")
 _LABEL = re.compile(r"[a-z_]{1,40}")
 _MAX_DEPTH = 12  # LiteLLM accepts fallbacks nested up to 2 * ROUTER_MAX_FALLBACKS (10)
+_MAX_CONTENT_DEPTH = 8  # blocks inside tool_result or document content, nested
 
 
 class _TooDeep(Exception):
@@ -197,6 +269,89 @@ def _blocks(data):
                 yield "fallbacks", target
 
 
+def _client_tools(tools):
+    """True when `tools` holds client tools only: objects with no `type`, or `custom`."""
+    if not isinstance(tools, list):
+        return False
+    return all(
+        isinstance(tool, dict)
+        and tool.get("type", "custom") == "custom"
+        and not set(tool) - CLIENT_TOOL_KEYS
+        for tool in tools
+    )
+
+
+def _api_version_only(value):
+    """True when `provider_specific_header` (one entry or a list) carries `anthropic-version`
+    and nothing else."""
+    entries = value if isinstance(value, list) else [value]
+    if not entries:
+        return False
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) - {"custom_llm_provider", "extra_headers"}:
+            return False
+        headers = entry.get("extra_headers")
+        if not isinstance(headers, dict):
+            return False
+        for name, header in headers.items():
+            if not isinstance(name, str) or name.lower() not in MESSAGES_HEADERS:
+                return False
+            if not isinstance(header, str):
+                return False
+    return True
+
+
+def _refused_blocks(blocks, depth=0):
+    """True when a list of content blocks holds a refused block or source, or nests deeper than
+    the filter reads. Only the block structure is read: a block's `content` (tool results) and
+    a `content` source's blocks (documents), never a `tool_use` input or text."""
+    if not isinstance(blocks, list):
+        return False
+    if depth > _MAX_CONTENT_DEPTH:
+        return True
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") in REFUSED_BLOCKS:
+            return True
+        source = block.get("source")
+        if isinstance(source, dict):
+            if source.get("type") in REFUSED_SOURCES:
+                return True
+            if _refused_blocks(source.get("content"), depth + 1):
+                return True
+        if _refused_blocks(block.get("content"), depth + 1):
+            return True
+    return False
+
+
+def _refused_content(field, value):
+    if field == "system":
+        return _refused_blocks(value)
+    if not isinstance(value, list):
+        return False
+    return any(isinstance(m, dict) and _refused_blocks(m.get("content")) for m in value)
+
+
+def _messages_refusal(data):
+    """(field, where) for the Messages-only checks, else None: in every place a request can
+    carry parameters (the body, `extra_body`, fallback targets), as for the routing fields."""
+    for where, block in _blocks(data):
+        for key in block:
+            if isinstance(key, str) and key in MESSAGES_REFUSED_FIELDS:
+                return key, where
+        tools = block.get("tools")
+        if tools is not None and not _client_tools(tools):
+            return "tools", where
+        headers = block.get("provider_specific_header")
+        if headers is not None and not _api_version_only(headers):
+            return "provider_specific_header", where
+        for field in ("messages", "system"):
+            if _refused_content(field, block.get(field)):
+                return field, where
+    return None
+
+
 def refusal(data, call_type):
     """(code, field, where) when the request must be refused, else None. `data` is the request
     as LiteLLM's pre-call hook sees it: the caller's body plus what the proxy derived from
@@ -210,6 +365,10 @@ def refusal(data, call_type):
             field = _found(block)
             if field:
                 return PARAM_REFUSED, field, where
+        if call_type in MESSAGES_CALL_TYPES:
+            found = _messages_refusal(data)
+            if found:
+                return PARAM_REFUSED, *found
     except _TooDeep:
         return PARAM_REFUSED, None, "fallbacks"
     return None
@@ -227,10 +386,25 @@ def log_line(code, field, where, call_type, alias):
     )
 
 
+_MESSAGES_FIELDS = MESSAGES_REFUSED_FIELDS | {
+    "tools",
+    "provider_specific_header",
+    "messages",
+    "system",
+}
+
+
 def message(code, field):
     if code == ROUTE_REFUSED:
-        return f"{code}: the gateway serves chat completions and embeddings only"
+        return (
+            f"{code}: the gateway serves chat completions, embeddings and Anthropic messages only"
+        )
     named = f" ({field})" if field else ""
+    if field in _MESSAGES_FIELDS:
+        return (
+            f"{code}: the gateway refuses provider-side tools, execution and storage in Messages "
+            f"requests{named}"
+        )
     return f"{code}: the gateway refuses provider-routing parameters in requests{named}"
 
 

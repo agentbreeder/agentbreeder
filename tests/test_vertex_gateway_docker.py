@@ -1,4 +1,4 @@
-"""Opt-in real Docker checks for #1025 V1 (Vertex AI through `service/litellm@1.4.0`), on the
+"""Opt-in real Docker checks for #1025 V1 (Vertex AI through `service/litellm@1.5.0`), on the
 pinned LiteLLM image. Written from reading LiteLLM 1.106.2, then first run on Docker Desktop
 (macOS, 2026-11-19): 3 passed, after one expectation was corrected (see test 2). They are the
 spec's ship gates for Vertex (D14, D15, §12.5):
@@ -18,7 +18,7 @@ None of them needs a Google account.
    is then provoked, and nothing the process prints may hold the private key or the token.
    This test passes its own `api_base` and `token_uri`, which the gateway's config review and
    launcher refuse: it measures the HTTP client, not the review.
-2. A running gateway (D14 §4.2): `services up` on the real 1.4.0 with a reviewed Vertex config
+2. A running gateway (D14 §4.2): `services up` on the real 1.5.0 with a reviewed Vertex config
    and a throwaway key. The gateway's process holds the canonical key, not the file's extra
    fields; a key reaches its aliases (a control); every client-side parameter of §4.2 sent for
    a Vertex alias is refused by the request filter or LiteLLM's own body check before any
@@ -31,10 +31,10 @@ None of them needs a Google account.
    throwaway key's signed assertion (and the test fails). And because every request here is
    refused before a provider call, the log check does not cover what the proxy logs when a
    Vertex call fails: that needs the real-credential run (§12.7).
-3. Metadata services (§12.5): the O1 check, on the 1.4.0 launcher.
+3. Metadata services (§12.5): the O1 check, on the 1.5.0 launcher.
 
-The request filter's own harness also runs on 1.4.0 (tests/test_gateway_request_filter_docker.py
-takes it as a third version).
+The request filter's own harnesses also run on 1.5.0 (tests/test_gateway_request_filter_docker.py
+and tests/test_gateway_messages_filter_docker.py take it as a version).
 """
 
 from __future__ import annotations
@@ -56,8 +56,8 @@ pytestmark = pytest.mark.skipif(
     os.getenv("AGENTBREEDER_DOCKER_TEST") != "1", reason="Opt-in real Docker test"
 )
 
-V14 = registry.BUILTIN_ROOT / "service/litellm/1.4.0"
-IMAGE = yaml.safe_load((V14 / "service.yaml").read_text())["image"]
+V15 = registry.BUILTIN_ROOT / "service/litellm/1.5.0"
+IMAGE = yaml.safe_load((V15 / "service.yaml").read_text())["image"]
 KEY_NAME = gateway_providers.VERTEX_KEY_NAME
 # A name no real project should have; nothing here is meant to reach Google.
 PROJECT = "ab-test-not-a-project"
@@ -319,7 +319,7 @@ STACK = {
         # The listener every client-side endpoint parameter points at (FIELDS' B_URL).
         "provider-b": {"ref": "service/provider-b@1.0.0"},
         "litellm": {
-            "ref": "service/litellm@1.4.0",
+            "ref": "service/litellm@1.5.0",
             "with": {"config": "litellm.yaml"},
             "wire": {"database-url": "postgres.databases.litellm"},
         },
@@ -516,12 +516,12 @@ def test_a_vertex_gateway_keeps_its_key_and_its_route(gateway):
         client.revoke(alias)
 
 
-# --- 3. metadata services, on the 1.4.0 launcher -----------------------------------------------
+# --- 3. metadata services, on the 1.5.0 launcher -----------------------------------------------
 
 
 def test_the_1_4_0_launcher_environment_sends_nothing_to_metadata_services(tmp_path, monkeypatch):
     import test_ollama_gateway_docker as metadata
 
-    monkeypatch.setattr(metadata, "V12", V14)  # the same harness, this version's launcher
+    monkeypatch.setattr(metadata, "V12", V15)  # the same harness, this version's launcher
     assert metadata.IMAGE == IMAGE
     metadata.test_the_launcher_environment_sends_nothing_to_metadata_services(tmp_path)

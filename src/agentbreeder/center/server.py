@@ -14,6 +14,7 @@ then the route's body cap. Unknown methods get 405. Every API reply is an envelo
 from __future__ import annotations
 
 import errno
+import getpass
 import hashlib
 import hmac
 import json
@@ -39,17 +40,20 @@ from pydantic import ValidationError
 from agentbreeder import __version__, guide, registry
 from agentbreeder.center import agents as agent_rows
 from agentbreeder.center import (
+    auth,
     builder,
     edits,
     knowledgestatus,
     logfollow,
     mcpgrants,
+    notifications,
     onboard,
     pinsreview,
     registryimport,
     toollog,
     tryit,
 )
+from agentbreeder.center import conformance as conformance_reads
 from agentbreeder.center import cost as cost_reads
 from agentbreeder.center import evals as eval_reads
 from agentbreeder.center import traces as trace_lists
@@ -67,6 +71,7 @@ from agentbreeder.center.jobs import (
     DIGEST,
     ENVIRONMENT,
     KEY_NAME,
+    SCHEMA_VERSION,
     Busy,
     CenterState,
     ChildRecords,
@@ -80,7 +85,6 @@ from agentbreeder.center.reads import Reads
 
 PORTS = tuple(range(8080, 8100))  # 3.0.0a2 used 8900
 TOKEN_TTL = 300
-SESSION_ABSOLUTE = 8 * 3600
 SESSION_IDLE = 3600
 MAX_BODY = 64 * 1024  # JSON requests
 MAX_EDITOR_BODY = 1024 * 1024  # editor payloads (prompts, evals, tools; later milestones)
@@ -101,12 +105,14 @@ EXAMPLES = ("northwind",)
 # first so a refused name never reaches a child process or creates the projects folder.
 RELEASE_ROWS = 1000  # audit rows read for an agent's releases: `audit list`'s maximum
 STARTER_NAME = re.compile(r"^[a-z]([a-z0-9-]{0,29}[a-z0-9])?$")
+EVENTS_COALESCE = 2.0  # seconds one `events` read serves concurrent polls (#827)
 GUIDE_TIMEOUT = 60  # `next` runs doctor's checks and one `compose ps`
 # `build`'s `lock: "update"` drops --locked after "Move agent to this version" (#826).
 OPTIONS = {
     "services-up": ("digest", "allow_project_mcp", "pins_digest"),
     "remove": ("deployment", "target"),
     "build": ("lock",),
+    "conformance": ("image", "runtime"),
 }
 # A console session is code execution as the owner (console spec §10.1 I1), so the browser-side
 # guards are a primary control: scripts and styles from this origin only, no inline code, and
@@ -187,19 +193,50 @@ def _hash(value: str) -> bytes:
     return hashlib.sha256(value.encode()).digest()
 
 
+@dataclass
+class Session:
+    """One tab's sign-in, in memory only (a restart signs everyone out)."""
+
+    created: float
+    last: float
+    kind: str  # "link" (the one-time terminal link) or "password"
+    version: int  # the credential version it was minted under
+
+
+def _policy(password: object) -> None:
+    try:
+        auth.check_policy(password)  # type: ignore[arg-type]
+    except auth.PolicyError as problem:
+        raise BadRequest(str(problem), "PASSWORD_POLICY") from problem
+
+
+class SignInRefused(Exception):
+    def __init__(self, status: int, code: str, message: str, data: dict | None):
+        super().__init__(message)
+        self.status, self.code, self.data = status, code, data
+
+
 class Center:
     def __init__(self, directory: Path, environment: str = "dev", prefix=None):
         self.directory = directory
         self.environment = environment
         self.state = CenterState(directory)
+        # The last events read and when (#827): concurrent polls within EVENTS_COALESCE seconds
+        # share one CLI child, so tabs polling together cannot pile up children.
+        self.events_lock = threading.Lock()
+        self.events_last: tuple[float, dict, int] | None = None
         self.runner = Runner(self.state, directory, prefix)
         self.reads = Reads(run_cli=self.runner.read)
         self.runner.on_invalidate.append(self.reads.invalidate)
         self.static = static_files()
         self.port = 0
         self.token: tuple[bytes, float, bool] | None = None
-        self.sessions: dict[bytes, list[float]] = {}
+        self.sessions: dict[bytes, Session] = {}
         self.lock = threading.Lock()
+        self.hashing = threading.Lock()  # one password check at a time (S-24)
+        self.backoff = auth.Backoff()
+        self.backoff_logged = 0  # the failure count whose wait was last recorded
+        self.backoff_version = self.state.credential_version()
         self.turns = threading.BoundedSemaphore(MAX_TURNS_IN_FLIGHT)
         self.traces = threading.BoundedSemaphore(MAX_TRACES_IN_FLIGHT)
         self.tool_logs = threading.BoundedSemaphore(MAX_TOOL_LOGS_IN_FLIGHT)
@@ -264,7 +301,9 @@ class Center:
         )
         return url, page
 
-    def redeem(self, token: str) -> str | None:
+    def redeem(self, token: str) -> dict | None:
+        """A one-time terminal link: a new session of kind "link". Not subject to the password
+        backoff (S-14: the terminal link always works)."""
         with self.lock:
             if self.token is None or not hmac.compare_digest(self.token[0], _hash(token)):
                 return None
@@ -278,27 +317,172 @@ class Center:
             if time.time() > expires:
                 return None
             self.token = (digest, expires, True)
-            session = secrets.token_urlsafe(32)
-            self.sessions[_hash(session)] = [time.time(), time.time()]
-            return session
+        self.state.record_event("link", "ok", "terminal-link")
+        return self._new_session("link")
 
-    def session_valid(self, value: str | None, refresh: bool = True) -> bool:
-        """`refresh=False` for polls (guided §14.9 R7): a tab left polling a job log does not
-        keep an idle session alive."""
+    def _new_session(self, kind: str, version: int | None = None) -> dict:
+        """A new token (never reused, S-24), recorded under `version`: for a password sign-in the
+        credential version read before the check, so a reset that commits during the check
+        leaves a session that is already ended."""
+        session = secrets.token_urlsafe(32)
+        if version is None:
+            version = self.state.credential_version()
+        now = time.time()
+        with self.lock:
+            self.sessions[_hash(session)] = Session(now, now, kind, version)
+        return {
+            "session": session,
+            "kind": kind,
+            "setup": not self.state.has_password(),
+            "email": auth.EMAIL,
+        }
+
+    def session(self, value: str | None, refresh: bool = True) -> Session | None:
+        """The live session for a token, or None. `refresh=False` for polls (guided §14.9 R7): a
+        tab left polling a job log does not keep an idle session alive. The credential version
+        and the session length are re-read from center.sqlite3 on every call, so a password
+        reset in another process (`up --reset-password`) or "sign out everywhere" ends every
+        session at once."""
         if not value:
-            return False
+            return None
         key = _hash(value)
+        version = self.state.credential_version()
+        limit = auth.session_hours(self.state.setting("session_hours")) * 3600
         now = time.time()
         with self.lock:
             entry = self.sessions.get(key)
             if entry is None:
-                return False
-            if now - entry[0] > SESSION_ABSOLUTE or now - entry[1] > SESSION_IDLE:
+                return None
+            if (
+                entry.version != version
+                or now - entry.created > limit
+                or now - entry.last > SESSION_IDLE
+            ):
                 del self.sessions[key]
-                return False
+                return None
             if refresh:
-                entry[1] = now
-            return True
+                entry.last = now
+            return entry
+
+    def session_valid(self, value: str | None, refresh: bool = True) -> bool:
+        return self.session(value, refresh) is not None
+
+    def end_session(self, value: str | None) -> None:
+        if value:
+            with self.lock:
+                self.sessions.pop(_hash(value), None)
+
+    def _checked(self, check: Callable[[], bool], event: str) -> bool:
+        """Run one password check under the console-wide backoff (S-24): the wait is checked
+        before any hashing, one check runs at a time (single-flight), and the outcome is recorded
+        (S-30). Raises SignInRefused for the wait or a check already running."""
+        if not self.hashing.acquire(blocking=False):
+            raise SignInRefused(
+                429, "SIGN_IN_BUSY", "Another sign-in is being checked; try again", None
+            )
+        try:
+            # A new password (a reset from the terminal, a change) starts a fresh count: the
+            # wait guarded the old one.
+            version = self.state.credential_version()
+            if version != self.backoff_version:
+                self.backoff_version = version
+                self.backoff.succeeded()
+                self.backoff_logged = 0
+            wait = self.backoff.wait()
+            if wait:
+                # One row per wait, not per refused request: a flood must not push the other
+                # events out of the kept 1000 (S-30).
+                if self.backoff_logged != self.backoff.failures:
+                    self.backoff_logged = self.backoff.failures
+                    self.state.record_event(event, "backoff", "browser")
+                raise SignInRefused(
+                    429, "BACKOFF", auth.BACKOFF_TEXT.format(seconds=wait), {"retry_after": wait}
+                )
+            good = check()
+            if good:
+                self.backoff.succeeded()
+                self.backoff_logged = 0  # a later wait at the same count is recorded too
+            else:
+                self.backoff.failed()
+            self.state.record_event(event, "ok" if good else "failed", "browser")
+            return good
+        finally:
+            self.hashing.release()
+
+    def sign_in(self, email: object, password: object) -> dict:
+        """`POST /api/session {email, password}`: a new session of kind "password". A wrong
+        email and a wrong password get the same answer after the same scrypt work."""
+        if not isinstance(password, str) or not isinstance(email, str):
+            raise BadRequest("Send an email and a password")
+        if len(password) > auth.MAX_LENGTH or len(email) > 320:
+            raise BadRequest("Wrong email or password", "BAD_CREDENTIALS")
+        version = self.state.credential_version()
+        row = self.state.user(auth.EMAIL) if auth.same_email(email) else None
+        if not self._checked(lambda: auth.verify(password, row), "sign-in"):
+            # 403, not 401: the page has no session to end, it shows the form's error.
+            raise SignInRefused(403, "BAD_CREDENTIALS", "Wrong email or password", None)
+        return self._new_session("password", version)
+
+    def set_first_password(self, current: Session, password: object) -> dict:
+        """Setup (S-28): only a session minted from the one-time terminal link, and only while
+        no password exists. Every session ends (the credential version moves on), so the browser
+        signs in with the new password next."""
+        if current.kind != "link":
+            raise SignInRefused(
+                401, "LINK_REQUIRED", "Open the one-time link from the terminal to set up", None
+            )
+        if self.state.has_password():
+            raise SignInRefused(409, "PASSWORD_SET", "A password is already set; sign in", None)
+        _policy(password)
+        record = auth.hash_password(password)  # type: ignore[arg-type]
+        if not self.state.set_password(
+            auth.EMAIL, record, "password-set", "browser", only_if_none=True
+        ):
+            raise SignInRefused(409, "PASSWORD_SET", "A password is already set; sign in", None)
+        return {"email": auth.EMAIL}
+
+    def change_password(self, current: object, password: object) -> dict:
+        """Settings: needs the current password (S-28), checked under the same backoff as
+        sign-in. Every other session ends; this tab gets a new one."""
+        if not isinstance(current, str) or not current:
+            raise BadRequest("Enter your current password", "CURRENT_REQUIRED")
+        if len(current) > auth.MAX_LENGTH:
+            raise SignInRefused(403, "WRONG_PASSWORD", "The current password is wrong", None)
+        version = self.state.credential_version()  # before the row: see set_password below
+        row = self.state.user(auth.EMAIL)
+        if row is None:
+            raise SignInRefused(409, "NO_PASSWORD", "No password is set yet", None)
+        _policy(password)  # cheap; the new hash is made only after the current one checks out
+        if not self._checked(lambda: auth.verify(current, row), "password-change-check"):
+            raise SignInRefused(403, "WRONG_PASSWORD", "The current password is wrong", None)
+        record = auth.hash_password(password)  # type: ignore[arg-type]
+        # Only if nothing replaced the password since it was read: a reset from the terminal
+        # during this check wins, and this change is refused rather than undoing it.
+        if not self.state.set_password(
+            auth.EMAIL, record, "password-change", "browser", expect_version=version
+        ):
+            raise SignInRefused(
+                409, "PASSWORD_CHANGED", "The password was changed meanwhile; sign in again", None
+            )
+        return self._new_session("password", version + 1)
+
+    def settings(self) -> dict:
+        return {
+            "email": auth.EMAIL,
+            "password_set": self.state.has_password(),
+            "session_hours": auth.session_hours(self.state.setting("session_hours")),
+            "session_choices": list(auth.SESSION_HOURS),
+            "idle_minutes": SESSION_IDLE // 60,
+            "events": self.state.security_events(),
+        }
+
+    def save_settings(self, body: dict) -> dict:
+        hours = body.get("session_hours")
+        if type(hours) is not int or hours not in auth.SESSION_HOURS:  # not 1.0, not True
+            raise BadRequest("Choose a session length the console offers", "SESSION_HOURS")
+        self.state.set_setting("session_hours", str(hours))
+        self.state.record_event("session-length", "ok", "browser")
+        return self.settings()
 
     # -- projects --------------------------------------------------------------------------------
 
@@ -459,6 +643,65 @@ class Center:
             return builder.runtimes(result["data"])
         except builder.BadOutput as problem:
             raise BadRequest(str(problem), "BAD_OUTPUT") from problem
+
+    def runtimes_view(self) -> dict:
+        """`GET /api/runtimes` (#1085 S2, console spec §8): the same resolved view as
+        `parts.runtimes`, on its own, for the framework badge on the Agents list, the agent's
+        Overview and Try it. It only names things, so a failed read keeps the last good answer
+        (shown as stale); nothing is checked against it, unlike a spec's runtime."""
+        result = self.runner.read(
+            list(builder.RUNTIMES_ARGV),
+            timeout=builder.RUNTIMES_TIMEOUT,
+            track=True,
+            max_bytes=builder.MAX_RUNTIMES_BYTES,
+        )
+        if result["data"] is None:
+            return result
+        try:
+            shown = builder.runtimes(result["data"])
+        except builder.BadOutput as problem:
+            return envelope(None, error("BAD_OUTPUT", str(problem)))
+        return envelope(shown, result["error"], result["stale"])
+
+    def project_runtimes(self, project: dict) -> dict:
+        """Registry ▸ Runtimes (#1085 S3): `registry runtimes --project DIR --json`, the
+        project's search roots, allow-listed like `parts.runtimes`. Re-read when a job in the
+        project ends (a conformance run changes a status)."""
+        result = self.runner.read(
+            ["registry", "runtimes", "--project", project["path"], "--json"],
+            timeout=builder.RUNTIMES_TIMEOUT,
+            track=True,
+            max_bytes=builder.MAX_RUNTIMES_BYTES,
+        )
+        if result["data"] is None:
+            return result
+        try:
+            shown = builder.runtimes(result["data"])
+        except builder.BadOutput as problem:
+            return envelope(None, error("BAD_OUTPUT", str(problem)))
+        return envelope(shown, result["error"], result["stale"])
+
+    def _project_agent(self, project: dict) -> str | None:
+        data = self.reads.agent(project["path"]).get("data")
+        return data.get("name") if isinstance(data, dict) else None
+
+    def conformance_view(self, project: dict, ref: registry.Ref) -> dict:
+        """A runtime version's newest conformance report (`registry conformance REF --json`,
+        never cached: a run writes a new one) and this project's built image of it, for Run
+        conformance (#1085 S3, console spec §6.3 and §8)."""
+        if ref.kind != "runtime":
+            raise BadRequest("Conformance is reported for runtime/ versions", "REF_INVALID")
+        result = self.runner.read(
+            ["registry", "conformance", str(ref), "--json"], cache=False, track=True
+        )
+        if result["data"] is None:
+            return result
+        try:
+            report = conformance_reads.report(result["data"], str(ref))
+        except conformance_reads.BadOutput as problem:
+            return envelope(None, error("BAD_OUTPUT", str(problem)))
+        images = conformance_reads.images(project["path"], self._project_agent(project))
+        return envelope({"report": report, "images": images})
 
     def builder_parts(self) -> dict:
         """The builder's pickers (#833): the `tool/` and `mcp/` versions a new project resolves
@@ -737,6 +980,64 @@ class Center:
                 ),
             )
         return envelope({"agent": agent, "saved": True, "lines": lines})
+
+    def events(self, project_id: str | None = None) -> dict:
+        """The stored events of the registered projects (#827, console notifications spec §2):
+        `events --limit N --json` with fixed argv, each event allow-listed by
+        `notifications.events_answer` against the projects registered now, and only
+        `project_id`'s when one is given (a scoped page never gets another project's events).
+        One CLI read serves every poll within EVENTS_COALESCE seconds. Conditions are not here:
+        they are the guide's."""
+        with self.events_lock:
+            ended = self.runner.ended
+            last = self.events_last
+            if last is None or last[2] != ended or time.monotonic() - last[0] >= EVENTS_COALESCE:
+                result = self.runner.read(
+                    notifications.events_argv(), timeout=notifications.TIMEOUT, cache=False
+                )
+                # Stamped when the answer arrived: a slow read still serves the polls after it.
+                # A job that ended since (it may have stored an event) makes the next one read.
+                self.events_last = (time.monotonic(), result, ended)
+            result = self.events_last[1]
+        if result["data"] is None:
+            return result
+        projects = {p["path"]: p["id"] for p in self.state.projects()}
+        answer = notifications.events_answer(result["data"], projects)
+        if answer is None:
+            return envelope(
+                None,
+                error(
+                    "EVENTS_INVALID",
+                    "The events answer does not match its contract; run `agentbreeder events` "
+                    "in a terminal",
+                ),
+            )
+        if project_id is not None:
+            answer["events"] = [e for e in answer["events"] if e["project_id"] == project_id]
+            answer["unread"] = sum(1 for event in answer["events"] if not event["read"])
+        return {**result, "data": answer}
+
+    def mark_events_read(self, body: object, project_id: str | None = None) -> dict:
+        """Mark events read (`events --mark-read ID …`), then answer as `events`. Only ids of
+        events this console lists for the registered projects are sent: `--mark-read` does not
+        check a project, so any other id is refused here."""
+        ids = notifications.mark_request(body)
+        with self.events_lock:
+            self.events_last = None
+        shown = self.events(project_id)
+        if shown["data"] is None:
+            return shown  # the CLI's own error, not a refusal of the ids
+        known = {event["id"] for event in shown["data"]["events"]}
+        if not set(ids) <= known:
+            raise BadRequest("Mark only events this console lists", "EVENTS_READ_INVALID")
+        result = self.runner.read(
+            notifications.mark_argv(ids), timeout=notifications.TIMEOUT, cache=False
+        )
+        with self.events_lock:
+            self.events_last = None
+        if result["data"] is None:
+            return result
+        return self.events(project_id)
 
     def eval_reports(self, project: dict, run: str | None, query: dict[str, list[str]]) -> dict:
         """The saved eval reports (`evals list`), or one run's report (`evals show RUN`), from the
@@ -1210,6 +1511,8 @@ class Center:
             keys = {str(k): str(v) for k, v in keys.items() if v}
             if len(keys) > 16 or not all(KEY_NAME.fullmatch(name) for name in keys):
                 raise BadRequest("Invalid key name")
+        if kind == "conformance":
+            self._check_conformance_image(project, options)
         pins = None
         if kind == "services-up" and "pins_digest" in options:
             pins = self._take_pins_review(project, options["pins_digest"])
@@ -1219,6 +1522,18 @@ class Center:
             if pins is not None:
                 self._restore_pins_review(project, pins)
             raise
+
+    def _check_conformance_image(self, project: dict, options: dict) -> None:
+        """A conformance run checks only this project's built image of the runtime version it
+        names (#1085 S3): never a free string from the browser (console spec §8)."""
+        built = conformance_reads.images(project["path"], self._project_agent(project))
+        image, runtime = options.get("image"), options.get("runtime")
+        if not any(row["image"] == image and row["runtime"] == runtime for row in built):
+            raise BadRequest(
+                "That image is not this project's build of the runtime version; build the "
+                "agent, then choose its image again",
+                "CONFORMANCE_IMAGE_UNKNOWN",
+            )
 
     def _start_checked(self, project: dict, kind: str, options: dict, keys) -> str:
         """`start_job` after the repin review was taken: the pre-launch checks, then the job."""
@@ -1348,6 +1663,8 @@ class Request:
     body: dict | None
     query: dict[str, list[str]]
     session: bytes = b""  # the session token's hash (owner of log follows, #821)
+    token: str | None = None  # the session token itself (sign out of this tab)
+    current: Session | None = None  # the live session; None only on `session=False` routes
 
     def project(self) -> dict:
         return self.center.need_project(self.match["project"])
@@ -1395,6 +1712,26 @@ def _watch(request: Request) -> dict:
     --json --record` child on the first poll; the child stops IDLE_AFTER seconds after the last
     one. `--record` stores `died` and `unhealthy` for `agentbreeder events`."""
     return request.center.watch.read(request.project())
+
+
+def _events_project(request: Request) -> str | None:
+    """`?project=ID`: one registered project's events only, or None for all of them."""
+    value = request.query.get("project", [""])[0]
+    if not value:
+        return None
+    if not any(p["id"] == value for p in request.center.state.projects()):
+        raise BadRequest("No such project", "PROJECT_NOT_FOUND")
+    return value
+
+
+def _events(request: Request) -> dict:
+    """Stored events for the bell's panel and toasts (#827): a poll, so it does not keep an idle
+    session alive (R7)."""
+    return request.center.events(_events_project(request))
+
+
+def _events_read(request: Request) -> dict:
+    return request.center.mark_events_read(request.body, _events_project(request))
 
 
 def _docker(request: Request) -> dict:
@@ -1599,10 +1936,53 @@ def _job(request: Request) -> dict:
 
 
 def _session(request: Request) -> dict:
-    session = request.center.redeem(str(request.body.get("token", "")))
-    if session is None:
-        raise Refused("That link was used or has expired")
-    return envelope({"session": session})
+    """Sign in: `{token}` (the one-time terminal link) or `{email, password}`."""
+    body = request.body
+    if "token" in body:
+        session = request.center.redeem(str(body.get("token", "")))
+        if session is None:
+            raise SignInRefused(
+                403, "LINK_USED", "This link was already used or has expired", None
+            )
+        return envelope(session)
+    return envelope(request.center.sign_in(body.get("email"), body.get("password")))
+
+
+def _auth_state(request: Request) -> dict:
+    """Before sign-in: whether a password exists, so the page shows the form or says to open the
+    terminal's link. Nothing else."""
+    return envelope({"password_set": request.center.state.has_password(), "email": auth.EMAIL})
+
+
+def _setup(request: Request) -> dict:
+    return envelope(
+        request.center.set_first_password(request.current, request.body.get("password"))
+    )
+
+
+def _change_password(request: Request) -> dict:
+    return envelope(
+        request.center.change_password(request.body.get("current"), request.body.get("password"))
+    )
+
+
+def _sign_out(request: Request) -> dict:
+    request.center.end_session(request.token)
+    request.center.state.record_event("sign-out", "ok", "browser")
+    return envelope({"signed_out": True})
+
+
+def _sign_out_everywhere(request: Request) -> dict:
+    request.center.state.end_all_sessions("browser")
+    return envelope({"signed_out": True})
+
+
+def _settings(request: Request) -> dict:
+    return envelope(request.center.settings())
+
+
+def _save_settings(request: Request) -> dict:
+    return envelope(request.center.save_settings(request.body))
 
 
 def _add_project(request: Request) -> dict:
@@ -1620,6 +2000,18 @@ def _add_project(request: Request) -> dict:
 
 def _preview_stack_for(request: Request) -> dict:
     return envelope(request.center.preview_stack_for(request.body))
+
+
+def _runtimes(request: Request) -> dict:
+    return request.center.runtimes_view()
+
+
+def _project_runtimes(request: Request) -> dict:
+    return request.center.project_runtimes(request.project())
+
+
+def _conformance(request: Request) -> dict:
+    return request.center.conformance_view(request.project(), _query_ref(request, "ref"))
 
 
 def _builder_parts(request: Request) -> dict:
@@ -1662,6 +2054,7 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", r"/api/projects", _projects, "/api/projects"),
     Route("GET", r"/api/agents", _agents, "/api/agents"),
     Route("GET", r"/api/builder/parts", _builder_parts, "/api/builder/parts"),
+    Route("GET", r"/api/runtimes", _runtimes, "/api/runtimes"),
     # Before the generic view route, which would match it too. A poll: it does not keep a
     # session alive.
     Route(
@@ -1677,6 +2070,18 @@ ROUTES: tuple[Route, ...] = (
         _watch,
         "/api/projects/0123456789ab/watch",
         poll=True,
+    ),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/runtimes",
+        _project_runtimes,
+        "/api/projects/0123456789ab/runtimes",
+    ),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/conformance",
+        _conformance,
+        "/api/projects/0123456789ab/conformance",
     ),
     Route(
         "GET",
@@ -1757,8 +2162,17 @@ ROUTES: tuple[Route, ...] = (
         "/api/projects/0123456789ab/traces/" + "0" * 32,
     ),
     Route("GET", rf"/api/jobs/{JOB_ID}", _job, "/api/jobs/" + "0" * 32, poll=True),
+    Route("GET", r"/api/events", _events, "/api/events", poll=True),
+    Route("GET", r"/api/auth", _auth_state, "/api/auth", session=False),
+    Route("GET", r"/api/settings", _settings, "/api/settings"),
     Route("POST", r"/api/session", _session, "/api/session", session=False),
+    Route("POST", r"/api/setup", _setup, "/api/setup"),
+    Route("POST", r"/api/password", _change_password, "/api/password"),
+    Route("POST", r"/api/signout", _sign_out, "/api/signout"),
+    Route("POST", r"/api/signout-everywhere", _sign_out_everywhere, "/api/signout-everywhere"),
+    Route("POST", r"/api/settings", _save_settings, "/api/settings"),
     Route("POST", r"/api/projects", _add_project, "/api/projects"),
+    Route("POST", r"/api/events/read", _events_read, "/api/events/read"),
     Route("POST", r"/api/projects/stack-for", _preview_stack_for, "/api/projects/stack-for"),
     Route(
         "POST",
@@ -1986,6 +2400,22 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- guards ----------------------------------------------------------------------------------
 
+    def _localhost_redirect(self, method: str) -> bool:
+        """`localhost:<port>` gets a redirect to `127.0.0.1:<port>`, the one host form the console
+        accepts (spec §8.1 #1), on GET or HEAD of a static path only; the API never redirects."""
+        if method not in ("GET", "HEAD"):
+            return False
+        if self.headers.get("Host") != f"localhost:{self.center.port}":
+            return False
+        try:
+            path = urlsplit(self.path).path
+        except ValueError:
+            return False
+        if path not in self.center.static:
+            return False
+        self._send(302, b"", "text/plain; charset=utf-8", {"Location": self.center.origin + path})
+        return True
+
     def _guard_host(self) -> None:
         if self.headers.get("Host") != f"127.0.0.1:{self.center.port}":
             raise HttpError(403, "FORBIDDEN", "Bad host")
@@ -2004,16 +2434,18 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
             raise HttpError(403, "FORBIDDEN", "Forbidden")
 
-    def _guard_session(self, route: Route | None) -> None:
+    def _guard_session(self, route: Route | None) -> Session | None:
         # A header, not a cookie: browsers send cookies to every port on 127.0.0.1, including
         # agent endpoints and stack services. Only a route marked `session=False` (sign-in)
         # skips it; an unknown path or method needs a session before it learns 404 or 405.
         if route is not None and not route.session:
-            return
+            return None
         token = self.headers.get("X-AgentBreeder-Session")
         refresh = route is None or not route.poll
-        if not self.center.session_valid(token, refresh=refresh):
+        current = self.center.session(token, refresh=refresh)
+        if current is None:
             raise HttpError(401, "SIGN_IN", "Sign in again")
+        return current
 
     def _read_body(self, route: Route) -> dict:
         length = self.headers.get("Content-Length")
@@ -2046,6 +2478,8 @@ class Handler(BaseHTTPRequestHandler):
         then 404/405, the body cap and the handler."""
         self._body_pending = self.headers.get("Content-Length", "0") not in ("", "0")
         try:
+            if self._localhost_redirect(method):
+                return
             self._guard_host()
             try:
                 parts = urlsplit(self.path)
@@ -2057,7 +2491,7 @@ class Handler(BaseHTTPRequestHandler):
             route, match, allowed = find_route(method, parts.path, self.routes)
             if method != "GET":
                 self._guard_write()
-            self._guard_session(route)
+            current = self._guard_session(route)
             if route is None:
                 if allowed:
                     raise HttpError(
@@ -2067,7 +2501,9 @@ class Handler(BaseHTTPRequestHandler):
             body = self._read_body(route) if method != "GET" else None
             token = self.headers.get("X-AgentBreeder-Session")
             session = _hash(token) if token else b""
-            request = Request(self.center, match, body, parse_qs(parts.query), session)
+            request = Request(
+                self.center, match, body, parse_qs(parts.query), session, token, current
+            )
             self._json(200, self._handle(route, request))
         except HttpError as failure:
             self._fail(failure)
@@ -2105,6 +2541,10 @@ class Handler(BaseHTTPRequestHandler):
             raise HttpError(404, "NOT_FOUND", str(problem)) from problem
         except Refused as problem:
             raise HttpError(403, "REFUSED", str(problem)) from problem
+        except SignInRefused as problem:
+            raise HttpError(
+                problem.status, problem.code, str(problem), data=problem.data
+            ) from problem
         except ValueError as problem:
             raise HttpError(400, "BAD_REQUEST", "Invalid request") from problem
         except OSError as problem:
@@ -2157,6 +2597,12 @@ def in_use(port: int) -> bool:
         return True  # a timeout (a full accept queue) or a reset: something holds it
 
 
+class _Server(ThreadingHTTPServer):
+    # The page loads its ~65 ES modules at once; the stdlib default backlog of 5 made one of them
+    # fail with a connection reset now and then, and the page never booted (#1047).
+    request_queue_size = 128
+
+
 def make_server(center: Center, port: int | None) -> ThreadingHTTPServer:
     handler = type("BoundHandler", (Handler,), {"center": center})
     candidates, scanned = port_candidates(center, port)
@@ -2164,7 +2610,7 @@ def make_server(center: Center, port: int | None) -> ThreadingHTTPServer:
         if in_use(candidate):
             continue
         try:
-            server = ThreadingHTTPServer(("127.0.0.1", candidate), handler)
+            server = _Server(("127.0.0.1", candidate), handler)
             break
         except OSError as problem:
             if problem.errno != errno.EADDRINUSE:
@@ -2184,8 +2630,21 @@ def make_server(center: Center, port: int | None) -> ThreadingHTTPServer:
 def _watch_terminal(center: Center) -> None:
     """Enter in the terminal mints a new login link."""
     for _ in sys.stdin:
-        url, _page = center.mint_login()
-        print(f"New one-time link: {url}", flush=True)
+        url, page = center.mint_login()
+        _show_link(url, page, "New one-time link")
+
+
+def _show_link(url: str, page: Path, label: str) -> None:
+    """S-15: a one-time link is a bearer credential. It is printed only to a terminal; when
+    stdout is redirected (a log file) only the path of the 0600 `login.html` is printed."""
+    if sys.stdout.isatty():
+        print(f"{label}, valid {TOKEN_TTL // 60} minutes: {url}", flush=True)
+    else:
+        print(
+            f"{label} written to {page} (open that file; valid {TOKEN_TTL // 60} minutes, "
+            "once). Links are printed only to a terminal.",
+            flush=True,
+        )
 
 
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
@@ -2288,10 +2747,110 @@ def _main(args) -> int:
     # `up --set-password` / `--reset-password` (M2) branch here, before the lock: they run
     # beside a live console and must not take it, sweep its jobs or migrate under it.
     try:
+        if getattr(args, "set_password", False) or getattr(args, "reset_password", False):
+            return password_command(args)
         return _locked(args)
     except KeyboardInterrupt:  # stopped before serving (taking the lock, a slow port scan)
         _stopping.set()  # a second stop signal while unwinding is a no-op
         return 130
+
+
+def _read_new_password() -> str:
+    """S-15: `getpass` (no echo) twice on a terminal, else exactly one line of stdin. Never argv,
+    never printed."""
+    if sys.stdin.isatty():
+        first = getpass.getpass(f"New console password for {auth.EMAIL}: ")
+        auth.check_policy(first)
+        if getpass.getpass("Type it again: ") != first:
+            raise auth.PolicyError("The two passwords differ")
+        return first
+    line = sys.stdin.readline(auth.MAX_LENGTH + 3)
+    if line.endswith("\r\n"):
+        line = line[:-2]
+    elif line.endswith("\n"):
+        line = line[:-1]
+    auth.check_policy(line)
+    return line
+
+
+def _password_state(directory: Path) -> CenterState:
+    """center.sqlite3 for a password command. If its schema is behind this version it must be
+    migrated, which is only safe while no console runs (a running one of another version would
+    have the schema change under it)."""
+    path = directory / "center.sqlite3"
+    version = 0
+    if path.exists():
+        probe = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            row = probe.execute("SELECT version FROM schema_version").fetchone()
+            version = row[0] if row else 0
+        except sqlite3.Error:
+            version = 0
+        finally:
+            probe.close()
+    if version >= SCHEMA_VERSION:
+        return CenterState(directory)  # SchemaTooNew when it is newer
+    instance = SingleInstance(directory)
+    instance.acquire()  # AlreadyRunning: a console of another version is serving
+    try:
+        return CenterState(directory)
+    finally:
+        instance.release_quietly()
+
+
+def password_command(args) -> int:
+    """`up --set-password` (the first password) and `up --reset-password` (a forgotten one; it
+    ends every open session, even in a running console). Terminal-only by design (S-28)."""
+    if args.dir is not None or args.yes or getattr(args, "link", False):
+        print(
+            "--set-password and --reset-password take no project, --yes or --link",
+            file=sys.stderr,
+        )
+        return 2
+    reset = bool(getattr(args, "reset_password", False))
+    try:
+        state = _password_state(center_directory())
+    except AlreadyRunning:
+        print(
+            "A console of another AgentBreeder version is running; stop it (Ctrl-C in its "
+            "terminal), then try again.",
+            file=sys.stderr,
+        )
+        return 2
+    except SchemaTooNew as problem:
+        print(str(problem), file=sys.stderr)
+        return 2
+    except (sqlite3.Error, OSError) as problem:
+        print(f"Cannot open the console database (center.sqlite3): {problem}", file=sys.stderr)
+        return 2
+    if not reset and state.has_password():
+        print(
+            "A console password is already set. Change it in the console's Settings, or use "
+            "`agentbreeder up --reset-password` if you forgot it.",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        password = _read_new_password()
+    except auth.PolicyError as problem:
+        print(f"Password not set: {problem}", file=sys.stderr)
+        return 2
+    except EOFError:
+        print("Password not set: no input", file=sys.stderr)
+        return 2
+    record = auth.hash_password(password)
+    if reset:
+        state.set_password(auth.EMAIL, record, "password-reset", "terminal")
+        print(
+            f"Console password reset for {auth.EMAIL}. Every open console session has ended; "
+            "sign in again."
+        )
+        return 0
+    if not state.set_password(auth.EMAIL, record, "password-set", "terminal", only_if_none=True):
+        print("A console password was set meanwhile; nothing changed.", file=sys.stderr)
+        return 2
+    print(f"Console password set for {auth.EMAIL}. Sign in at the URL `agentbreeder up` prints.")
+    return 0
 
 
 def _locked(args) -> int:
@@ -2314,6 +2873,8 @@ def _already_running(args, url: str | None) -> int:
     where = url or "on this machine (it is starting or stopping)"
     print(f"The AgentBreeder console is already running: {where}")
     print("Use that one, or stop it first (Ctrl-C in its terminal).")
+    if getattr(args, "link", False):
+        print("For a one-time link, press Enter in the terminal running it.")
     if args.dir is not None or args.yes:
         print(
             "Nothing else was done: add the project and start its services in that console.",
@@ -2333,14 +2894,24 @@ def _run(args, center: Center, server: ThreadingHTTPServer, instance: SingleInst
             print(str(problem), file=sys.stderr)
             return 2
     instance.publish(center.origin)  # only once there is a console to answer at it
-    url, page = center.mint_login()
+    auth.warm()  # the dummy hash, so the first unknown-email check costs what every other does
     print(f"AgentBreeder console: {center.origin} (this machine only, single user)")
-    print(f"One-time link, valid {TOKEN_TTL // 60} minutes: {url}", flush=True)
+    # First run (or a2 state with no password): the link mints the session that may set the
+    # password (S-28). Once a password exists, the browser opens the sign-in page and a link is
+    # made only on demand: `up --link`, or Enter here.
+    if not center.state.has_password() or getattr(args, "link", False):
+        url, page = center.mint_login()
+        label = "One-time link" if center.state.has_password() else "One-time setup link"
+        _show_link(url, page, label)
+        opens = page.as_uri()
+    else:
+        print(f"Sign in as {auth.EMAIL} at {center.origin}/", flush=True)
+        opens = f"{center.origin}/"
     if sys.stdin.isatty():
-        print("Press Enter here for a new link.", flush=True)
+        print("Press Enter here for a new one-time link.", flush=True)
         threading.Thread(target=_watch_terminal, args=(center,), daemon=True).start()
     if not args.no_browser:
-        webbrowser.open(page.as_uri())
+        webbrowser.open(opens)
     if args.yes and project is not None:
         answer = center.plan(project)
         preview = answer.get("data")

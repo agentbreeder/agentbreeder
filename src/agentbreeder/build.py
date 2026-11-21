@@ -18,7 +18,8 @@ import re
 import shutil
 import stat
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -511,6 +512,18 @@ def _check_shadowing(agent: AgentFile, placed: dict[str, Path], names: frozenset
                 )
 
 
+def _runtime_info(ref: str, profile: Profile) -> dict:
+    """The deploy manifest's `runtime` field for a kit runtime: `model_api` and `isolation`
+    only when the runtime declares the non-default ones (#1089), so every other manifest keeps
+    its bytes."""
+    info: dict = {"ref": ref, "profile": "kit"}
+    if profile.model_api == "anthropic-messages":
+        info["model_api"] = profile.model_api
+    if profile.isolation is not None:
+        info["isolation"] = profile.isolation
+    return info
+
+
 def _where(error: ValidationError) -> str:
     return ", ".join(".".join(map(str, e["loc"])) for e in error.errors()[:5])
 
@@ -536,7 +549,7 @@ def template(
                 "guardrails": list(agent.guardrails) or None,
                 # Written only for a kit runtime, so every manifest, package and revision
                 # digest of an agent on an earlier runtime keeps its bytes.
-                "runtime": {"ref": agent.runtime, "profile": "kit"} if kit else None,
+                "runtime": _runtime_info(agent.runtime, profile) if kit else None,
             }
         )
     except ValidationError as error:
@@ -620,6 +633,19 @@ def docker_platform(image: str) -> str:
     return value
 
 
+@contextmanager
+def _remotes(table: dict | None, offline: bool) -> Iterator:
+    """The declared sources for one build (#829), or None without `registries:`. Imported
+    only when a source is declared, so a build without one loads no network code."""
+    if table is None:
+        yield None
+        return
+    from agentbreeder.sources.remote import Remotes
+
+    with Remotes(table, offline=offline) as remotes:
+        yield remotes
+
+
 def build(
     agent_path: Path,
     operator: OperatorConfig,
@@ -629,6 +655,7 @@ def build(
     update: set[str] | None = None,
     output: Path | None = None,
     builder: Callable[[Path, Path], str] = docker_build,
+    offline: bool = False,
 ) -> BuildResult:
     agent = load_agent_file(agent_path)
     project = agent_path.resolve().parent
@@ -650,7 +677,11 @@ def build(
     lock_path = project / "agent.lock"
     lock = Lock.load(lock_path)
     output = (output or project / "deploy").resolve()
-    with tempfile.TemporaryDirectory(prefix="agentbreeder-build-") as temporary:
+    table = agent.sources_table()
+    with (
+        tempfile.TemporaryDirectory(prefix="agentbreeder-build-") as temporary,
+        _remotes(table, offline) as remotes,
+    ):
         context = Path(temporary) / "context"
         artifacts = context / "artifacts"
         entries, changed = materialise(
@@ -662,6 +693,7 @@ def build(
             context=artifacts,
             mode=mode,
             update=update,
+            remotes=remotes,
         )
         runtime_dir = artifacts / "runtime" / registry.Ref.parse(agent.runtime).name
         serving = _runtime_serving(runtime_dir, agent.runtime)
@@ -721,6 +753,8 @@ def build(
         "refs": refs,
         "aliases": aliases,
     }
+    if table is not None:  # only with registries:, so a file without them writes the same record
+        record["sources"] = table
     if agent.subagents:  # only when present, so a file without them writes the same record
         record["subagents"] = [{"name": s.name, "alias": s.model.alias} for s in agent.subagents]
     record_path = output / f"{agent.name}.build.json"

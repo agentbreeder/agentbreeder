@@ -12,11 +12,14 @@ in between is refused (DIGEST_MISMATCH) rather than written. The temporary direc
 either way.
 
 Only combinations run end to end are created (`combination.verified`, the CLI's
-`agentspec.VERIFIED`); others are previewed with a note. Knowledge is refused for now (the CLI's
-SPEC_UNSUPPORTED, checked here first so no child runs).
+`agentspec.VERIFIED`); others are previewed with a note. Knowledge (#1069): at most one pinned
+`knowledge/` version, for a provider with an embedding model (`EMBEDDING_PROVIDERS`, the keys of
+`agentspec.EMBEDDINGS`; any other is SPEC_UNSUPPORTED here, so no child runs); the CLI checks the
+version's embedding alias and dimensions and serves them in the stack.
 
-The pickers offer `parts`: the `tool/` versions and `mcp/` servers (with the tools each declares)
-over the roots a new project resolves, AGENTBREEDER_REGISTRY_PATH and the built-ins. It is an
+The pickers offer `parts`: the `tool/` versions, `mcp/` servers (with the tools each declares)
+and `knowledge/` versions (with their embedding alias and dimensions) over the roots a new
+project resolves, AGENTBREEDER_REGISTRY_PATH and the built-ins. It is an
 offer, not a check: the CLI resolves every picked ref again (REF_NOT_FOUND, REF_CONFLICT,
 ENTRY_UNSAFE) and refuses a tool a server does not declare (MCP_TOOL_UNDECLARED).
 
@@ -87,7 +90,14 @@ MAX_TOOLS = 50  # `agentspec.Spec.tools`
 MAX_SERVERS = 10  # `agentspec.Spec.mcp`
 MAX_SERVER_TOOLS = 100  # `agentspec.Mcp.tools`
 STACK_SERVICES = frozenset({"postgres", "litellm"})  # `agentspec.STACK_SERVICES`
-PART_KINDS = ("tool", "mcp")
+PART_KINDS = ("tool", "mcp", "knowledge")
+# `agentspec.EMBEDDINGS`' providers (tied by a test): knowledge needs an embedding model.
+EMBEDDING_PROVIDERS = ("gemini", "openai")
+TOP_K = (1, 20)  # `agentspec.Knowledge.top_k`
+EXTRA_SEARCHES = (0, 5)  # `agentspec.Knowledge.extra_searches`
+ALIAS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")  # `stackfor.ALIAS`
+DEFAULT_DIMENSIONS = 768  # `knowledge.DEFAULT_DIMENSIONS`
+MAX_DIMENSIONS = 16000  # `knowledge.MAX_DIMENSIONS`
 MAX_PARTS = 500  # versions offered per kind
 MAX_DESCRIPTION = 300
 MCP_FILE_LIMIT = 64 * 1024  # `mcp.MAX_BYTES`
@@ -153,12 +163,7 @@ def request(body: object) -> tuple[str, dict]:
             "A model id is letters, digits and . _ : / -, at most 128 characters",
             "MODEL_ID_INVALID",
         )
-    if spec.get("knowledge", []) != []:
-        raise BadRequest(
-            "Knowledge is not part of a new agent yet: the generated stack has no embedding "
-            "model or index",
-            "SPEC_UNSUPPORTED",
-        )
+    _knowledge(spec.get("knowledge", []), spec.get("model"))
     _picks(spec.get("tools", []), spec.get("mcp", []))
     if version == 2:
         _composition(spec)
@@ -253,6 +258,46 @@ def _composition(spec: dict) -> None:
             )
         if not subagents:
             raise BadRequest("Model calls per turn needs a sub-agent", "SPEC_INVALID")
+
+
+def _knowledge(entries: object, model: object) -> None:
+    """At most one `{ref, top_k?, extra_searches?}` naming a `knowledge/` version, for a provider
+    with an embedding model. The CLI resolves the ref and checks the version's embedding."""
+    if not isinstance(entries, list) or len(entries) > 1:
+        raise BadRequest("Pick at most one knowledge version", "SPEC_INVALID")
+    for entry in entries:
+        if not isinstance(entry, dict) or not set(entry) <= {"ref", "top_k", "extra_searches"}:
+            raise BadRequest("A knowledge pick is {ref, top_k, extra_searches}", "SPEC_INVALID")
+        _ref(entry.get("ref"), "knowledge")
+        for key, (low, high) in (("top_k", TOP_K), ("extra_searches", EXTRA_SEARCHES)):
+            value = entry.get(key, low)
+            if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+                raise BadRequest(f"knowledge {key} is {low} to {high}", "SPEC_INVALID")
+        if model not in EMBEDDING_PROVIDERS:
+            raise BadRequest(
+                f"Knowledge needs an embedding model, and {model} has none in the pinned "
+                f"gateway; use {' or '.join(EMBEDDING_PROVIDERS)}",
+                "SPEC_UNSUPPORTED",
+            )
+
+
+def _embedding(manifest: dict) -> dict | None:
+    """A knowledge version's `embedding: {alias, dimensions}` as the CLI reads it
+    (`knowledge.expected`: dimensions default to DEFAULT_DIMENSIONS, a number or numeric text
+    from 1 to MAX_DIMENSIONS), or None when the CLI would refuse it."""
+    value = manifest.get("embedding") or {}
+    if not isinstance(value, dict):
+        return None
+    alias, raw = value.get("alias"), value.get("dimensions", DEFAULT_DIMENSIONS)
+    if not (isinstance(alias, str) and ALIAS.fullmatch(alias)) or isinstance(raw, bool):
+        return None
+    try:
+        dimensions = int(raw)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not 1 <= dimensions <= MAX_DIMENSIONS:
+        return None
+    return {"alias": alias, "dimensions": dimensions}
 
 
 def _picks(tools: object, servers: object, most: int = MAX_TOOLS, owner: str = "") -> None:
@@ -390,8 +435,8 @@ def _limits(value: object) -> dict[str, int]:
 
 
 def _conformance(value: object) -> dict:
-    """The newest conformance report of a runtime version (architecture F2a; no CLI prints it
-    yet): whether it passed, the image digest and the date."""
+    """The newest conformance report of a runtime version (`registry runtimes --json`, F2a):
+    whether it passed, its result, the image digest and the date."""
     if not isinstance(value, dict) or not isinstance(value.get("passed"), bool):
         raise BadOutput
     digest, day = value.get("digest"), value.get("date")
@@ -399,7 +444,11 @@ def _conformance(value: object) -> dict:
         raise BadOutput
     if not isinstance(day, str) or not DATE.fullmatch(day):
         raise BadOutput
-    return {"passed": value["passed"], "digest": digest, "date": day}
+    # `result` (F2a): pass, fail or incomplete. Incomplete is not a pass and not a failure.
+    result = value.get("result", "pass" if value["passed"] else "fail")
+    if result not in ("pass", "fail", "incomplete") or (result == "pass") != value["passed"]:
+        raise BadOutput
+    return {"passed": value["passed"], "result": result, "digest": digest, "date": day}
 
 
 def _runtime(entry: object) -> dict:
@@ -554,6 +603,13 @@ def parts(search: list[Path]) -> dict:
         }
         if ref.kind == "tool":
             entry["functions"] = _functions(path)
+        if ref.kind == "knowledge":
+            entry["embedding"] = _embedding(manifest)
+            if entry["embedding"] is None:
+                entry["unusable"] = (
+                    f"{ref}'s manifest has no valid embedding alias and dimensions; "
+                    f"`agentbreeder registry show {ref}` shows it"
+                )
         if ref.kind == "mcp":
             declared = _declared(path)
             entry["tools"] = declared or []
@@ -567,6 +623,7 @@ def parts(search: list[Path]) -> dict:
     return {
         "tools": shown["tool"],
         "mcp": shown["mcp"],
+        "knowledge": shown["knowledge"],
         "skipped": skipped,
         "truncated": truncated,
     }
@@ -649,6 +706,39 @@ def _refs(value: object) -> list[dict]:
     return shown
 
 
+def _knowledge_rows(value: object) -> list[dict]:
+    """The summary's `knowledge` rows (`agentspec._knowledge`): at most one, each field checked."""
+    if not isinstance(value, list) or len(value) > 1:
+        raise BadOutput
+    rows = []
+    for row in value:
+        if not isinstance(row, dict):
+            raise BadOutput
+        try:
+            ref = registry.Ref.parse(row.get("ref") if isinstance(row.get("ref"), str) else "")
+        except registry.RegistryError:
+            raise BadOutput from None
+        model = row.get("embedding_model")
+        if ref.kind != "knowledge" or not (isinstance(model, str) and MODEL_ID.fullmatch(model)):
+            raise BadOutput
+        if not (isinstance(row.get("alias"), str) and ALIAS.fullmatch(row["alias"])):
+            raise BadOutput
+        counts = {}
+        for key, high in (
+            ("dimensions", MAX_DIMENSIONS),
+            ("top_k", TOP_K[1]),
+            ("extra_searches", EXTRA_SEARCHES[1]),
+            ("documents", 10**6),
+            ("chunks", 10**7),
+        ):
+            value_ = row.get(key)
+            if isinstance(value_, bool) or not isinstance(value_, int) or not 0 <= value_ <= high:
+                raise BadOutput
+            counts[key] = value_
+        rows.append({"ref": str(ref), "alias": row["alias"], "embedding_model": model, **counts})
+    return rows
+
+
 def _grants(value: object) -> list[dict]:
     if not isinstance(value, list) or len(value) > 10:
         raise BadOutput
@@ -716,6 +806,7 @@ def summary(
             "refs": refs,
             "runs_code": expected,
             "grants": _grants(data.get("grants")),
+            "knowledge": _knowledge_rows(data.get("knowledge", [])),
             "keys": _strings(data.get("keys"), 20),
             "plan_sha256": digest,
         }

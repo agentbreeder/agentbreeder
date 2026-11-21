@@ -18,7 +18,7 @@ from urllib.parse import quote
 
 import pytest
 
-from agentbreeder.center import jobs, server
+from agentbreeder.center import auth, jobs, server
 from agentbreeder.center.jobs import BadRequest, CenterState, Runner, argv_for, redact
 from agentbreeder.center.server import Center, make_server
 
@@ -289,7 +289,17 @@ def test_session_expires_when_idle(center, cookie, monkeypatch):
 
 def test_bad_host_is_refused(center, cookie):
     assert api(center, "GET", "/api/projects", cookie=cookie, Host="evil.test")[0] == 403
-    assert api(center, "GET", "/", Host=f"localhost:{center.port}")[0] == 403
+    # localhost is redirected to 127.0.0.1 for static GETs only (M2 #818); the API never is.
+    localhost = f"localhost:{center.port}"
+    assert api(center, "GET", "/api/projects", cookie=cookie, Host=localhost)[0] == 403
+    assert api(center, "POST", "/api/session", {"token": "x" * 20}, Host=localhost)[0] == 403
+    response, _ = call(center, "GET", "/", Host=localhost)
+    assert response.status == 302
+    assert response.getheader("Location") == f"http://127.0.0.1:{center.port}/"
+    response, _ = call(center, "GET", "/app.js?x=1", Host=localhost)
+    assert response.getheader("Location") == f"http://127.0.0.1:{center.port}/app.js"
+    assert call(center, "GET", "/nope.js", Host=localhost)[0].status == 403
+    assert call(center, "HEAD", "/", Host=localhost)[0].status == 302
 
 
 @pytest.mark.parametrize(
@@ -870,11 +880,22 @@ def quiet_main(monkeypatch, tmp_path):
     )
 
 
-def test_main_prints_a_link_and_explains_what_keeps_running(quiet_main, capsys):
+def test_main_prints_a_link_to_a_terminal_and_explains_what_keeps_running(
+    quiet_main, capsys, monkeypatch
+):
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     assert server.main(arguments()) == 0
     captured = capsys.readouterr()
     assert "http://127.0.0.1:" in captured.out and "#t=" in captured.out
+    assert "One-time setup link" in captured.out
     assert "keep running" in captured.err
+
+
+def test_main_never_prints_a_link_when_stdout_is_not_a_terminal(quiet_main, capsys):
+    """S-15: redirected output (a log file) gets the 0600 login.html's path, not the token."""
+    assert server.main(arguments()) == 0
+    out = capsys.readouterr().out
+    assert "#t=" not in out and "login.html" in out and "only to a terminal" in out
 
 
 def test_main_opens_the_private_file_not_the_token(quiet_main, monkeypatch):
@@ -1291,13 +1312,15 @@ def _raw(center, request: bytes) -> tuple[int, bytes]:
 
 def test_only_sign_in_skips_the_session_and_only_job_polls_keep_it_idle():
     assert [(r.method, r.pattern) for r in server.ROUTES if not r.session] == [
-        ("POST", "/api/session")
+        ("GET", "/api/auth"),
+        ("POST", "/api/session"),
     ]
     assert [(r.method, r.sample) for r in server.ROUTES if r.poll] == [
         ("GET", "/api/activity"),
         ("GET", "/api/projects/0123456789ab/usage"),
         ("GET", "/api/projects/0123456789ab/watch"),
         ("GET", "/api/jobs/" + "0" * 32),
+        ("GET", "/api/events"),  # the notifications bell (#827)
         ("GET", "/api/docker"),
         ("GET", "/api/follows/" + "0" * 32),
     ]
@@ -2131,8 +2154,9 @@ def test_first_run_scans_past_a_busy_preferred_port(tmp_path, monkeypatch, block
 def test_once_a_password_exists_a_busy_port_is_refused(tmp_path, monkeypatch, blocked_port):
     monkeypatch.setattr(server, "PORTS", (blocked_port, _free_ports(1)[0]))
     instance = _center(tmp_path)
-    instance.state.db.execute("CREATE TABLE users (email TEXT)")
-    instance.state.db.execute("INSERT INTO users VALUES ('admin@localhost')")
+    instance.state.set_password(
+        "admin@localhost", auth.hash_password("a long passphrase"), "password-set", "terminal"
+    )
     assert instance.state.has_password()
     with pytest.raises(server.PortBusy) as busy:
         make_server(instance, None)
@@ -3592,3 +3616,15 @@ def test_the_browser_log_patterns_are_the_clis():
     assert f"export const SINCE = /^(?:{runtime.SINCE.pattern})$/;" in source
     assert f"export const LEVELS = {json.dumps(list(loglevels.LEVELS))};" in source
     assert f"export const LEVEL_CHOICES = {json.dumps(list(loglevels.CHOICES))};" in source
+
+
+def test_the_listen_backlog_holds_a_page_load_of_modules(tmp_path):
+    # #1047: Chrome loads the console's ~65 ES modules at once; the stdlib default backlog of 5
+    # made a module request fail with ERR_CONNECTION_RESET now and then, and the page never booted.
+    directory = tmp_path / "center"
+    directory.mkdir(mode=0o700)
+    http_server = make_server(Center(directory), 0)
+    try:
+        assert http_server.request_queue_size >= 128
+    finally:
+        http_server.server_close()

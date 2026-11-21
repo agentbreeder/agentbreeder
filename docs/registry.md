@@ -22,7 +22,9 @@ AgentBreeder looks for a ref in these places, in order:
 
 1. the project's `./registry`;
 2. each directory in `AGENTBREEDER_REGISTRY_PATH`;
-3. the versions shipped with AgentBreeder.
+3. each git source `agent.yaml` declares under `registries:` (on `main`, see
+   [Remote registry sources](#remote-registry-sources-git-on-main-not-in-a-published-preview));
+4. the versions shipped with AgentBreeder.
 
 If a ref exists in two roots with different content, that is an error (`REF_CONFLICT`). One root
 never silently shadows another.
@@ -174,6 +176,10 @@ changes between file and directory appears as `removed` then `added`. On an adde
 the missing side's `from_sha256`/`to_sha256` and `executable` value is `null`. `hunks` is empty
 when the change is not shown as text (see the flags; `too_large` means the diff's budget was
 spent). `no_newline` appears only on a line with no newline at the end of the file.
+A `skill/` diff (on `main`, not in a published preview) adds `"skill": {"description_changed",
+"scripts_changed"}`, decided from the two manifests and the changed paths, not from the hunks:
+the description is sent on every model call of every agent that pins the skill, and a scripts
+change is a code change.
 
 **`registry used-by REF --project DIR [DIR ...]`** reports, for each project (default `.`, each
 directory once), separately:
@@ -434,8 +440,16 @@ files and your git history if you commit them.
 A `runtime/` version is the agent server: a fixed `Dockerfile`, a `runtime/` directory with a
 hash-locked `requirements.lock`, and a `manifest.yaml`. Since #1083 F1 that manifest and one
 generated file are the only place `build`, `new agent` and the registry commands take framework
-facts from. Nothing in the engine branches on a framework's name. Only `runtime/adk` exists
-today; no other framework's runtime has been built or run.
+facts from. Nothing in the engine branches on a framework's name. Five runtimes ship:
+`runtime/adk`, `runtime/langgraph@1.0.0` (#1083 F3, the first on the runtime kit; run end
+to end and verified on macOS x86_64 only, for the starter and one tool with Gemini, see
+[runtimes/langgraph.md](runtimes/langgraph.md)), `runtime/openai-agents@1.0.0` (#1083 F4, on
+the kit; built and run end to end on macOS x86_64, **not verified**, see
+[runtimes/openai-agents.md](runtimes/openai-agents.md)) and `runtime/deepagents@1.0.0` (#1083
+F5, on the same kit; built and run end to end on macOS x86_64, **not verified**, see
+[runtimes/deepagents.md](runtimes/deepagents.md)). `runtime/crewai@1.0.0` (#1090, F6, on the
+same kit) is built and run end to end on macOS x86_64, **not verified**, see
+[runtimes/crewai.md](runtimes/crewai.md).
 
 **Manifest keys** (beside `port`, `health_path`, `secrets` and `environment`):
 
@@ -449,13 +463,14 @@ today; no other framework's runtime has been built or run.
 | `capabilities` | What the runtime supports: `mcp`, `knowledge`, `notes`, `subagents`, `skills`, `skill_scripts`. `build` refuses an `agent.yaml` part whose capability is missing |
 | `limits` | `{knowledge, tools, mcp_servers}`: how many of each the runtime takes, at most `agent.yaml`'s own ceilings (5, 50 and 10). A part left out keeps the limit every runtime had before: 1, 50 and 10 |
 | `reserved_tool_names` | Up to 100 tool names the runtime keeps for itself. `build` refuses an MCP tool with one of these names (`MCP_TOOL_RESERVED`), and a function tool named like one (`TOOL_NAME_RESERVED`) |
-| `model_api` | `openai-chat` or `anthropic-messages`. Read and checked; nothing uses it yet |
+| `model_api` | `openai-chat` or `anthropic-messages`. `build` writes `anthropic-messages` into the deploy manifest's `runtime` field (#1089): the gateway key gets `/v1/messages` |
+| `isolation` | Optional, `two-uid` only, with `profile: kit` (#1089, owner decision D15): deploy runs a second container from the image, as uid 65533 with no secret mount, for the framework's subprocess. See [runtimes/claude-agent-sdk.md](runtimes/claude-agent-sdk.md) |
 | `notes` | An optional one-line note, at most 300 characters |
 | `docs` | An optional relative path to the runtime's docs page |
 
 An invalid key is `ARTIFACT_INVALID` and names the key only (`invalid limits.tools`), never its
 value. So is one of `profile`, `kit`, `display_name`, `limits`, `reserved_tool_names`,
-`model_api`, `notes` or `docs` in a manifest without `protocol` (`limits needs protocol`): it
+`model_api`, `isolation`, `notes` or `docs` in a manifest without `protocol` (`limits needs protocol`): it
 is not read as a legacy version with those keys dropped.
 
 **Legacy versions.** Published versions are append-only, so the `runtime/adk` versions that
@@ -518,13 +533,19 @@ so a reader such as the local console needs no knowledge of profiles:
 
 - `kit`, `notes` and `docs` appear only when the manifest has them.
 - `verified` is true for a runtime version that has been run end to end. Today that is
-  `runtime/adk@1.3.0` (Northwind 61/61, #1095) and `runtime/adk@1.4.0` (the starter and the
-  3.0.0a3 public-registry runs). It is about the version, not a `new agent` combination: those
-  all ran on the starter's default, `runtime/adk@1.4.0`, so a spec or `--runtime` that pins
-  `1.3.0` still has `verified: false` in `new agent`'s output. `runtime/adk@1.5.0` has also been
-  run end to end (Northwind 61/61 and the sub-agents and skills acceptance runs, #1058 and
-  #1059, on `main`) but is not labelled so yet: the label would make the console start new forms
-  on it, where only sub-agent and skill combinations are verified.
+  `runtime/adk@1.3.0` (Northwind 61/61, #1095), `runtime/adk@1.4.0` (the starter and the
+  3.0.0a3 public-registry runs), and, on `main`, `runtime/adk@1.5.0` (Northwind 61/61, the
+  sub-agents and skills acceptance runs, #1058 and #1059, and a fresh run from a wheel through
+  the CLI and the console) and `runtime/langgraph@1.0.0` (Northwind 61/61 locally and on `kind`,
+  and the starter and one tool from a wheel through the CLI and the console, macOS x86_64 only;
+  see [the record](superpowers/verification/verify-langgraph-adk150.md)). It is about the version,
+  not a `new agent` combination: a plain ADK spec is verified only on `runtime/adk@1.4.0`, so a
+  spec or `--runtime` that pins `1.3.0` or `1.5.0` without sub-agents or skills still has
+  `verified: false` in `new agent`'s output, and the console's form starts on `1.4.0` even though
+  `1.5.0` is newer and labelled run end to end.
+  `runtime/adk@1.4.1` and `runtime/adk@1.5.1` (a dependency update, #1190) are listed with
+  `verified: false`: their Docker rerun passed (macOS x86_64, 2026-11-20), and adding them to the
+  run-end-to-end list is a follow-up (#1198).
 - A version the engine cannot use is still listed, with `usable: false`, a `code` and a
   `reason` and without the profile fields: an invalid manifest or a missing `modules.json`
   (`ARTIFACT_INVALID`), an unknown protocol (`PROTOCOL_UNSUPPORTED`), a version under a
@@ -558,7 +579,8 @@ registry/skill/refund-policy/1.2.0/
 - **Instruction pack or script skill.** A version with no `scripts/` and no `scripts:` key is an
   instruction pack: text that steers the agent. **A version with any `scripts/` entry, or a
   `scripts:` key, is code**, like a tool: `list` marks it `(code)` (`"runs_code": true` in
-  `--json`), `import` and `fork` print the code notice, and the console asks the "this code runs"
+  `--json`, where a skill row also has `"code"`: `text`, `code` for scripts, or `unknown` for a
+  version that cannot be read or holds an entry a skill may not, treated as code), `import` and `fork` print the code notice, and the console asks the "this code runs"
   confirm. The decision comes from the version's files, never the kind alone, and fails closed:
   a version whose manifest cannot be read counts as code. Nothing runs a script yet.
 - **`SKILL.md`** is UTF-8, at most 32 KiB, and starts with a `---` front matter block, read with
@@ -637,17 +659,150 @@ registry sources):
   a malformed `sha256` (`sha256:` and 64 hex digits) and an empty `source` (`LOCK_INVALID`); a
   newer `lock_version` says to upgrade AgentBreeder. A local registry root whose label would
   start with `remote:` is `REGISTRY_ROOT_INVALID`.
-- **Lock format version 2.** Reserved for projects that declare remote sources, which no
-  command can do yet: version 2 adds a `sources` table (name → `type` `git`, `oci` or `http`,
-  canonical `url`, `pin`, and a git `path`), `remote:<name>` entry sources and an optional
-  per-entry `pin`. Without remote sources the lock stays version 1, byte for byte as before.
-  `stack.lock` stays version 1. A version 2 entry from a remote source gives `SOURCE_OFFLINE`:
-  this version cannot fetch remote sources. Design:
-  `docs/superpowers/specs/2026-11-11-remote-registry-sources-design.md`.
+- **Lock format version 2.** Written when `agent.yaml` declares `registries:` (see
+  [Remote registry sources](#remote-registry-sources-git-on-main-not-in-a-published-preview)):
+  version 2 adds a `sources` table (name → `type`, canonical `url`, `pin`, and a git `path`),
+  `remote:<name>` entry sources and an optional per-entry `pin`. Without `registries:` the lock
+  is version 1, byte for byte as before, and removing `registries:` writes version 1 again.
+  `stack.lock` stays version 1. JSON Schema: [`agent-lock.schema.json`](agent-lock.schema.json).
+  Design: `docs/superpowers/specs/2026-11-11-remote-registry-sources-design.md`.
 - **No empty directories in a version.** `registry publish`, `import`, `fork` and `edit` refuse
   a version with an empty directory, and `registry verify` reports one (`ENTRY_UNSAFE`, "add a
   .keep file"): git cannot store an empty directory, so the same version would hash differently
   from a directory and from a remote copy. No shipped version has one.
+
+## Remote registry sources (git, on `main`, not in a published preview)
+
+#829 slice 1b. An `agent.yaml` can name **git repositories** that hold registry versions, each
+pinned to a full commit SHA. `build` fetches only the refs it needs, hashes the copy exactly as
+for a local version, and records the source and its pin in `agent.lock` (version 2). OCI and
+HTTP index sources are not supported yet (`SOURCE_INVALID`).
+
+What has run: the test suite against git's own `git http-backend` behind a loopback HTTPS server
+on macOS (Python 3.11, 3.12 and 3.13, git 2.39). It has not been run against GitHub or any other
+hosted git server, over ssh, or behind a proxy.
+
+```yaml
+registries:
+  - name: acme                      # a label for messages and agent.lock
+    git: https://github.com/acme/agent-registry.git
+    commit: 3f2a9c1d0b7e4a5f6c8d9e0f1a2b3c4d5e6f7a8b   # a full SHA; branches and tags are refused
+    path: registry                  # optional: the directory holding kind/name/version
+```
+
+- **Search order.** `./registry`, each `AGENTBREEDER_REGISTRY_PATH` entry, each source in the
+  order declared, then the built-in registry. A ref with different content in two of them (a
+  local copy and a source, or two sources) is `REF_CONFLICT`, naming both and their hashes: a
+  source never silently shadows a local version, and a local copy never silently shadows a
+  source's. Same content is fine; the first wins.
+- **Kinds.** Sources may provide `prompt`, `eval`, `knowledge` and `tool` versions. A
+  `runtime`, `service`, `skill` or `mcp` version found only in a source, or locked from one in
+  `agent.lock`, is `REMOTE_KIND_REFUSED`
+  (copy it into `./registry` with `registry import`). Remote `mcp` versions come with a later
+  slice (consent bound to the pin).
+- **URLs.** `https://host[:port]/path` or `ssh://[user@]host[:port]/path` (scp-style
+  `user@host:path` is accepted). `http://`, `file://`, local paths and other transports, a user
+  name or token in an `https` URL, a query or fragment, `%`, `~`, `..` and a host or segment
+  starting with `-` are `SOURCE_INVALID`. Private repositories use your own git credentials
+  (credential helper, ssh agent), never a token in the URL.
+- **Pins.** `commit` must be a full 40-character SHA (`SOURCE_UNPINNED` otherwise; find it with
+  `git ls-remote URL BRANCH`). SHA-256 repositories are not supported.
+
+### Trusting a source
+
+A build contacts only hosts **you** trusted, in every mode (plain, `--locked`, `release`), so a
+project cannot make your machine contact a host with your credentials. (A version already in the
+cache is used without contacting anyone; its hash is checked against `agent.lock`.) The list
+is yours, in `~/.agentbreeder/sources.yaml` (mode 0600), never in the project:
+
+```bash
+agentbreeder registry trust https://github.com/acme          # an organization prefix
+agentbreeder registry trust https://git.corp.example/acme --private   # an internal host
+agentbreeder registry trust --list
+agentbreeder registry trust https://github.com/acme --remove
+```
+
+- An entry matches the canonical source URL on whole path segments (`https://github.com/acme`
+  matches `https://github.com/acme/agent-registry.git`, not `https://github.com/acme-evil/x`);
+  the scheme, port and ssh user must match exactly. A bare host (`https://github.com`) trusts
+  every repository there, including an attacker's, and needs `--whole-host`.
+- A host that resolves to a loopback, private, link-local or unique-local address (including an
+  IPv4 address mapped into IPv6) needs `--private` (`SOURCE_HOST_PRIVATE`). Git over https is
+  pinned to the addresses that were checked, which needs git 2.37 or newer
+  (`SOURCE_TOOL_MISSING` otherwise). Over ssh, and behind a proxy, this check is best
+  effort (ssh and the proxy resolve the host themselves); the prefix check still holds.
+- **Two spellings of one address are two sources.** Trust matching compares canonical strings,
+  so a trust entry for one spelling never trusts another (it fails closed). Spellings that
+  would name an IPv4 host a second way are refused outright: an IPv4-mapped IPv6 host such as
+  `[::ffff:127.0.0.1]`, and decimal or hex IPv4 such as `2130706433` (`SOURCE_INVALID`).
+- Without a terminal, `registry trust` needs `--yes`. In CI, set
+  `AGENTBREEDER_REGISTRY_TRUST=https://github.com/acme` (comma-separated prefix entries only; a
+  bare or private host needs the file).
+- This limits which hosts a project can make you contact. It is not publisher verification: a
+  trusted organization can still serve harmful code, and tools are code that runs inside your
+  agent.
+
+### Fetching, the cache and `--offline`
+
+- Each source is fetched at most once per build, at the pinned commit, into a fresh private
+  bare repository that is deleted afterwards: no git repository or git config is ever kept.
+  Files are read from git objects without a checkout. Symlinks, submodules and Git LFS files in
+  a version are `ENTRY_UNSAFE`; `__pycache__` and `*.pyc` are skipped.
+- git runs with an allow-listed environment (every other `GIT_*` variable is dropped), from an
+  empty private directory, with redirects, hooks, submodules and every protocol except https and
+  ssh switched off. A fetch is limited to 120 s (`SOURCE_TIMEOUT`) and 200 MB
+  (`SOURCE_TOO_LARGE`).
+- The cache is `~/.agentbreeder/cache/registries/v1` (or `AGENTBREEDER_CACHE_DIR`), which must
+  be yours and mode 0700 (`CACHE_UNSAFE`). It holds extracted versions by tree hash and each
+  source's list of versions at a pin.
+- A ref **already in `agent.lock`** may come from the cache, and the copy's hash must equal the
+  lock; a cached copy that does not match is deleted and fetched again (`CACHE_CORRUPT`). A
+  **first lock** is always fetched from the pinned commit, never from the cache.
+- A plain build needs the network once per source per pin, to read the source's list of
+  versions for the conflict check, even if no ref ends up coming from it. Remove a source you no
+  longer use.
+- `build --offline` never uses the network: a ref not in the cache, or a first lock, is
+  `SOURCE_OFFLINE`. Run one online build first. `registry fetch` (to fill the cache in CI) is
+  not in this version.
+- `build --locked` reads each locked ref only from its locked source, and `registries:` must
+  equal the lock's `sources` exactly (`LOCK_STALE`, naming the difference).
+
+### What protects you, and when
+
+| Moment | What protects you | What does not |
+|---|---|---|
+| First lock of a ref | the pin you chose; your trusted list; the entry checks; never from the cache | nothing vouches that the commit is benign |
+| Later builds, `--locked` | the tree hash in `agent.lock`, the source pin, your trusted list | |
+| The remote changes (push, force-push) | the pin and the lock: content is never read from a branch | a deleted commit makes a cold-cache build fail (`SOURCE_COMMIT_MISSING`), not change |
+| A pin bump in `agent.yaml` | every entry from that source is fetched again and must keep its hash (`HASH_MISMATCH` names both pins) | |
+
+Git pins are SHA-1 commit ids; the content check after that is SHA-256 over the copied tree.
+For refs already in `agent.lock`, a locked build uses exactly the recorded bytes; a changed
+remote cannot change it. Hashes detect a change after the first lock; they do not vouch for the
+first lock.
+
+### Messages
+
+| Code | Meaning and remedy |
+|---|---|
+| `SOURCE_HOST_UNTRUSTED` | you have not trusted the URL; the message proposes `registry trust <prefix>` (and the CI variable without a terminal) |
+| `SOURCE_HOST_PRIVATE` | the host resolves to a private address; `registry trust <prefix> --private` if it is yours |
+| `SOURCE_AUTH_FAILED` | git authentication failed; check `git ls-remote URL` in the same shell |
+| `SOURCE_UNREACHABLE` | DNS, TCP, TLS, a redirect, or another fetch failure; `--offline` if already cached |
+| `SOURCE_COMMIT_MISSING` | the pinned commit is gone (deleted branch or force-push); pin a commit that exists |
+| `SOURCE_OFFLINE` | `--offline` and not in the cache, or a first lock |
+| `SOURCE_TIMEOUT`, `SOURCE_TOO_LARGE` | the 120 s or 200 MB fetch limit |
+| `SOURCE_TOOL_MISSING` | `git` is not installed |
+| `SOURCE_INVALID`, `SOURCE_UNPINNED` | the `registries:` entry breaks a rule above |
+| `SOURCE_TRUST_INVALID` | `sources.yaml` or `AGENTBREEDER_REGISTRY_TRUST` is malformed, or the file is not 0600 |
+| `REMOTE_KIND_REFUSED` | a runtime, service, skill or mcp version only a source holds |
+| `REF_CONFLICT` | the same version differs between two roots; delete the local copy or publish a new version |
+| `CACHE_UNSAFE`, `CACHE_CORRUPT` | the cache directory's owner or mode; a cached copy that did not match the lock (a warning) |
+
+`build` prints one line per remote ref: `tool/geo@1.2.0 <- acme @3f2a9c1`, and `build.json`
+gains the `sources` table. Not in this version: `registry fetch`, `registry pin`,
+`registry cache list|prune`, `--offline` on `release` and `eval`, remote `mcp` versions,
+`registries:` in `stack.yaml`, OCI and HTTP index sources, and the console's source states.
 
 ## Agent packages (in progress, on `main`, not in a published preview)
 

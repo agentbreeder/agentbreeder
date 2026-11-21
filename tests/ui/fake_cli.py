@@ -74,6 +74,10 @@ DEFAULT = {
     "runtimes": None,
     # Seconds `registry runtimes` waits before answering (the Framework group's loading line).
     "runtimes_seconds": 0,
+    # `registry conformance REF --json` (#1085 S3): {ref: the newest report}; a ref not listed
+    # has none (null). `conformance IMAGE --project DIR` is a job: its argv is written to
+    # `conformance-argv.json` in the fake directory.
+    "conformance": {},
     # `new agent`: null writes the demo project into --dir; a {code, message} refuses.
     "new_error": None,
     # `registry used-by`: the deployments shown for a project that uses the ref.
@@ -230,6 +234,35 @@ def invoke(argv: list[str], data: dict) -> int:
     answer = {"schema_version": 1, "deployment": "d" * 32, "name": argv[1], "status": 200}
     answer |= {"endpoint": "http://127.0.0.1:9001", "response": response}
     print(json.dumps(answer, indent=2))
+    return 0
+
+
+def stored_events(argv: list[str]) -> int:
+    """`events [--mark-read ID ...] --limit N --json` (#827) over `events-store.json` in the fake
+    directory, which a test writes and may change between reads (the console never caches them):
+    a list of event objects as `agentbreeder events --json` prints them. `--mark-read` marks them
+    in the file, as the real store does. `events-error.txt` makes the read fail with its line."""
+    _record("events-calls.json", argv)
+    state = Path(os.environ["AGENTBREEDER_FAKE_DIR"])
+    problem = state / "events-error.txt"
+    if problem.exists():
+        print(problem.read_text().strip(), file=sys.stderr)
+        return 2
+    store = state / "events-store.json"
+    rows = json.loads(store.read_text()) if store.exists() else []
+    marked = {int(argv[i + 1]) for i, arg in enumerate(argv) if arg == "--mark-read"}
+    if marked:
+        for row in rows:
+            if row["id"] in marked:
+                row["read"] = True
+        store.write_text(json.dumps(rows))
+    known = {row["id"] for row in rows}
+    print(json.dumps({
+        "schema_version": 1,
+        "events": sorted(rows, key=lambda row: -row["id"]),
+        "unread": sum(1 for row in rows if not row["read"]),
+        "unknown_ids": sorted(marked - known),
+    }))  # fmt: skip
     return 0
 
 
@@ -823,6 +856,14 @@ def main(argv: list[str]) -> int:
         return real(argv)  # #826: the real edit and set-ref on the project's files
     elif head == ["registry", "import"]:
         return real(argv)  # #825: the real import into the project's registry
+    elif head == ["registry", "conformance"]:
+        ref = argv[2]
+        found = data["conformance"].get(ref)
+        print(json.dumps({"schema_version": 1, "ref": ref, "report": found}))
+    elif argv and argv[0] == "conformance":
+        directory = Path(os.environ.get("AGENTBREEDER_FAKE_DIR", ""))
+        (directory / "conformance-argv.json").write_text(json.dumps(argv))
+        return job("conformance", data)
     elif head == ["registry", "runtimes"]:
         time.sleep(float(data.get("runtimes_seconds", 0)))
         if data["runtimes"] is None:
@@ -896,6 +937,8 @@ def main(argv: list[str]) -> int:
         return invoke(argv, data)
     elif argv and argv[0] == "evals":
         return evals(argv, data)
+    elif argv and argv[0] == "events":
+        return stored_events(argv)
     elif argv and argv[0] == "traces":
         return traces(argv, data)
     elif head == ["tool", "log"]:

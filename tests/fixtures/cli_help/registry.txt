@@ -1,9 +1,9 @@
 usage: agentbreeder registry [-h]
-                             {new,publish,import,fork,edit,list,runtimes,verify,show,diff,used-by}
+                             {new,publish,import,fork,edit,list,runtimes,conformance,verify,show,diff,used-by,trust}
                              ...
 
 positional arguments:
-  {new,publish,import,fork,edit,list,runtimes,verify,show,diff,used-by}
+  {new,publish,import,fork,edit,list,runtimes,conformance,verify,show,diff,used-by,trust}
     new                 Scaffold a version directory to edit
     publish             Publish an immutable version
     import              Copy a version directory from anywhere into the
@@ -15,10 +15,14 @@ positional arguments:
     list                List versions in the search roots
     runtimes            List runtime versions with what each supports
                         (framework, capabilities, limits)
+    conformance         Show the newest conformance report of a runtime
+                        version
     verify              Re-check every version's integrity
     show                Show one version's manifest and files
     diff                Show what changed between two versions
     used-by             Show which projects declare, lock and deploy a version
+    trust               Trust a remote registry source URL prefix (your
+                        sources.yaml)
 
 options:
   -h, --help            show this help message and exit

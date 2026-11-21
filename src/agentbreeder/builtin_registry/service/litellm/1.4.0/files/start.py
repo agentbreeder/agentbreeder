@@ -16,17 +16,9 @@ through to a provider SDK's default credential chain.
 agentbreeder_request_filter.py, on PYTHONPATH), which refuses provider-routing parameters and
 every call type but chat completions and embeddings. The copy is written to a new private
 directory under /tmp; the reviewed config may not name callbacks itself.
-
-1.4.0 (#1025 V1): Vertex AI. The optional secret `vertex-service-account-json` must be a
-`service_account` key (never `authorized_user` or `external_account`) with Google's own token
-endpoint and universe. LiteLLM receives a re-serialised copy holding seven known fields, so the
-two parsers cannot disagree on duplicate keys or extra fields. Every `vertex_ai/` entry must
-read that key and name the key's own project, or the start stops.
 """
 
-import json
 import os
-import re
 import sys
 import tempfile
 
@@ -39,7 +31,6 @@ NAMES = {
     "openrouter-api-key": "OPENROUTER_API_KEY",
     "openai-api-key": "OPENAI_API_KEY",
     "anthropic-api-key": "ANTHROPIC_API_KEY",
-    "vertex-service-account-json": "VERTEX_SERVICE_ACCOUNT_JSON",
 }
 REQUIRED = {"master-key", "database-url"}
 LIMIT = 16384
@@ -91,8 +82,7 @@ FORCED = {
     "PYTHONPATH": "/files",  # the request filter, and nothing from the container
 }
 # gateway_providers.GATEWAY_ONLY (a test checks the copy): the cloud credentials only the
-# built-in gateway may import. This version imports the Vertex key only, so a config naming
-# another one, or the Vertex key when it was not imported, stops.
+# built-in gateway may import. This version imports none of them, so a config naming one stops.
 GATEWAY_ONLY = (
     "AZURE_OPENAI_API_KEY",
     "AZURE_OPENAI_ENDPOINT",
@@ -104,47 +94,6 @@ ENV_REF = "os.environ/"
 LOCAL_PREFIXES = ("ollama/", "ollama_chat/")  # providers that need no key (Ollama)
 FILTER = "agentbreeder_request_filter.handler"  # files/agentbreeder_request_filter.py
 RUN_DIR = "/tmp"
-
-# The Vertex service-account key rules: copies of gateway_providers.VERTEX_* (a test checks
-# them, and that both sides accept and refuse the same values).
-VERTEX_SECRET = "vertex-service-account-json"
-VERTEX_KEY_NAME = "VERTEX_SERVICE_ACCOUNT_JSON"
-VERTEX_PROVIDER = "vertex_ai"  # the model string's prefix
-VERTEX_KEY_FIELDS = (
-    "type",
-    "project_id",
-    "private_key_id",
-    "private_key",
-    "client_email",
-    "client_id",
-    "token_uri",
-)
-VERTEX_KEY_TYPE = "service_account"
-VERTEX_TOKEN_URI = "https://oauth2.googleapis.com/token"
-VERTEX_UNIVERSE = "googleapis.com"
-VERTEX_PROJECT = re.compile(r"[a-z][a-z0-9-]{4,28}[a-z0-9]\Z")
-VERTEX_LOCATION = re.compile(r"(global|[a-z]+-[a-z]+[0-9]{1,2})\Z")
-# The only litellm_params a Vertex entry may set: the host review's set for Vertex (a test checks
-# them). Anything else, such as api_base, api_key or custom_llm_provider, could redirect the call.
-VERTEX_PARAMS = frozenset(
-    {
-        "dimensions",
-        "drop_params",
-        "max_retries",
-        "max_tokens",
-        "model",
-        "reasoning_effort",
-        "rpm",
-        "stream_timeout",
-        "temperature",
-        "timeout",
-        "top_p",
-        "tpm",
-        "vertex_credentials",
-        "vertex_location",
-        "vertex_project",
-    }
-)
 
 
 def read(name):
@@ -163,80 +112,6 @@ def read(name):
         return data.rstrip(b"\n").decode("utf-8", "strict")
     except UnicodeDecodeError:  # never the traceback: it would quote the bytes
         sys.exit(f"litellm launcher: secret {name} is not UTF-8")
-
-
-def no_duplicates(pairs):
-    result = dict(pairs)
-    if len(result) != len(pairs):
-        raise ValueError("duplicate key")
-    return result
-
-
-def vertex_key(text):
-    """The canonical fields of a service-account key, or None. Never raises, never prints."""
-    try:
-        key = json.loads(text, object_pairs_hook=no_duplicates)
-    except (ValueError, RecursionError, MemoryError):
-        return None
-    if not isinstance(key, dict):
-        return None
-    if key.get("type") != VERTEX_KEY_TYPE or key.get("token_uri") != VERTEX_TOKEN_URI:
-        return None
-    if key.get("universe_domain", VERTEX_UNIVERSE) != VERTEX_UNIVERSE:
-        return None
-    if any(not isinstance(key.get(name), str) or not key[name] for name in VERTEX_KEY_FIELDS):
-        return None
-    if not VERTEX_PROJECT.fullmatch(key["project_id"]):
-        return None
-    return {name: key[name] for name in VERTEX_KEY_FIELDS}
-
-
-def vertex_canonical(key):
-    """One line of JSON with the canonical fields only: what LiteLLM receives."""
-    return json.dumps(key, separators=(",", ":"), ensure_ascii=True)
-
-
-def vertex_entries(document):
-    """The litellm_params of every model_list entry routed to Vertex AI."""
-    found = []
-    for entry in document.get("model_list") or []:
-        params = entry.get("litellm_params") if isinstance(entry, dict) else None
-        model = params.get("model") if isinstance(params, dict) else None
-        if isinstance(model, str) and model.partition("/")[0].startswith(VERTEX_PROVIDER):
-            found.append(params)
-    return found
-
-
-def check_vertex(document, key):
-    """Stop unless every Vertex entry reads the imported key and names the key's own project,
-    and nothing else in the config reads the key (the host-side review and `services up` check
-    the same; this is the file LiteLLM runs)."""
-    entries = vertex_entries(document)
-    reference = ENV_REF + VERTEX_KEY_NAME
-    if sum(text.startswith(reference) for text in strings(document)) != len(entries):
-        sys.exit(
-            "litellm launcher: only a vertex_ai entry's vertex_credentials may read "
-            + VERTEX_KEY_NAME
-        )
-    for params in entries:
-        if params.get("vertex_credentials") != ENV_REF + VERTEX_KEY_NAME:
-            sys.exit(
-                "litellm launcher: a vertex_ai entry must read vertex_credentials from "
-                + ENV_REF
-                + VERTEX_KEY_NAME
-            )
-        location = params.get("vertex_location")
-        if not isinstance(location, str) or not VERTEX_LOCATION.fullmatch(location):
-            sys.exit("litellm launcher: a vertex_ai entry's vertex_location is not a location")
-        if set(params) - VERTEX_PARAMS:  # names the rule, never the parameter or its value
-            sys.exit(
-                "litellm launcher: a vertex_ai entry sets a parameter the review does not allow"
-            )
-        if key is None or params.get("vertex_project") != key["project_id"]:
-            sys.exit(
-                "litellm launcher: a vertex_ai entry's vertex_project is not the "
-                "service-account key's project"
-            )
 
 
 def strings(value):
@@ -330,17 +205,8 @@ def main():
                 sys.exit(f"litellm launcher: secret {name} is missing")
             continue
         secrets[variable] = value
-    document, names = load_config()
-    key = None
-    if VERTEX_KEY_NAME in secrets:
-        key = vertex_key(secrets.pop(VERTEX_KEY_NAME))
-        used = VERTEX_KEY_NAME in names or bool(vertex_entries(document))
-        if key is None and used:  # never the value
-            sys.exit(f"litellm launcher: secret {VERTEX_SECRET} is not a service-account key")
-        if key is not None and used:
-            secrets[VERTEX_KEY_NAME] = vertex_canonical(key)
-        # A config that does not use the key: LiteLLM never sees it, key or not.
     environment = environment_for(os.environ, secrets)
+    document, names = load_config()
     missing = sorted(n for n in names if n in GATEWAY_ONLY and n not in environment)
     if missing:
         sys.exit(
@@ -348,7 +214,6 @@ def main():
             + ", ".join(missing)
             + ", which this gateway did not import"
         )
-    check_vertex(document, key)
     providers = [variable for name, variable in NAMES.items() if name not in REQUIRED]
     if not any(variable in environment for variable in providers) and not local_models(document):
         print("litellm launcher: no provider key imported; model calls will fail", file=sys.stderr)

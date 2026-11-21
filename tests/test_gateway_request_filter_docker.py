@@ -171,7 +171,7 @@ def _stack(version: str) -> dict:
     }
 
 
-@pytest.fixture(params=["1.4.0", "1.3.0", "1.2.0"])
+@pytest.fixture(params=["1.5.0", "1.4.0", "1.3.0", "1.2.0"])
 def stack(request, tmp_path, monkeypatch):
     monkeypatch.delenv(registry.PATH_ENV, raising=False)
     monkeypatch.setenv(ROOT_ENV, str(tmp_path / "stacks"))
@@ -325,6 +325,8 @@ ROUTES = (
     ("POST", "/v1/batches", {"input_file_id": "f", "endpoint": "/v1/chat/completions",
                              "completion_window": "24h", "custom_llm_provider": "anthropic"}),
 )  # fmt: skip
+# Versions whose filter serves the Anthropic Messages route (#1089).
+MESSAGES_VERSIONS = frozenset({"1.4.0", "1.5.0"})
 # Routes that choose a provider from a query parameter or header and never reach a pre-call
 # hook: only the key's `allowed_routes` closes them (sent with the deploy-shaped key only).
 UNHOOKED = (
@@ -466,8 +468,11 @@ def test_a_key_reaches_only_its_aliases_provider(stack, tmp_path):
     results = {}
     for label, path, body, headers in _attempts():
         results[label] = _post(base, open_key, path, body, headers)
+    # 1.4.0 and 1.5.0 serve `/v1/messages` (#1089): tests/test_gateway_messages_filter_docker.py
+    # checks it there, so this harness sends the other routes only.
+    routes = [r for r in ROUTES if version not in MESSAGES_VERSIONS or r[1] != "/v1/messages"]
     if version != "1.2.0":  # on 1.2.0 these would leave for the providers' real endpoints
-        for method, path, body in ROUTES:
+        for method, path, body in routes:
             results[f"{method} {path}"] = _send(base, open_key, method, path, body, {})
     seen_a = _log(instance, "provider-a")[baseline_a:]
     seen_b = _log(instance, "provider-b")
@@ -496,11 +501,13 @@ def test_a_key_reaches_only_its_aliases_provider(stack, tmp_path):
     for provider in PROVIDERS:
         status, text = results[f"custom_llm_provider={provider}"]
         assert status == 400 and "GATEWAY_PARAM_REFUSED" in text, (provider, status, text)
-    for method, path, _ in ROUTES:
+    for method, path, _ in routes:
         status, text = results[f"{method} {path}"]
         assert status in (400, 401, 403, 404) and ("GATEWAY_" in text or status != 400), path
     # These reach the filter's hook in the recorded run: its own refusal, not LiteLLM's.
     for path in ("/v1/messages", "/v1/responses", "/v1/completions", "/v1/moderations"):
+        if f"POST {path}" not in results:  # /v1/messages on 1.4.0 and 1.5.0
+            continue
         status, text = results[f"POST {path}"]
         assert status == 400 and "GATEWAY_ROUTE_REFUSED" in text, (path, status, text)
     filtered = sorted(k for k, (s, t) in results.items() if s == 400 and "GATEWAY_" in t)

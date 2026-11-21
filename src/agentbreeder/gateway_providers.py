@@ -11,7 +11,7 @@ included, so their grant digests do not change. Ollama, Vertex AI, Bedrock and A
 are in the table, but a provider is accepted only when the stack's gateway imports every
 credential it needs (`GatewayCaps`) and, for Ollama, can reach the host port. Each provider
 slice adds its own `service/litellm` version (spec §6, D12): 1.2.0 reaches host port 11434, so
-it serves Ollama (#1025 O1); 1.4.0 imports the Vertex service-account key (#1025 V1, config-only:
+it serves Ollama (#1025 O1); 1.5.0 imports the Vertex service-account key (#1025 V1, config-only:
 not yet run against Vertex AI); no version imports the Bedrock or Azure credentials yet, so
 those are refused with `GATEWAY_PROVIDER_UNSUPPORTED`.
 

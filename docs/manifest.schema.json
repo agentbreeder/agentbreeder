@@ -253,6 +253,32 @@
           "const": "kit",
           "title": "Profile",
           "type": "string"
+        },
+        "model_api": {
+          "anyOf": [
+            {
+              "const": "anthropic-messages",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Api"
+        },
+        "isolation": {
+          "anyOf": [
+            {
+              "const": "two-uid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Isolation"
         }
       },
       "required": [

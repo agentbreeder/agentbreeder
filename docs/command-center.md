@@ -73,7 +73,8 @@ agentbreeder cluster down --stack DIR
 On `main` the walkthrough column is replaced by a console shell (Preact + htm, no build step):
 
 - **Sidebar** with one entry per screen that works: Home, Services, Build and release, Deployments,
-  Logs, Registry ▸ Prompts, Eval sets, Tools, Knowledge, MCP servers, Service definitions and Runtimes,
+  Logs, Registry ▸ Prompts, Eval sets, Tools, Skills, Knowledge, MCP servers, Service definitions and
+  Runtimes,
   Targets ▸ Kubernetes, Governance ▸ Audit. Each screen has its own address (`#/deployments`), page
   title and `h1`. Changing screen moves focus to that `h1`, and a skip link goes straight to it.
 - **Top bar**: a scope switcher ("All projects" or one project; a project screen under "All
@@ -87,9 +88,11 @@ On `main` the walkthrough column is replaced by a console shell (Preact + htm, n
 - **Sign-in states**: the one-time link is consumed before anything else and removed from the
   address bar. "Session ended" and "Sign in" pages say how to get a new link, and signing in again
   returns to the screen you were on. Sessions live in the console's memory, so "Session ended"
-  names both causes: the tab was open 8 hours or idle 1 hour, or the console was restarted
-  (#879). "Console not reachable at this address" (no answer at all) is a separate page that
-  retries every 5 seconds.
+  names every cause: the session length or 1 hour idle, a console restart (#879), signing out
+  everywhere, and a password changed in another tab or reset with `up --reset-password` (the M2
+  run). "Console not reachable at this address"
+  (no answer at all) is a separate page that retries every 5 seconds. From #818 the sign-in pages
+  also take the console password (below).
 - **Walkthrough fixes (#811)**:
   - Audit shows each row's time (from `at`), agent deployment, mode, reason codes and whether the
     actor was verified. Verify is one sentence ("Chain intact: 19 rows checked, head 63639e…" or
@@ -135,6 +138,100 @@ wheel built from `main` in a clean sandbox on macOS (2026-11-13), Northwind pass
 Docker and on `kind` through the console's API, every screen was opened in Chrome, and the teardown
 ran from the UI (three leftover Docker objects of the stack were then removed by hand). Onboarding,
 the grant review, a full release and the cluster connect and deploy were not clicked in the browser.
+
+### Notifications (#827, M11 console half): on `main`, not in a published preview
+
+A **bell** in the top bar (between the Jobs pill and the theme toggle) shows one number: the
+project in scope's **conditions** (exactly `agentbreeder next`'s, from the read the console
+already makes for the checklist, so they clear themselves) plus its unread **stored events**
+(`agentbreeder events`); under All projects, the unread events of every registered project. Its
+accessible name says the split in words, and "not known" or "last known" rather than zero when
+`next` did not answer. It opens a panel under the top bar (not modal; Escape returns to the bell):
+
+- **Needs attention**: each condition's code and message, and a link to Home;
+- **Recent events**: the newest 20, each with its time and the CLI's fixed-template message, "new"
+  for unread ones, and **Mark all read** (`events --mark-read ID …`; only ids the console lists for
+  its registered projects are accepted). A gate failure shows its report path as text and, for a
+  report in the project's `deploy/`, **Show summary of failed cases** (the eval report viewer's
+  `evals show RUN --agent NAME` read) and a link to the report.
+
+An unread failure stored after the page loaded also appears as a **toast** at the bottom left
+(each once per tab, at most three on screen, never taking focus or timing out). The console reads
+`events --limit 200 --json` (fixed argv) every 20 s while the page is visible, on focus and when
+a job ends; one read serves every request within 2 seconds, each event is allow-listed by
+`center/notifications.py`, and the reads do not keep an idle session alive. Design:
+`docs/superpowers/specs/2026-11-19-console-notifications-design.md`.
+
+Tested with pytest (the allow-list, scoping, coalescing and mark-read rules) and Playwright with
+the fake CLI (the count and its words, the panel, mark read, Escape, a failed read, a toast only
+for an event stored after load and not again once dismissed, the gate summary read, 320 and
+375 px, axe in light and dark). Not run on a real stack: the acceptance (stop a service and see
+its condition appear and clear; a clean release stores no event) needs Docker.
+
+### Sign-in (#818): on `main`, not in a published preview
+
+The console has one user, `admin@localhost`, and a password with no shared default.
+
+- **First run.** `agentbreeder up` prints a one-time setup link and opens it. The setup page asks
+  for the password (at least 12 characters; common passwords are refused). Only a session from
+  that terminal link can set the first password; a request without one gets 401. Headless:
+  `agentbreeder up --set-password` asks on the terminal without echo, or reads exactly one line of
+  stdin (`printf '%s\n' "$PW" | agentbreeder up --set-password`); never pass a password as an
+  argument. Setting it ends the link's session, and you sign in with the password next.
+- **A console from an earlier version** (projects, no password) goes to the same setup at its
+  next start; its projects and job history are kept (`center.sqlite3` moves to schema 4).
+- **Later runs.** `up` prints the address and opens the sign-in page; it prints no link unless you
+  ask: `agentbreeder up --link`, or Enter in the terminal running `up` (the link always works,
+  also during a wait below). A link is printed only to a terminal; when output goes to a file, the
+  link is written to the private `login.html` (mode 0600) in the console directory and only that
+  path is printed.
+- **Sign-in.** Email and password mint this tab's header token, kept in the tab's
+  `sessionStorage`; there is no cookie, because cookies would reach every other `127.0.0.1` port.
+  One sign-in per tab. A wrong email and a wrong password get the same answer after the same
+  scrypt work. After five wrong passwords in a row the console waits 30 seconds before it checks
+  another, doubling each time and never more than 5 minutes, for every caller at once; the page
+  says so and points to the terminal link. A new password (a change, or a reset from the
+  terminal) starts a fresh count. One password check runs at a time.
+- **Sessions.** A session ends after the session length (8 hours by default; 1, 4 or 24 in
+  Settings), after 1 hour idle (log follows, job and activity polls do not count as activity), when
+  the console restarts, when the password changes or is reset, and on "sign out everywhere". The
+  console re-reads its credential version on every request, so `agentbreeder up --reset-password`
+  run in another terminal ends the open sessions of a running console at once.
+- **A session that ends while a page is open** opens a sign-in dialog over the page: the route and
+  anything typed stay. A view whose read got the 401 is read again after signing in there; views
+  that already had their answer keep it (#1188). Unsaved registry edits are also kept in the tab's `sessionStorage` and come
+  back when the editor opens again, which happens only after this tab has signed in.
+- **Settings** (user menu): change the password (needs the current one; this tab stays signed in
+  and every other session ends), session length, sign out everywhere, the theme, and the last 20
+  security events (sign-ins, failed sign-ins, waits, password set, change and reset, sign-outs;
+  time, outcome and source only, never a password or link). The source is "Console (HTTP)" for
+  anything that came through the console's HTTP API (the server cannot tell a browser from `curl`
+  or a local container), and "Terminal" or "Terminal link" for the terminal (#1180). A forgotten
+  password is reset only in the terminal: `agentbreeder up --reset-password`.
+- `http://localhost:PORT/` redirects to `http://127.0.0.1:PORT/`, the one address the console
+  answers; the API never redirects.
+
+**What the password protects, and what it does not.** It keeps other users of the computer, web
+pages in your browser and local containers out of the console. On Docker Desktop a container can
+reach the console's port through `host.docker.internal`, so it can reach the sign-in form; the
+password and the wait are what stop it. It does not protect against programs running as your own
+OS account: they can read the console's files (`~/.agentbreeder`) and run the CLI directly. Open
+only the address `up` prints: if another program holds the console's usual port, `up` refuses to
+start on another one once a password exists, so a stale tab or bookmark never shows someone
+else's sign-in page.
+
+Stored: the password's scrypt hash (`n=2**15, r=8, p=1`, its parameters and a per-user salt
+stored with it) in `center.sqlite3` (0600), and the last 1000 security events. Sessions are only in
+the console's memory.
+
+Tested: unit and API tests of every refusal (setup without a link's session, a change without the
+current password, the sixth wrong password waiting and never more than 5 minutes, a reset from
+another process ending a running console's sessions), the terminal commands end to end as
+subprocesses, and Playwright with axe in light and dark for setup, sign-in, Settings and the
+re-auth dialog. Run from a wheel built from `main` in a clean sandbox on macOS (2026-11-20 UTC,
+`docs/superpowers/verification/M2.md`): the container check from inside a Northwind container and
+from the default bridge, a click-through in Chrome driven by Playwright, and the upgrade from a
+3.0.0a2 console. Not run: the Claude in Chrome extension, the 5-minute cap reached live, Linux.
 
 ### Design system v2 (#1116): on `main`, not in a published preview
 
@@ -311,6 +408,46 @@ source changed after its review) and with Playwright over Northwind (the same ed
 tool check's refusal, axe in light and dark). Not yet run as the M12 acceptance (edit
 `tool/orders`, move Northwind to it, release with the eval gate, 61/61): that is batched with the
 milestone checks.
+
+### Registry ▸ Skills and the safe Markdown renderer (#1059 UI-R): on `main`, not in a published preview
+
+**Registry ▸ Skills** (`#/registry/skills`) lists `skill/` versions like every kind, with a
+seventh column, **Code**, from `registry list --json`'s `code` per row: "Instructions" (`text`),
+"Has scripts (code)" (`code`), "Unknown, treated as code" (`unknown`: a version that cannot be
+read, or holds an entry a skill may not), or "Mixed" when a name's versions differ. The versions
+table has the same column. A version's card shows, from `registry show --json`'s `skill` object
+(the CLI's strict loader splits the front matter; the browser parses no YAML):
+
+- **Code**, `license` and `compatibility` facts, or the reason a version breaks the skill rules;
+- **"Sent on every model call"**: the description, as quoted text in a neutral frame, first,
+  because every agent that pins the version sends it on every model call;
+- **Instructions (`SKILL.md`)** with one **Formatted / Source (what the model reads)** choice for
+  the page (kept while the tab is open, never stored), applied to `SKILL.md` and every `.md`
+  reference; `.txt` references are text, and a reference over its cap is not shown;
+- **Scripts** (script skills): each script's tool name (`skill_NAME__SCRIPT`), description,
+  parameters and source as text, under "These scripts are code" (nothing runs them yet).
+
+The diff says "The description changed" (and "The scripts changed") from `registry diff --json`'s
+new `skill` object, never from its hunks. Import and Fork review a skill with its description
+first, the code question decided from the staged files, and the extra wording of the spec
+(`2026-11-16-composition-console-design.md` §9.4).
+
+**Formatted is our own subset renderer** (`lib/markdown.js` to a token tree, `ui/markdown.js` to
+fixed elements with htm; CC1). It never builds HTML. Raw HTML, entities, tables, images ("[image:
+ALT, not shown]"), link titles and reference definitions stay visible as their characters. Only
+secure web links (with the full destination shown after the text, the host in punycode, opening
+in a new tab with `rel="noopener noreferrer"`) and mail links become links; any other scheme, a
+relative address or an address with a user name is text. Lists and quotes nest at most 4 deep,
+emphasis and links 8; past 5,000 elements the whole file is shown as source. Every text node goes
+through `<Text>`.
+
+Tested: the parser in `tests/js/markdown.test.mjs` (an XSS corpus, a linear-growth test over
+adversarial shapes, links, the caps and fallback, no HTML sink) and the screens in
+`tests/ui/test_skills.py` (Playwright with the real `registry list/show/diff/import` over skill
+versions published into a copy of Northwind: the Code column, the detail, the toggle, references,
+scripts, the diff line, the corpus in a real DOM with allowed elements and attributes only and no
+request leaving the console, the Import review of a pack and a script skill, 320 and 375 px, axe
+in light and dark). Not run on a real stack.
 
 ### Import a version by path (#825, M9a, first part): on `main`, not in a published preview
 
@@ -1014,6 +1151,15 @@ describe them, and they show nothing until a 1.4.0 runtime and CLI send them.
 - Older runtimes send none of these fields, and nothing is shown for them. Each value is checked
   for type and size, and a cached figure above the prompt tokens is dropped.
 
+`runtime/adk@1.5.0` replies also carry the turn's sub-agents and skills (#1193). Turn details
+lists them as plain text: **Sub-agents** shows each name, how many times it was called, its model
+calls and the tools it called ("billing: called once, 2 model calls; tools: file_refund"), and
+**Skills** shows each skill loaded, its version and the reference files read ("refund-policy
+1.2.0, read eu-rules.md"). The server passes on only names that match the sub-agent and registry
+name rules, at most 5 sub-agents and 10 skills, and drops a sub-agent's cost and aliases. Runtimes
+before 1.5.0 send neither, and nothing is shown. Tested with a fake CLI; not yet shown live in the
+console against a 1.5.0 agent.
+
 A later message continues the conversation's session (`--session`); **New conversation** starts a
 new one. **Customer ID** is optional and sent as `--customer`.
 
@@ -1088,8 +1234,14 @@ verified provider with another model id is created, with a note that only its de
 been run end to end), the prompt, the eval
 cases (the eval-set case editor's rows, without the cited-sources check, at most 100 cases), and,
 under **Model calls and the eval gate**, model calls per turn (1 to 20), the pass threshold (0 to
-1) and retries (0 to 3). It starts with one example case to edit. Knowledge is not on the form
-yet. The browser never builds YAML: it sends the form as `new agent --from-spec`'s JSON spec
+1) and retries (0 to 3). It starts with one example case to edit. **Knowledge** (#1069) offers
+one `knowledge/` version from the roots a new project resolves (the built-ins and
+`AGENTBREEDER_REGISTRY_PATH`), with its embedding alias and dimensions; it is offered only for a
+provider with an embedding model (gemini, openai) and a framework that searches knowledge, and a
+version with no valid embedding is listed as text with why. The preview adds a "Knowledge the
+agent searches" table (the embedding model and alias, documents and chunks, top k). To use a
+directory of documents, publish or import it into a registry on `AGENTBREEDER_REGISTRY_PATH`
+first: the form does not import a path. The browser never builds YAML: it sends the form as `new agent --from-spec`'s JSON spec
 (`docs/commands/new.md`).
 
 **Framework** (#1085 S1, on `main`, not in a published preview) is the first field after the
@@ -1098,10 +1250,21 @@ alone. Under each radio a second line gives the ref and its status, and a third 
 own note when its manifest has one; both are tied to the radio with `aria-describedby`. A
 **Version** select under the group lists the chosen framework's versions, newest first (static
 text when there is one), and a change of framework or version is announced once ("Google ADK
-1.3.0: Run end to end (Northwind)"). The form starts on Google ADK's newest version, and each
-framework starts on its newest version. Frameworks with a version run end to end come first, then
-by name. **Only `runtime/adk` exists today, so the group shows Google ADK alone**; other frameworks
-appear when their runtimes land, with no console change. There are no logos.
+1.3.0: Run end to end (Northwind)"). The form starts on Google ADK's starter version, `runtime/adk@1.4.0` (the version
+`new agent` writes, and the only one where a form without sub-agents or skills is a verified
+combination), even though `1.5.0` is newer and run end to end; another framework starts on its
+newest version run end to end, else its newest. Frameworks with a version run end to end come first, then
+by name. **The built-in registry has Google ADK and, since #1163, LangGraph
+(`runtime/langgraph@1.0.0`)**. On `main`, LangGraph is in `agentspec.VERIFIED` for the starter's parts
+and one tool with Gemini (macOS x86_64 only), so Create accepts those. A LangGraph agent was built,
+its services started, released (1/1) and chatted with (two turns, history kept) in this console
+from a wheel in a clean sandbox, driven by Playwright in Chrome
+([record](superpowers/verification/verify-langgraph-adk150.md)).
+The OpenAI Agents SDK (`runtime/openai-agents@1.0.0`, #1083 F4) is listed but not in
+`agentspec.VERIFIED`, so Create stays off for it; it has not been run end to end from the console.
+CrewAI (`runtime/crewai@1.0.0`, #1090) is listed the same way and has not been run end to end
+from the console.
+Other frameworks appear when their runtimes land, with no console change. There are no logos.
 
 - **Where the list comes from.** `GET /api/builder/parts` gains `runtimes`: the engine's resolved
   view of every `runtime/` version, read by a CLI child (`agentbreeder registry runtimes --json`,
@@ -1318,6 +1481,99 @@ light and dark, and on the server against a fake CLI (argv, linking rows to proj
 listings, pairing release rows, rollbacks, the 1,000-row cut, `stack.yaml` errors that never echo
 values, a symlinked `stack.yaml`). Not yet run against real deployments; that is the M7
 verification.
+
+### The framework badge and filter (#1085 S2): on `main`, not in a published preview
+
+Wherever an agent appears outside Build, the framework it runs is one neutral text badge with the
+framework's own name (owner decisions C4 and C8: no logos), from `GET /api/runtimes`. That route
+reads `agentbreeder registry runtimes --json` in a CLI child and passes on the same allow-listed
+view as Build's `parts.runtimes`. It only names things, so a failed read keeps the last good
+answer, which the Overview marks as from the last read. The page shares one good read for a
+minute; a failed or stale one is asked again by the next screen.
+
+- **Agents list.** The badge sits under the agent's name, with the ref beside it as text
+  (`Google ADK runtime/adk@1.4.0`). Its source is the row's `runtime` from `list --all --json`
+  (#1083 F2a). A ref the registries do not hold shows the ref itself, and a row with no runtime
+  shows "Not recorded"; a runtime recorded in another shape is shown as recorded (cut to 100
+characters) and filed under "Other runtime". `list` gives a default-state row a runtime only when it runs in the agent's
+  project, so those rows usually show "Not recorded".
+- **Framework filter** (C7: on the Agents list only). A select of "All frameworks", each framework
+  in the list and "Not recorded". The choice is kept in the address (`#/agents?framework=adk`,
+  `_none` for Not recorded): the router now reads a query, keeping only short keys and values of
+  letters, digits, dot, underscore and dash. So the filter survives a reload, a sign-in again and
+  the 3-second refresh, and choosing keeps focus on the select. Each choice is a history entry, so Back returns to the
+previous filter. A status line counts what is shown
+  ("1 of 4 agents"). A framework no agent runs shows "No agents on CrewAI." and **Show all
+  frameworks**.
+- **Overview** keeps the **Runtime** row (the ref in `agent.yaml`) and adds **Framework** (the
+  badge), **Protocol** ("1 (v1 profile, before the kit)" for a `v1` runtime, such as every
+  `runtime/adk` version; the spec's "1 (ADK, before the kit)" would put a framework name in the
+console, so the profile is named instead) and **Capabilities**. The spec's Conformance row for a
+code-mode agent waits for code mode (F8). A version the registries do not list as usable says so. Until
+  `/api/runtimes` answers (a CLI child that hashes every runtime version), a badge shows the ref
+  itself and then changes to the framework's name.
+- **Try it.** Turn details gains **Runtime** and **Framework** rows, from the reply's `runtime` and
+  `framework` (agent protocol v1; the server caps `framework` at 100 characters). The Cost row's
+  "Not measured" text no longer names `runtime/adk` versions: "Not measured: the runtime did not
+  report it for this turn." `MODEL_STEP_LIMIT` (a kit runtime's step cap, agent protocol
+  "Profiles") is a coded failure with its own line: the agent reached its limit on model calls for
+  one turn while the model still asked for tools, so there is no reply, and sending it again starts
+  a new turn.
+
+Tested with Playwright against the fake CLI (`tests/ui/test_framework_badge.py`, axe in light and
+dark), with node unit tests (`tests/js/framework.test.mjs`, the router's query) and on the server
+(`/api/runtimes`, `framework` in a turn). The LangGraph and CrewAI rows in these tests are a
+scripted `registry runtimes` answer. `runtime/langgraph@1.0.0` is on `main` (#1163). The fresh-wheel run
+(`superpowers/verification/verify-langgraph-adk150.md`) listed a real LangGraph deployment in
+Agents with its badge and tried it in Try it; no `MODEL_STEP_LIMIT` reached Try it from a real
+runtime. Not run against real deployments.
+
+### Registry ▸ Runtimes and conformance (#1085 S3): on `main`, not in a published preview
+
+**Registry ▸ Runtimes** lists every `runtime/` version in the project's search roots, one row per
+version, from `agentbreeder registry runtimes --project DIR --json` (`GET
+/api/projects/ID/runtimes`, allow-listed as Build's `parts.runtimes`): the framework's badge, the
+ref (a link to that version's detail, `#/registry/runtimes/NAME?version=X.Y.Z`), the protocol and
+profile, the kit version and the status in Build's words. A report whose result is `incomplete`
+(a check that applies did not run, which is every report while checks are unbuilt) now reads
+"Conformance incomplete; not run end to end", here and on Build, instead of "Conformance failed".
+A version the CLI cannot use is a text line with its code. A failed read shows its code and **Try
+again**.
+
+A runtime version's detail (the registry's version card) adds:
+
+- **Runtime**: the framework, status, protocol, capabilities, limits, reserved tool names, notes
+  and docs path, from the same view.
+- **Packages**: what the version's `requirements.in` names with its specifiers (the build installs
+  the hash-locked `requirements.lock`).
+- **Conformance**: the newest report for an image built on this version, from the new CLI read
+  `agentbreeder registry conformance REF --json` (`GET /api/projects/ID/conformance?ref=`, never
+  cached). It shows the result ("Incomplete: not a pass" for `incomplete`), the counts, the image
+  digest, its agent and when it finished, and "not the current build" when this project's build of
+  the version is another image. Checks are grouped; a group with a failed check is open, and each
+  check's status is a word, its detail text. "Not run for this runtime version." when there is no
+  report.
+- **Run conformance**: a job, `agentbreeder conformance IMAGE --project DIR`, on this project's
+  built image of the version. The image comes from the project's build record
+  (`deploy/<agent>.build.json`, read like `agent.yaml`: the record file itself must be a regular
+  file, not a link; its label's time is when the record was last written) and the server
+  refuses any other (`CONFORMANCE_IMAGE_UNKNOWN`), so the browser never names a free image. It is
+  off, with its reason, when the project has no build of the version ("No declared-mode image of
+  this runtime version in this project. Build an agent from agent.yaml on it first."), when
+  Docker is not reachable, and while a job runs in the project. A run that wrote a failed or
+  incomplete report (exit 1) ends as a warning, not a failed command, and the card reads the new
+  report when the job ends.
+
+Not in this slice, because code mode (#1083 F8) is not on `main`: **Registry ▸ Code** (there is no
+`code/` registry kind), code-mode reports on an agent's detail, and the guided path's Conformance
+step. Every report shown is a declared-mode one.
+
+Tested with Playwright against the fake CLI (`tests/ui/test_registry_runtimes.py`: the list, an
+incomplete status, a failed read, the detail with no report, a failing report expanded, a report
+for another image, Run conformance as a job, the version in the address, axe in light and dark),
+node unit tests (`tests/js/conformance.test.mjs`), the server (`tests/test_center_conformance.py`)
+and the CLI (`registry conformance`). The reports are scripted: **no conformance run has happened
+on a real Docker engine**, and none was started from the console.
 
 ### Traces (#907, console half): on `main`, not in a published preview
 

@@ -34,9 +34,6 @@ secrets:
   openrouter-api-key: {import: OPENROUTER_API_KEY, optional: true}
   openai-api-key: {import: OPENAI_API_KEY, optional: true}
   anthropic-api-key: {import: ANTHROPIC_API_KEY, optional: true}
-  # A Vertex AI service-account key, as one line of JSON (#1025 V1). Gateway-only: nothing
-  # but this built-in service may import it. The launcher checks and re-serialises it.
-  vertex-service-account-json: {import: VERTEX_SERVICE_ACCOUNT_JSON, optional: true}
 inputs:
   database-url: {type: secret}
   presidio-analyzer: {type: url, optional: true}

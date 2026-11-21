@@ -44,10 +44,12 @@ __all__ = [
 MAX_LINE = 4000
 MAX_LINES = 20000
 KEEP_JOBS = 100
+KEEP_SECURITY_EVENTS = 1000  # newest security events kept (S-30)
 MAX_CACHED = 256  # last good read answers kept
 ENVIRONMENT = re.compile(r"^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$")
 DEPLOYMENT = re.compile(r"^[0-9a-f]{32}$")
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
+CONFORMANCE_IMAGE = re.compile(r"^sha256:[0-9a-f]{64}$")  # `conformance.report.IMAGE`
 MCP_SERVER = re.compile(r"^[a-z][a-z0-9_]{0,31}$")  # services.schema.MCP_SERVER
 KEY_NAME = re.compile(r"^[A-Z_][A-Z0-9_]{0,127}$")
 CODED = re.compile(r"^\[([A-Z][A-Z0-9_]{2,39})\] (.+)$")
@@ -66,6 +68,7 @@ KINDS = frozenset(
         "promote",
         "remove",
         "reconcile",
+        "conformance",
     }
 )
 _ALLOWED_ENV = {
@@ -205,6 +208,17 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE jobs ADD COLUMN failure_code TEXT",
         "ALTER TABLE jobs ADD COLUMN failure_message TEXT",
     ),
+    # M2 #818: the console's one user and its scrypt hash, with the parameters per row; and the
+    # security events (S-30): time, event, outcome and where it came from, never a secret.
+    4: (
+        """CREATE TABLE users (
+            email TEXT PRIMARY KEY, salt BLOB NOT NULL, hash BLOB NOT NULL,
+            n INTEGER NOT NULL, r INTEGER NOT NULL, p INTEGER NOT NULL,
+            maxmem INTEGER NOT NULL, changed REAL NOT NULL)""",
+        """CREATE TABLE security_events (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, event TEXT NOT NULL,
+            outcome TEXT NOT NULL, source TEXT NOT NULL)""",
+    ),
 }
 SCHEMA_VERSION = max(MIGRATIONS)
 
@@ -270,10 +284,116 @@ class CenterState:
         self._write("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", key, value)
 
     def has_password(self) -> bool:
-        """True once a console password exists (M2 adds the `users` table). Until then `up` is
-        in first-run state, which decides the port policy (S-29)."""
-        tables = self._rows("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
-        return bool(tables) and bool(self._rows("SELECT 1 FROM users LIMIT 1"))
+        """True once a console password exists. Until then `up` is in first-run state, which
+        decides the port policy (S-29) and sends the browser to setup."""
+        return bool(self._rows("SELECT 1 FROM users LIMIT 1"))
+
+    # -- sign-in (M2 #818) -----------------------------------------------------------------------
+
+    def user(self, email: str) -> dict | None:
+        rows = self._rows("SELECT * FROM users WHERE email=?", email)
+        return rows[0] if rows else None
+
+    def credential_version(self) -> int:
+        """Raised by every password set, change or reset and by "sign out everywhere". A session
+        records the version it was minted under; the server re-reads it on every request, so a
+        `--reset-password` in another process ends the running console's sessions at once."""
+        value = self.setting("credential_version") or "0"
+        return int(value) if value.isdigit() else 0
+
+    def set_password(
+        self,
+        email: str,
+        record: dict,
+        event: str,
+        source: str,
+        *,
+        only_if_none: bool = False,
+        expect_version: int | None = None,
+    ) -> bool:
+        """Store `record` (from `auth.hash_password`) for `email`, raise the credential version
+        and record `event`, in one transaction. Nothing is written (and False returned) when
+        `only_if_none` and a password already exists (the first password is set once, S-28), or
+        when the credential version is no longer `expect_version` (a change checked against a
+        password that a reset from the terminal has replaced meanwhile)."""
+        with self.lock:
+            self.db.execute("BEGIN IMMEDIATE")
+            try:
+                stale = expect_version is not None and self._version_locked() != expect_version
+                taken = (
+                    only_if_none
+                    and self.db.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
+                )
+                if stale or taken:
+                    self.db.execute("ROLLBACK")
+                    return False
+                self.db.execute(
+                    "INSERT OR REPLACE INTO users (email,salt,hash,n,r,p,maxmem,changed) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (
+                        email,
+                        record["salt"],
+                        record["hash"],
+                        record["n"],
+                        record["r"],
+                        record["p"],
+                        record["maxmem"],
+                        time.time(),
+                    ),
+                )
+                self._bump_locked()
+                self._event_locked(event, "ok", source)
+                self.db.execute("COMMIT")
+            except BaseException:
+                self.db.execute("ROLLBACK")
+                raise
+        return True
+
+    def end_all_sessions(self, source: str) -> None:
+        """Sign out everywhere: raise the credential version."""
+        with self.lock:
+            self.db.execute("BEGIN IMMEDIATE")
+            try:
+                self._bump_locked()
+                self._event_locked("sign-out-everywhere", "ok", source)
+                self.db.execute("COMMIT")
+            except BaseException:
+                self.db.execute("ROLLBACK")
+                raise
+
+    def record_event(self, event: str, outcome: str, source: str) -> None:
+        with self.lock:
+            self._event_locked(event, outcome, source)
+
+    def security_events(self, limit: int = 20) -> list[dict]:
+        return self._rows(
+            "SELECT at, event, outcome, source FROM security_events ORDER BY seq DESC LIMIT ?",
+            limit,
+        )
+
+    def _version_locked(self) -> int:
+        row = self.db.execute(
+            "SELECT value FROM settings WHERE key='credential_version'"
+        ).fetchone()
+        return int(row[0]) if row and str(row[0]).isdigit() else 0
+
+    def _bump_locked(self) -> None:
+        current = self._version_locked()
+        self.db.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('credential_version', ?)",
+            (str(current + 1),),
+        )
+
+    def _event_locked(self, event: str, outcome: str, source: str) -> None:
+        self.db.execute(
+            "INSERT INTO security_events (at,event,outcome,source) VALUES (?,?,?,?)",
+            (time.time(), event, outcome, source),
+        )
+        self.db.execute(
+            "DELETE FROM security_events WHERE seq <= "
+            "(SELECT seq FROM security_events ORDER BY seq DESC LIMIT 1 OFFSET ?)",
+            (KEEP_SECURITY_EVENTS,),
+        )
 
     def _rows(self, sql: str, *parameters) -> list[dict]:
         with self.lock:
@@ -419,6 +539,13 @@ def argv_for(kind: str, project: dict, options: dict) -> list[str]:
         return ["remove", identifier, "--local" if where == "local" else "--cluster", *stack]
     if kind == "reconcile":
         return ["reconcile", "--local", *stack]
+    if kind == "conformance":
+        # The image is checked against the project's build record before the job (server
+        # `_check_conformance_image`); here only its shape, at the argv.
+        image = str(options.get("image", ""))
+        if not CONFORMANCE_IMAGE.fullmatch(image):
+            raise BadRequest("Choose a built image", "CONFORMANCE_IMAGE_UNKNOWN")
+        return ["conformance", image, "--project", path]
     raise BadRequest("Unknown job kind")
 
 
@@ -757,6 +884,9 @@ class Runner:
         self.prefix = list(prefix or [sys.executable, "-I", "-m", "agentbreeder"])
         self.mutex = threading.Lock()
         self.jobs: dict[str, Running] = {}
+        # Jobs ended since start (#827): a job may have stored an event, so the events read is
+        # not served from the last one across a change of this count.
+        self.ended = 0
         self.held: dict[str, str] = {}  # lock key -> the job or short write holding it
         self.children: set[subprocess.Popen] = set()  # long-lived children (follows, watch, usage)
         self.follows: set[subprocess.Popen] = set()  # the subset started by `follow`
@@ -964,6 +1094,7 @@ class Runner:
                 break
             except Exception:
                 time.sleep(0.2)  # a second failure leaves it to the next start (interrupted)
+        self.ended += 1
         if state == "succeeded" and on_success:
             on_success()
 

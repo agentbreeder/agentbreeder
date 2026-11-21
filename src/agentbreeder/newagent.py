@@ -24,7 +24,7 @@ macOS with Docker Desktop (verification/ollama.md); Linux has not been run.
 `vertex` (#1025 V1) is offered by this plain starter only (`STARTERS`, not `PROVIDERS`): its
 route needs the operator's own project and location (`--vertex-project`, `--vertex-location`),
 which `--stack-for`, `--from-spec` and the console do not ask for. Both aliases call
-`vertex_ai/gemini-3.8-flash` through `service/litellm@1.4.0` with a service-account key the
+`vertex_ai/gemini-3.8-flash` through `service/litellm@1.5.0` with a service-account key the
 gateway imports as VERTEX_SERVICE_ACCOUNT_JSON. It is config-only (`verified` false): it has
 not been run against Vertex AI.
 `verified` is per provider: it covers the gateway and judge path with the default model, not how
@@ -64,12 +64,17 @@ from pathlib import Path
 from agentbreeder import example, registry
 
 RUNTIME = "runtime/adk@1.4.0"
+# Other runtime versions the starter (the model, the prompt and its two eval cases) was run end
+# to end on, from a wheel in a clean sandbox through the CLI and the console, each with the
+# providers it ran with, on each provider's default model (macOS x86_64 only;
+# docs/superpowers/verification/verify-langgraph-adk150.md).
+STARTER_RUNTIMES = {"runtime/langgraph@1.0.0": frozenset({"gemini"})}
 GATEWAY = "service/litellm@1.0.0"  # the gateway version the starter's stack.yaml names
 # Ollama needs a gateway that can reach the host's port 11434 (#1025 O1).
 LOCAL_GATEWAY = "service/litellm@1.2.0"
 OLLAMA_BASE = "http://host.docker.internal:11434"  # gateway_providers.OLLAMA_BASE (D4)
 # Vertex AI needs a gateway that imports the service-account key (#1025 V1).
-VERTEX_GATEWAY = "service/litellm@1.4.0"
+VERTEX_GATEWAY = "service/litellm@1.5.0"
 VERSION = "0.1.0"
 REVIEW_DAYS = 180
 SUMMARY_VERSION = 1  # the `--json` shape (and its `error` form) in docs/commands/new.md
@@ -108,6 +113,17 @@ class Provider:
         parts = [f"{self.credential}: os.environ/{self.key}"]
         parts += [f"{param}: {json.dumps((options or {})[param])}" for param, _ in self.options]
         return ", ".join(parts)
+
+
+def starter_verified(runtime: str, model: str, model_id: str) -> bool:
+    """Whether the starter was run end to end on this runtime version with this provider: the
+    default version with any verified provider, or a `STARTER_RUNTIMES` version with one of its
+    providers on that provider's default model."""
+    if not STARTERS[model].verified:
+        return False
+    if runtime == RUNTIME:
+        return True
+    return model in STARTER_RUNTIMES.get(runtime, ()) and model_id == STARTERS[model].model
 
 
 def gateway_for(model_id: str) -> str:
@@ -331,8 +347,7 @@ class Plan:
             "directory": str(self.directory),
             "model": self.model,
             "model_id": self.model_id,
-            # Every end-to-end run of the starter used the default runtime version.
-            "verified": STARTERS[self.model].verified and self.runtime == RUNTIME,
+            "verified": starter_verified(self.runtime, self.model, self.model_id),
             "runtime": self.runtime,
             "aliases": ["chat", "judge"]
             + [alias for alias, _ in self.served]

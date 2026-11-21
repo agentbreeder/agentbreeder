@@ -1,5 +1,5 @@
-"""`agentbreeder registry new|publish|import|fork|edit|list|runtimes|verify|show|diff|used-by`:
-author and inspect registry versions."""
+"""`agentbreeder registry new|publish|import|fork|edit|list|runtimes|verify|show|diff|used-by|
+trust`: author and inspect registry versions, and keep the user's trusted-source list."""
 
 from __future__ import annotations
 
@@ -92,6 +92,10 @@ def register(commands) -> None:
         "runtimes",
         help="List runtime versions with what each supports (framework, capabilities, limits)",
     )
+    reg_conformance = reg_commands.add_parser(
+        "conformance", help="Show the newest conformance report of a runtime version"
+    )
+    reg_conformance.add_argument("ref", help="runtime/name@X.Y.Z")
     reg_verify = reg_commands.add_parser("verify", help="Re-check every version's integrity")
     reg_show = reg_commands.add_parser("show", help="Show one version's manifest and files")
     reg_show.add_argument("ref", help="kind/name@X.Y.Z")
@@ -123,8 +127,24 @@ def register(commands) -> None:
         help="Local deploy state to read (default: the local state); a project's stack state "
         "is always read",
     )
+    reg_trust = reg_commands.add_parser(
+        "trust", help="Trust a remote registry source URL prefix (your sources.yaml)"
+    )
+    reg_trust.add_argument("url", nargs="?", metavar="URL", help="scheme://host/path-prefix")
+    trust_mode = reg_trust.add_mutually_exclusive_group()
+    trust_mode.add_argument("--list", action="store_true", help="List trusted prefixes")
+    trust_mode.add_argument("--remove", action="store_true", help="Remove URL from the list")
+    reg_trust.add_argument(
+        "--whole-host", action="store_true", help="Allow a bare host (trusts every repository)"
+    )
+    reg_trust.add_argument(
+        "--private", action="store_true", help="Allow a host on a private or loopback address"
+    )
+    reg_trust.add_argument("--yes", action="store_true", help="Do not ask for confirmation")
+    reg_trust.add_argument("--json", action="store_true")
     placing = (reg_publish, reg_import, reg_fork, reg_edit)
-    for command in (*placing, reg_list, reg_runtimes, reg_verify, reg_show, reg_diff, reg_used):
+    listing = (reg_list, reg_runtimes, reg_conformance, reg_verify, reg_show, reg_diff, reg_used)
+    for command in (*placing, *listing):
         command.add_argument("--json", action="store_true")
     for command in (reg_list, reg_runtimes, reg_verify, reg_show, reg_diff):
         command.add_argument("--project", type=Path, default=Path("."))
@@ -146,6 +166,8 @@ def run(args) -> int:
 
 def _run(args) -> int:
     try:
+        if args.registry_command == "conformance":  # reads no registry root
+            return _conformance(args)
         if args.registry_command == "new":
             path = registry.scaffold(args.kind, args.name, args.dir, scripts=args.scripts)
             print(f"Created {path}. Edit it, then: agentbreeder registry publish {path}")
@@ -183,6 +205,8 @@ def _run(args) -> int:
             return _edit(args)
         if args.registry_command == "used-by":
             return _used_by(args)
+        if args.registry_command == "trust":
+            return _trust(args)
         search = registry.roots(args.project)
         if args.registry_command == "show":
             view = registry.show(registry.Ref.parse(args.ref), search, args.project)
@@ -430,6 +454,25 @@ _BUCKETS = ("declared", "locked", "deployed", "recorded_not_running", "deployed_
 _CONFORMANCE = {"pass": "passed", "fail": "failed", "incomplete": "incomplete"}
 
 
+def _conformance(args) -> int:
+    """`registry conformance REF`: the newest report for an image built on a runtime version
+    (#1085 S3, console spec §6.3), read from `~/.agentbreeder/conformance`. `--json` prints
+    `{schema_version, ref, report}`, `report` null when there is none."""
+    from agentbreeder.conformance import report
+
+    ref = registry.Ref.parse(args.ref)
+    if ref.kind != "runtime":
+        raise registry.RegistryError("REF_INVALID", f"{args.ref!r} is not a runtime/ ref")
+    found = report.newest_report(str(ref))
+    if args.json:
+        print(json.dumps({"schema_version": 1, "ref": str(ref), "report": found}, indent=2))
+    elif found is None:
+        print(f"No conformance report for {ref}.")
+    else:
+        print(report.text(found))
+    return 0
+
+
 def _with_conformance(view: dict) -> dict:
     """Add `conformance` ({passed, result, digest, date}) to each usable runtime version that
     has a report: the newest one for an image built on it (#759, console spec §8). Reports are
@@ -601,3 +644,70 @@ def _skill_text(view: dict) -> list[str]:
             f"{excerpt(script['description'], 300)}"
         )
     return lines
+
+
+def _trust(args) -> int:
+    """`registry trust` (#829 spec §8.3): edits only the user's own sources.yaml."""
+    from agentbreeder.sources import trust
+    from agentbreeder.sources.url import SourceUrlError
+
+    path = trust.sources_file()
+    items = trust.file_items(path)
+    if args.list:
+        if args.url:
+            print("registry trust --list takes no URL", file=sys.stderr)
+            return 2
+        rows = items + [
+            {"url": entry.prefix, "private": False, "whole_host": False, "from": trust.ENV}
+            for entry in trust.entries()
+            if entry.origin == "env"
+        ]
+        if args.json:
+            print(json.dumps(rows, indent=2))
+        for row in [] if args.json else rows:
+            flags = [k for k in ("private", "whole_host") if row.get(k)]
+            origin = f"  ({row['from']})" if "from" in row else ""
+            print(row["url"] + (f"  [{', '.join(flags)}]" if flags else "") + origin)
+        if not rows and not args.json:
+            print("No trusted registry sources.")
+        return 0
+    if not args.url:
+        print("registry trust needs a URL (or --list)", file=sys.stderr)
+        return 2
+    try:
+        value, _ = trust.prefix(args.url, whole_host=args.whole_host or args.remove)
+    except SourceUrlError as error:
+        print(f"[SOURCE_INVALID] {registry.clean(str(error))[0]}", file=sys.stderr)
+        return 2
+    if args.remove:
+        kept = [item for item in items if item["url"] != value]
+        if len(kept) == len(items):
+            print(f"{value} is not in {path}", file=sys.stderr)
+            return 2
+        trust.write(path, kept)
+        print(f"Removed {value} from {path}")
+        return 0
+    if not args.yes:
+        if not sys.stdin.isatty():
+            print(
+                "registry trust changes what your machine may fetch; re-run with --yes",
+                file=sys.stderr,
+            )
+            return 2
+        warning = (
+            f"Trust {value}{' on a private address' if args.private else ''}? Builds may then "
+            "fetch registry versions from it; tool code runs inside your agents and eval sets "
+            "decide release gates. [y/N] "
+        )
+        try:
+            answer = input(warning)
+        except EOFError:
+            answer = ""
+        if answer.strip().lower() not in ("y", "yes"):
+            print("Not trusted.")
+            return 1
+    entry = {"url": value, "private": args.private, "whole_host": args.whole_host}
+    items = [item for item in items if item["url"] != value] + [entry]
+    trust.write(path, items)
+    print(f"Trusted {value} in {path}")
+    return 0

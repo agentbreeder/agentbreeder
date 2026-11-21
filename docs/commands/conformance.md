@@ -34,22 +34,22 @@ The suite is black-box: it reports what the image did against the fakes. An imag
 | `serving.long_message` | Serving | A message over 4,000 characters is 413 | v1, kit | built |
 | `serving.content_type` | Serving | A request that is not application/json is 415 | v1, kit | built |
 | `serving.host` | Serving | Only the Hosts localhost, 127.0.0.1 and agent are served | v1, kit | built |
-| `serving.readiness` | Serving | /health is 503 until the agent is built and after a failed start | kit | not built: arrives with the runtime kit (F2b) |
-| `serving.sigterm_drain` | Serving | SIGTERM lets the turn in flight finish within the stop grace | kit | not built: arrives with the runtime kit (F2b) |
+| `serving.readiness` | Serving | /health is 503 until the agent is built and after a failed start | kit | not built (the runtime kit exists since F2b; the check does not yet) |
+| `serving.sigterm_drain` | Serving | SIGTERM lets the turn in flight finish within the stop grace | kit | not built (the runtime kit exists since F2b; the check does not yet) |
 | `reply.fields` | Reply | A reply has every v1 field with its type | v1, kit | built |
 | `reply.identity` | Reply | framework and runtime are the image's | v1, kit | built |
 | `knowledge.sources` | Knowledge | A scripted question's source is in the first 3 of sources | v1, kit | not built: needs the fixture agent |
 | `knowledge.extra_searches` | Knowledge | search_knowledge_base stops at extra_searches | v1, kit | not built: needs the fixture agent |
 | `tools.customer` | Tools | A tool gets the customer the server set, not one the model chose | v1, kit | not built: needs the fixture agent |
 | `tools.audit` | Tools | One audit row and one TOOL span per call; a failing tool gives one ok: false row | v1, kit | not built: needs the fixture agent |
-| `step_cap.enforced` | Step cap | The Nth call has no tools, a tool-calling Nth answer is MODEL_STEP_LIMIT | kit | not built: arrives with the runtime kit (F2b) |
+| `step_cap.enforced` | Step cap | The Nth call has no tools, a tool-calling Nth answer is MODEL_STEP_LIMIT | kit | not built (the runtime kit exists since F2b; the check does not yet) |
 | `model_errors.budget` | Model errors | A spent budget is 402 MODEL_BUDGET_EXCEEDED and is not retried | v1, kit | built |
 | `model_errors.rate_limited` | Model errors | A rate limit is 429 MODEL_RATE_LIMITED with the gateway's Retry-After | v1, kit | built |
 | `model_errors.access_denied` | Model errors | A refused key is 502 MODEL_ACCESS_DENIED | v1, kit | built |
 | `model_errors.request_refused` | Model errors | A refused request is 502 MODEL_REQUEST_REFUSED | v1, kit | built |
 | `model_errors.unavailable` | Model errors | A failing gateway is 502 MODEL_UNAVAILABLE after at most 3 tries | v1, kit | built |
-| `model_errors.swallowed` | Model errors | A framework that swallows the model error still gives the coded error | kit | not built: arrives with the runtime kit (F2b) |
-| `proxy.requests` | Proxy | No guardrail, api_base, metadata or mock_response field and no inbound header reaches the gateway; other paths, finished turns' tokens and other aliases are refused | kit | not built: arrives with the runtime kit (F2b) |
+| `model_errors.swallowed` | Model errors | A framework that swallows the model error still gives the coded error | kit | not built (the runtime kit exists since F2b; the check does not yet) |
+| `proxy.requests` | Proxy | No guardrail, api_base, metadata or mock_response field and no inbound header reaches the gateway; other paths, finished turns' tokens and other aliases are refused | kit | not built (the runtime kit exists since F2b; the check does not yet) |
 | `cost.reported` | Cost | cost_usd and the token counts are the gateway's | v1, kit | built |
 | `cost.unknown` | Cost | cost_usd is null when the gateway gave no cost | v1, kit | built |
 | `cost.fallbacks` | Cost | fallbacks and served_by are the gateway's | v1, kit | built |
@@ -71,7 +71,7 @@ The suite is black-box: it reports what the image did against the fakes. An imag
 Each row of the report has a `status`:
 
 - `pass` or `fail` (with a one-line `detail`);
-- `not_run`: the check is not built yet, or had nothing to read (no container log, no spans). The detail says which;
+- `not_run`: the check is not built yet, or had nothing to read (no container log, no spans). On `main`, not in a published preview: an image whose `agent.yaml` says `traces: none` (the starter's default) sends no spans, so the checks that read spans (`traces.*`, `hygiene.spans`, `model_errors.text_spans`) are `not_run` with that reason instead of `fail`; this is read from the project's `agent.yaml` only while it is the file the build record hashed. Build with `traces: otlp` to run them. This handling is unit-tested only; it has not yet been run against a real image. The detail says which;
 - `not_applicable`: a kit-profile check on a `v1` image.
 
 `result` is `pass` only when every check that applies passed, `fail` when one failed, and otherwise `incomplete`. **`incomplete` is not a pass.** While any check is not built, no image can get `pass`, so no runtime version is called conformant yet. A check is never relaxed for a runtime: a runtime that fails one is fixed in a later version or the failure is recorded (owner decision D14).
@@ -84,7 +84,7 @@ Always written to the default state directory, whatever `--stack` or `--state-di
 
 `{"schema_version": 1, "protocol": 1, "profile", "runtime", "mode": "declared", "agent", "image", "result", "counts": {"pass", "fail", "not_run", "not_applicable"}, "started", "finished", "agentbreeder", "checks": [{"id", "group", "title", "status", "detail"}]}`.
 
-`agentbreeder registry runtimes --json` shows the newest report of each runtime version as `conformance: {passed, result, digest, date}` ([`registry`](registry.md)).
+`agentbreeder registry runtimes --json` shows the newest report of each runtime version as `conformance: {passed, result, digest, date}`, and `agentbreeder registry conformance REF --json` prints that newest report whole ([`registry`](registry.md)); the console's runtime detail reads it.
 
 ## Exit codes
 

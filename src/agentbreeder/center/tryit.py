@@ -77,6 +77,9 @@ MODEL_CODES = frozenset(
         "MODEL_ACCESS_DENIED",
         "MODEL_REQUEST_REFUSED",
         "MODEL_UNAVAILABLE",
+        # A kit runtime's step cap (agent protocol "Profiles", #1083 F2b; Try it's line, #1085 S2):
+        # the turn reached its model-call limit with the model still asking for tools.
+        "MODEL_STEP_LIMIT",
     }
 )
 MAX_MODEL_ERROR = 600  # the runtime's fixed messages are about 250 characters
@@ -86,6 +89,16 @@ MAX_ROUTE = 10  # aliases and unknown tool names: the runtime and `traces` keep 
 ALIAS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 UNKNOWN_TOOL = re.compile(r"[A-Za-z0-9_.?\[\]-]{1,80}")
 ENTITY = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+# A turn's sub-agents and skills (runtime/adk@1.5.0, #1193): `agentfile.SUBAGENT_NAME` and
+# `MAX_SUBAGENTS`, `registry.NAME` and `VERSION`, `skill_check.REFERENCE_NAME` and
+# `REFERENCES_MAX` (a test keeps them equal), and agent.yaml's 10 skills.
+SUBAGENT = re.compile(r"[a-z][a-z0-9_]{0,31}")
+MAX_SUBAGENTS = 5
+SKILL = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
+VERSION = re.compile(r"(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})")
+REFERENCE = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}\.(md|txt)")
+MAX_RESOURCES = 20
+MAX_SKILLS = 10
 
 
 def turn_request(name: str, body: dict) -> dict:
@@ -158,12 +171,51 @@ def _id(value: object, pattern: re.Pattern) -> str | None:
     return value if isinstance(value, str) and pattern.fullmatch(value) else None
 
 
-def _matching(value: object, pattern: re.Pattern) -> list[str]:
-    """At most MAX_ROUTE strings of `value` that match `pattern`; anything else is dropped."""
+def _matching(value: object, pattern: re.Pattern, limit: int = MAX_ROUTE) -> list[str]:
+    """The strings among the first `limit` items of `value` that match `pattern`; anything else
+    is dropped."""
     if not isinstance(value, list):
         return []
+    return [item for item in value[:limit] if isinstance(item, str) and pattern.fullmatch(item)]
+
+
+def _entries(value: object, limit: int, pattern: re.Pattern) -> list[dict]:
+    """At most `limit` objects of `value` whose `name` matches `pattern`, from the first
+    `limit * 4` items; anything else is dropped."""
+    if not isinstance(value, list):
+        return []
+    found = [
+        item
+        for item in value[: limit * 4]
+        if isinstance(item, dict) and _id(item.get("name"), pattern)
+    ]
+    return found[:limit]
+
+
+def _subagents(value: object) -> list[dict]:
+    """A turn's `subagents[]` (runtime/adk@1.5.0): each sub-agent's name, how many times it was
+    called, its model calls and the tool names it called. Nothing else (no cost or aliases)."""
     return [
-        item for item in value[:MAX_ROUTE] if isinstance(item, str) and pattern.fullmatch(item)
+        {
+            "name": item["name"],
+            "calls": _count(item.get("calls")),
+            "model_calls": _count(item.get("model_calls")),
+            "tools": _names(item.get("tools")),
+        }
+        for item in _entries(value, MAX_SUBAGENTS, SUBAGENT)
+    ]
+
+
+def _skills(value: object) -> list[dict]:
+    """A turn's `skills[]` (runtime/adk@1.5.0): each skill loaded, its version and the reference
+    files read from it."""
+    return [
+        {
+            "name": item["name"],
+            "version": _id(item.get("version"), VERSION),
+            "resources": _matching(item.get("resources"), REFERENCE, MAX_RESOURCES),
+        }
+        for item in _entries(value, MAX_SKILLS, SKILL)
     ]
 
 
@@ -267,6 +319,8 @@ def turn_answer(data: object, latency_ms: int) -> tuple[dict | None, dict | None
         "turn": _id(response.get("turn_id"), HEX32),
         "model": _text(response.get("model"), MAX_SHORT),
         "runtime": _text(response.get("runtime"), MAX_SHORT),
+        # The runtime's framework, as its manifest names it (agent protocol v1, #1085 S2).
+        "framework": _text(response.get("framework"), MAX_SHORT),
         "tools": _names(response.get("tools")),
         "sources": _names(response.get("sources")),
         "model_calls": _count(response.get("model_calls")),
@@ -283,6 +337,9 @@ def turn_answer(data: object, latency_ms: int) -> tuple[dict | None, dict | None
         # runtime/adk@1.4.0 (#1074): tool names the model asked for that the agent does not have;
         # the runtime refused them, so they are not tool calls.
         "unknown_tools": _matching(response.get("unknown_tools"), UNKNOWN_TOOL),
+        # runtime/adk@1.5.0 (#1193): the sub-agents called and the skills loaded this turn.
+        "subagents": _subagents(response.get("subagents")),
+        "skills": _skills(response.get("skills")),
         "latency_ms": latency_ms,
         # Seam: #907 fills `url` from a recorded Phoenix origin.
         "trace": {"id": _id(response.get("trace_id"), HEX32), "url": None},

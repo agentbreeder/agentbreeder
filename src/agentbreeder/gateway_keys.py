@@ -75,13 +75,21 @@ MINT_METADATA = frozenset({"agentbreeder", "deployment_id", "agent", "environmen
 # pass-through routes choose a provider without a model alias, and some never reach a pre-call
 # hook (service/litellm@1.3.0's request filter covers the rest).
 GUARDED_ROUTES = ("/v1/chat/completions", "/chat/completions", "/v1/embeddings", "/embeddings")
+# The Anthropic Messages route, added only to the key of a deployment whose runtime declares
+# `model_api: anthropic-messages` (the Claude Agent SDK runtime, owner decision D17, #1089). The
+# gate refuses such a deployment wherever guardrails apply (RUNTIME_GUARDRAILS_UNSUPPORTED):
+# output masking and the real Presidio images on this route have not been run.
+MESSAGES_ROUTES = ("/v1/messages",)
 
 
-def key_routes(environment=None, agent_guardrails=None) -> list[str]:
-    """`GUARDED_ROUTES`, for every deployment and eval key (#1105). The arguments are kept for
-    the callers: a guardrails floor (#1024) and agent-level guardrails (#1053) needed the same
-    limit before every key had it."""
+def key_routes(environment=None, agent_guardrails=None, model_api=None) -> list[str]:
+    """`GUARDED_ROUTES`, for every deployment and eval key (#1105), plus MESSAGES_ROUTES for a
+    deployment on the Anthropic Messages route. The first two arguments are kept for the
+    callers: a guardrails floor (#1024) and agent-level guardrails (#1053) needed the same limit
+    before every key had it."""
     del environment, agent_guardrails
+    if model_api == "anthropic-messages":
+        return [*GUARDED_ROUTES, *MESSAGES_ROUTES]
     return list(GUARDED_ROUTES)
 
 
@@ -199,8 +207,10 @@ def mint_body(
     if duration:
         body["duration"] = duration
     if routes is not None:
-        if not routes or not set(routes) <= set(GUARDED_ROUTES):
-            raise GatewayError("GATEWAY_KEY_ROUTES", "a key's routes come from GUARDED_ROUTES")
+        if not routes or not set(routes) <= set(GUARDED_ROUTES) | set(MESSAGES_ROUTES):
+            raise GatewayError(
+                "GATEWAY_KEY_ROUTES", "a key's routes come from GUARDED_ROUTES and MESSAGES_ROUTES"
+            )
         body["allowed_routes"] = list(routes)
     if set(body) - MINT_FIELDS:  # pragma: no cover - a coding error above, never input
         raise GatewayError("GATEWAY_KEY_FIELD", "a key field outside MINT_FIELDS")

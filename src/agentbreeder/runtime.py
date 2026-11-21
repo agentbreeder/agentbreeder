@@ -451,6 +451,7 @@ class Docker:
         host_gateway: bool = False,
         agents_network: str | None = None,
         labels: dict[str, str] | None = None,
+        volumes: tuple[str, ...] = (),
     ):
         """Create the agent container, with `labels` added to the fixed ones. With `network`
         (runtime boundary) the agent joins only
@@ -511,6 +512,9 @@ class Docker:
                     *[f"--env={env}_FILE={mount.target}" for env in mount.envs],
                 )
             ],
+            # Named volumes the deploy created for this container (#1089: the directory a
+            # two-uid deployment's agent and CLI containers share; never a host path).
+            *[arg for volume in volumes for arg in ("--mount", volume)],
             "--user",
             "65532:65532",
             "--read-only",

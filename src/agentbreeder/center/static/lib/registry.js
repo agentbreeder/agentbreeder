@@ -8,6 +8,7 @@ const LABELS = {
   prompt: { path: "prompts", nav: "Prompts", one: "Prompt" },
   eval: { path: "evals", nav: "Eval sets", one: "Eval set" },
   tool: { path: "tools", nav: "Tools", one: "Tool" },
+  skill: { path: "skills", nav: "Skills", one: "Skill" },
   knowledge: { path: "knowledge", nav: "Knowledge", one: "Knowledge source" },
   mcp: { path: "mcp", nav: "MCP servers", one: "MCP server" },
   // "Services" alone would repeat the stack's Services link with another destination.
@@ -99,6 +100,7 @@ export function groupByName(view, kind) {
       problem,
       declared: (use && Array.isArray(use.declared) && use.declared) || [],
       locked: (use && Array.isArray(use.locked) && use.locked) || [],
+      code: codeOf(row),
     });
   }
   const rows = [...names.values()];
@@ -112,6 +114,32 @@ export function groupByName(view, kind) {
   }
   rows.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   return rows;
+}
+
+/**
+ * A skill version's `code` from its `registry list` row (#1059, composition console spec §9.1):
+ * "text", "code" or "unknown". Fail closed: a row without a known value, or one that says it runs
+ * code without saying why, is "unknown". Null for the other kinds (their kind decides).
+ */
+function codeOf(row) {
+  if (!row || !String(row.ref || "").startsWith("skill/")) return null;
+  if (row.code === "text" && row.runs_code === false) return "text";
+  if (row.code === "code") return "code";
+  return "unknown";
+}
+
+const CODE_WORDS = { text: "Instructions", code: "Has scripts (code)", unknown: "Unknown, treated as code" };
+
+/** The Code column for one version, or for a name (its latest version; "Mixed" when its versions
+ * differ). Words, never an icon alone. */
+export function codeLabel(entryOrVersion) {
+  if (!entryOrVersion) return "";
+  if (Array.isArray(entryOrVersion.versions)) {
+    const values = new Set(entryOrVersion.versions.map((v) => v.code));
+    if (values.size > 1) return "Mixed";
+    return CODE_WORDS[entryOrVersion.latest.code] || "";
+  }
+  return CODE_WORDS[entryOrVersion.code] || "";
 }
 
 /** The verify column in words; never colour alone. */

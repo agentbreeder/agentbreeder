@@ -7,11 +7,37 @@ import { visible } from "../lib/text.js";
 import { ROUTES } from "../screens/index.js";
 import { Action, Text, useConfirm, useConsole } from "./components.js";
 import { JobResult, NextPill } from "./guide.js";
+import { Bell, NotificationsPanel, Toasts, useEvents } from "./notifications.js";
 import { Icon } from "./icons.js";
 import { html, useEffect, useLayoutEffect, useRef, useState } from "./preact.js";
 
 export function Shell({ match }) {
-  const { project, dockOpen, setDockOpen } = useConsole();
+  const { project, projects, dockOpen, setDockOpen, client, versionOf } = useConsole();
+  // Notifications (#827): one events read shared by the bell, its panel and the toasts. A job
+  // ending (any project's version) reads them again.
+  const jobsVersion = (project ? [project] : projects).reduce((sum, p) => sum + versionOf(p.id), 0);
+  const [events, reloadEvents, setEvents, eventsPath] = useEvents(client, project ? project.id : null, jobsVersion, true);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const closePanel = () => {
+    setPanelOpen(false);
+    requestAnimationFrame(() => document.getElementById("notifications-bell")?.focus());
+  };
+  const markRead = async (ids) => {
+    if (!ids.length) return true;
+    try {
+      const path = project ? `/api/events/read?project=${encodeURIComponent(project.id)}` : "/api/events/read";
+      const sentFor = eventsPath.current;
+      const reply = await client.request(path, { body: { ids } });
+      if (!reply.data) return false;
+      if (eventsPath.current !== sentFor) return true; // the scope changed: its own read applies
+      setEvents((previous) => ({ ...previous, events: reply.data.events, unread: reply.data.unread, error: null }));
+      return true;
+    } catch (error) {
+      // A 401 (M2 #818): the re-auth dialog opens over the page; the panel says to try again.
+      if (error.kind !== "session") reloadEvents();
+      return false;
+    }
+  };
   const route = match ? match.route : null;
   const h1 = useRef(null);
   const previous = useRef(null);
@@ -42,14 +68,16 @@ export function Shell({ match }) {
   const needsProject = route && route.scoped && !project;
   return html`
     <a class="skip" href="#main" onClick=${(event) => { event.preventDefault(); h1.current && h1.current.focus(); }}>Skip to content</a>
-    <${TopBar} />
+    <${TopBar} bell=${html`<${Bell} open=${panelOpen} events=${events} onToggle=${() => (panelOpen ? closePanel() : setPanelOpen(true))} />`} />
+    ${panelOpen ? html`<${NotificationsPanel} events=${events} onClose=${closePanel} onMarkRead=${markRead} />` : null}
     <div class="layout">
       <${Sidebar} current=${section} />
       <main id="main">
         <h1 tabindex="-1" ref=${h1}>${route ? routeTitle(route, match.params) : "Not found"}${route && route.scoped && project ? html` <span class="scope-chip"><${Text} value=${`${project.name} · ${project.environment}`} /></span>` : null}</h1>
-        ${!route ? html`<p>There is no screen at this address. <a href="#/">Go to Home</a>.</p>` : needsProject ? html`<${ChooseProject} />` : html`<${Screen} project=${project} params=${match.params} key=${project ? project.id : "all"} />`}
+        ${!route ? html`<p>There is no screen at this address. <a href="#/">Go to Home</a>.</p>` : needsProject ? html`<${ChooseProject} />` : html`<${Screen} project=${project} params=${match.params} query=${match.query || {}} key=${project ? project.id : "all"} />`}
       </main>
     </div>
+    <${Toasts} events=${events} onOpen=${() => setPanelOpen(true)} />
     ${dockOpen
       ? html`<${Dock} onClose=${() => {
           setDockOpen(false);
@@ -59,7 +87,7 @@ export function Shell({ match }) {
   `;
 }
 
-function TopBar() {
+function TopBar({ bell }) {
   const { overview, projects, project, setScope, jobs, dockOpen, setDockOpen } = useConsole();
   const running = jobs.running().length;
   const followed = jobs.list().length;
@@ -80,6 +108,7 @@ function TopBar() {
       <button type="button" id="activity-pill" class=${`pill${running ? " running" : ""}`} aria-expanded=${dockOpen ? "true" : "false"} aria-controls=${dockOpen ? "dock" : undefined} onClick=${() => setDockOpen(!dockOpen)}>
         ${running ? `${running} running` : followed ? "Jobs" : "No jobs running"}
       </button>
+      ${bell}
       <${ThemeToggle} />
       <${UserMenu} />
     </div>
@@ -97,7 +126,7 @@ const THEME_OPTIONS = [
  * option is in the tab order; the arrow keys move to, and choose, the next or previous one (Home and
  * End the first and last).
  */
-export function ThemeToggle() {
+export function ThemeToggle({ label = "Theme" }) {
   const { theme, setTheme } = useConsole();
   const group = useRef(null);
   const onKey = (event) => {
@@ -110,7 +139,7 @@ export function ThemeToggle() {
     setTheme(next.value);
     requestAnimationFrame(() => group.current?.querySelector(`[data-theme="${next.value}"]`)?.focus());
   };
-  return html`<div class="theme-toggle" role="radiogroup" aria-label="Theme" ref=${group} onKeyDown=${onKey}>
+  return html`<div class="theme-toggle" role="radiogroup" aria-label=${label} ref=${group} onKeyDown=${onKey}>
     ${THEME_OPTIONS.map((option) => {
       const checked = theme === option.value;
       return html`<button type="button" role="radio" aria-checked=${checked ? "true" : "false"} aria-label=${option.label} title=${option.label} tabindex=${checked ? "0" : "-1"} data-theme=${option.value} onClick=${() => setTheme(option.value)}><${Icon} name=${option.icon} /></button>`;
@@ -120,7 +149,7 @@ export function ThemeToggle() {
 
 /** The user menu: a disclosure that also closes on Escape (focus back to it) and outside clicks. */
 function UserMenu() {
-  const { signOut } = useConsole();
+  const { signOut, sessionKind } = useConsole();
   const menu = useRef(null);
   useEffect(() => {
     const onPointer = (event) => {
@@ -138,7 +167,8 @@ function UserMenu() {
   return html`<details class="menu" ref=${menu} onKeyDown=${onKey}>
     <summary>Owner<span class="visually-hidden"> menu</span></summary>
     <div class="menu-body glass-strong" role="group" aria-label="User menu">
-      <p class="muted small">Signed in on this tab with a one-time link from the terminal.</p>
+      <p class="muted small">${sessionKind === "link" ? "Signed in on this tab with a one-time link from the terminal." : "Signed in on this tab as admin@localhost."}</p>
+      <a class="menu-link" href="#/settings" onClick=${() => { menu.current.open = false; }}>Settings</a>
       <button type="button" class="action secondary small" onClick=${signOut}>Sign out of this tab</button>
     </div>
   </details>`;
@@ -228,15 +258,6 @@ function JobLog({ entry }) {
     ${entry.dropped ? html`<div class="muted small">${entry.dropped} earlier lines are not shown.</div>` : null}
     ${entry.lines.map((line) => html`<div class="line" key=${line.seq}><${Text} value=${line.text} /></div>`)}
   </div>`;
-}
-
-/** Not signed in, or the session ended. Re-auth returns to the screen you were on. */
-export function SignedOut({ reason }) {
-  return html`<main id="main" class="center-page">
-    <h1 tabindex="-1">${reason === "ended" ? "Session ended" : "Sign in"}</h1>
-    <p>${reason === "ended" ? "This tab's session ended: it was open 8 hours or idle 1 hour, or the console was restarted." : reason === "used" ? "This link was already used or has expired." : "There is no session in this tab."}</p>
-    <p class="muted">In the terminal running <code>agentbreeder up</code>, press Enter for a new one-time link. It brings you back to this screen.</p>
-  </main>`;
 }
 
 /** No HTTP answer at all: the console stopped, or this is not its address. */

@@ -1,7 +1,7 @@
-"""#1025 slice V1: Vertex AI through `service/litellm@1.4.0` (config-only: nothing here calls
+"""#1025 slice V1: Vertex AI through `service/litellm@1.5.0` (config-only: nothing here calls
 Vertex AI, and no test in this file needs Docker).
 
-The 1.4.0 version (1.3.0 plus one gateway-only import), the service-account key rules on both
+The 1.5.0 version (1.4.0 plus one gateway-only import), the service-account key rules on both
 sides (`gateway_providers.vertex_key` at `services up`, the launcher's copy in the container),
 the launcher's project binding, slice P1's review and import rules re-run on the real built-in
 (spec §14), and `new agent --model vertex`. The pinned-image half (redirects, client-side
@@ -23,9 +23,9 @@ from agentbreeder import cli, env_import, gateway_keys, gateway_providers, newag
 from agentbreeder.gateway_keys import GatewayError
 from agentbreeder.services.schema import ServiceError, load_service
 
-V13 = registry.BUILTIN_ROOT / "service/litellm/1.3.0"
 V14 = registry.BUILTIN_ROOT / "service/litellm/1.4.0"
-REF = "service/litellm@1.4.0"
+V15 = registry.BUILTIN_ROOT / "service/litellm/1.5.0"
+REF = "service/litellm@1.5.0"
 KEY_NAME = "VERTEX_SERVICE_ACCOUNT_JSON"
 TODAY = date(2026, 11, 18)
 PROJECT = "my-project-1"
@@ -83,7 +83,7 @@ def refused(tmp_path, *entries, ref=REF, code="GATEWAY_CONFIG_UNSAFE", **section
 
 @pytest.fixture
 def start():
-    spec = importlib.util.spec_from_file_location("litellm_start_140", V14 / "files/start.py")
+    spec = importlib.util.spec_from_file_location("litellm_start_150", V15 / "files/start.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -92,27 +92,27 @@ def start():
 # --- the version -------------------------------------------------------------------------------
 
 
-def test_1_4_0_is_1_3_0_plus_the_vertex_import():
-    old = yaml.safe_load((V13 / "service.yaml").read_text())
-    new = yaml.safe_load((V14 / "service.yaml").read_text())
+def test_1_5_0_is_1_4_0_plus_the_vertex_import():
+    old = yaml.safe_load((V14 / "service.yaml").read_text())
+    new = yaml.safe_load((V15 / "service.yaml").read_text())
     assert new["secrets"].pop("vertex-service-account-json") == {
         "import": KEY_NAME,
         "optional": True,
     }
     assert old == new  # the image digest, env, ports, user and reaches_host included
-    for name in ("agentbreeder_request_filter.py",):  # the #1105 filter, byte for byte
-        assert (V14 / "files" / name).read_bytes() == (V13 / "files" / name).read_bytes()
-    assert sorted(p.name for p in (V14 / "files").iterdir() if p.is_file()) == [
+    for name in ("agentbreeder_request_filter.py",):  # 1.4.0's filter, byte for byte
+        assert (V15 / "files" / name).read_bytes() == (V14 / "files" / name).read_bytes()
+    assert sorted(p.name for p in (V15 / "files").iterdir() if p.is_file()) == [
         "agentbreeder_request_filter.py",
         "start.py",
     ]
-    assert load_service(V14 / "service.yaml").reaches_host == [11434]
+    assert load_service(V15 / "service.yaml").reaches_host == [11434]
 
 
 def test_each_version_imports_only_the_providers_its_slice_shipped():
-    """D12: a version never declares a provider whose slice has not shipped. Only 1.4.0
+    """D12: a version never declares a provider whose slice has not shipped. Only 1.5.0
     imports a gateway-only credential, and only Vertex's."""
-    for version in ("1.0.0", "1.1.0", "1.2.0", "1.3.0"):
+    for version in ("1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0"):
         caps = gateway_providers.builtin_caps(f"service/litellm@{version}")
         assert caps.imports == GATEWAY_CAPS.imports, version
     caps = gateway_providers.builtin_caps(REF)
@@ -122,13 +122,13 @@ def test_each_version_imports_only_the_providers_its_slice_shipped():
 
 
 def test_the_manifest_says_config_only():
-    manifest = yaml.safe_load((V14 / "manifest.yaml").read_text())
-    assert manifest["version"] == "1.4.0"
+    manifest = yaml.safe_load((V15 / "manifest.yaml").read_text())
+    assert manifest["version"] == "1.5.0"
     assert "Config-only: not yet run against Vertex AI" in manifest["description"]
 
 
 def test_the_launcher_lists_match_service_yaml_and_the_shared_rules(start):
-    service = yaml.safe_load((V14 / "service.yaml").read_text())
+    service = yaml.safe_load((V15 / "service.yaml").read_text())
     assert set(start.SERVICE_ENV) == set(service["env"]) | {"AGENTBREEDER_SERVICE"}
     assert {k: service["env"][k] for k in start.FORCED} == start.FORCED
     assert set(start.GATEWAY_ONLY) == gateway_providers.GATEWAY_ONLY
@@ -146,7 +146,7 @@ def test_the_launcher_lists_match_service_yaml_and_the_shared_rules(start):
 # --- the review, on the real built-in (slice P1's fixture tests, re-run for V1) ----------------
 
 
-def test_a_vertex_entry_passes_on_1_4_0_and_prints_its_route(tmp_path):
+def test_a_vertex_entry_passes_on_1_5_0_and_prints_its_route(tmp_path):
     result = review(tmp_path, entry(name="chat"))
     label = f"vertex ({KEY_NAME}, project {PROJECT}, us-central1)"
     assert result.providers == {"chat": label}
@@ -158,7 +158,7 @@ def test_a_vertex_entry_passes_on_1_4_0_and_prints_its_route(tmp_path):
     }
 
 
-@pytest.mark.parametrize("version", ["1.0.0", "1.1.0", "1.2.0", "1.3.0"])
+@pytest.mark.parametrize("version", ["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0"])
 def test_earlier_versions_still_refuse_vertex(tmp_path, version):
     message = refused(
         tmp_path, ref=f"service/litellm@{version}", code="GATEWAY_PROVIDER_UNSUPPORTED"
@@ -166,7 +166,7 @@ def test_earlier_versions_still_refuse_vertex(tmp_path, version):
     assert KEY_NAME in message and version in message
 
 
-def test_1_4_0_still_refuses_bedrock_and_azure(tmp_path):
+def test_1_5_0_still_refuses_bedrock_and_azure(tmp_path):
     bedrock = {
         "model": "bedrock/anthropic.claude-3-haiku-20240307-v1:0",
         "aws_access_key_id": "os.environ/BEDROCK_ACCESS_KEY_ID",
@@ -539,7 +539,7 @@ def test_the_launcher_keeps_the_earlier_rules(start, tmp_path, monkeypatch):
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
-    """The `new agent --model vertex` starter: the real built-in service/litellm@1.4.0."""
+    """The `new agent --model vertex` starter: the real built-in service/litellm@1.5.0."""
     from agentbreeder.operator_config import CONFIG_ENV
     from agentbreeder.services.state import ROOT_ENV
 
@@ -659,8 +659,8 @@ def test_up_reads_the_key_from_an_env_file_line(project, tmp_path):
 
 
 def test_a_project_copy_of_the_gateway_may_not_import_the_key(project, monkeypatch):
-    """A project registry version named service/litellm@1.4.0 is project origin (§3.5)."""
-    shutil.copytree(V14, project / "registry/service/litellm/1.4.0")
+    """A project registry version named service/litellm@1.5.0 is project origin (§3.5)."""
+    shutil.copytree(V15, project / "registry/service/litellm/1.5.0")
     (project / "agent.lock").unlink(missing_ok=True)
     monkeypatch.setenv(KEY_NAME, key_json())
     with pytest.raises(ServiceError) as caught:
@@ -696,7 +696,7 @@ def test_vertex_is_a_starter_but_not_offered_elsewhere():
     assert table.model.fullmatch(newagent.STARTERS["vertex"].model)
 
 
-def test_new_agent_vertex_writes_a_stack_on_1_4_0(tmp_path):
+def test_new_agent_vertex_writes_a_stack_on_1_5_0(tmp_path):
     plan = newagent.plan("hello", "vertex", tmp_path / "hello", today=TODAY, options=OPTIONS)
     assert plan.model_id == "vertex_ai/gemini-3.8-flash"
     stack = yaml.safe_load(plan.files["stack.yaml"])
