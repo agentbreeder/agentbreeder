@@ -479,6 +479,7 @@ class Engine:
         else:
             mcp = self._pin(plan, mode, repin, confirm_pins, allow_project_mcp)
         config = operator_writer.write(plan, self.state, environment)
+        self._write_grants()
         after = self.docker.containers(self.state)
         actions = {}
         for name in plan.locked.resolved.order:
@@ -607,6 +608,15 @@ class Engine:
             except env_import.EnvImportError as error:
                 raise ServiceError(error.code, str(error)) from None
         return values
+
+    def _write_grants(self) -> None:
+        """The admission policies compare a deployment's agent name and ranges with ab-grants
+        (#770 K2), so it follows the operator config and the recreated network. A no-op unless
+        `cluster up --restricted` ran for this stack."""
+        if self.state.get("kubernetes"):
+            from agentbreeder import cluster as local_cluster
+
+            local_cluster.write_grants(self.state)
 
     def _attach_cluster(self, plan: Plan) -> None:
         """Compose recreates the agents network, so the kind node is attached again here."""

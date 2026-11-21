@@ -1,0 +1,891 @@
+# AgentBreeder policy objects for namespace agentbreeder (#770 §7).
+# Digest: sha256:aaabc6d43525d6d6582b58ed7efee20bc8770c4d45d8dbf0b216edef53da23b3
+# Needs Kubernetes 1.30 or later and the ab-grants ConfigMap in the namespace.
+# The policy names are cluster-wide: one AgentBreeder namespace per cluster.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ab-deployments
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    matchPolicy: Equivalent
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: agentbreeder
+    objectSelector: {}
+    resourceRules:
+    - apiGroups:
+      - apps
+      apiVersions:
+      - '*'
+      resources:
+      - deployments
+      - deployments/scale
+      operations:
+      - CREATE
+      - UPDATE
+      - DELETE
+      scope: Namespaced
+  matchConditions:
+  - name: agentbreeder-identities
+    expression: request.userInfo.username in ['system:serviceaccount:agentbreeder:ab-deployer', 'system:serviceaccount:agentbreeder:ab-canary']
+  variables:
+  - name: isDeployer
+    expression: request.userInfo.username == 'system:serviceaccount:agentbreeder:ab-deployer'
+  - name: isCanary
+    expression: request.userInfo.username == 'system:serviceaccount:agentbreeder:ab-canary'
+  - name: agent
+    expression: object.metadata.labels['io.agentbreeder/name']
+  - name: id
+    expression: object.metadata.labels['io.agentbreeder/deployment']
+  - name: granted
+    expression: (variables.agent + '.bindings') in params.data
+  - name: uses
+    expression: 'params.data[variables.agent + ''.uses''] == '''' ? [] : params.data[variables.agent +
+      ''.uses''].split('','')'
+  - name: bindings
+    expression: 'params.data[variables.agent + ''.bindings''] == '''' ? [] : params.data[variables.agent
+      + ''.bindings''].split('','')'
+  - name: stores
+    expression: 'params.data[variables.agent + ''.stores''] == '''' ? [] : params.data[variables.agent
+      + ''.stores''].split('','')'
+  - name: sas
+    expression: 'params.data[variables.agent + ''.sa''] == '''' ? [] : params.data[variables.agent + ''.sa''].split('','')'
+  - name: services
+    expression: variables.uses.map(u, u.split(':')[0])
+  - name: labelKeys
+    expression: '[''app.kubernetes.io/managed-by'', ''io.agentbreeder/deployment'', ''io.agentbreeder/name'']
+      + variables.services.map(s, ''io.agentbreeder/uses-'' + s)'
+  - name: blocked
+    expression: 'params.data.blocked == '''' ? [] : params.data.blocked.split('','')'
+  - name: kit
+    expression: 'params.data.kit == '''' ? [] : params.data.kit.split('';'')'
+  - name: pod
+    expression: object.spec.template.spec
+  validations:
+  - expression: variables.isDeployer
+    message: only the deployer may write Deployments
+  - expression: request.operation != 'UPDATE'
+    message: updates are refused; AgentBreeder replaces objects
+  - expression: request.operation != 'CREATE' || (object.metadata.name.matches('^agentbreeder-[0-9a-f]{32}$')
+      && object.metadata.name == 'agentbreeder-' + variables.id)
+    message: the name must be agentbreeder-<the deployment label>
+  - expression: request.operation != 'CREATE' || (has(object.metadata.labels) && object.metadata.labels.all(k,
+      k in variables.labelKeys) && 'app.kubernetes.io/managed-by' in object.metadata.labels && object.metadata.labels['app.kubernetes.io/managed-by']
+      == 'agentbreeder' && 'io.agentbreeder/deployment' in object.metadata.labels && object.metadata.labels['io.agentbreeder/deployment'].matches('^[0-9a-f]{32}$')
+      && 'io.agentbreeder/name' in object.metadata.labels && object.metadata.labels['io.agentbreeder/name'].matches('^[a-z0-9][a-z0-9-]{0,62}$')
+      && object.metadata.labels.all(k, !k.startsWith('io.agentbreeder/uses-') || object.metadata.labels[k]
+      == 'true'))
+    message: labels must be exactly AgentBreeder's deployment labels
+  - expression: request.operation != 'CREATE' || (variables.granted)
+    message: the agent named by io.agentbreeder/name has no entry in ab-grants
+  - expression: request.operation != 'CREATE' || ((!has(object.metadata.finalizers) || size(object.metadata.finalizers)
+      == 0))
+    message: finalizers are refused
+  - expression: request.operation != 'CREATE' || ((!has(object.metadata.ownerReferences) || size(object.metadata.ownerReferences)
+      == 0))
+    message: ownerReferences are refused
+  - expression: 'request.operation != ''CREATE'' || ((object.spec.all(k, k in [''replicas'', ''strategy'',
+      ''revisionHistoryLimit'', ''progressDeadlineSeconds'', ''selector'', ''template''])) && (''replicas''
+      in object.spec && object.spec[''replicas''] == 1) && ((!(''strategy'' in object.spec) || object.spec[''strategy'']
+      == {''type'': ''RollingUpdate'', ''rollingUpdate'': {''maxUnavailable'': ''25%'', ''maxSurge'':
+      ''25%''}})) && ((!(''revisionHistoryLimit'' in object.spec) || object.spec[''revisionHistoryLimit'']
+      == 10)) && ((!(''progressDeadlineSeconds'' in object.spec) || object.spec[''progressDeadlineSeconds'']
+      == 600)))'
+    message: spec may hold only replicas 1, the selector and the template
+  - expression: 'request.operation != ''CREATE'' || (object.spec.selector == {''matchLabels'': {''io.agentbreeder/deployment'':
+      variables.id}})'
+    message: the selector must be the deployment label only
+  - expression: request.operation != 'CREATE' || (object.spec.template.all(k, k in ['metadata', 'spec'])
+      && (object.spec.template.metadata.all(k, k in ['creationTimestamp', 'labels'])) && ((!('creationTimestamp'
+      in object.spec.template.metadata) || object.spec.template.metadata['creationTimestamp'] == null))
+      && object.spec.template.metadata.labels == object.metadata.labels)
+    message: pod labels must equal the Deployment's; pod annotations are refused
+  - expression: request.operation != 'CREATE' || (variables.pod.all(k, k in ['automountServiceAccountToken',
+      'enableServiceLinks', 'securityContext', 'containers', 'volumes', 'serviceAccountName', 'serviceAccount',
+      'imagePullSecrets', 'restartPolicy', 'dnsPolicy', 'schedulerName', 'terminationGracePeriodSeconds']))
+    message: a pod field outside AgentBreeder's template is refused
+  - expression: 'request.operation != ''CREATE'' || (''automountServiceAccountToken'' in variables.pod
+      && variables.pod.automountServiceAccountToken == false && ''enableServiceLinks'' in variables.pod
+      && variables.pod.enableServiceLinks == false && ''securityContext'' in variables.pod && variables.pod.securityContext
+      == {''runAsNonRoot'': true, ''runAsUser'': 65532, ''runAsGroup'': 65532, ''fsGroup'': 65532, ''seccompProfile'':
+      {''type'': ''RuntimeDefault''}})'
+    message: the pod security context must be AgentBreeder's
+  - expression: request.operation != 'CREATE' || ((!('restartPolicy' in variables.pod) || variables.pod['restartPolicy']
+      == 'Always') && (!('dnsPolicy' in variables.pod) || variables.pod['dnsPolicy'] == 'ClusterFirst')
+      && (!('schedulerName' in variables.pod) || variables.pod['schedulerName'] == 'default-scheduler')
+      && (!('terminationGracePeriodSeconds' in variables.pod) || variables.pod['terminationGracePeriodSeconds']
+      == 30))
+    message: restartPolicy, dnsPolicy, schedulerName and the grace period must be the defaults
+  - expression: request.operation != 'CREATE' || ((!('serviceAccountName' in variables.pod) || variables.pod.serviceAccountName
+      == 'default' || variables.pod.serviceAccountName in variables.sas) && (!('serviceAccount' in variables.pod)
+      || ('serviceAccountName' in variables.pod && variables.pod.serviceAccount == variables.pod.serviceAccountName)))
+    message: the pod may run only as default or the agent's granted service account
+  - expression: 'request.operation != ''CREATE'' || (!(''imagePullSecrets'' in variables.pod) || (params.data.pull
+      != '''' && variables.pod.imagePullSecrets == [{''name'': params.data.pull}]))'
+    message: imagePullSecrets may name only the granted pull Secret
+  - expression: 'request.operation != ''CREATE'' || ((size(variables.pod.containers) == 1 || (size(variables.pod.containers)
+      == 2 && ((variables.pod.containers[1].all(k, k in [''name'', ''imagePullPolicy'', ''env'', ''securityContext'',
+      ''resources'', ''volumeMounts'', ''terminationMessagePath'', ''terminationMessagePolicy'', ''image'']))
+      && (''name'' in variables.pod.containers[1] && variables.pod.containers[1][''name''] == ''cli'')
+      && (''imagePullPolicy'' in variables.pod.containers[1] && variables.pod.containers[1][''imagePullPolicy'']
+      == ''IfNotPresent'') && (''env'' in variables.pod.containers[1] && variables.pod.containers[1][''env'']
+      == [{''name'': ''AGENTBREEDER_ROLE'', ''value'': ''cli-host''}]) && (''securityContext'' in variables.pod.containers[1]
+      && variables.pod.containers[1][''securityContext''] == {''runAsUser'': 65533, ''runAsGroup'': 65533,
+      ''allowPrivilegeEscalation'': false, ''readOnlyRootFilesystem'': true, ''capabilities'': {''drop'':
+      [''ALL'']}}) && (''resources'' in variables.pod.containers[1] && variables.pod.containers[1][''resources'']
+      == {''requests'': {''cpu'': ''100m'', ''memory'': ''128Mi''}, ''limits'': {''cpu'': ''1'', ''memory'':
+      ''512Mi''}}) && (''volumeMounts'' in variables.pod.containers[1] && variables.pod.containers[1][''volumeMounts'']
+      == [{''name'': ''cli-tmp'', ''mountPath'': ''/tmp''}, {''name'': ''cli-shared'', ''mountPath'':
+      ''/run/agentbreeder-cli'', ''readOnly'': true}]) && ((!(''terminationMessagePath'' in variables.pod.containers[1])
+      || variables.pod.containers[1][''terminationMessagePath''] == ''/dev/termination-log'')) && ((!(''terminationMessagePolicy''
+      in variables.pod.containers[1]) || variables.pod.containers[1][''terminationMessagePolicy''] ==
+      ''File'')) && variables.pod.containers[1].image == variables.pod.containers[0].image))) && variables.pod.containers[0].name
+      == ''agent'')'
+    message: the pod holds the agent container (and, for two-uid runtimes, the cli container) only
+  - expression: 'request.operation != ''CREATE'' || (variables.pod.containers[0].all(k, k in [''name'',
+      ''image'', ''imagePullPolicy'', ''ports'', ''env'', ''securityContext'', ''resources'', ''readinessProbe'',
+      ''volumeMounts'', ''terminationMessagePath'', ''terminationMessagePolicy'']) && ''imagePullPolicy''
+      in variables.pod.containers[0] && variables.pod.containers[0].imagePullPolicy == ''IfNotPresent''
+      && ''securityContext'' in variables.pod.containers[0] && variables.pod.containers[0].securityContext
+      == {''allowPrivilegeEscalation'': false, ''readOnlyRootFilesystem'': true, ''capabilities'': {''drop'':
+      [''ALL'']}} && ''resources'' in variables.pod.containers[0] && variables.pod.containers[0].resources
+      == {''requests'': {''cpu'': ''100m'', ''memory'': ''128Mi''}, ''limits'': {''cpu'': ''1'', ''memory'':
+      ''512Mi''}} && (!(''terminationMessagePath'' in variables.pod.containers[0]) || variables.pod.containers[0][''terminationMessagePath'']
+      == ''/dev/termination-log'') && (!(''terminationMessagePolicy'' in variables.pod.containers[0])
+      || variables.pod.containers[0][''terminationMessagePolicy''] == ''File''))'
+    message: the agent container must be AgentBreeder's (no command, args, envFrom or probes but readiness)
+  - expression: request.operation != 'CREATE' || (size(variables.pod.containers[0].ports) == 1 && (variables.pod.containers[0].ports[0].all(k,
+      k in ['protocol', 'containerPort'])) && ('protocol' in variables.pod.containers[0].ports[0] && variables.pod.containers[0].ports[0]['protocol']
+      == 'TCP'))
+    message: the agent container has exactly one TCP port
+  - expression: request.operation != 'CREATE' || ('readinessProbe' in variables.pod.containers[0] && (variables.pod.containers[0].readinessProbe.all(k,
+      k in ['periodSeconds', 'failureThreshold', 'timeoutSeconds', 'successThreshold', 'httpGet'])) &&
+      ('periodSeconds' in variables.pod.containers[0].readinessProbe && variables.pod.containers[0].readinessProbe['periodSeconds']
+      == 2) && ('failureThreshold' in variables.pod.containers[0].readinessProbe && variables.pod.containers[0].readinessProbe['failureThreshold']
+      == 30) && ((!('timeoutSeconds' in variables.pod.containers[0].readinessProbe) || variables.pod.containers[0].readinessProbe['timeoutSeconds']
+      == 1)) && ((!('successThreshold' in variables.pod.containers[0].readinessProbe) || variables.pod.containers[0].readinessProbe['successThreshold']
+      == 1)) && (variables.pod.containers[0].readinessProbe.httpGet.all(k, k in ['scheme', 'path', 'port']))
+      && ((!('scheme' in variables.pod.containers[0].readinessProbe.httpGet) || variables.pod.containers[0].readinessProbe.httpGet['scheme']
+      == 'HTTP')) && variables.pod.containers[0].readinessProbe.httpGet.port == variables.pod.containers[0].ports[0].containerPort)
+    message: the readiness probe is an HTTP GET of the agent's port only
+  - expression: request.operation != 'CREATE' || (variables.pod.containers[0].image.startsWith(params.data.registry
+      + '/' + variables.agent + '@sha256:') && size(variables.pod.containers[0].image) == size(params.data.registry
+      + '/' + variables.agent) + 72 && variables.pod.containers[0].image.matches('@sha256:[0-9a-f]{64}$'))
+    message: the image must be <registry>/<agent>@sha256:<digest>
+  - expression: request.operation != 'CREATE' || (!('env' in variables.pod.containers[0]) || variables.pod.containers[0].env.all(e,
+      e.all(k, k in ['name', 'value'])))
+    message: environment variables are literal values only (no valueFrom)
+  - expression: 'request.operation != ''CREATE'' || (variables.pod.containers[0].volumeMounts.all(m, m.all(k,
+      k in [''name'', ''mountPath'', ''readOnly'']) && (m == {''name'': ''tmp'', ''mountPath'': ''/tmp''}
+      || m == {''name'': ''secrets'', ''mountPath'': ''/run/secrets'', ''readOnly'': true} || m == {''name'':
+      ''cli-shared'', ''mountPath'': ''/run/agentbreeder-cli''} || (m.name.startsWith(''store-'') && ''readOnly''
+      in m && m.readOnly == true && m.mountPath == ''/run/secret-store/'' + m.name.substring(6)))))'
+    message: a volume mount outside AgentBreeder's template is refused
+  - expression: 'request.operation != ''CREATE'' || (variables.pod.volumes.all(v, v == {''name'': ''tmp'',
+      ''emptyDir'': {''medium'': ''Memory'', ''sizeLimit'': ''64Mi''}} || v == {''name'': ''cli-tmp'',
+      ''emptyDir'': {''medium'': ''Memory'', ''sizeLimit'': ''64Mi''}} || v == {''name'': ''cli-shared'',
+      ''emptyDir'': {''medium'': ''Memory'', ''sizeLimit'': ''1Mi''}} || (v.name == ''secrets'' && v.all(k,
+      k in [''name'', ''projected'']) && (v.projected.all(k, k in [''defaultMode'', ''sources''])) &&
+      (''defaultMode'' in v.projected && v.projected[''defaultMode''] == 288) && v.projected.sources.all(s,
+      size(s) == 1 && ((''secret'' in s && s.secret == {''name'': object.metadata.name}) || (''secret''
+      in s && s.secret.all(k, k in [''name'', ''items'']) && s.secret.name in variables.bindings && (!(''items''
+      in s.secret) || s.secret.items.all(i, i.all(k, k in [''key'', ''path''])))) || (''downwardAPI''
+      in s && s.downwardAPI.all(k, k == ''items'') && s.downwardAPI.items.all(i, i.all(k, k in [''path'',
+      ''fieldRef'']) && i.fieldRef.all(k, k in [''apiVersion'', ''fieldPath'']) && i.fieldRef.fieldPath
+      in [''metadata.name'', ''metadata.labels'']))))) || (v.all(k, k in [''name'', ''csi'']) && v.csi.all(k,
+      k in [''driver'', ''readOnly'', ''volumeAttributes'']) && v.csi.driver == ''secrets-store.csi.k8s.io''
+      && v.csi.readOnly == true && v.csi.volumeAttributes.all(k, k == ''secretProviderClass'') && v.csi.volumeAttributes.secretProviderClass
+      in variables.stores && v.name == ''store-'' + v.csi.volumeAttributes.secretProviderClass)))'
+    message: a volume outside AgentBreeder's template is refused
+  - expression: request.operation != 'CREATE' || (object.metadata.annotations.all(k, k in ['io.agentbreeder/spec',
+      'io.agentbreeder/image']) && size(object.metadata.annotations) == 2 && object.metadata.annotations['io.agentbreeder/image']
+      == variables.pod.containers[0].image)
+    message: annotations must be exactly io.agentbreeder/spec and io.agentbreeder/image
+  - expression: request.operation != 'DELETE' || (has(oldObject.metadata.labels) && 'app.kubernetes.io/managed-by'
+      in oldObject.metadata.labels && oldObject.metadata.labels['app.kubernetes.io/managed-by'] == 'agentbreeder'
+      && 'io.agentbreeder/deployment' in oldObject.metadata.labels && oldObject.metadata.name.matches('^agentbreeder-[0-9a-f]{32}$'))
+    message: only AgentBreeder's objects may be deleted
+  - expression: request.operation != 'DELETE' || (has(request.options.propagationPolicy) && request.options.propagationPolicy
+      == 'Foreground' && !has(request.options.orphanDependents))
+    message: a Deployment is deleted only with foreground propagation
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ab-deployments
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+spec:
+  policyName: ab-deployments
+  paramRef:
+    name: ab-grants
+    namespace: agentbreeder
+    parameterNotFoundAction: Deny
+  validationActions:
+  - Deny
+  matchResources:
+    matchPolicy: Equivalent
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: agentbreeder
+    objectSelector: {}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ab-services
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    matchPolicy: Equivalent
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: agentbreeder
+    objectSelector: {}
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - '*'
+      resources:
+      - services
+      operations:
+      - CREATE
+      - UPDATE
+      - DELETE
+      scope: Namespaced
+  matchConditions:
+  - name: agentbreeder-identities
+    expression: request.userInfo.username in ['system:serviceaccount:agentbreeder:ab-deployer', 'system:serviceaccount:agentbreeder:ab-canary']
+  variables:
+  - name: isDeployer
+    expression: request.userInfo.username == 'system:serviceaccount:agentbreeder:ab-deployer'
+  - name: isCanary
+    expression: request.userInfo.username == 'system:serviceaccount:agentbreeder:ab-canary'
+  - name: agent
+    expression: object.metadata.labels['io.agentbreeder/name']
+  - name: id
+    expression: object.metadata.labels['io.agentbreeder/deployment']
+  - name: granted
+    expression: (variables.agent + '.bindings') in params.data
+  - name: uses
+    expression: 'params.data[variables.agent + ''.uses''] == '''' ? [] : params.data[variables.agent +
+      ''.uses''].split('','')'
+  - name: bindings
+    expression: 'params.data[variables.agent + ''.bindings''] == '''' ? [] : params.data[variables.agent
+      + ''.bindings''].split('','')'
+  - name: stores
+    expression: 'params.data[variables.agent + ''.stores''] == '''' ? [] : params.data[variables.agent
+      + ''.stores''].split('','')'
+  - name: sas
+    expression: 'params.data[variables.agent + ''.sa''] == '''' ? [] : params.data[variables.agent + ''.sa''].split('','')'
+  - name: services
+    expression: variables.uses.map(u, u.split(':')[0])
+  - name: labelKeys
+    expression: '[''app.kubernetes.io/managed-by'', ''io.agentbreeder/deployment'', ''io.agentbreeder/name'']
+      + variables.services.map(s, ''io.agentbreeder/uses-'' + s)'
+  - name: blocked
+    expression: 'params.data.blocked == '''' ? [] : params.data.blocked.split('','')'
+  - name: kit
+    expression: 'params.data.kit == '''' ? [] : params.data.kit.split('';'')'
+  validations:
+  - expression: variables.isDeployer
+    message: only the deployer may write Services
+  - expression: request.operation != 'UPDATE'
+    message: updates are refused; AgentBreeder replaces objects
+  - expression: request.operation != 'CREATE' || (object.metadata.name.matches('^agentbreeder-[0-9a-f]{32}$')
+      && object.metadata.name == 'agentbreeder-' + variables.id)
+    message: the name must be agentbreeder-<the deployment label>
+  - expression: request.operation != 'CREATE' || (has(object.metadata.labels) && object.metadata.labels.all(k,
+      k in variables.labelKeys) && 'app.kubernetes.io/managed-by' in object.metadata.labels && object.metadata.labels['app.kubernetes.io/managed-by']
+      == 'agentbreeder' && 'io.agentbreeder/deployment' in object.metadata.labels && object.metadata.labels['io.agentbreeder/deployment'].matches('^[0-9a-f]{32}$')
+      && 'io.agentbreeder/name' in object.metadata.labels && object.metadata.labels['io.agentbreeder/name'].matches('^[a-z0-9][a-z0-9-]{0,62}$')
+      && object.metadata.labels.all(k, !k.startsWith('io.agentbreeder/uses-') || object.metadata.labels[k]
+      == 'true'))
+    message: labels must be exactly AgentBreeder's deployment labels
+  - expression: request.operation != 'CREATE' || (variables.granted)
+    message: the agent named by io.agentbreeder/name has no entry in ab-grants
+  - expression: request.operation != 'CREATE' || ((!has(object.metadata.finalizers) || size(object.metadata.finalizers)
+      == 0))
+    message: finalizers are refused
+  - expression: request.operation != 'CREATE' || ((!has(object.metadata.annotations) || size(object.metadata.annotations)
+      == 0))
+    message: annotations are refused
+  - expression: request.operation != 'CREATE' || ((!has(object.metadata.ownerReferences) || size(object.metadata.ownerReferences)
+      == 0))
+    message: ownerReferences are refused
+  - expression: 'request.operation != ''CREATE'' || ((object.spec.all(k, k in [''type'', ''sessionAffinity'',
+      ''ipFamilyPolicy'', ''ipFamilies'', ''internalTrafficPolicy'', ''selector'', ''ports'', ''clusterIP'',
+      ''clusterIPs''])) && (''type'' in object.spec && object.spec[''type''] == ''ClusterIP'') && ((!(''sessionAffinity''
+      in object.spec) || object.spec[''sessionAffinity''] == ''None'')) && ((!(''ipFamilyPolicy'' in object.spec)
+      || object.spec[''ipFamilyPolicy''] == ''SingleStack'')) && ((!(''ipFamilies'' in object.spec) ||
+      object.spec[''ipFamilies''] == [''IPv4''])) && ((!(''internalTrafficPolicy'' in object.spec) ||
+      object.spec[''internalTrafficPolicy''] == ''Cluster'')) && object.spec.selector == {''io.agentbreeder/deployment'':
+      variables.id} && (!(''clusterIP'' in object.spec) || object.spec.clusterIP.matches(''^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$''))
+      && (!(''clusterIPs'' in object.spec) || (''clusterIP'' in object.spec && object.spec.clusterIPs
+      == [object.spec.clusterIP])))'
+    message: a Service is a ClusterIP Service selecting its own deployment only
+  - expression: request.operation != 'CREATE' || (size(object.spec.ports) == 1 && (object.spec.ports[0].all(k,
+      k in ['protocol', 'port', 'targetPort'])) && ('protocol' in object.spec.ports[0] && object.spec.ports[0]['protocol']
+      == 'TCP') && object.spec.ports[0].targetPort == object.spec.ports[0].port)
+    message: a Service has exactly one TCP port, equal to its target port
+  - expression: request.operation != 'DELETE' || (has(oldObject.metadata.labels) && 'app.kubernetes.io/managed-by'
+      in oldObject.metadata.labels && oldObject.metadata.labels['app.kubernetes.io/managed-by'] == 'agentbreeder'
+      && 'io.agentbreeder/deployment' in oldObject.metadata.labels && oldObject.metadata.name.matches('^agentbreeder-[0-9a-f]{32}$'))
+    message: only AgentBreeder's objects may be deleted
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ab-services
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+spec:
+  policyName: ab-services
+  paramRef:
+    name: ab-grants
+    namespace: agentbreeder
+    parameterNotFoundAction: Deny
+  validationActions:
+  - Deny
+  matchResources:
+    matchPolicy: Equivalent
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: agentbreeder
+    objectSelector: {}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ab-networkpolicies
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    matchPolicy: Equivalent
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: agentbreeder
+    objectSelector: {}
+    resourceRules:
+    - apiGroups:
+      - networking.k8s.io
+      apiVersions:
+      - '*'
+      resources:
+      - networkpolicies
+      operations:
+      - CREATE
+      - UPDATE
+      - DELETE
+      scope: Namespaced
+  matchConditions:
+  - name: agentbreeder-identities
+    expression: request.userInfo.username in ['system:serviceaccount:agentbreeder:ab-deployer', 'system:serviceaccount:agentbreeder:ab-canary']
+  variables:
+  - name: isDeployer
+    expression: request.userInfo.username == 'system:serviceaccount:agentbreeder:ab-deployer'
+  - name: isCanary
+    expression: request.userInfo.username == 'system:serviceaccount:agentbreeder:ab-canary'
+  - name: agent
+    expression: object.metadata.labels['io.agentbreeder/name']
+  - name: id
+    expression: object.metadata.labels['io.agentbreeder/deployment']
+  - name: granted
+    expression: (variables.agent + '.bindings') in params.data
+  - name: uses
+    expression: 'params.data[variables.agent + ''.uses''] == '''' ? [] : params.data[variables.agent +
+      ''.uses''].split('','')'
+  - name: bindings
+    expression: 'params.data[variables.agent + ''.bindings''] == '''' ? [] : params.data[variables.agent
+      + ''.bindings''].split('','')'
+  - name: stores
+    expression: 'params.data[variables.agent + ''.stores''] == '''' ? [] : params.data[variables.agent
+      + ''.stores''].split('','')'
+  - name: sas
+    expression: 'params.data[variables.agent + ''.sa''] == '''' ? [] : params.data[variables.agent + ''.sa''].split('','')'
+  - name: services
+    expression: variables.uses.map(u, u.split(':')[0])
+  - name: labelKeys
+    expression: '[''app.kubernetes.io/managed-by'', ''io.agentbreeder/deployment'', ''io.agentbreeder/name'']
+      + variables.services.map(s, ''io.agentbreeder/uses-'' + s)'
+  - name: blocked
+    expression: 'params.data.blocked == '''' ? [] : params.data.blocked.split('','')'
+  - name: kit
+    expression: 'params.data.kit == '''' ? [] : params.data.kit.split('';'')'
+  validations:
+  - expression: request.operation != 'UPDATE'
+    message: updates are refused; AgentBreeder replaces objects
+  - expression: '!variables.isDeployer || (request.operation != ''CREATE'' || (object.metadata.name.matches(''^agentbreeder-[0-9a-f]{32}$'')
+      && object.metadata.name == ''agentbreeder-'' + variables.id))'
+    message: the name must be agentbreeder-<the deployment label>
+  - expression: '!variables.isDeployer || (request.operation != ''CREATE'' || (has(object.metadata.labels)
+      && object.metadata.labels.all(k, k in variables.labelKeys) && ''app.kubernetes.io/managed-by'' in
+      object.metadata.labels && object.metadata.labels[''app.kubernetes.io/managed-by''] == ''agentbreeder''
+      && ''io.agentbreeder/deployment'' in object.metadata.labels && object.metadata.labels[''io.agentbreeder/deployment''].matches(''^[0-9a-f]{32}$'')
+      && ''io.agentbreeder/name'' in object.metadata.labels && object.metadata.labels[''io.agentbreeder/name''].matches(''^[a-z0-9][a-z0-9-]{0,62}$'')
+      && object.metadata.labels.all(k, !k.startsWith(''io.agentbreeder/uses-'') || object.metadata.labels[k]
+      == ''true'')))'
+    message: labels must be exactly AgentBreeder's deployment labels
+  - expression: '!variables.isDeployer || (request.operation != ''CREATE'' || (variables.granted))'
+    message: the agent named by io.agentbreeder/name has no entry in ab-grants
+  - expression: '!variables.isDeployer || (request.operation != ''CREATE'' || ((!has(object.metadata.finalizers)
+      || size(object.metadata.finalizers) == 0)))'
+    message: finalizers are refused
+  - expression: '!variables.isDeployer || (request.operation != ''CREATE'' || ((!has(object.metadata.annotations)
+      || size(object.metadata.annotations) == 0)))'
+    message: annotations are refused
+  - expression: '!variables.isDeployer || (request.operation != ''CREATE'' || ((!has(object.metadata.ownerReferences)
+      || size(object.metadata.ownerReferences) == 0)))'
+    message: ownerReferences are refused
+  - expression: '!variables.isDeployer || request.operation != ''CREATE'' || ((object.spec.all(k, k in
+      [''policyTypes'', ''podSelector'', ''ingress'', ''egress''])) && (''policyTypes'' in object.spec
+      && object.spec[''policyTypes''] == [''Ingress'', ''Egress'']) && object.spec.podSelector == {''matchLabels'':
+      {''io.agentbreeder/deployment'': variables.id}} && (!(''ingress'' in object.spec) || size(object.spec.ingress)
+      == 0))'
+    message: the policy selects its own deployment, both directions, with no ingress
+  - expression: '!variables.isDeployer || request.operation != ''CREATE'' || (''egress'' in object.spec
+      && object.spec.egress.all(r, r == {''to'': [{''namespaceSelector'': {''matchLabels'': {''kubernetes.io/metadata.name'':
+      ''kube-system''}}, ''podSelector'': {''matchLabels'': {''k8s-app'': ''kube-dns''}}}], ''ports'':
+      [{''protocol'': ''UDP'', ''port'': 53}, {''protocol'': ''TCP'', ''port'': 53}]} || (params.data.nodedns
+      != '''' && r == {''to'': [{''ipBlock'': {''cidr'': params.data.nodedns + ''/32''}}], ''ports'':
+      [{''protocol'': ''UDP'', ''port'': 53}, {''protocol'': ''TCP'', ''port'': 53}]}) || (r.all(k, k
+      in [''to'', ''ports'']) && size(r.to) == 1 && r.to[0].all(k, k == ''podSelector'') && r.to[0].podSelector.all(k,
+      k == ''matchLabels'') && size(r.to[0].podSelector.matchLabels) == 1 && ''io.agentbreeder/chart-service''
+      in r.to[0].podSelector.matchLabels && size(r.ports) == 1 && r.ports[0].all(k, k in [''protocol'',
+      ''port'']) && r.ports[0].protocol == ''TCP'' && type(r.ports[0].port) == int && (r.to[0].podSelector.matchLabels[''io.agentbreeder/chart-service'']
+      + '':'' + string(r.ports[0].port)) in variables.uses) || (r.all(k, k == ''to'') && size(r.to) ==
+      1 && r.to[0].all(k, k == ''ipBlock'') && r.to[0].ipBlock.all(k, k in [''cidr'', ''except'']) &&
+      r.to[0].ipBlock.cidr == ''0.0.0.0/0'' && size(variables.blocked) > 0 && ''except'' in r.to[0].ipBlock
+      && variables.blocked.all(b, b in r.to[0].ipBlock.except)) || (r.all(k, k == ''to'') && size(r.to)
+      >= 1 && size(variables.kit) > 0 && r.to.all(p, p.all(k, k == ''ipBlock'') && p.ipBlock.all(k, k
+      in [''cidr'', ''except'']) && (p.ipBlock.cidr + ''|'' + (''except'' in p.ipBlock ? p.ipBlock.except.join('','')
+      : '''')) in variables.kit))))'
+    message: an egress rule outside AgentBreeder's fixed shapes is refused
+  - expression: '!variables.isDeployer || request.operation != ''DELETE'' || (has(oldObject.metadata.labels)
+      && ''app.kubernetes.io/managed-by'' in oldObject.metadata.labels && oldObject.metadata.labels[''app.kubernetes.io/managed-by'']
+      == ''agentbreeder'' && ''io.agentbreeder/deployment'' in oldObject.metadata.labels && oldObject.metadata.name.matches(''^agentbreeder-[0-9a-f]{32}$''))'
+    message: only AgentBreeder's objects may be deleted
+  - expression: '!variables.isCanary || request.operation != ''CREATE'' || (object.metadata.name.matches(''^ab-canary-[0-9]{1,2}$'')
+      && object.metadata.labels == {''app.kubernetes.io/managed-by'': ''agentbreeder'', ''io.agentbreeder/canary'':
+      ''policy''} && (!has(object.metadata.annotations) || size(object.metadata.annotations) == 0) &&
+      (!has(object.metadata.finalizers) || size(object.metadata.finalizers) == 0) && (!has(object.metadata.ownerReferences)
+      || size(object.metadata.ownerReferences) == 0))'
+    message: a canary policy is named ab-canary-<n> and carries the canary labels only
+  - expression: '!variables.isCanary || request.operation != ''CREATE'' || ((object.spec.all(k, k in [''policyTypes'',
+      ''podSelector'', ''ingress'', ''egress''])) && (''policyTypes'' in object.spec && object.spec[''policyTypes'']
+      == [''Ingress'', ''Egress'']) && (object.spec.podSelector.all(k, k == ''matchLabels'') && size(object.spec.podSelector.matchLabels)
+      == 1 && ''io.agentbreeder/canary'' in object.spec.podSelector.matchLabels && object.spec.podSelector.matchLabels[''io.agentbreeder/canary'']
+      in [''server'', ''target'', ''client'']))'
+    message: a canary policy selects one canary role
+  - expression: '!variables.isCanary || request.operation != ''CREATE'' || ((!(''ingress'' in object.spec)
+      || object.spec.ingress.all(r, r.all(k, k in [''from'', ''ports'']) && ''from'' in r && size(r.from)
+      >= 1 && r.from.all(p, (p.all(k, k == ''podSelector'') && (p.podSelector.all(k, k == ''matchLabels'')
+      && size(p.podSelector.matchLabels) == 1 && ''io.agentbreeder/canary'' in p.podSelector.matchLabels
+      && p.podSelector.matchLabels[''io.agentbreeder/canary''] in [''server'', ''target'', ''client''])))
+      && (!(''ports'' in r) || r.ports.all(q, q.all(k, k in [''protocol'', ''port'']) && q.protocol ==
+      ''TCP'' && type(q.port) == int)))) && (!(''egress'' in object.spec) || object.spec.egress.all(r,
+      r.all(k, k in [''to'', ''ports'']) && ''to'' in r && size(r.to) >= 1 && (r.to.all(p, (p.all(k, k
+      == ''podSelector'') && (p.podSelector.all(k, k == ''matchLabels'') && size(p.podSelector.matchLabels)
+      == 1 && ''io.agentbreeder/canary'' in p.podSelector.matchLabels && p.podSelector.matchLabels[''io.agentbreeder/canary'']
+      in [''server'', ''target'', ''client'']))) && (!(''ports'' in r) || r.ports.all(q, q.all(k, k in
+      [''protocol'', ''port'']) && q.protocol == ''TCP'' && type(q.port) == int)) || (size(r.to) == 1
+      && !(''ports'' in r) && r.to[0].all(k, k == ''ipBlock'') && r.to[0].ipBlock.cidr == ''0.0.0.0/0''
+      && ''except'' in r.to[0].ipBlock && variables.blocked.all(b, b in r.to[0].ipBlock.except))))))'
+    message: canary rules peer only with canary pods or the fixed public rule
+  - expression: '!variables.isCanary || request.operation != ''DELETE'' || (has(oldObject.metadata.labels)
+      && ''io.agentbreeder/canary'' in oldObject.metadata.labels && oldObject.metadata.name.startsWith(''ab-canary-''))'
+    message: the canary deletes only canary objects
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ab-networkpolicies
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+spec:
+  policyName: ab-networkpolicies
+  paramRef:
+    name: ab-grants
+    namespace: agentbreeder
+    parameterNotFoundAction: Deny
+  validationActions:
+  - Deny
+  matchResources:
+    matchPolicy: Equivalent
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: agentbreeder
+    objectSelector: {}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ab-secrets
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    matchPolicy: Equivalent
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: agentbreeder
+    objectSelector: {}
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - '*'
+      resources:
+      - secrets
+      operations:
+      - CREATE
+      - UPDATE
+      - DELETE
+      scope: Namespaced
+  matchConditions:
+  - name: agentbreeder-identities
+    expression: request.userInfo.username in ['system:serviceaccount:agentbreeder:ab-deployer', 'system:serviceaccount:agentbreeder:ab-canary']
+  variables:
+  - name: isDeployer
+    expression: request.userInfo.username == 'system:serviceaccount:agentbreeder:ab-deployer'
+  - name: isCanary
+    expression: request.userInfo.username == 'system:serviceaccount:agentbreeder:ab-canary'
+  - name: agent
+    expression: object.metadata.labels['io.agentbreeder/name']
+  - name: id
+    expression: object.metadata.labels['io.agentbreeder/deployment']
+  - name: granted
+    expression: (variables.agent + '.bindings') in params.data
+  - name: uses
+    expression: 'params.data[variables.agent + ''.uses''] == '''' ? [] : params.data[variables.agent +
+      ''.uses''].split('','')'
+  - name: bindings
+    expression: 'params.data[variables.agent + ''.bindings''] == '''' ? [] : params.data[variables.agent
+      + ''.bindings''].split('','')'
+  - name: stores
+    expression: 'params.data[variables.agent + ''.stores''] == '''' ? [] : params.data[variables.agent
+      + ''.stores''].split('','')'
+  - name: sas
+    expression: 'params.data[variables.agent + ''.sa''] == '''' ? [] : params.data[variables.agent + ''.sa''].split('','')'
+  - name: services
+    expression: variables.uses.map(u, u.split(':')[0])
+  - name: labelKeys
+    expression: '[''app.kubernetes.io/managed-by'', ''io.agentbreeder/deployment'', ''io.agentbreeder/name'']
+      + variables.services.map(s, ''io.agentbreeder/uses-'' + s)'
+  - name: blocked
+    expression: 'params.data.blocked == '''' ? [] : params.data.blocked.split('','')'
+  - name: kit
+    expression: 'params.data.kit == '''' ? [] : params.data.kit.split('';'')'
+  validations:
+  - expression: variables.isDeployer
+    message: only the deployer may write Secrets
+  - expression: request.operation == 'CREATE'
+    message: Secrets are created only, never changed or deleted
+  - expression: request.operation != 'CREATE' || (object.metadata.name.matches('^agentbreeder-[0-9a-f]{32}$')
+      && object.metadata.name == 'agentbreeder-' + variables.id)
+    message: the name must be agentbreeder-<the deployment label>
+  - expression: request.operation != 'CREATE' || (has(object.metadata.labels) && object.metadata.labels.all(k,
+      k in variables.labelKeys) && 'app.kubernetes.io/managed-by' in object.metadata.labels && object.metadata.labels['app.kubernetes.io/managed-by']
+      == 'agentbreeder' && 'io.agentbreeder/deployment' in object.metadata.labels && object.metadata.labels['io.agentbreeder/deployment'].matches('^[0-9a-f]{32}$')
+      && 'io.agentbreeder/name' in object.metadata.labels && object.metadata.labels['io.agentbreeder/name'].matches('^[a-z0-9][a-z0-9-]{0,62}$')
+      && object.metadata.labels.all(k, !k.startsWith('io.agentbreeder/uses-') || object.metadata.labels[k]
+      == 'true'))
+    message: labels must be exactly AgentBreeder's deployment labels
+  - expression: request.operation != 'CREATE' || (variables.granted)
+    message: the agent named by io.agentbreeder/name has no entry in ab-grants
+  - expression: request.operation != 'CREATE' || ((!has(object.metadata.finalizers) || size(object.metadata.finalizers)
+      == 0))
+    message: finalizers are refused
+  - expression: request.operation != 'CREATE' || ((!has(object.metadata.annotations) || size(object.metadata.annotations)
+      == 0))
+    message: annotations are refused
+  - expression: object.all(k, k in ['apiVersion', 'kind', 'metadata', 'type', 'immutable', 'data']) &&
+      'type' in object && object.type == 'Opaque' && (!('immutable' in object) || object.immutable ==
+      true)
+    message: only an Opaque Secret of data is accepted
+  - expression: has(object.metadata.ownerReferences) && size(object.metadata.ownerReferences) == 1 &&
+      object.metadata.ownerReferences[0].all(k, k in ['apiVersion', 'kind', 'name', 'uid', 'blockOwnerDeletion'])
+      && object.metadata.ownerReferences[0].apiVersion == 'apps/v1' && object.metadata.ownerReferences[0].kind
+      == 'Deployment' && object.metadata.ownerReferences[0].name == object.metadata.name && 'blockOwnerDeletion'
+      in object.metadata.ownerReferences[0] && object.metadata.ownerReferences[0].blockOwnerDeletion ==
+      true
+    message: a Secret is owned by its own Deployment, with blockOwnerDeletion
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ab-secrets
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+spec:
+  policyName: ab-secrets
+  paramRef:
+    name: ab-grants
+    namespace: agentbreeder
+    parameterNotFoundAction: Deny
+  validationActions:
+  - Deny
+  matchResources:
+    matchPolicy: Equivalent
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: agentbreeder
+    objectSelector: {}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ab-pods
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    matchPolicy: Equivalent
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: agentbreeder
+    objectSelector: {}
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - '*'
+      resources:
+      - pods
+      - pods/ephemeralcontainers
+      operations:
+      - CREATE
+      - UPDATE
+      - DELETE
+      scope: Namespaced
+  matchConditions:
+  - name: agentbreeder-identities
+    expression: request.userInfo.username in ['system:serviceaccount:agentbreeder:ab-deployer', 'system:serviceaccount:agentbreeder:ab-canary']
+  variables:
+  - name: isDeployer
+    expression: request.userInfo.username == 'system:serviceaccount:agentbreeder:ab-deployer'
+  - name: isCanary
+    expression: request.userInfo.username == 'system:serviceaccount:agentbreeder:ab-canary'
+  - name: blocked
+    expression: 'params.data.blocked == '''' ? [] : params.data.blocked.split('','')'
+  validations:
+  - expression: variables.isCanary
+    message: only the canary may write Pods
+  - expression: request.operation != 'UPDATE'
+    message: updates are refused; AgentBreeder replaces objects
+  - expression: 'request.operation != ''CREATE'' || (has(object.metadata.labels) && ''io.agentbreeder/canary''
+      in object.metadata.labels && object.metadata.labels[''io.agentbreeder/canary''] in [''server'',
+      ''target'', ''client''] && object.metadata.name == ''ab-canary-'' + object.metadata.labels[''io.agentbreeder/canary'']
+      && object.metadata.labels == {''app.kubernetes.io/managed-by'': ''agentbreeder'', ''io.agentbreeder/canary'':
+      object.metadata.labels[''io.agentbreeder/canary'']} && (!has(object.metadata.annotations) || size(object.metadata.annotations)
+      == 0) && (!has(object.metadata.finalizers) || size(object.metadata.finalizers) == 0) && (!has(object.metadata.ownerReferences)
+      || size(object.metadata.ownerReferences) == 0))'
+    message: a canary pod is ab-canary-<role> with the canary labels only
+  - expression: 'request.operation != ''CREATE'' || ((object.spec.all(k, k in [''automountServiceAccountToken'',
+      ''securityContext'', ''volumes'', ''dnsPolicy'', ''schedulerName'', ''terminationGracePeriodSeconds'',
+      ''serviceAccountName'', ''serviceAccount'', ''priority'', ''preemptionPolicy'', ''enableServiceLinks'',
+      ''tolerations'', ''containers'', ''restartPolicy''])) && (''automountServiceAccountToken'' in object.spec
+      && object.spec[''automountServiceAccountToken''] == false) && (''securityContext'' in object.spec
+      && object.spec[''securityContext''] == {''runAsNonRoot'': true, ''runAsUser'': 65532, ''runAsGroup'':
+      65532, ''fsGroup'': 65532, ''seccompProfile'': {''type'': ''RuntimeDefault''}}) && (''volumes''
+      in object.spec && object.spec[''volumes''] == [{''name'': ''tmp'', ''emptyDir'': {''medium'': ''Memory'',
+      ''sizeLimit'': ''64Mi''}}]) && ((!(''dnsPolicy'' in object.spec) || object.spec[''dnsPolicy''] ==
+      ''ClusterFirst'')) && ((!(''schedulerName'' in object.spec) || object.spec[''schedulerName''] ==
+      ''default-scheduler'')) && ((!(''terminationGracePeriodSeconds'' in object.spec) || object.spec[''terminationGracePeriodSeconds'']
+      == 30)) && ((!(''serviceAccountName'' in object.spec) || object.spec[''serviceAccountName''] ==
+      ''default'')) && ((!(''serviceAccount'' in object.spec) || object.spec[''serviceAccount''] == ''default''))
+      && ((!(''priority'' in object.spec) || object.spec[''priority''] == 0)) && ((!(''preemptionPolicy''
+      in object.spec) || object.spec[''preemptionPolicy''] == ''PreemptLowerPriority'')) && ((!(''enableServiceLinks''
+      in object.spec) || object.spec[''enableServiceLinks''] == true)) && ((!(''tolerations'' in object.spec)
+      || object.spec[''tolerations''] == [{''key'': ''node.kubernetes.io/not-ready'', ''operator'': ''Exists'',
+      ''effect'': ''NoExecute'', ''tolerationSeconds'': 300}, {''key'': ''node.kubernetes.io/unreachable'',
+      ''operator'': ''Exists'', ''effect'': ''NoExecute'', ''tolerationSeconds'': 300}])) && ''restartPolicy''
+      in object.spec && object.spec.restartPolicy == (object.metadata.labels[''io.agentbreeder/canary'']
+      == ''client'' ? ''Never'' : ''Always''))'
+    message: a canary pod field outside the canary template is refused
+  - expression: 'request.operation != ''CREATE'' || (size(object.spec.containers) == 1 && (object.spec.containers[0].all(k,
+      k in [''name'', ''imagePullPolicy'', ''securityContext'', ''resources'', ''volumeMounts'', ''terminationMessagePath'',
+      ''terminationMessagePolicy'', ''image'', ''args''])) && (''name'' in object.spec.containers[0] &&
+      object.spec.containers[0][''name''] == ''echo'') && (''imagePullPolicy'' in object.spec.containers[0]
+      && object.spec.containers[0][''imagePullPolicy''] == ''IfNotPresent'') && (''securityContext'' in
+      object.spec.containers[0] && object.spec.containers[0][''securityContext''] == {''allowPrivilegeEscalation'':
+      false, ''readOnlyRootFilesystem'': true, ''capabilities'': {''drop'': [''ALL'']}}) && (''resources''
+      in object.spec.containers[0] && object.spec.containers[0][''resources''] == {''requests'': {''cpu'':
+      ''100m'', ''memory'': ''128Mi''}, ''limits'': {''cpu'': ''1'', ''memory'': ''512Mi''}}) && (''volumeMounts''
+      in object.spec.containers[0] && object.spec.containers[0][''volumeMounts''] == [{''name'': ''tmp'',
+      ''mountPath'': ''/tmp''}]) && ((!(''terminationMessagePath'' in object.spec.containers[0]) || object.spec.containers[0][''terminationMessagePath'']
+      == ''/dev/termination-log'')) && ((!(''terminationMessagePolicy'' in object.spec.containers[0])
+      || object.spec.containers[0][''terminationMessagePolicy''] == ''File'')) && params.data.echo !=
+      '''' && object.spec.containers[0].image == params.data.echo && (((object.metadata.labels[''io.agentbreeder/canary'']
+      == ''server'' || object.metadata.labels[''io.agentbreeder/canary''] == ''target'') && object.spec.containers[0].args
+      == [''serve'', ''8080'', ''8081'']) || (object.metadata.labels[''io.agentbreeder/canary''] == ''client''
+      && size(object.spec.containers[0].args) >= 3 && size(object.spec.containers[0].args) <= 13 && size(object.spec.containers[0].args)
+      % 2 == 1 && object.spec.containers[0].args[0] == ''probe'' && [1, 3, 5, 7, 9, 11].all(i, i >= size(object.spec.containers[0].args)
+      || (object.spec.containers[0].args[i].matches(''^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$'')
+      && object.spec.containers[0].args[i + 1].matches(''^[1-9][0-9]{0,4}$''))))))'
+    message: the canary container is the pinned echo image with the canary arguments
+  - expression: request.operation != 'DELETE' || (has(oldObject.metadata.labels) && 'io.agentbreeder/canary'
+      in oldObject.metadata.labels && oldObject.metadata.name.startsWith('ab-canary-'))
+    message: the canary deletes only canary pods
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ab-pods
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+spec:
+  policyName: ab-pods
+  paramRef:
+    name: ab-grants
+    namespace: agentbreeder
+    parameterNotFoundAction: Deny
+  validationActions:
+  - Deny
+  matchResources:
+    matchPolicy: Equivalent
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: agentbreeder
+    objectSelector: {}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ab-deny-other
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    matchPolicy: Equivalent
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: agentbreeder
+    objectSelector: {}
+    resourceRules:
+    - apiGroups:
+      - '*'
+      apiVersions:
+      - '*'
+      resources:
+      - '*/*'
+      operations:
+      - CREATE
+      - UPDATE
+      - DELETE
+      scope: Namespaced
+    excludeResourceRules:
+    - apiGroups:
+      - apps
+      apiVersions:
+      - '*'
+      resources:
+      - deployments
+      - deployments/scale
+      operations:
+      - CREATE
+      - UPDATE
+      - DELETE
+      scope: Namespaced
+    - apiGroups:
+      - ''
+      apiVersions:
+      - '*'
+      resources:
+      - services
+      operations:
+      - CREATE
+      - UPDATE
+      - DELETE
+      scope: Namespaced
+    - apiGroups:
+      - networking.k8s.io
+      apiVersions:
+      - '*'
+      resources:
+      - networkpolicies
+      operations:
+      - CREATE
+      - UPDATE
+      - DELETE
+      scope: Namespaced
+    - apiGroups:
+      - ''
+      apiVersions:
+      - '*'
+      resources:
+      - secrets
+      operations:
+      - CREATE
+      - UPDATE
+      - DELETE
+      scope: Namespaced
+    - apiGroups:
+      - ''
+      apiVersions:
+      - '*'
+      resources:
+      - pods
+      - pods/ephemeralcontainers
+      operations:
+      - CREATE
+      - UPDATE
+      - DELETE
+      scope: Namespaced
+  matchConditions:
+  - name: agentbreeder-identities
+    expression: request.userInfo.username in ['system:serviceaccount:agentbreeder:ab-deployer', 'system:serviceaccount:agentbreeder:ab-canary']
+  validations:
+  - expression: 'false'
+    message: the deployer and the canary may write no other kind of object
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ab-deny-other
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+spec:
+  policyName: ab-deny-other
+  paramRef:
+    name: ab-grants
+    namespace: agentbreeder
+    parameterNotFoundAction: Deny
+  validationActions:
+  - Deny
+  matchResources:
+    matchPolicy: Equivalent
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: agentbreeder
+    objectSelector: {}

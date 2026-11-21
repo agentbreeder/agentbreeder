@@ -1,6 +1,6 @@
 usage: agentbreeder cluster up [-h] [--stack DIR] [--json]
                                --environment ENVIRONMENT [--yes]
-                               [--expect-grant SHA256]
+                               [--expect-grant SHA256] [--restricted]
 
 options:
   -h, --help            show this help message and exit
@@ -9,3 +9,5 @@ options:
   --environment ENVIRONMENT
   --yes                 Confirm the changed grant
   --expect-grant SHA256
+  --restricted          Deploy as restricted service accounts under the
+                        admission policies (preview, not yet run on kind)
