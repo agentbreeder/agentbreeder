@@ -1,0 +1,8 @@
+usage: agentbreeder cluster rbac [-h] {print} ...
+
+positional arguments:
+  {print}
+    print     Print the rbac objects as YAML
+
+options:
+  -h, --help  show this help message and exit

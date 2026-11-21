@@ -1,0 +1,8 @@
+usage: agentbreeder cluster policy [-h] {print} ...
+
+positional arguments:
+  {print}
+    print     Print the policy objects as YAML
+
+options:
+  -h, --help  show this help message and exit
