@@ -1,0 +1,152 @@
+{
+  "chart_format": 1,
+  "renderer": "agentbreeder VERSION",
+  "stack": "builtins",
+  "environment": "dev",
+  "chart": "ab-builtins",
+  "version": "0.0.0+2712cf9c5809",
+  "stack_lock_sha256": "2712cf9c58097f1191c5b95b35327f9b9c91577966b79b7b96b8af29b5ce4817",
+  "images": {
+    "analyzer": "mcr.microsoft.com/presidio-analyzer@sha256:286e3fa7f3a7426e775e8564fe1870f1ba8f999d3ab8bbb8cc46a44355d9d6e9",
+    "anonymizer": "mcr.microsoft.com/presidio-anonymizer@sha256:a10a12a2a613d13cf29d3ad3641e3258444dd8c90403dd644a0a114c472c2483",
+    "echo": "python:3.12-slim@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54",
+    "postgres": "pgvector/pgvector@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f",
+    "litellm": "ghcr.io/berriai/litellm-database@sha256:35f2cec3a14bb297e08bfab56c1fc377432bc4071aaf71978fdff043a5d91e79",
+    "phoenix": "arizephoenix/phoenix@sha256:1f9a144a5357b4973e93a15718f050247cb7a4ee7b7c6c06ecb91b5eed3fbaad",
+    "playwright": "mcr.microsoft.com/playwright/mcp@sha256:690763cbb437ee7233f538a953bb5390bf03791eb5c965b471e59d17a6132fcb"
+  },
+  "tiers": [
+    [
+      "analyzer",
+      "anonymizer",
+      "echo",
+      "playwright",
+      "postgres"
+    ],
+    [
+      "litellm",
+      "phoenix"
+    ]
+  ],
+  "jobs": {
+    "echo": [
+      "init",
+      "bootstrap"
+    ],
+    "postgres": [
+      "init"
+    ],
+    "phoenix": [
+      "bootstrap"
+    ]
+  },
+  "secrets": {
+    "ab-svc-echo-canary-70011e-g1": {
+      "service": "echo",
+      "value": "secret canary",
+      "source": "import ECHO_CANARY"
+    },
+    "ab-svc-echo-minted-e57abf-g1": {
+      "service": "echo",
+      "value": "secret minted",
+      "source": "bootstrap"
+    },
+    "ab-svc-echo-token-2c38ed-g1": {
+      "service": "echo",
+      "value": "secret token",
+      "source": "generate"
+    },
+    "ab-svc-litellm-anthropic-api-key-018b49-g1": {
+      "service": "litellm",
+      "value": "secret anthropic-api-key",
+      "source": "import ANTHROPIC_API_KEY"
+    },
+    "ab-svc-litellm-gemini-api-key-f2386d-g1": {
+      "service": "litellm",
+      "value": "secret gemini-api-key",
+      "source": "import GEMINI_API_KEY"
+    },
+    "ab-svc-litellm-master-key-ad8fc9-g1": {
+      "service": "litellm",
+      "value": "secret master-key",
+      "source": "generate",
+      "operator_only": true
+    },
+    "ab-svc-litellm-openai-api-key-4a87fd-g1": {
+      "service": "litellm",
+      "value": "secret openai-api-key",
+      "source": "import OPENAI_API_KEY"
+    },
+    "ab-svc-litellm-openrouter-api-key-e8334a-g1": {
+      "service": "litellm",
+      "value": "secret openrouter-api-key",
+      "source": "import OPENROUTER_API_KEY"
+    },
+    "ab-svc-phoenix-admin-password-371e79-g1": {
+      "service": "phoenix",
+      "value": "secret admin-password",
+      "source": "generate"
+    },
+    "ab-svc-phoenix-admin-secret-2812d0-g1": {
+      "service": "phoenix",
+      "value": "secret admin-secret",
+      "source": "generate"
+    },
+    "ab-svc-phoenix-ingest-key-d69af0-g1": {
+      "service": "phoenix",
+      "value": "secret ingest-key",
+      "source": "bootstrap",
+      "services_only": true
+    },
+    "ab-svc-phoenix-read-key-382fd1-g1": {
+      "service": "phoenix",
+      "value": "secret read-key",
+      "source": "bootstrap",
+      "operator_only": true
+    },
+    "ab-svc-phoenix-secret-ef0f70-g1": {
+      "service": "phoenix",
+      "value": "secret secret",
+      "source": "generate"
+    },
+    "ab-svc-postgres-console-8dbd06-g1": {
+      "service": "postgres",
+      "value": "secret console",
+      "source": "generate"
+    },
+    "ab-svc-postgres-databases-litellm-86f17f-g1": {
+      "service": "postgres",
+      "value": "output databases.litellm",
+      "source": "output"
+    },
+    "ab-svc-postgres-databases-phoenix-4f8277-g1": {
+      "service": "postgres",
+      "value": "output databases.phoenix",
+      "source": "output"
+    },
+    "ab-svc-postgres-login-reader-role-d92223-g1": {
+      "service": "postgres",
+      "value": "secret login.reader_role",
+      "source": "generate"
+    },
+    "ab-svc-postgres-role-litellm-d99300-g1": {
+      "service": "postgres",
+      "value": "secret role.litellm",
+      "source": "generate"
+    },
+    "ab-svc-postgres-role-phoenix-2feab4-g1": {
+      "service": "postgres",
+      "value": "secret role.phoenix",
+      "source": "generate"
+    },
+    "ab-svc-postgres-superuser-6307e6-g1": {
+      "service": "postgres",
+      "value": "secret superuser",
+      "source": "generate"
+    }
+  },
+  "operator_only_secrets": [
+    "ab-svc-litellm-master-key-ad8fc9-g1",
+    "ab-svc-phoenix-read-key-382fd1-g1"
+  ]
+}

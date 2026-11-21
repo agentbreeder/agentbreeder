@@ -1,0 +1,20 @@
+usage: agentbreeder services render [-h] [--cluster] --environment ENVIRONMENT
+                                    --out OUT
+                                    [--image NAME=IMAGE@sha256:DIGEST]
+                                    [--env-file ENV_FILE] [--json]
+                                    [dir]
+
+positional arguments:
+  dir
+
+options:
+  -h, --help            show this help message and exit
+  --cluster             Render for Kubernetes (the only target)
+  --environment ENVIRONMENT
+  --out OUT             A new directory, or one holding only a previous render
+  --image NAME=IMAGE@sha256:DIGEST
+                        The pushed image of a service built from a Dockerfile
+                        (repeatable)
+  --env-file ENV_FILE   KEY=value file; every value in it is scanned for in
+                        the chart
+  --json
