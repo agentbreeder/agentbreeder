@@ -392,6 +392,17 @@ field, manifest, JSON Schema, `SCHEMA_VERSION` or `agent.lock` format change. No
 acceptance. Cloud: a `CLAUDE.md` note only; it has no code that reads a runtime manifest, the
 reply's `framework`/`runtime` or the deploy manifest's `runtime`.
 
+**Token cluster provider, #771 K1 (epic #770), per side.** OSS (on `main`; unit-tested with a fake
+kubectl and a local TLS server, the `kind` check written and not run; nothing run against a real
+cluster): `kubernetes_token.py` and `cluster_token.py`; the operator config's `kubernetes` block
+accepts `provider: token` with `token:` and `tools:` (and `kubeconfig` becomes `kind`-only);
+`cluster connect token` checks a cluster and then refuses with `KUBERNETES_POLICY_UNCHECKED`
+(the admission policy check is K2), as do deploys and `promote` to a `token` environment; a
+by-reference binding must belong to the deployment's environment; `disable` revokes the gateway
+key in `finally`; `doctor` reports leftover session directories. No manifest, JSON Schema or
+`agent.lock` change. Website: no change until K9's run. Cloud: a `CLAUDE.md` note only; it has
+no code that reads the operator config's `kubernetes` block.
+
 ## 🎯 When Adding a New Feature
 
 1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?

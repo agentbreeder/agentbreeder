@@ -146,7 +146,7 @@ def _pod(row: dict, state=None) -> dict | None:
         runtime = logs_command._kubernetes()
         if state is not None and row.get("environment"):
             runtime.bindings = _bindings(state, row)
-        runtime.authorize(row["context"])
+        runtime.authorize(row["context"], row.get("environment"))
         info = runtime.inspect(row)
         if info is None:
             return {"running": False, "reason": "GONE"}

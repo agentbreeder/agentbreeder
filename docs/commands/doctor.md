@@ -10,4 +10,6 @@ Implemented: `doctor`.
 
 `doctor --only docker` runs only the Docker engine check (`docker version`, 10 s timeout) and keeps the exit code (1 when it fails); the console's Docker-down blocker polls `doctor --json --only docker` (on `main`, not in a published preview).
 
+`doctor` also warns (never a failure) when cluster session directories are left in `~/.agentbreeder/kube-sessions/` by a killed `token`-provider command (#770 K1); the next cluster command removes those older than 70 minutes (on `main`, not in a published preview).
+
 Flags: `agentbreeder doctor --help`.

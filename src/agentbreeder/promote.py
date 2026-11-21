@@ -21,7 +21,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 import yaml
 
-from agentbreeder import evals, evidence
+from agentbreeder import evals, evidence, kubernetes_providers
 from agentbreeder.agentfile import load_agent_file
 from agentbreeder.deployer import Deployer
 from agentbreeder.deployment import AuditIncomplete, AuditUnavailable, DeploymentService
@@ -147,6 +147,14 @@ def promote(
     config = operator.model.environments.get(env or "")
     if config is None or config.kubernetes is None:
         raise ReleaseError("KUBERNETES_UNCONFIGURED", f"Environment {env} has no kubernetes block")
+    # Before any push: a cluster kind whose deploys are refused (a `token` cluster until #770
+    # K2) never receives an image, and no registry credential is used for it (K8).
+    refusal = getattr(
+        kubernetes_providers.PROVIDERS.get(config.kubernetes.provider), "deploy_refusal", None
+    )
+    refused = refusal() if refusal is not None else None
+    if refused is not None:
+        raise ReleaseError(*refused)
     output = (output or project / "deploy").resolve()
     state = service.store.directory
     with _ReleaseLock(state):

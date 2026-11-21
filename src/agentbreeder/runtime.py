@@ -386,7 +386,7 @@ class Docker:
         argv += ["--since", since] if since else []
         return [*argv, container]
 
-    def authorize(self, context: str | None = None):
+    def authorize(self, context: str | None = None, environment: str | None = None):
         # Explicit remote environment overrides are never silently redirected locally.
         if os.environ.get("DOCKER_HOST"):
             raise DeploymentError("Unset DOCKER_HOST; only local Docker contexts are supported")

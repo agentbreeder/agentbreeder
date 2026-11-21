@@ -63,8 +63,8 @@ def three_x_home_names() -> set[str]:
 def test_every_three_x_home_path_is_known():
     # A new ~/.agentbreeder path in 3.x shows up here and must be checked against the markers.
     assert three_x_home_names() == {
-        "cache", "center", "conformance", "local", "locks", "stacks", "operator.yaml",
-        "oidc-token", "sources.yaml",
+        "cache", "center", "conformance", "kube-sessions", "local", "locks", "stacks",
+        "operator.yaml", "oidc-token", "sources.yaml",
     }  # fmt: skip
 
 

@@ -159,7 +159,7 @@ def verify(runtime, store, record: dict, where=None) -> None:
     where = where or hints.Where()
     shown = _shown(record["id"])
     try:
-        runtime.authorize(record["context"])
+        runtime.authorize(record["context"], record.get("environment"))
     except DeploymentError as error:  # our own message: DOCKER_HOST, context, engine down
         raise InvokeError("DOCKER_UNAVAILABLE", str(error)) from error
     try:

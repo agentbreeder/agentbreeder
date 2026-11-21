@@ -5,7 +5,13 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 
-from agentbreeder.doctor import check_compose, check_docker, check_legacy, check_path
+from agentbreeder.doctor import (
+    check_compose,
+    check_docker,
+    check_kube_sessions,
+    check_legacy,
+    check_path,
+)
 
 NAMES = ("doctor",)
 
@@ -24,7 +30,13 @@ def run(args) -> int:
     if args.only == "docker":  # one engine check, bounded by its own 10 s timeout
         checks = check_docker()
     else:
-        checks = check_docker() + check_compose() + check_path() + check_legacy()
+        checks = (
+            check_docker()
+            + check_compose()
+            + check_path()
+            + check_legacy()
+            + check_kube_sessions()
+        )
     if args.json:
         print(json.dumps([asdict(check) for check in checks], indent=2))
     else:

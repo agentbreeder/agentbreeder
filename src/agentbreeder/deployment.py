@@ -365,7 +365,10 @@ class DeploymentService:
                             "[KUBERNETES_BINDING_CHANGED] This deployment is on another cluster "
                             "or namespace; remove it first"
                         )
-                runtime.authorize(record["context"] if record else None)
+                runtime.authorize(
+                    record["context"] if record else None,
+                    record.get("environment") if record else None,
+                )
             except DeploymentError as error:
                 self._audit(
                     self._event(
@@ -671,6 +674,17 @@ class DeploymentService:
             )
         if manifest.mcp_access is not None:
             return "KUBERNETES_MCP_UNSUPPORTED", "mcp_access is not supported on Kubernetes yet"
+        providers = (
+            self.kubernetes.providers
+            if isinstance(self.kubernetes, Kubernetes)
+            else kubernetes_providers.PROVIDERS
+        )
+        refusal = getattr(providers.get(config.kubernetes.provider), "deploy_refusal", None)
+        refused = refusal() if refusal is not None else None
+        if refused is not None:
+            # e.g. #770 §4.4 and §7.2: a deploy to a `token` cluster re-reads the admission
+            # policies first; that check is K2's, so until then nothing deploys there.
+            return refused
         if kit_egress.is_kit(manifest) and kit_egress.gateway_on_host(
             manifest, self.operator.model
         ):
@@ -1125,7 +1139,7 @@ class DeploymentService:
                 ),
             )
         try:
-            self.runtime.authorize(record["context"])
+            self.runtime.authorize(record["context"], record.get("environment"))
             self.kit.teardown(record)
         except DeploymentError as error:
             self._audit(
@@ -1168,7 +1182,7 @@ class DeploymentService:
         the engine itself cannot be reached nothing can be checked or removed: the deployment
         is reported unverified and left as recorded."""
         try:
-            self.runtime.authorize(record["context"])
+            self.runtime.authorize(record["context"], record.get("environment"))
         except DeploymentError:
             return "unreachable"
         try:
@@ -1489,7 +1503,7 @@ class DeploymentService:
             )
             self._audit(self._event(attempt, "remove", "allow", actor, deployment_id=identifier))
             try:
-                runtime.authorize(record["context"])
+                runtime.authorize(record["context"], record.get("environment"))
             except DeploymentError as error:
                 self._audit(
                     self._event(
@@ -1651,50 +1665,77 @@ class DeploymentService:
         return list(records.values())
 
     def _stop_blocked(self, key, env, attempt, actor, provider=None, ref=None):
+        """Stop every affected deployment. The gateway key is revoked in `finally`, per record,
+        so a failed `authorize`, mint or removal still cuts the agent's model access when the
+        gateway is reachable (#770 §4.3 item 5); a failed revoke is reported beside the original
+        error, never in place of it, and `reconcile` retries it."""
         stopped, failed = [], []
         for record in self._affected(key, env, provider, ref):
             identifier = record["id"]
             target = self._target_of(identifier)
             runtime = self._runtime_for(target)
+            revoked: list[str | None] = []
+            failure: str | None = None
             try:
-                runtime.authorize(record["context"])
-                info = runtime.inspect(record)
-                if info:
-                    runtime.remove(info)
-                elif target == "kubernetes":
-                    runtime.sweep(record)
-                if self.boundary.enforced(record):
-                    self.boundary.teardown(record)
-                elif target == "local" and self._kit_owned(record):
-                    self.kit.teardown(record)
-                if runtime.inspect(record) is not None:
-                    raise DeploymentError("Container stop could not be verified; retry reconcile")
-                grants_ok = self._revoke_mcp(identifier)
-                secret_files.cleanup(self.store.directory, identifier)
-                self._revoke_key(self.store.manifest(identifier), identifier, attempt, actor)
-                if not grants_ok:
-                    raise DeploymentError(
-                        "[MCP_GRANT_CLEANUP] MCP grant files not deleted; retry reconcile"
-                    )
-                self.store.transition(
-                    identifier,
-                    "disabled",
-                    audit=self._event(
-                        attempt, "transition", "disabled", actor, deployment_id=identifier
-                    ),
-                )
-                stopped.append(identifier)
+                self._stop_one(record, target, runtime, attempt, actor, revoked)
             except DeploymentError as error:
+                failure = str(error)
+            finally:
+                # Runs on any failure before the revoke, an unexpected one included; a revoke
+                # that raises is reported as failed and never replaces the original error.
+                if not revoked:
+                    try:
+                        outcome = self._revoke_key(
+                            self.store.manifest(identifier), identifier, attempt, actor
+                        )
+                    except Exception:
+                        outcome = "revoke_failed"
+                    if failure is not None and outcome == "revoke_failed":
+                        failure += "; the gateway key revoke also failed (reconcile retries it)"
+            if failure is None:
+                stopped.append(identifier)
+            else:
+                message = failure
                 self.store.transition(
                     identifier,
                     "failed",
-                    error=f"Disable incomplete: {error}",
+                    error=f"Disable incomplete: {message}",
                     audit=self._event(
                         attempt, "transition", "failed", actor, deployment_id=identifier
                     ),
                 )
-                failed.append({"id": identifier, "error": str(error)})
+                failed.append({"id": identifier, "error": message})
         return stopped, failed
+
+    def _stop_one(self, record, target, runtime, attempt, actor, revoked: list) -> None:
+        """One record of the kill switch; appends to `revoked` once the key revoke has run."""
+        identifier = record["id"]
+        runtime.authorize(record["context"], record.get("environment"))
+        info = runtime.inspect(record)
+        if info:
+            runtime.remove(info)
+        elif target == "kubernetes":
+            runtime.sweep(record)
+        if self.boundary.enforced(record):
+            self.boundary.teardown(record)
+        elif target == "local" and self._kit_owned(record):
+            self.kit.teardown(record)
+        if runtime.inspect(record) is not None:
+            raise DeploymentError("Container stop could not be verified; retry reconcile")
+        grants_ok = self._revoke_mcp(identifier)
+        secret_files.cleanup(self.store.directory, identifier)
+        revoked.append(
+            self._revoke_key(self.store.manifest(identifier), identifier, attempt, actor)
+        )
+        if not grants_ok:
+            raise DeploymentError(
+                "[MCP_GRANT_CLEANUP] MCP grant files not deleted; retry reconcile"
+            )
+        self.store.transition(
+            identifier,
+            "disabled",
+            audit=self._event(attempt, "transition", "disabled", actor, deployment_id=identifier),
+        )
 
     def _idp_disable(self, key, principal, attempt, actor) -> str:
         provider, _, identifier = json.loads(key)
@@ -2062,7 +2103,7 @@ class DeploymentService:
         """Restore the enforcement point (never the agent) and re-verify before any traffic.
         A boundary that cannot be re-verified is torn down."""
         try:
-            self.runtime.authorize(record["context"])
+            self.runtime.authorize(record["context"], record.get("environment"))
             if not self.boundary.service_healthy(record) or not self._sidecar_running(record):
                 self.boundary.set_serving(record, False)  # nothing flows until re-verified
                 if not self.boundary.service_healthy(record):
@@ -2104,7 +2145,7 @@ class DeploymentService:
     def _retry_boundary_cleanup(self, record, attempt, actor) -> str:
         """Failed boundary deployments keep retrying a verified teardown until it succeeds."""
         try:
-            self.runtime.authorize(record["context"])
+            self.runtime.authorize(record["context"], record.get("environment"))
             self.boundary.teardown(record)
         except DeploymentError as error:
             self._audit(

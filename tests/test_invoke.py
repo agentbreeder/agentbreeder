@@ -73,7 +73,7 @@ class FakeDocker:
         self.endpoint_value, self.gone, self.error = endpoint, gone, error
         self.calls = []
 
-    def authorize(self, context=None):
+    def authorize(self, context=None, environment=None):
         self.calls.append(("authorize", context))
         if self.error:
             raise self.error

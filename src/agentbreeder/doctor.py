@@ -71,6 +71,27 @@ def check_legacy() -> list[Check]:
     ]
 
 
+def check_kube_sessions() -> list[Check]:
+    """Report cluster session directories left behind (#770 §4.2): a `token` provider session
+    holds a short-lived token and is removed when its command ends; a killed command can leave
+    one. Read-only: the next cluster command's sweep removes those older than 70 minutes."""
+    from agentbreeder import kubernetes_token
+
+    present, stale = kubernetes_token.leftovers()
+    if not present:
+        return []
+    return [
+        Check(
+            "Cluster sessions",
+            False,
+            f"{present} cluster session directories in {kubernetes_token.sessions_root()} "
+            f"({stale} older than 70 minutes, with expired tokens); a killed command left them, "
+            "and the next cluster command removes the old ones.",
+            required=False,
+        )
+    ]
+
+
 def check_docker() -> list[Check]:
     docker = shutil.which("docker")
     if docker is None:

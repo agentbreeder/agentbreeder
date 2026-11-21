@@ -451,3 +451,35 @@ def test_cli_promote_success_path(project, cluster_env, state, released, monkeyp
         ]
     )
     assert code == 0 and json.loads(capsys.readouterr().out) == {"exit_code": 0}
+
+
+def test_promote_to_a_token_cluster_is_refused_before_any_push(
+    project, cluster_env, state, released
+):  # noqa: F811
+    """#770 K1: deploys to a `token` cluster wait for K2's admission policy check, so promote
+    refuses before pushing, and no registry credential is used for that registry."""
+    import hashlib
+
+    from test_kubernetes_token import CA_PEM
+
+    from agentbreeder.evidence import ReleaseError
+
+    cluster_env.config["environments"]["dev"]["kubernetes"] = {
+        "provider": "token",
+        "context": "cluster",
+        "cluster_uid": UID,
+        "namespace": "agents",
+        "registry": "registry.example.com/agentbreeder",
+        "blocked_cidrs": ["10.0.0.0/8"],
+        "token": {
+            "server": "https://203.0.113.20:6443",
+            "ca_pem": CA_PEM,
+            "ca_sha256": hashlib.sha256(CA_PEM.encode()).hexdigest(),
+            "mint_kubeconfig": "/nonexistent/mint",
+            "mint_kubeconfig_sha256": "0" * 64,
+        },
+        "tools": {"kubectl": "/nonexistent/kubectl", "kubectl_sha256": "0" * 64},
+    }
+    with pytest.raises(ReleaseError, match="KUBERNETES_POLICY_UNCHECKED"):
+        run_promote(project, cluster_env, state, released, FakeCluster())
+    assert not (project / "deploy" / "helper.kubernetes.deploy.yaml").exists()

@@ -47,6 +47,8 @@ def _no_real_legacy_home(monkeypatch):
     monkeypatch.setattr(doctor, "check_legacy", lambda: [])
     # The PATH check runs whatever `agentbreeder` the machine has; tests/test_doctor_path.py.
     monkeypatch.setattr(doctor, "check_path", lambda: [])
+    # Nor the developer's real cluster session directories (#770 K1, test_kubernetes_token.py).
+    monkeypatch.setattr(doctor, "check_kube_sessions", lambda: [])
 
 
 def principal_entry(**overrides) -> dict:
