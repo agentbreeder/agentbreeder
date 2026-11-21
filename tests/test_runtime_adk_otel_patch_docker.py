@@ -1,6 +1,7 @@
 """The Docker rerun for `runtime/adk@1.4.1` and `runtime/adk@1.5.1` (the opentelemetry dependency
-update). **Written, not run**: it needs Docker and the Northwind stack up with real keys, so it
-is opt-in:
+update). Run on macOS x86_64 on 2026-11-20 (2 passed; record:
+docs/superpowers/verification/1190-adk-otel-patch-docker.md). It needs Docker and the Northwind
+stack up with real keys, so it is opt-in:
 
     cd src/agentbreeder/examples/northwind      # or a copy; then set AGENTBREEDER_NORTHWIND_DIR
     agentbreeder services up --environment dev --env-file <your key file>
@@ -39,6 +40,17 @@ NORTHWIND = Path(os.getenv("AGENTBREEDER_NORTHWIND_DIR") or EXAMPLES / "northwin
 STACK = ["--stack", f"../{NORTHWIND.name}", "--environment", "dev"]
 NAME = "northwind-support"
 EXPECTED = {"opentelemetry-api": "1.45.2", "opentelemetry-sdk": "1.45.2", "google-adk": "2.14.0"}
+# The checks every `runtime/adk` image fails against protocol v1 (1.3.0 and 1.5.0 in
+# docs/superpowers/verification/F2a-adk-baseline.md, owner decision D14; 1.4.0 the same in
+# 1190-adk-otel-patch-docker.md). A dependency update may not add a failure, nor pass fewer
+# checks than the base versions' 22.
+ADK_V1_GAPS = {
+    "sessions.busy",
+    "traces.llm_span",
+    "model_errors.text_logs",
+    "model_errors.text_spans",
+}
+ADK_V1_PASSES = 22
 
 
 def cli(*args: str, cwd: Path, timeout: int = 1800) -> subprocess.CompletedProcess:
@@ -82,14 +94,16 @@ def _build_and_check(version: str) -> tuple[Path, dict]:
     installed = _installed(built["image"])
     for name, pin in EXPECTED.items():
         assert installed.get(name) == pin, (name, installed.get(name))
-    # `conformance` exits 1 for `incomplete` (checks not built yet); no check may fail.
+    # `conformance` exits 1 for `incomplete` or `fail`; no check may fail beyond ADK's v1 gaps.
     report = _json(
         cli("conformance", built["image"], "--project", str(port), "--json", cwd=port), ok=(0, 1)
     )
     print(
         version, "conformance:", report["result"], {r["id"]: r["status"] for r in report["checks"]}
     )
-    assert not [row for row in report["checks"] if row["status"] == "fail"]
+    failed = {row["id"] for row in report["checks"] if row["status"] == "fail"}
+    assert failed <= ADK_V1_GAPS, sorted(failed - ADK_V1_GAPS)
+    assert report["counts"]["pass"] >= ADK_V1_PASSES, report["counts"]
     return port, built
 
 

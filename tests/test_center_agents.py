@@ -311,6 +311,12 @@ def test_identity_view_shows_what_stack_yaml_declares(center, project, cookie, p
                 "review_by": "2027-06-30",
                 "candidate": True,
             },
+            # And the Deep Agents port's (#1083 F5).
+            "northwind-support-deepagents": {
+                "sponsor": "support-lead@example.com",
+                "review_by": "2027-06-30",
+                "candidate": True,
+            },
         },
     }
 
