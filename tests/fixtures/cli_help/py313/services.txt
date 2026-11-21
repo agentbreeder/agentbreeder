@@ -1,11 +1,13 @@
 usage: agentbreeder services [-h]
-                             {up,plan,pins,status,logs,usage,start,stop,restart,env,down} ...
+                             {up,plan,render,pins,status,logs,usage,start,stop,restart,env,down} ...
 
 positional arguments:
-  {up,plan,pins,status,logs,usage,start,stop,restart,env,down}
+  {up,plan,render,pins,status,logs,usage,start,stop,restart,env,down}
     up                  Start the stack and write its demo config
     plan                Show the grant `up` would ask to confirm (starts
                         nothing)
+    render              Write a Helm chart for the stack's services (no
+                        cluster; preview, not run on one)
     pins                Probe every MCP relay and show what a repin would pin,
                         with its digest
     status              Show the stack's services

@@ -594,6 +594,9 @@ health: {http: /healthz}
 egress: true                        # outbound internet; shown in the grant
 # reaches_host: [11434]             # built-in gateway only (REACHES_HOST_REFUSED otherwise):
                                     # host.docker.internal for a reviewed Ollama entry
+# resources:                        # optional; `services render --cluster` only (Compose ignores it)
+#   requests: {cpu: 100m, memory: 256Mi}
+#   limits: {cpu: "2", memory: 2Gi}  # cpu in m or cores, memory in Ki/Mi/Gi
 outputs:
   url: {type: url, port: http}
   # A secret output built from parts names only {address}, {item} (with `per:`), the service's
@@ -876,6 +879,66 @@ manifest that references `secret://eval-database`, `secret://agent-database` or
 owner's or the console's credential. Deploy is the boundary: `build` copies the operator config's
 bindings as they are, and deploy denies them. `up` owns these three files and overwrites or
 deletes them; don't store your own secrets under these names.
+
+## A Helm chart for a cluster (preview, not run)
+
+`agentbreeder services render DIR --cluster --environment ENV --out CHART` (#772 K3, on `main`,
+not in a published preview) writes a Helm 3 chart for the stack's services from the same plan as
+the Compose file. Nothing installs it yet (`services up --cluster` is K4), and no part of it has
+run on a cluster: `helm lint` and `helm template` were not run on its output (the opt-in test
+`AGENTBREEDER_HELM_TEST=1 python -m pytest tests/test_services_chart.py -k real_helm` is written,
+not run). Design: `docs/superpowers/specs/2026-11-14-production-kubernetes-design.md` §5.
+
+```
+CHART/
+  Chart.yaml          # ab-<stack>, version 0.0.0+<stack.lock sha256[:12]>, kubeVersion >=1.30
+  values.yaml         # tiers.tierN: true, one flag per install tier; nothing else
+  templates/<svc>.yaml
+  jobs/<svc>-init.yaml, jobs/<svc>-bootstrap.yaml   # not in the release (.helmignore)
+  agentbreeder.lock   # renderer, stack.lock digest, images, tiers, every Secret name
+```
+
+- **Same names.** Service names are the stack's (`postgres`, `litellm`), so `http://litellm:4000`
+  resolves in the namespace. Objects carry `app.kubernetes.io/part-of: agentbreeder-services`,
+  `app.kubernetes.io/managed-by: agentbreeder`, `io.agentbreeder/stack` and
+  `io.agentbreeder/service`; pods also `io.agentbreeder/chart-service`, the only label Services
+  select on (Job pods never carry it).
+- **Tiers.** A service's tier is one more than its highest wired upstream (Northwind: postgres;
+  litellm and phoenix; ops and proxy). Each template file is wrapped in
+  `{{- if .Values.tiers.tierN }}`; every other `{{` is escaped, so a file's content is never a
+  template.
+- **Files.** A service's `files/` directory and its file params are ConfigMaps mounted read-only
+  at `/files` (executable files 0555, others 0444) and `/run/params/<name>`; more than 900 KiB in
+  one is `CHART_FILES_TOO_LARGE`, and `files/` may hold only regular files.
+- **Secrets, by reference only.** `/run/secrets` is a projected volume of Secrets named
+  `ab-svc-<service>-<name>-<hash>-g<generation>`, one per value (key `value`), laid out as
+  locally (`role/<item>` for per-item values). Imported optional keys and bootstrap-written
+  values are `optional`. The chart holds no Secret object and no value; before anything is
+  written, every file is scanned for the stack's stored values and the imported variables'
+  current values (process environment, then `--env-file`, every value in that file),
+  literally and base64-, URL- and JSON-encoded, in each file as written and with the renderer's
+  own escapes undone (`CHART_SECRET_LEAK`). The scan only finds values it knows, and skips
+  values shorter than 8 characters.
+- **Hardening, every pod.** `restricted` Pod Security fields: non-root (a `uid:gid` user runs as
+  it, with `fsGroup` for volumes; `user: image` keeps the image's user, which the kubelet refuses if
+  it is root or not numeric; `user: host` is refused), `RuntimeDefault` seccomp, no privilege
+  escalation, all capabilities dropped, a read-only root with memory-backed `emptyDir` for `/tmp`
+  and declared `tmpfs` paths, no service-account token, `enableServiceLinks: false`, images by
+  digest, requests and limits (service.yaml `resources`, else 100m/256Mi requested and 2 CPU/2Gi
+  limited), no host network, ports or paths. Services are ClusterIP only. `$` in env, command and
+  args is doubled, so Kubernetes never expands `$(VAR)`. A check over every object refuses
+  anything else (`CHART_HARDENING`, `CHART_EXPOSURE_REFUSED`). Weaker than local: a memory
+  `emptyDir` can't be `noexec`/`nosuid` as Compose's tmpfs is, and there is no per-pod pid limit
+  (Compose sets 512).
+- **Output.** `--out` must be new or empty, or a previous render holding only what render
+  writes (it is then replaced whole); anything else, such as a README added beside the chart, is
+  `CHART_OUT_NOT_EMPTY`. `--image` takes `[host[:port]/]name[:tag]@sha256:<digest>`.
+- **Not covered yet.** NetworkPolicies (K6), stacks with `mcp:` (`CHART_MCP_UNSUPPORTED`), a
+  gateway that reaches the operator's host (`CHART_HOST_UNSUPPORTED`), agent bindings and the
+  eval database (K5), image mirroring (K4). Volume size is a fixed 10Gi. Whether each image
+  starts with a read-only root, its user and these limits is to be measured on a cluster;
+  Postgres in particular mounts its volume at `/var/lib/postgresql/data` as locally, which on a
+  PVC root may need a `PGDATA` subdirectory (K4 measures it).
 
 ## Limits (preview)
 

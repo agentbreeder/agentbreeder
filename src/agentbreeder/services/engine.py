@@ -8,6 +8,7 @@ value stays in the stack state dir; nothing is written to the repo except `stack
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shlex
@@ -544,6 +545,68 @@ class Engine:
             "keys": sorted(needed.values(), key=lambda key: key["name"]),
             "mcp": sorted(plan.locked.mcp),
         }
+
+    def render_cluster(
+        self,
+        environment: str,
+        out: Path,
+        *,
+        images: dict[str, str] | None = None,
+        env_file: Path | None = None,
+    ) -> dict:
+        """`services render --cluster` (#772 K3): the stack's services as a Helm chart in `out`,
+        from the locked stack (stack.lock must exist and match; it is never written). No
+        cluster, no `helm`, no secret value: the chart references Secrets by name, and it is
+        scanned for every value this stack stores locally or imports (CHART_SECRET_LEAK)
+        before anything is written."""
+        from agentbreeder.services import chart
+
+        self.state.env_dir(environment)  # validates the name
+        lock_path = self.project / LOCK_FILE
+        if not lock_path.is_file():
+            raise ServiceError(
+                "CHART_LOCK_MISSING",
+                f"render needs {LOCK_FILE}; run `"
+                f"{hints.command('services', 'up', self.project, environment=environment)}` "
+                f"once (or commit the stack's {LOCK_FILE})",
+            )
+        lock_sha256 = hashlib.sha256(lock_path.read_bytes()).hexdigest()
+        plan = self.plan("locked")
+        rendered = chart.build(plan, environment, stack_lock_sha256=lock_sha256, images=images)
+        chart.scan(chart.chart_texts(rendered), self._known_values(plan, env_file))
+        target = chart.write(rendered.files(), out)
+        return {
+            "schema_version": 1,
+            "stack": self.stack.name,
+            "environment": environment,
+            "chart": rendered.name,
+            "version": rendered.version,
+            "out": str(target),
+            "tiers": rendered.tiers,
+            "jobs": rendered.record["jobs"],
+            "secrets": sorted(rendered.record["secrets"]),
+            "operator_only_secrets": rendered.record["operator_only_secrets"],
+        }
+
+    def _known_values(self, plan: Plan, env_file: Path | None) -> list[bytes]:
+        """What render scans for: the stack's stored values and the imported variables'
+        current values (process environment, then `env_file`). Held in memory only."""
+        values = list(self.state.known_secrets())
+        for name in plan.locked.resolved.order:
+            for source in plan.spec(name).secrets.values():
+                if source.import_:
+                    try:
+                        value = self._import(plan, name, source.import_, env_file)
+                    except env_import.EnvImportError as error:
+                        raise ServiceError(error.code, str(error)) from None
+                    if value:
+                        values.append(value.encode())
+        if env_file is not None:  # every value in it, not only the variables services import
+            try:
+                values += [v.encode() for v in env_import.parse_env_file(env_file).values()]
+            except env_import.EnvImportError as error:
+                raise ServiceError(error.code, str(error)) from None
+        return values
 
     def _attach_cluster(self, plan: Plan) -> None:
         """Compose recreates the agents network, so the kind node is attached again here."""
