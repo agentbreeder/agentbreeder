@@ -19,9 +19,9 @@ with real keys, and (for the last test) a `kind` cluster, so it is opt-in:
       AGENTBREEDER_NORTHWIND_DIR="$WORK/northwind" \\
       python -m pytest -q tests/test_northwind_claude_agent_sdk_docker.py -k kind
 
-The port is not in the wheel (D8): from an installed wheel, copy
-`src/agentbreeder/examples/northwind-claude-agent-sdk` from a checkout beside the Northwind copy
-first (`_port` uses it when it exists).
+The port ships in the package as an example, with its own project registry (D8: never in
+`builtin_registry`, no CLI bytes). `_port` copies it beside the Northwind copy unless a copy is
+already there.
 
 Building the image downloads the claude-agent-sdk wheel, with the Claude Code CLI inside, from
 PyPI on this machine (owner decision D8): running it means accepting Anthropic's terms for

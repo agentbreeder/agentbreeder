@@ -12,7 +12,7 @@ and eval set are Northwind's, from Northwind's registry (`tests/test_northwind_c
 | What | Where |
 |---|---|
 | Agent definition | `agent.yaml`, `agent.lock` (Northwind's entries say `source: ../northwind/registry`) |
-| Runtime | `registry/runtime/claude-agent-sdk/1.0.0/`, this project's own registry: **AgentBreeder does not ship it** (D8) |
+| Runtime | `registry/runtime/claude-agent-sdk/1.0.0/`, this project's own registry, never AgentBreeder's built-in registry (D8); it holds no CLI bytes |
 | Prompt, knowledge, tools, eval set | `../northwind/registry/` |
 | Backing services | Northwind's `stack.yaml`, which also names this agent's identity |
 

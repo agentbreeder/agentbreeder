@@ -189,9 +189,10 @@ guardrails floor. 1.0.0 to 1.2.0 unchanged (they still honour `custom_llm_provid
 Northwind not relocked. No manifest, JSON Schema or `agent.lock` format change. Website: no change
 until release R. Cloud: a `CLAUDE.md` note only.
 
-**Gateway Messages route, #1089, per side.** OSS (on `main`; unit-tested, the opt-in Docker test is
-written and not run): built-in `service/litellm@1.4.0` (1.3.0's image, launcher and `service.yaml`,
-a new filter) also serves `/v1/messages` (`anthropic_messages`), with 1.3.0's refusals plus
+**Gateway Messages route, #1089, per side.** OSS (on `main`; unit-tested, and the opt-in Docker test
+passed on 2026-11-20 against the real LiteLLM 1.106.2 image with stub providers, PR #1187):
+built-in `service/litellm@1.4.0` (1.3.0's image, launcher and `service.yaml`, a new filter)
+also serves `/v1/messages` (`anthropic_messages`), with 1.3.0's refusals plus
 `mcp_servers`, `container`, `service_tier`, `speed`, `inference_geo`, betas, `compaction`,
 `safeguards`, typed tools, provider headers other than `anthropic-version`, and Files API or URL
 content (`GATEWAY_PARAM_REFUSED`); chat and embeddings are filtered as on 1.3.0.

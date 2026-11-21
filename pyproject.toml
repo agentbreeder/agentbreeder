@@ -68,6 +68,12 @@ agentbreeder = [
     "examples/http-agent/agent.yaml",
     "examples/http-agent/quickstart.py",
     "examples/http-agent/server.py",
+    # The Claude Agent SDK port also ships its own project registry (the runtime version, D8:
+    # never builtin_registry; its lock pins the SDK wheel, which the user's build downloads).
+    "examples/northwind-claude-agent-sdk/README.md",
+    "examples/northwind-claude-agent-sdk/agent.yaml",
+    "examples/northwind-claude-agent-sdk/agent.lock",
+    "examples/northwind-claude-agent-sdk/registry/**/*",
     "examples/northwind-crewai/README.md",
     "examples/northwind-crewai/agent.yaml",
     "examples/northwind-crewai/agent.lock",

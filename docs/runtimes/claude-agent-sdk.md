@@ -15,7 +15,7 @@ else in `agent.yaml` means what it means on `runtime/adk@1.3.0`:
 runtime: runtime/claude-agent-sdk@1.0.0
 ```
 
-## AgentBreeder does not ship it: you supply it (owner decision D8)
+## Not in the built-in registry: you supply it (owner decision D8)
 
 Every platform wheel of `claude-agent-sdk` bundles the Claude Code CLI as a native binary
 (0.2.177 bundles CLI 2.1.317). The SDK is MIT; the CLI is "© Anthropic PBC. All rights reserved"
@@ -23,7 +23,8 @@ and governed by Anthropic's legal agreements (Commercial Terms for API users). S
 
 - this runtime is **not** in AgentBreeder's built-in registry, and AgentBreeder publishes no image
   containing the CLI;
-- the runtime directory is an example in `examples/northwind-claude-agent-sdk/registry/`. You copy
+- the runtime directory is an example in `examples/northwind-claude-agent-sdk/registry/` (the
+  package carries it as that example's own project registry; it holds no CLI bytes). You copy
   `registry/runtime/claude-agent-sdk/1.0.0/` into **your own project's** `registry/` (the same
   directory layout), lock it with `agentbreeder build`, and your build downloads the SDK wheel,
   with the CLI inside it, from PyPI on your machine, pinned by its hash in

@@ -1350,7 +1350,7 @@
   },
   "examples/northwind-claude-agent-sdk/README.md": {
    "exec": false,
-   "sha256": "be5ce70d981a14b9c968c1d19300114a20cf941562de4c8a38dc2e5937ed3a75"
+   "sha256": "8de99f5f50f745a04b9c74536db0cfd0e8a9b9983e6251bdfca9e3d54f929486"
   },
   "examples/northwind-claude-agent-sdk/agent.lock": {
    "exec": false,

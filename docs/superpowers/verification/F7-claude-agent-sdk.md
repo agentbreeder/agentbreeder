@@ -109,7 +109,7 @@ All read-only subagents on Sonnet (the coder ran on Opus); the head SHAs are in 
   gateway accepted Northwind's `stack/litellm/config.yaml`**; no call by the CLI or the evals was
   refused (`GATEWAY_PARAM_REFUSED` / `GATEWAY_ROUTE_REFUSED`: none). Northwind's shipped stack was
   not changed.
-- The port is not in the wheel (D8), so it was copied from the exported tree beside the Northwind
+- The port was not in the wheel at this run (it was added later, as an example), so it was copied from the exported tree beside the Northwind
   copy; the test file ran from the sandbox, outside the repository, with
   `AGENTBREEDER_NORTHWIND_DIR` set to the copy.
 

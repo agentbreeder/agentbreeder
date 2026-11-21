@@ -131,4 +131,4 @@ role, and the agent's other container flags. The agent and CLI containers share 
 volume (`/run/agentbreeder-cli`, writable by the agent's uid only). Deploy verifies the CLI
 container before the deployment is ready and removes it and the volume on teardown. On `kind` the
 pod gets the same second container (`cli`). Only `runtime/claude-agent-sdk@1.0.0`, which
-AgentBreeder does not ship, declares it; see [runtimes/claude-agent-sdk.md](runtimes/claude-agent-sdk.md).
+is not in the built-in registry, declares it; see [runtimes/claude-agent-sdk.md](runtimes/claude-agent-sdk.md).
