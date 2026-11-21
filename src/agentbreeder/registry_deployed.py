@@ -53,9 +53,10 @@ COLUMN_LIMIT = 512  # id, name, state, environment, endpoint: display values
 QUERY_SECONDS = 5.0
 PROGRESS_STEPS = 1000  # SQLite VM steps between deadline checks
 # store.py schema versions this reader understands: v2 added the `environment` column (with
-# the gate columns), v3 the held_calls table, v4 the `package` column (M13 #763). A v1 state has
+# the gate columns), v3 the held_calls table, v4 the `package` column (M13 #763), v5 the
+# `cluster_bindings` table and provider-tagged Kubernetes contexts (#771 K0). A v1 state has
 # no `environment`; any command that opens it read-write (e.g. `status`) migrates it.
-_STATE_SCHEMAS = (2, 3, 4)
+_STATE_SCHEMAS = (2, 3, 4, 5)
 _PACKAGE_SCHEMA = 4
 _SQLITE_HEADER = b"SQLite format 3\x00"
 RUNNING = "ready"  # the state store.py records for a healthy, started deployment

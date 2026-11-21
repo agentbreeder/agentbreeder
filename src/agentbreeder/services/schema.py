@@ -153,6 +153,21 @@ class Health(_Strict):
         return self
 
 
+class ResourceAmounts(_Strict):
+    """Kubernetes quantities, a small safe subset: cpu as millicores or cores, memory in
+    Ki/Mi/Gi. Used by `services render --cluster` only (#772 K3); Compose ignores them."""
+
+    cpu: str | None = Field(
+        default=None, pattern=r"^([1-9][0-9]{0,5}m|[0-9]{1,3}(\.[0-9]{1,3})?)$"
+    )
+    memory: str | None = Field(default=None, pattern=r"^[1-9][0-9]{0,6}(Ki|Mi|Gi)$")
+
+
+class Resources(_Strict):
+    requests: ResourceAmounts = Field(default_factory=ResourceAmounts)
+    limits: ResourceAmounts = Field(default_factory=ResourceAmounts)
+
+
 WRITES_LIMIT = 4
 
 
@@ -257,6 +272,8 @@ class ServiceSpec(_Strict):
     # e.g. postgres's /var/run/postgresql socket directory.
     tmpfs: list[str] = Field(default_factory=list)
     health: Health | None = None
+    # Requests and limits on a cluster (#772 K3); defaults apply where unset.
+    resources: Resources | None = None
     egress: bool = False
     # Host ports the service may reach at host.docker.internal (#1025 §6.2): at most one, and
     # only the built-in gateway may declare it (lock.py checks the origin). Compose maps the

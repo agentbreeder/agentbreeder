@@ -10,12 +10,13 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from pydantic import ValidationError as PydanticValidationError
 
-from agentbreeder import gateway_keys, secret_files
+from agentbreeder import gateway_keys, kubernetes_providers, secret_files
 from agentbreeder import mcp as mcp_relay
 from agentbreeder.audit import AuditError, AuditEvent
 from agentbreeder.deployer import Deployer, os_deployer
@@ -75,6 +76,16 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _with_binding(fields: dict, runtime) -> dict:
+    """`fields` with the runtime's by-reference cluster binding (id and digest) in the audit
+    context, which `Kubernetes.authorize` later checks the binding row against (#771 K0). An
+    inline binding (`kind`) and local Docker leave the event unchanged."""
+    entry = kubernetes_providers.audit_entry(runtime)
+    if entry is None:
+        return fields
+    return {**fields, "context": {**(fields.get("context") or {}), "cluster_binding": entry}}
+
+
 class DeploymentService:
     def __init__(
         self,
@@ -83,12 +94,21 @@ class DeploymentService:
         operator: OperatorConfig | None = None,
         gate: IdentityGate | None = None,
         kubernetes: Kubernetes | None = None,
+        providers: Mapping[str, type] | None = None,
     ):
+        """`providers` replaces the cluster providers of the Kubernetes runtime this builds
+        (#770 §4.1): the injectable provider session."""
         self.store = store
         self.runtime = runtime
         self.operator = operator or load_operator_config()
         self.gate = gate or IdentityGate(self.operator)
-        self.kubernetes = kubernetes if kubernetes is not None else Kubernetes(self.operator)
+        self.kubernetes = (
+            kubernetes
+            if kubernetes is not None
+            else Kubernetes(self.operator, providers=providers, bindings=store)
+        )
+        if isinstance(self.kubernetes, Kubernetes) and self.kubernetes.bindings is None:
+            self.kubernetes.bindings = store  # by-reference cluster bindings (#771 K0)
         self.boundary = Boundary(runtime, store.directory, self.operator)
         # Default-deny egress for `runtime.profile: kit` manifests on local Docker (#1083 F1b).
         self.kit = kit_egress.KitBoundary(runtime)
@@ -96,6 +116,12 @@ class DeploymentService:
         # Secret copies of deployments whose start failed, read just before their cleanup and
         # kept only in this process, so `release` can still redact the failed candidate's log.
         self.retained_secrets: dict = {}
+
+    def close(self) -> None:
+        """End the Kubernetes provider session, if one is open (#771 K0). Command handlers call
+        it in `finally`, so a provider's per-operation credentials never outlive the command."""
+        if isinstance(self.kubernetes, Kubernetes):
+            self.kubernetes.close()
 
     def _retain_copies(self, identifier: str) -> None:
         from agentbreeder import redaction
@@ -334,7 +360,7 @@ class DeploymentService:
             try:
                 if manifest.target == "kubernetes":
                     runtime.select(context.environment)
-                    if record and record["context"] != runtime.context:
+                    if record and not Kubernetes.same_binding(record["context"], runtime.context):
                         raise DeploymentError(
                             "[KUBERNETES_BINDING_CHANGED] This deployment is on another cluster "
                             "or namespace; remove it first"
@@ -372,7 +398,11 @@ class DeploymentService:
                             runtime.context,
                             approval_id=approval["id"] if approval else None,
                             audit=self._event(
-                                attempt, "deployment_created", "allow", deployer, **fields
+                                attempt,
+                                "deployment_created",
+                                "allow",
+                                deployer,
+                                **_with_binding(fields, runtime),
                             ),
                             package=linked,
                             **identity_columns,

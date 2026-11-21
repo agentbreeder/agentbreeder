@@ -1,0 +1,154 @@
+{
+  "chart_format": 1,
+  "renderer": "agentbreeder VERSION",
+  "stack": "northwind",
+  "environment": "dev",
+  "chart": "ab-northwind",
+  "version": "0.0.0+e2863df330b6",
+  "stack_lock_sha256": "e2863df330b6d3edb7ff5e433abed92ac349ffba646049b75eadb2febe1efedb",
+  "images": {
+    "postgres": "pgvector/pgvector@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f",
+    "litellm": "ghcr.io/berriai/litellm-database@sha256:35f2cec3a14bb297e08bfab56c1fc377432bc4071aaf71978fdff043a5d91e79",
+    "phoenix": "arizephoenix/phoenix@sha256:1f9a144a5357b4973e93a15718f050247cb7a4ee7b7c6c06ecb91b5eed3fbaad",
+    "ops": "registry.example.test/northwind/ops@sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "proxy": "registry.example.test/northwind/proxy@sha256:abababababababababababababababababababababababababababababababab"
+  },
+  "tiers": [
+    [
+      "postgres"
+    ],
+    [
+      "litellm",
+      "phoenix"
+    ],
+    [
+      "ops",
+      "proxy"
+    ]
+  ],
+  "jobs": {
+    "postgres": [
+      "init"
+    ],
+    "phoenix": [
+      "bootstrap"
+    ]
+  },
+  "secrets": {
+    "ab-svc-litellm-anthropic-api-key-018b49-g1": {
+      "service": "litellm",
+      "value": "secret anthropic-api-key",
+      "source": "import ANTHROPIC_API_KEY"
+    },
+    "ab-svc-litellm-gemini-api-key-f2386d-g1": {
+      "service": "litellm",
+      "value": "secret gemini-api-key",
+      "source": "import GEMINI_API_KEY"
+    },
+    "ab-svc-litellm-master-key-ad8fc9-g1": {
+      "service": "litellm",
+      "value": "secret master-key",
+      "source": "generate",
+      "operator_only": true
+    },
+    "ab-svc-litellm-openai-api-key-4a87fd-g1": {
+      "service": "litellm",
+      "value": "secret openai-api-key",
+      "source": "import OPENAI_API_KEY"
+    },
+    "ab-svc-litellm-openrouter-api-key-e8334a-g1": {
+      "service": "litellm",
+      "value": "secret openrouter-api-key",
+      "source": "import OPENROUTER_API_KEY"
+    },
+    "ab-svc-ops-gemini-api-key-92084d-g1": {
+      "service": "ops",
+      "value": "secret gemini-api-key",
+      "source": "import GEMINI_API_KEY"
+    },
+    "ab-svc-ops-ops-token-75a65a-g1": {
+      "service": "ops",
+      "value": "secret ops-token",
+      "source": "generate"
+    },
+    "ab-svc-phoenix-admin-password-371e79-g1": {
+      "service": "phoenix",
+      "value": "secret admin-password",
+      "source": "generate"
+    },
+    "ab-svc-phoenix-admin-secret-2812d0-g1": {
+      "service": "phoenix",
+      "value": "secret admin-secret",
+      "source": "generate"
+    },
+    "ab-svc-phoenix-ingest-key-d69af0-g1": {
+      "service": "phoenix",
+      "value": "secret ingest-key",
+      "source": "bootstrap",
+      "services_only": true
+    },
+    "ab-svc-phoenix-secret-ef0f70-g1": {
+      "service": "phoenix",
+      "value": "secret secret",
+      "source": "generate"
+    },
+    "ab-svc-postgres-console-8dbd06-g1": {
+      "service": "postgres",
+      "value": "secret console",
+      "source": "generate"
+    },
+    "ab-svc-postgres-databases-litellm-86f17f-g1": {
+      "service": "postgres",
+      "value": "output databases.litellm",
+      "source": "output"
+    },
+    "ab-svc-postgres-databases-phoenix-4f8277-g1": {
+      "service": "postgres",
+      "value": "output databases.phoenix",
+      "source": "output"
+    },
+    "ab-svc-postgres-login-support-agent-5b316c-g1": {
+      "service": "postgres",
+      "value": "secret login.support_agent",
+      "source": "generate"
+    },
+    "ab-svc-postgres-login-support-ops-fc7209-g1": {
+      "service": "postgres",
+      "value": "secret login.support_ops",
+      "source": "generate"
+    },
+    "ab-svc-postgres-role-litellm-d99300-g1": {
+      "service": "postgres",
+      "value": "secret role.litellm",
+      "source": "generate"
+    },
+    "ab-svc-postgres-role-phoenix-2feab4-g1": {
+      "service": "postgres",
+      "value": "secret role.phoenix",
+      "source": "generate"
+    },
+    "ab-svc-postgres-role-support-c2559c-g1": {
+      "service": "postgres",
+      "value": "secret role.support",
+      "source": "generate"
+    },
+    "ab-svc-postgres-roles-support-ops-2f0d6b-g1": {
+      "service": "postgres",
+      "value": "output roles.support_ops",
+      "source": "output"
+    },
+    "ab-svc-postgres-superuser-6307e6-g1": {
+      "service": "postgres",
+      "value": "secret superuser",
+      "source": "generate"
+    },
+    "ab-svc-proxy-tavily-api-key-4c6e53-g1": {
+      "service": "proxy",
+      "value": "secret tavily-api-key",
+      "source": "import TAVILY_API_KEY"
+    }
+  },
+  "operator_only_secrets": [
+    "ab-svc-litellm-master-key-ad8fc9-g1"
+  ]
+}

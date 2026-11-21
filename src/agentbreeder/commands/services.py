@@ -1,5 +1,6 @@
-"""`agentbreeder services up|plan|status|logs|usage|env|down|start|stop|restart`: local backing
-services from stack.yaml (local-only preview). Every write (up, down, plan, pins, start, stop,
+"""`agentbreeder services up|plan|render|status|logs|usage|env|down|start|stop|restart`: local
+backing services from stack.yaml (local-only preview); `render --cluster` writes a Helm chart for
+them and touches no cluster (#772 K3). Every write (up, down, plan, pins, start, stop,
 restart) runs under the per-stack lock (S-11, `state.services_lock`)."""
 
 from __future__ import annotations
@@ -24,7 +25,8 @@ CONTROL_HELP = {
 SCHEMA_VERSION = 1
 # Every command that changes the stack or its state dir (`plan` records ports and file copies;
 # `pins` copies files too, and must not probe a relay that `up` is recreating).
-WRITES = ("up", "down", "plan", "pins", *CONTROL_HELP)
+# `render` copies files into the state dir as `plan` does.
+WRITES = ("up", "down", "plan", "pins", "render", *CONTROL_HELP)
 PINS_DIGEST = re.compile(r"[0-9a-f]{64}")
 
 
@@ -79,6 +81,34 @@ def register(commands) -> None:
     sv_plan.add_argument("dir", nargs="?", type=Path, default=Path("."))
     sv_plan.add_argument("--environment", required=True)
     sv_plan.add_argument("--json", action="store_true")
+    sv_render = service_commands.add_parser(
+        "render",
+        help="Write a Helm chart for the stack's services (no cluster; preview, not run on one)",
+    )
+    sv_render.add_argument("dir", nargs="?", type=Path, default=Path("."))
+    sv_render.add_argument(
+        "--cluster", action="store_true", help="Render for Kubernetes (the only target)"
+    )
+    sv_render.add_argument("--environment", required=True)
+    sv_render.add_argument(
+        "--out",
+        type=Path,
+        required=True,
+        help="A new directory, or one holding only a previous render",
+    )
+    sv_render.add_argument(
+        "--image",
+        action="append",
+        default=[],
+        metavar="NAME=IMAGE@sha256:DIGEST",
+        help="The pushed image of a service built from a Dockerfile (repeatable)",
+    )
+    sv_render.add_argument(
+        "--env-file",
+        type=Path,
+        help="KEY=value file; every value in it is scanned for in the chart",
+    )
+    sv_render.add_argument("--json", action="store_true")
     sv_pins = service_commands.add_parser(
         "pins", help="Probe every MCP relay and show what a repin would pin, with its digest"
     )
@@ -170,6 +200,19 @@ def run(args) -> int:
                 "PINS_EXPECT_NEEDS_REPIN",
                 "--expect-pins needs --repin (and --locked never pins)",
             )
+    images: dict[str, str] = {}
+    if command == "render":
+        if not args.cluster:
+            return cli.fail(args, "RENDER_TARGET", "render supports --cluster only")
+        for entry in args.image:
+            name, separator, image = entry.partition("=")
+            if not separator or not name or name in images:
+                return cli.fail(
+                    args,
+                    "CHART_IMAGE_INVALID",
+                    "--image takes NAME=IMAGE@sha256:DIGEST, once per service",
+                )
+            images[name] = image
     if command == "down" and (args.volumes or args.purge) and not args.yes:
         flag = "--purge" if args.purge else "--volumes"
         return cli.fail(args, "CONFIRM_REQUIRED", f"down {flag} deletes data; add --yes")
@@ -239,6 +282,15 @@ def run(args) -> int:
         if command == "plan":
             preview = engine.preview(args.environment)
             print(json.dumps(preview, indent=2) if args.json else preview["text"])
+            return 0
+        if command == "render":
+            result = engine.render_cluster(
+                args.environment, args.out, images=images, env_file=args.env_file
+            )
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                _render_text(result)
             return 0
         if command == "pins":
             result = engine.pins()
@@ -319,6 +371,25 @@ def run(args) -> int:
         held.close()
         if engine is not None:
             engine.close()
+
+
+def _render_text(result: dict) -> None:
+    print(
+        f"Rendered chart {result['chart']} {result['version']} for environment "
+        f"{result['environment']} to {result['out']}"
+    )
+    for index, names in enumerate(result["tiers"]):
+        print(f"  tier {index}: {', '.join(names)}")
+    steps = [f"{name} {step}" for name, items in result["jobs"].items() for step in items]
+    print(f"  jobs (outside the release, run in tier order): {', '.join(steps) or 'none'}")
+    print(
+        f"  Secrets referenced by name ({len(result['secrets'])}; no value is in the chart, "
+        "see agentbreeder.lock)"
+    )
+    print(
+        "Not installed: `services up --cluster` is not available yet. `helm template` on the "
+        "directory gives the release's manifests; its jobs/ are not part of them."
+    )
 
 
 def _control(engine, verb: str, name: str, args) -> int:
