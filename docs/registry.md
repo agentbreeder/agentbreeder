@@ -440,14 +440,16 @@ files and your git history if you commit them.
 A `runtime/` version is the agent server: a fixed `Dockerfile`, a `runtime/` directory with a
 hash-locked `requirements.lock`, and a `manifest.yaml`. Since #1083 F1 that manifest and one
 generated file are the only place `build`, `new agent` and the registry commands take framework
-facts from. Nothing in the engine branches on a framework's name. Three runtimes ship:
+facts from. Nothing in the engine branches on a framework's name. Five runtimes ship:
 `runtime/adk`, `runtime/langgraph@1.0.0` (#1083 F3, the first on the runtime kit; run end
 to end and verified on macOS x86_64 only, for the starter and one tool with Gemini, see
 [runtimes/langgraph.md](runtimes/langgraph.md)), `runtime/openai-agents@1.0.0` (#1083 F4, on
 the kit; built and run end to end on macOS x86_64, **not verified**, see
 [runtimes/openai-agents.md](runtimes/openai-agents.md)) and `runtime/deepagents@1.0.0` (#1083
 F5, on the same kit; built and run end to end on macOS x86_64, **not verified**, see
-[runtimes/deepagents.md](runtimes/deepagents.md)).
+[runtimes/deepagents.md](runtimes/deepagents.md)). `runtime/crewai@1.0.0` (#1090, F6, on the
+same kit) is built and run end to end on macOS x86_64, **not verified**, see
+[runtimes/crewai.md](runtimes/crewai.md).
 
 **Manifest keys** (beside `port`, `health_path`, `secrets` and `environment`):
 
@@ -540,6 +542,9 @@ so a reader such as the local console needs no knowledge of profiles:
   spec or `--runtime` that pins `1.3.0` or `1.5.0` without sub-agents or skills still has
   `verified: false` in `new agent`'s output, and the console's form starts on `1.4.0` even though
   `1.5.0` is newer and labelled run end to end.
+  `runtime/adk@1.4.1` and `runtime/adk@1.5.1` (a dependency update, #1190) are listed with
+  `verified: false`: their Docker rerun passed (macOS x86_64, 2026-11-20), and adding them to the
+  run-end-to-end list is a follow-up (#1198).
 - A version the engine cannot use is still listed, with `usable: false`, a `code` and a
   `reason` and without the profile fields: an invalid manifest or a missing `modules.json`
   (`ARTIFACT_INVALID`), an unknown protocol (`PROTOCOL_UNSUPPORTED`), a version under a

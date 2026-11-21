@@ -326,7 +326,7 @@ and `traces` all showed it), and a sandbox copy redeployed with `budget_usd: 0.0
   | `MODEL_ACCESS_DENIED` | 502 | the gateway refused the key for the model (401/403) | check `environment.models` and deploy again |
   | `MODEL_REQUEST_REFUSED` | 502 | another 4xx: sending it again won't help | the log line under `correlation_id` |
   | `MODEL_UNAVAILABLE` | 502 | a 5xx, timeout or connection error, after retries | try again |
-  | `MODEL_STEP_LIMIT` | 502 | kit runtimes only (`runtime/langgraph`, `runtime/openai-agents`, `runtime/deepagents`, #1083): the turn used its `model.max_model_calls`, or the last allowed answer still called a tool | ask again, or raise `model.max_model_calls` |
+  | `MODEL_STEP_LIMIT` | 502 | kit runtimes only (`runtime/langgraph`, `runtime/openai-agents`, `runtime/deepagents`, `runtime/crewai`, #1083): the turn used its `model.max_model_calls`, or the last allowed answer still called a tool | ask again, or raise `model.max_model_calls` |
 
 - **Bounded retries.** The OpenAI client under LiteLLM no longer retries on its own: it waited
   out a rate limit's `retry-after` (up to 120 s, twice) unseen. `1.3.0` retries a model call
@@ -548,6 +548,28 @@ knowledge on a sub-agent, the caps against a real model, skill reference files, 
   `retrieve_knowledge` span inputs.
 - A tool's module may no longer be named `turns`, `subagents`, `skills` or `skill_hash` (the
   runtime's own new modules); `registry publish` and the runtime both refuse it.
+
+### `runtime/adk@1.4.1` and `runtime/adk@1.5.1`
+
+On `main`, not in a published preview (#1190). `1.4.1` is `1.4.0` and `1.5.1` is `1.5.0` with a
+dependency update, nothing else: opentelemetry 1.45.2 (pip-audit reports CVE-2026-114603 and
+CVE-2026-126360 against the 1.42.1 every earlier `runtime/adk` lock pins) and google-adk 2.14.0,
+the first ADK release that allows it. google-adk 2.14 emits a new span layout by default (no
+`call_llm` span, tool content in other attributes), so both versions set ADK's
+`ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN=1` at start: the spans, and what the redaction removes from
+them, stay `1.4.0`'s and `1.5.0`'s, and the agent's environment cannot change it. ADK keeps that
+setting until at least 2027-03-31.
+
+Checked by each version's own tests against the new lock (1.4.1: 159 passed, 1.5.1: 353 passed,
+macOS x86_64, Python 3.12; cryptography from its newest macOS wheel, as the lock's has none for
+that platform) and by stub-builder build tests. Docker rerun on macOS x86_64, 2026-11-20
+(opt-in `tests/test_runtime_adk_otel_patch_docker.py`;
+[record](superpowers/verification/1190-adk-otel-patch-docker.md)): both images build with the new
+pins, conformance is identical check for check to `1.4.0`'s and `1.5.0`'s, Northwind passes 61/61
+on `1.5.1`, and the Phoenix spans and attribute keys are unchanged. The google-adk move and the
+schema setting are accepted; neither version is labelled run end to end yet (#1198), so
+Northwind stays on `1.5.0` and the `new agent` starter on `1.4.0`. Every earlier version is
+unchanged; pin a new one with [`agent set-ref`](commands/agent.md).
 
 Agents built from `agent.yaml` can't yet run behind the opt-in MCP egress sidecar
 (`runtime_enforcement: mcp_http`): the deploy is refused with `MODEL_ACCESS_UNSUPPORTED`, because

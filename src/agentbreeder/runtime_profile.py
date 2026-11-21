@@ -201,6 +201,8 @@ _LOCKED_IMPORTS: dict[str, tuple[str, ...]] = {
     "multidict": ("multidict",),
     "openai": ("openai",),
     "opentelemetry-api": ("opentelemetry",),
+    "opentelemetry-exporter-http-transport": ("opentelemetry",),  # runtime/adk@1.4.1
+    "opentelemetry-exporter-otlp-common": ("opentelemetry",),  # runtime/adk@1.4.1
     "opentelemetry-exporter-otlp-proto-common": ("opentelemetry",),
     "opentelemetry-exporter-otlp-proto-http": ("opentelemetry",),
     "opentelemetry-proto": ("opentelemetry",),

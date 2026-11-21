@@ -101,6 +101,49 @@ def test_a_turn_shows_the_cost_the_runtime_reports(page, console):
     )
 
 
+def test_a_turn_shows_its_subagents_and_skills_as_text(page, console, violations):
+    """runtime/adk@1.5.0 replies (#1193): the sub-agents called and the skills loaded, as plain
+    text. Every field is untrusted: a sub-agent's tool name with markup stays text."""
+    fields = {
+        "subagents": [
+            {"name": "billing", "calls": 1, "model_calls": 2, "tools": ["file_refund"]},
+            {"name": "tickets", "calls": 2, "model_calls": 3, "tools": ["<b>t</b>"]},
+            {"name": "Not-A-Name", "calls": 1, "model_calls": 1, "tools": []},
+        ],
+        "skills": [{"name": "refund-policy", "version": "1.2.0", "resources": ["eu-rules.md"]}],
+    }
+    console.scenario(deployments=DEPLOYMENTS, invoke={"fields": fields})
+    open_try(page, console)
+    send(page, "Refund my order")
+    agent = turns(page).first.locator(".bubble.agent")
+    agent.locator("details.inspector summary").click()
+    facts = agent.locator("dl.facts")
+    subagents = facts.locator("dt:has-text('Sub-agents') + dd li")
+    expect(subagents).to_have_text(
+        [
+            "billing: called once, 2 model calls; tools: file_refund",
+            "tickets: called 2 times, 3 model calls; tools: <b>t</b>",
+        ]
+    )
+    expect(facts.locator("dt:has-text('Skills') + dd li")).to_have_text(
+        ["refund-policy 1.2.0, read eu-rules.md"]
+    )
+    expect(agent.locator("b, a, img")).to_have_count(0)
+    assert violations(page) == []
+
+
+def test_a_turn_without_subagents_or_skills_lists_neither(page, console):
+    console.scenario(deployments=DEPLOYMENTS)
+    open_try(page, console)
+    send(page, "hi")
+    agent = turns(page).first.locator(".bubble.agent")
+    agent.locator("details.inspector summary").click()
+    facts = agent.locator("dl.facts")
+    expect(facts).to_contain_text("Tools")
+    expect(facts.locator("dt", has_text="Sub-agents")).to_have_count(0)
+    expect(facts.locator("dt", has_text="Skills")).to_have_count(0)
+
+
 def test_later_messages_continue_the_session_until_a_new_conversation(page, console):
     console.scenario(deployments=DEPLOYMENTS)
     open_try(page, console)

@@ -110,6 +110,9 @@ ADK_150_MODULES = frozenset({"skill_hash", "skills", "subagents", "turns"})
 LANGGRAPH_100_MODULES = frozenset({"kit", "langgraph_adapter", "server"})
 OPENAI_AGENTS_100_MODULES = frozenset({"kit", "openai_agents_adapter", "server"})
 DEEPAGENTS_100_MODULES = frozenset({"kit", "deepagents_adapter", "server"})
+CREWAI_100_MODULES = frozenset(
+    {"kit", "crewai_adapter", "crewai_confine", "crewai_schema", "server"}
+)
 
 
 @pytest.mark.parametrize("name", sorted(path.name for path in ADK.iterdir()))
@@ -940,6 +943,7 @@ def test_verified_is_keyed_by_the_runtime_name():
         ("runtime/langgraph@1.0.0", True),
         ("runtime/openai-agents@1.0.0", False),
         ("runtime/deepagents@1.0.0", False),
+        ("runtime/crewai@1.0.0", False),
     ):
         pinned = agentspec.Spec.model_validate(_spec(runtime=runtime))
         assert agentspec.verified(pinned) is expected, runtime
@@ -979,8 +983,8 @@ def test_langgraph_is_verified_only_for_what_ran():
 
 def test_tool_check_reads_modules_files_from_the_builtin_registry(tmp_path, monkeypatch):
     # Every built-in version counts: the legacy table, runtime/adk@1.5.0's own file,
-    # runtime/langgraph@1.0.0's (#1083 F3), runtime/openai-agents@1.0.0's (F4) and
-    # runtime/deepagents@1.0.0's (F5).
+    # runtime/langgraph@1.0.0's (#1083 F3), runtime/openai-agents@1.0.0's (F4),
+    # runtime/deepagents@1.0.0's (F5) and runtime/crewai@1.0.0's (#1090).
     builtin_modules, builtin_imports = tool_check.runtime_names()
     assert builtin_modules == (
         LEGACY_ADK.modules
@@ -988,8 +992,10 @@ def test_tool_check_reads_modules_files_from_the_builtin_registry(tmp_path, monk
         | LANGGRAPH_100_MODULES
         | OPENAI_AGENTS_100_MODULES
         | DEEPAGENTS_100_MODULES
+        | CREWAI_100_MODULES
     )
     assert {"litellm", "langgraph", "langchain_core", "agents", "deepagents"} <= builtin_imports
+    assert {"crewai", "chromadb"} <= builtin_imports
     assert tool_check.shadows("deepagents_adapter") == "shadows a runtime module"
     assert tool_check.shadows("deepagents") == "shadows a package the runtime installs"
     assert tool_check.shadows("kit") == "shadows a runtime module"

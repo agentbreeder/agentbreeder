@@ -214,6 +214,32 @@ export function costText(usd) {
   return `$${usd.toFixed(usd < 0.01 ? 6 : 4)}`;
 }
 
+// A turn's sub-agents and skills (runtime/adk@1.5.0, #1193), one line each. The server passes on
+// only checked names, counts and file names; these are still shown as text, never markup.
+const entries = (value) => (Array.isArray(value) ? value.filter((item) => item && typeof item === "object" && typeof item.name === "string" && item.name) : []);
+const counted = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+/** Each sub-agent called this turn: "billing: called once, 2 model calls; tools: file_refund". */
+export function subagentsLines(subagents) {
+  return entries(subagents).map((sub) => {
+    const counts = [];
+    if (Number.isInteger(sub.calls)) counts.push(sub.calls === 1 ? "called once" : `called ${sub.calls} times`);
+    if (Number.isInteger(sub.model_calls)) counts.push(counted(sub.model_calls, "model call", "model calls"));
+    const tools = strings(sub.tools);
+    const used = tools.length ? `tools: ${tools.join(", ")}` : "no tools";
+    return `${sub.name}: ${counts.length ? `${counts.join(", ")}; ` : ""}${used}`;
+  });
+}
+
+/** Each skill loaded this turn: "refund-policy 1.2.0, read eu-rules.md". */
+export function skillsLines(skills) {
+  return entries(skills).map((skill) => {
+    const version = typeof skill.version === "string" && skill.version ? ` ${skill.version}` : "";
+    const read = strings(skill.resources);
+    return `${skill.name}${version}${read.length ? `, read ${read.join(", ")}` : ""}`;
+  });
+}
+
 /** A list of tool names or source titles in words; empty says "none". */
 export function namesText(names) {
   return Array.isArray(names) && names.length ? names.join(", ") : "none";
