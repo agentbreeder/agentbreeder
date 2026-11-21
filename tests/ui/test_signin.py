@@ -362,6 +362,11 @@ def test_sign_in_settings_and_re_auth_have_no_serious_axe_findings(scheme_page, 
     found += blocking(scheme_page, "settings")
     console.reset_password(NEW)
     scheme_page.goto(f"{console.origin}/#/audit")
+    # With no project, Audit asks to choose one and reads nothing, so the dialog waited for the
+    # next Docker poll (every 5 s, as long as the expect timeout; #1195). Coming back to the tab
+    # after the reset in a terminal reads the notifications, and that read's 401 opens it. No
+    # response is awaited: a Docker poll's 401 may open it first, and a second 401 changes nothing.
+    scheme_page.evaluate("window.dispatchEvent(new Event('focus'))")
     expect(scheme_page.get_by_role("dialog", name="Session ended")).to_be_visible()
     expect(scheme_page.get_by_label("Password", exact=True)).to_be_visible()
     found += blocking(scheme_page, "re-auth dialog")

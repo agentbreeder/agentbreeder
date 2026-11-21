@@ -6,6 +6,7 @@ registry version card that never showed its files."""
 from __future__ import annotations
 
 import re
+from urllib.parse import unquote
 
 import pytest
 from playwright.sync_api import expect
@@ -24,6 +25,16 @@ def ended(route):
     route.fulfill(status=401, content_type="application/json", body=ENDED)
 
 
+def refused(page, part: str):
+    """Waits for a read of `part` to get the routed 401. A view shows its loading state before its
+    read is sent (`useView` reads in an effect after the first paint), so unrouting once the
+    loading state is visible could let the read through to the server: no 401, no dialog
+    (#1189)."""
+    return page.expect_response(
+        lambda response: part in unquote(response.url) and response.status == 401
+    )
+
+
 def sign_in_again(page, console) -> None:
     dialog = page.get_by_role("dialog", name="Session ended")
     expect(dialog).to_be_visible()
@@ -34,7 +45,8 @@ def sign_in_again(page, console) -> None:
 def test_the_build_forms_framework_list_is_read_again_after_re_auth(page, console):
     sign_in(page, console, project=False)
     page.route("**/api/builder/parts", ended)
-    page.get_by_role("link", name="Build an agent").click()
+    with refused(page, "/api/builder/parts"):
+        page.get_by_role("link", name="Build an agent").click()
     page.wait_for_url("**/#/build")
     expect(page.get_by_text("Reading the registries…")).to_be_visible()
     page.unroute("**/api/builder/parts")
@@ -48,7 +60,9 @@ def test_the_build_forms_framework_list_is_read_again_after_re_auth(page, consol
 def test_a_registry_version_card_is_read_again_after_re_auth(page, console):
     open_northwind(page, console)
     page.route("**/registry/show?**", ended)
-    page.goto(f"{console.origin}/#/registry/prompts/northwind-support")
+    # Each version card reads its own; wait for the card the test follows.
+    with refused(page, "/registry/show?ref=prompt/northwind-support@1.0.1"):
+        page.goto(f"{console.origin}/#/registry/prompts/northwind-support")
     version = page.get_by_role("region", name="Version 1.0.1")
     expect(version).to_have_attribute("aria-busy", "true")
     page.unroute("**/registry/show?**")
