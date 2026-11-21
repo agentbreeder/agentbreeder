@@ -14,7 +14,7 @@
       "source": "../northwind/registry"
     },
     "runtime/claude-agent-sdk@1.0.0": {
-      "sha256": "sha256:8cecea87d45efd318dc9035756a75e219b0a3ee864e8cf774677a57f5c938b03",
+      "sha256": "sha256:e5fd9551ba808698a62083857b20546087affb3f06e0a821ab757f8e8b7c00f2",
       "source": "registry"
     },
     "tool/cancel-order@1.0.1": {

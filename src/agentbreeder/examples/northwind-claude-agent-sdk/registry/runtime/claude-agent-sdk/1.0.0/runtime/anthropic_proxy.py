@@ -27,7 +27,9 @@ does holds here, with the Anthropic shapes:
   entry, which is no tool). Not run against the real CLI; a misclassified Nth call fails safe.
 - **Failures** reach the CLI as a fixed Anthropic error body naming the code, never the
   gateway's text. One LLM span per upstream call (the CLI's instrumentor writes none), with the
-  alias and token counts and no message text.
+  alias and token counts and no message text, under the turn's `agent_turn` span: the adapter
+  binds the turn's trace context (`bind_trace`), because each request is served in its own
+  connection task, which does not carry it.
 """
 
 from __future__ import annotations
@@ -55,6 +57,7 @@ from kit.proxy import (
 )
 from kit.telemetry import span
 from link_protocol import CLI_UID, bind_world, own_dir, peer_uid
+from opentelemetry import context as otel_context
 
 MESSAGES_PATHS = (b"/v1/messages", b"/v1/messages?beta=true")
 UPSTREAM_PATH = "/v1/messages"
@@ -318,6 +321,18 @@ class AnthropicProxy(ModelProxy):
         self.socket_path = socket_path
         self.alias = alias
         self.peer = peer
+        self._parents: dict[str, otel_context.Context] = {}  # turn id -> its trace context
+
+    def bind_trace(self, state: TurnState) -> None:
+        """Called by the adapter inside the turn's `agent_turn` span: the turn's LLM spans nest
+        under it (without this each would be a trace of its own)."""
+        self._parents[state.turn_id] = otel_context.get_current()
+
+    def close_turn(self, token: str) -> None:
+        state = self._turns.get(token)
+        super().close_turn(token)
+        if state is not None:
+            self._parents.pop(state.turn_id, None)
 
     async def start(self) -> None:
         self._client = httpx.AsyncClient(
@@ -427,14 +442,20 @@ class AnthropicProxy(ModelProxy):
         final = step >= state.max_steps
         main = is_main_loop(body, state)
         started = time.monotonic()
-        with span("llm", "LLM", **{"llm.model_name": model, "llm.provider": "gateway"}) as llm:
-            outcome = await self._upstream(state, upstream_body(body, model, final))
-            if isinstance(outcome, ModelError):
-                llm.set_attribute("agentbreeder.error_code", outcome.code)
-            else:
-                prompt, output = usage(outcome[1])
-                llm.set_attribute("llm.token_count.prompt", prompt)
-                llm.set_attribute("llm.token_count.completion", output)
+        parent = self._parents.get(state.turn_id)
+        attached = otel_context.attach(parent) if parent is not None else None
+        try:
+            with span("llm", "LLM", **{"llm.model_name": model, "llm.provider": "gateway"}) as llm:
+                outcome = await self._upstream(state, upstream_body(body, model, final))
+                if isinstance(outcome, ModelError):
+                    llm.set_attribute("agentbreeder.error_code", outcome.code)
+                else:
+                    prompt, output = usage(outcome[1])
+                    llm.set_attribute("llm.token_count.prompt", prompt)
+                    llm.set_attribute("llm.token_count.completion", output)
+        finally:
+            if attached is not None:
+                otel_context.detach(attached)
         if isinstance(outcome, ModelError):
             state.failure = outcome
             state.failure_status = outcome.status if 400 <= (outcome.status or 0) < 600 else 502

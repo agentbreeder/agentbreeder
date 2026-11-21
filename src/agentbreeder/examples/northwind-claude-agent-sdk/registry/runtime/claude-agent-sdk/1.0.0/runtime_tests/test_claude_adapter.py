@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "runtime"))
 import claude_adapter  # noqa: E402
 import cli_host  # noqa: E402
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock  # noqa: E402
-from kit.context import TOKEN  # noqa: E402
+from kit.context import CURRENT, TOKEN  # noqa: E402
 from kit.tools import KitFunction  # noqa: E402
 
 SCHEMA = {
@@ -199,3 +199,37 @@ def test_a_cli_that_ends_without_a_result_fails_the_stream():
         assert [m async for m in transport.read_messages()] == [{"type": "result"}]
 
     asyncio.run(go())
+
+
+def test_the_mcp_servers_own_tracing_is_removed():
+    """The `mcp` package installs OpenTelemetryMiddleware on every server: it wrote a second TOOL
+    span per call (`tools/call <name>`) and three protocol spans per turn (seen on Docker)."""
+    from mcp.server._otel import OpenTelemetryMiddleware
+
+    fresh = claude_adapter.create_sdk_mcp_server("x", tools=[])
+    assert any(isinstance(m, OpenTelemetryMiddleware) for m in fresh["instance"].middleware)
+    options = adapter().options(turn(), "0f8fad5b-d9cb-469f-a165-70867728950e")
+    instance = options.mcp_servers["agentbreeder"]["instance"]
+    assert not any(isinstance(m, OpenTelemetryMiddleware) for m in instance.middleware)
+
+
+def test_a_turn_binds_its_trace_to_the_proxy(monkeypatch):
+    subject = adapter()
+    subject.link = FakeLink()
+    subject.slots = asyncio.Semaphore(1)
+    bound = []
+    subject.kit.proxy = SimpleNamespace(bind_trace=bound.append)
+    state = object()
+
+    async def fake_query(prompt, options, transport):
+        yield _result()
+
+    monkeypatch.setattr(claude_adapter, "query", fake_query)
+
+    async def go():
+        TOKEN.set("a" * 32)
+        CURRENT.set(SimpleNamespace(proxy_state=state))
+        return await subject.run_turn(turn())
+
+    assert asyncio.run(go()) == "It shipped."
+    assert bound == [state]

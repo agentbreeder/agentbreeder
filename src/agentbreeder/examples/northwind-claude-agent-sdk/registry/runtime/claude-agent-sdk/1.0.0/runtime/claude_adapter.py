@@ -12,6 +12,11 @@
 - **`verbatim_prompts=True`** (D15): no `@path` expansion and no slash-command dispatch.
 - **Tools:** one in-process SDK MCP server, `agentbreeder`, with one tool per kit function and
   its declared JSON Schema; every call goes through the kit's wrapper (audit row, TOOL span).
+  The `mcp` package's own tracing middleware is removed from that server: it wrote a second
+  span per tool call (`tools/call <name>`, which Phoenix reads as TOOL from
+  `gen_ai.operation.name`) and three protocol spans per turn.
+- **Traces:** the turn's trace context is bound to the proxy (`bind_trace`), so its LLM spans
+  nest under the turn's `agent_turn` span.
 - **History:** the CLI host writes the conversation's user and assistant text as the CLI's
   transcript in the turn's own directory, and the CLI resumes it (§8.4 (a)); the directory is
   deleted when the turn ends.
@@ -19,7 +24,9 @@
   ANTHROPIC_AUTH_TOKEN; the proxy owns cost, retries, coded errors and the step cap. The SDK's
   own `total_cost_usd` (Anthropic prices) is never read.
 - **Concurrent turns** wait for one of `max_concurrent_turns` slots (`settings.json`) within the
-  turn's own deadline (owner decision D16: a runtime setting; the value is not measured yet).
+  turn's own deadline (owner decision D16: a runtime setting). The value, 2, is from the
+  measurement in `docs/superpowers/verification/F7-claude-agent-sdk.md`: the CLI container
+  (512 MiB) peaked at up to 271 MiB with 2 concurrent Northwind turns and 388 MiB with 3.
 """
 
 from __future__ import annotations
@@ -47,8 +54,9 @@ from claude_agent_sdk import (
 from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
 from claude_agent_sdk.types import _configure_can_use_tool
 from cli_link import CliLink, HostUnavailable
-from kit.context import TOKEN
+from kit.context import CURRENT, TOKEN
 from link_protocol import PINNED_SDK, load_settings
+from mcp.server._otel import OpenTelemetryMiddleware
 
 LOGGERS = ("claude_agent_sdk", "mcp")
 MCP_SERVER = "agentbreeder"
@@ -187,6 +195,16 @@ def reply_text(messages: list) -> str:
     return str(results[-1].result or "")
 
 
+def without_tracing(server: dict) -> dict:
+    """The SDK MCP server config with the `mcp` package's OpenTelemetryMiddleware removed (the
+    kit writes the one TOOL span per call)."""
+    instance = server["instance"]
+    instance.middleware = [
+        m for m in instance.middleware if not isinstance(m, OpenTelemetryMiddleware)
+    ]
+    return server
+
+
 class ClaudeAdapter:
     framework = "claude-agent-sdk"
 
@@ -209,7 +227,9 @@ class ClaudeAdapter:
             raise HostUnavailable("the CLI host did not connect")
 
     def options(self, turn, session_id: str) -> ClaudeAgentOptions:
-        server = create_sdk_mcp_server(MCP_SERVER, tools=[as_tool(f) for f in turn.functions])
+        server = without_tracing(
+            create_sdk_mcp_server(MCP_SERVER, tools=[as_tool(f) for f in turn.functions])
+        )
         return ClaudeAgentOptions(
             tools=[],
             allowed_tools=[f"mcp__{MCP_SERVER}__{f.name}" for f in turn.functions],
@@ -236,6 +256,10 @@ class ClaudeAdapter:
         async with self.slots:
             session_id = str(uuid.uuid4())
             history = [dict(item) for item in turn.history]
+            state = getattr(CURRENT.get(), "proxy_state", None)
+            bind_trace = getattr(getattr(self.kit, "proxy", None), "bind_trace", None)
+            if state is not None and bind_trace is not None:
+                bind_trace(state)  # the turn's LLM spans nest under its `agent_turn` span
             handle = await asyncio.to_thread(self.link.lease, session_id, history)
             try:
                 options = self.options(turn, session_id)

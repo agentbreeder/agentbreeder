@@ -1,10 +1,11 @@
 # `runtime/claude-agent-sdk@1.0.0`
 
-**Status:** on `main`, not in a published preview. **Not run end to end, not supported.** The
-runtime, its two-uid deploy contract and the Northwind port are built and unit-tested (macOS
-x86_64, no Docker); no image has been built, no turn has run against a real CLI or gateway, and
-none of the multi-framework spec's §15 acceptance steps has run. What ran and what did not is in
-[the F7 record](../superpowers/verification/F7-claude-agent-sdk.md).
+**Status:** on `main`, not in a published preview. **Run end to end on macOS 13 x86_64
+(2026-11-20), not supported.** Northwind released 61/61 through `/v1/messages` on a copy of its
+stack pinned to `service/litellm@1.4.0`, locally and on `kind`, with the two-uid topology checked
+on both. `agentbreeder conformance` cannot run this runtime yet (it starts no CLI container,
+#1199), arm64 was not run, and it is not in `agentspec.VERIFIED` or `RUNTIMES_RUN`. What ran and
+what did not is in [the F7 record](../superpowers/verification/F7-claude-agent-sdk.md).
 
 A runtime for the [Claude Agent SDK](https://pypi.org/project/claude-agent-sdk/) on AgentBreeder's
 runtime kit (#1089, multi-framework spec §8.4). An agent picks it with one line, and everything
@@ -124,10 +125,13 @@ fields.
 ## Concurrent turns (D16)
 
 `runtime/settings.json` caps concurrent turns (`max_concurrent_turns`, 2; a turn over the cap
-waits for a slot within its own deadline) and leases (`max_leases`, 4). **The values are not
-measured**: F0 saw 305 MB for 2 real turns and the 512 MB limit at 6 scripted turns in one
-container; the CLIs now run in their own container. Change them in your copy of the runtime
-(a new version, since registry versions are immutable).
+waits for a slot within its own deadline) and leases (`max_leases`, 3). The values come from a
+measurement on Docker (2026-11-20): with N truly concurrent Northwind turns the 512 MiB CLI
+container peaked at 136, 271, 388 and 417 MiB for N = 1 to 4 (idle 17 MiB), about 127 MiB per
+CLI at worst. 2 is the most turns that keep a quarter of the limit free; 3 leases is the most CLIs
+that fit under the limit at the worst per-CLI figure. The turns measured were short; longer
+conversations may use more. Change the values in your copy of the runtime (a new version, since
+registry versions are immutable).
 
 ## What it supports
 
@@ -144,12 +148,14 @@ closed. A CLI killed during a turn (out of memory, the lease's deadline) fails t
 never an empty reply.
 
 Traces: the kit's root `agent_turn` span, one TOOL span per tool call and one LLM span per model
-call from the proxy (alias and token counts, no message text). The OpenInference Claude
-instrumentor is not used (it adds SDK hooks and writes no LLM spans).
+call from the proxy (alias and token counts, no message text), nested under `agent_turn` (the
+adapter binds the turn's trace context to the proxy). The OpenInference Claude instrumentor is not
+used (it adds SDK hooks and writes no LLM spans), and the `mcp` package's own tracing middleware is
+removed from the in-process MCP server (it wrote a second TOOL-looking span per call).
 
 ## Tests
 
 - In the repo suite (no SDK): `tests/test_claude_runtime.py`, `tests/test_two_uid_deploy.py`,
   `tests/test_northwind_claude_agent_sdk.py`.
 - With the SDK installed: `runtime_tests/` in the runtime directory.
-- On a real stack (opt-in, written, not run): `tests/test_northwind_claude_agent_sdk_docker.py`.
+- On a real stack (opt-in; run 2026-11-20, see the record): `tests/test_northwind_claude_agent_sdk_docker.py`.

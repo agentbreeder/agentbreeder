@@ -1,7 +1,8 @@
 # Northwind support agent on the Claude Agent SDK
 
-**Status: built and unit-tested, not run end to end, not supported** (#1089, #1083 F7). No image
-has been built and no turn has run against a real CLI or gateway. The record is
+**Status: run end to end on macOS 13 x86_64 (2026-11-20), not supported** (#1089, #1083 F7).
+Northwind 61/61 through `/v1/messages`, locally and on `kind`, on a copy of the stack pinned to
+`service/litellm@1.4.0`. Conformance cannot run it yet (#1199); arm64 was not run. The record is
 `docs/superpowers/verification/F7-claude-agent-sdk.md`.
 
 `agent.yaml` is Northwind's file with two lines changed, `name` and `runtime`. The prompt, model
@@ -20,7 +21,7 @@ inside it. Running it means accepting Anthropic's terms for Claude Code.** See
 `docs/runtimes/claude-agent-sdk.md` for the two-uid deploy contract (the CLI runs in a second
 container, as another uid, with no secret and no network), the controls and the limits.
 
-## Run it (from a checkout; not run yet)
+## Run it (from a checkout)
 
 The `/v1/messages` route needs a `service/litellm@1.4.0` gateway (#1187), and Northwind's shipped
 stack stays on `service/litellm@1.0.0` for its other agents. Run this agent on a copy of

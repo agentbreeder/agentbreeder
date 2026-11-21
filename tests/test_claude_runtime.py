@@ -128,7 +128,7 @@ def test_no_runtime_module_but_the_adapter_imports_the_sdk():
 def test_settings_are_bounded_integers(tmp_path):
     assert link_protocol.load_settings() == {
         "max_concurrent_turns": 2,
-        "max_leases": 4,
+        "max_leases": 3,
         "lease_seconds": 200,
     }
     for bad in (
@@ -141,6 +141,27 @@ def test_settings_are_bounded_integers(tmp_path):
         path.write_text(json.dumps(bad))
         with pytest.raises(ValueError):
             link_protocol.load_settings(path)
+
+
+# D16, measured on Docker (macOS 13 x86_64, 2026-11-20; F7-claude-agent-sdk.md): the CLI
+# container's peak memory in MiB with N truly concurrent Northwind turns (the highest of three
+# runs), and the idle container's.
+CLI_PEAK_MIB = {1: 136.3, 2: 271.3, 3: 387.6, 4: 416.7}
+CLI_IDLE_MIB = 17.1
+CLI_LIMIT_MIB = 512  # the CLI container's --memory (egress/kit.py) and the kind pod's limit
+
+
+def test_the_concurrent_turn_cap_is_set_from_the_measurement():
+    """D16: the cap is the most turns whose measured peak keeps a quarter of the CLI container's
+    memory free; `max_leases` (a turn whose lease outlives its slot) is the most CLIs that fit
+    under the limit at the worst measured memory per CLI."""
+    settings = link_protocol.load_settings()
+    cap, leases = settings["max_concurrent_turns"], settings["max_leases"]
+    assert CLI_PEAK_MIB[cap] <= 0.75 * CLI_LIMIT_MIB < CLI_PEAK_MIB[cap + 1]
+    per_cli = max((peak - CLI_IDLE_MIB) / n for n, peak in CLI_PEAK_MIB.items())
+    assert CLI_IDLE_MIB + leases * per_cli < CLI_LIMIT_MIB <= CLI_IDLE_MIB + (leases + 1) * per_cli
+    kit_source = (ROOT / "src/agentbreeder/egress/kit.py").read_text()
+    assert f'"--memory",\n            "{CLI_LIMIT_MIB}m"' in kit_source
 
 
 def test_the_host_refuses_to_run_where_two_uids_do_not_hold(tmp_path):
@@ -1045,3 +1066,42 @@ def test_removing_a_turn_never_follows_a_link_the_cli_planted(tmp_path):
     assert not root.exists()
     assert outside.stat().st_mode & 0o777 == 0o500
     outside.chmod(0o700)
+
+
+def test_llm_spans_nest_under_the_turn_that_bound_its_trace(shared):
+    """Each CLI request is served in the proxy's own connection task, which does not carry the
+    turn's context: without `bind_trace` an LLM span is a trace of its own (seen on Docker)."""
+    from kit import telemetry
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    if not isinstance(trace.get_tracer_provider(), TracerProvider):
+        telemetry.setup("kit-test", "", enabled=False)
+    exporter = InMemorySpanExporter()
+    trace.get_tracer_provider().add_span_processor(SimpleSpanProcessor(exporter))
+
+    async def go():
+        gateway = Gateway(ok(answer(TEXT)), ok(answer(TEXT)))
+        async with Proxy(shared, gateway, max_steps=3) as p:
+            unbound = TurnState(turn_id="u", max_steps=3, aliases=frozenset({"support-model"}))
+            other = p.proxy.open_turn(unbound)
+            with telemetry.span("agent_turn", "AGENT") as root:
+                p.proxy.bind_trace(p.state)
+                assert (await p.post()).status_code == 200
+                headers = {"Authorization": f"Bearer {other}"}
+                assert (await p.post(headers=headers, token=False)).status_code == 200
+            p.proxy.close_turn(p.token)
+            p.proxy.close_turn(other)
+            assert p.proxy._parents == {}
+            return root.get_span_context()
+
+    try:
+        turn = run(go())
+        bound, alone = [s for s in exporter.get_finished_spans() if s.name == "llm"]
+    finally:
+        exporter.shutdown()  # the processor stays on the global provider; it now drops spans
+    assert bound.parent is not None and bound.parent.span_id == turn.span_id
+    assert bound.context.trace_id == turn.trace_id
+    assert alone.parent is None and alone.context.trace_id != turn.trace_id
