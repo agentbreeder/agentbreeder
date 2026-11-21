@@ -1,6 +1,7 @@
 """`agentbreeder new agent NAME --model PROVIDER [--model-id ID] [--runtime REF] [--dir DIR]
 [--dry-run] [--json]`: write a starter project (see `newagent`); `--from-spec FILE` writes one
-from the agent builder's JSON spec instead (see `agentspec`). Exit 2 with `[CODE] message` on
+from the agent builder's JSON spec instead (see `agentspec`). `--model vertex` also takes
+`--vertex-project` and `--vertex-location` (#1025 V1). Exit 2 with `[CODE] message` on
 stderr when it refuses, and with `--json` also
 `{"schema_version": 1, "error": {"code", "message"}}` on stdout."""
 
@@ -34,12 +35,23 @@ def register(commands) -> None:
     agent.add_argument("name", help="Agent name: [a-z][a-z0-9-], at most 31 characters")
     agent.add_argument(
         "--model",
-        choices=sorted(newagent.PROVIDERS),
+        choices=sorted(newagent.STARTERS),
         help=(
             "Model provider, called through LiteLLM (required, except with --from-spec); "
             "gemini, openai and openrouter have been run end to end with their default models, "
-            "anthropic is config-only"
+            "anthropic and vertex are config-only; vertex makes the plain starter only, "
+            "not --stack-for or --from-spec"
         ),
+    )
+    agent.add_argument(
+        "--vertex-project",
+        metavar="PROJECT",
+        help="With --model vertex: the Google Cloud project id of the service-account key",
+    )
+    agent.add_argument(
+        "--vertex-location",
+        metavar="LOCATION",
+        help="With --model vertex: the Vertex AI location, e.g. us-central1 or global",
     )
     agent.add_argument(
         "--model-id",
@@ -95,6 +107,18 @@ def register(commands) -> None:
 def run(args) -> int:
     from agentbreeder import newagent
 
+    options = {
+        "vertex_project": getattr(args, "vertex_project", None),
+        "vertex_location": getattr(args, "vertex_location", None),
+    }
+    given = any(value is not None for value in options.values())
+    if given and (args.from_spec is not None or args.stack_for is not None):
+        error = newagent.NewAgentError(
+            "USAGE",
+            "--vertex-project and --vertex-location go with the plain starter "
+            "(`new agent NAME --model vertex`), not --from-spec or --stack-for",
+        )
+        return _refused(error, args)
     if args.from_spec is not None:
         return _from_spec(args)
     if args.model is None:
@@ -110,7 +134,12 @@ def run(args) -> int:
         return _refused(error, args)
     try:
         plan = newagent.plan(
-            args.name, args.model, args.dir, model_id=args.model_id, runtime=args.runtime
+            args.name,
+            args.model,
+            args.dir,
+            model_id=args.model_id,
+            runtime=args.runtime,
+            options=options,
         )
         if args.dry_run:
             newagent.check(plan)
@@ -266,6 +295,13 @@ def _text(summary: dict, notes: list[str] | tuple[str, ...] = ()) -> str:
 def _keys_line(summary: dict) -> str:
     """Where the stack's keys go (`new agent` and `--stack-for`), or, with none, what to pull."""
     names = summary.get("keys", [summary["key"]])
+    if summary["model"] == "vertex":
+        # One line of JSON: an env file is read line by line (#1025 V1).
+        return (
+            "Put VERTEX_SERVICE_ACCOUNT_JSON='<the service-account key as one line>' in a file "
+            "only you can read (chmod 600); `jq -c . key.json` prints the key on one line. The "
+            "next step asks for the file."
+        )
     if names:
         keys = " and ".join(f"{key}=<your key>" for key in names)
         return f"Put {keys} in a file only you can read (chmod 600); the next step asks for it."
@@ -299,12 +335,16 @@ def _verification(summary: dict) -> list[str]:
             f"This starter has been run end to end on {runtime} with "
             f"{', '.join(sorted(ran_with))} only, not with {model}."
         )
-    if not newagent.PROVIDERS[model].verified:
+    if not newagent.STARTERS[model].verified:
+        why = (
+            "it has not been run against Vertex AI"
+            if model == "vertex"
+            else "the eval judge needs strict json_schema output"
+        )
         return lines + [
-            f"{model} is config-only: this starter has not been run end to end with it (the "
-            "eval judge needs strict json_schema output)."
+            f"{model} is config-only: this starter has not been run end to end with it ({why})."
         ]
-    default = newagent.PROVIDERS[model].model
+    default = newagent.STARTERS[model].model
     if summary["model_id"] != default:
         return lines + [
             f"{model} has been run end to end with {default}, not with this model id: the eval "

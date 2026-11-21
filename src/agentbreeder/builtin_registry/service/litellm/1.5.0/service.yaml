@@ -1,0 +1,51 @@
+image: ghcr.io/berriai/litellm-database@sha256:35f2cec3a14bb297e08bfab56c1fc377432bc4071aaf71978fdff043a5d91e79
+provides: gateway/litellm
+command: [/files/start.py]
+user: "65532:65532"
+ports:
+  http: {port: 4000, expose: [agents, host], guard: litellm-auth}
+params:
+  config: {type: file, required: true}
+env:
+  HOME: /tmp
+  # WARNING or above: at DEBUG LiteLLM logs request bodies, guardrails or not (#1024 G0).
+  LITELLM_LOG: WARNING
+  # Set only when the Presidio inputs are wired; the config's `guardrails:` then use them.
+  PRESIDIO_ANALYZER_API_BASE: "{inputs.presidio-analyzer}"
+  PRESIDIO_ANONYMIZER_API_BASE: "{inputs.presidio-anonymizer}"
+  LITELLM_TELEMETRY: "False"
+  DISABLE_ADMIN_UI: "True"
+  NO_DOCS: "True"
+  STORE_MODEL_IN_DB: "False"
+  # No cloud metadata service or ambient credential file (#1025 §4.3): the launcher also sets
+  # these, and passes LiteLLM only an allow-list of variables.
+  AWS_EC2_METADATA_DISABLED: "true"
+  AWS_CONFIG_FILE: /dev/null
+  AWS_SHARED_CREDENTIALS_FILE: /dev/null
+  NO_GCE_CHECK: "true"
+  GCE_METADATA_HOST: metadata.invalid
+  GCE_METADATA_IP: metadata.invalid
+  GCE_METADATA_ROOT: metadata.invalid
+  # The request filter (files/agentbreeder_request_filter.py, #1105); the launcher forces it.
+  PYTHONPATH: /files
+secrets:
+  master-key: {generate: token, prefix: sk-}
+  gemini-api-key: {import: GEMINI_API_KEY, optional: true}
+  openrouter-api-key: {import: OPENROUTER_API_KEY, optional: true}
+  openai-api-key: {import: OPENAI_API_KEY, optional: true}
+  anthropic-api-key: {import: ANTHROPIC_API_KEY, optional: true}
+  # A Vertex AI service-account key, as one line of JSON (#1025 V1). Gateway-only: nothing
+  # but this built-in service may import it. The launcher checks and re-serialises it.
+  vertex-service-account-json: {import: VERTEX_SERVICE_ACCOUNT_JSON, optional: true}
+inputs:
+  database-url: {type: secret}
+  presidio-analyzer: {type: url, optional: true}
+  presidio-anonymizer: {type: url, optional: true}
+health: {http: /health/liveliness}
+egress: true
+# Ollama on the operator's host, at exactly http://host.docker.internal:11434 (#1025 D4). The
+# host mapping is added only when the reviewed config has an Ollama entry.
+reaches_host: [11434]
+outputs:
+  url: {type: url, port: http}
+  master_key: {type: secret, secret: master-key, operator_only: true}

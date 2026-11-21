@@ -21,6 +21,12 @@ unverified on it.
 own Ollama at `http://host.docker.internal:11434` through `service/litellm@1.2.0`, and the agent
 uses `reasoning: none` (Ollama refuses its think option for llama3.2). It ran end to end on
 macOS with Docker Desktop (verification/ollama.md); Linux has not been run.
+`vertex` (#1025 V1) is offered by this plain starter only (`STARTERS`, not `PROVIDERS`): its
+route needs the operator's own project and location (`--vertex-project`, `--vertex-location`),
+which `--stack-for`, `--from-spec` and the console do not ask for. Both aliases call
+`vertex_ai/gemini-3.8-flash` through `service/litellm@1.5.0` with a service-account key the
+gateway imports as VERTEX_SERVICE_ACCOUNT_JSON. It is config-only (`verified` false): it has
+not been run against Vertex AI.
 `verified` is per provider: it covers the gateway and judge path with the default model, not how
 well another `--model-id` answers (on OpenRouter, `anthropic/claude-haiku-5.5` failed one of the
 two cases). `--model-id` replaces the provider's default model. Templates are string
@@ -50,6 +56,7 @@ import shutil
 import stat
 import sys
 import tempfile
+from collections import ChainMap
 from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from pathlib import Path
@@ -66,6 +73,8 @@ GATEWAY = "service/litellm@1.0.0"  # the gateway version the starter's stack.yam
 # Ollama needs a gateway that can reach the host's port 11434 (#1025 O1).
 LOCAL_GATEWAY = "service/litellm@1.2.0"
 OLLAMA_BASE = "http://host.docker.internal:11434"  # gateway_providers.OLLAMA_BASE (D4)
+# Vertex AI needs a gateway that imports the service-account key (#1025 V1).
+VERTEX_GATEWAY = "service/litellm@1.5.0"
 VERSION = "0.1.0"
 REVIEW_DAYS = 180
 SUMMARY_VERSION = 1  # the `--json` shape (and its `error` form) in docs/commands/new.md
@@ -87,31 +96,40 @@ class Provider:
     # agent.yaml `model.reasoning`: Ollama refuses `reasoning_effort` ("does not support
     # thinking") for models without it, llama3.2 included (#1025 O1 run).
     reasoning: str = "low"
+    credential: str = "api_key"  # the litellm param that reads the key
+    # litellm_params the operator must give, as (param, flag) pairs: Vertex's project and
+    # location. Each value is checked against the gateway's own pattern for that param.
+    options: tuple[tuple[str, str], ...] = ()
 
     @property
     def keys(self) -> tuple[str, ...]:
         return (self.key,) if self.key else ()
 
-    def route(self) -> str:
-        """The litellm_params after `model`: the key reference, or Ollama's fixed host."""
-        return f"api_key: os.environ/{self.key}" if self.key else f"api_base: {OLLAMA_BASE}"
+    def route(self, options: dict[str, str] | None = None) -> str:
+        """The litellm_params after `model`: the key reference (and the checked `options`),
+        or Ollama's fixed host."""
+        if not self.key:
+            return f"api_base: {OLLAMA_BASE}"
+        parts = [f"{self.credential}: os.environ/{self.key}"]
+        parts += [f"{param}: {json.dumps((options or {})[param])}" for param, _ in self.options]
+        return ", ".join(parts)
 
 
 def starter_verified(runtime: str, model: str, model_id: str) -> bool:
     """Whether the starter was run end to end on this runtime version with this provider: the
     default version with any verified provider, or a `STARTER_RUNTIMES` version with one of its
     providers on that provider's default model."""
-    if not PROVIDERS[model].verified:
+    if not STARTERS[model].verified:
         return False
     if runtime == RUNTIME:
         return True
-    return model in STARTER_RUNTIMES.get(runtime, ()) and model_id == PROVIDERS[model].model
+    return model in STARTER_RUNTIMES.get(runtime, ()) and model_id == STARTERS[model].model
 
 
 def gateway_for(model_id: str) -> str:
     """The service/litellm version a starter names for a model string: its provider's."""
     head = model_id.partition("/")[0]
-    for name, provider in PROVIDERS.items():
+    for name, provider in STARTERS.items():
         if (provider.prefix or name) == head:
             return provider.gateway
     return GATEWAY
@@ -154,6 +172,23 @@ PROVIDERS = {
         reasoning="none",
     ),
 }
+# Providers only the plain starter offers, because their route needs values from the operator
+# (`Provider.options`): `--stack-for`, `--from-spec` and the console read `PROVIDERS`.
+ROUTED = {
+    # Gemini on Vertex AI (#1025 V1), config-only: not run against Vertex AI. The default is
+    # in the LiteLLM 1.106.2 model map (read from the 1.106.2 wheel, not from a run).
+    "vertex": Provider(
+        "vertex_ai/gemini-3.8-flash",
+        "VERTEX_SERVICE_ACCOUNT_JSON",
+        False,
+        prefix="vertex_ai",
+        gateway=VERTEX_GATEWAY,
+        credential="vertex_credentials",
+        options=(("vertex_project", "--vertex-project"), ("vertex_location", "--vertex-location")),
+    ),
+}
+# What `new agent NAME --model` takes: a live view of both tables.
+STARTERS = ChainMap(PROVIDERS, ROUTED)
 # The gateway's model-name alphabet (gateway_keys._MODEL_NAME), at most 128 characters.
 MODEL_ID_PATTERN = r"[A-Za-z0-9._:/-]{1,128}"
 _PLAIN = re.compile(r"[A-Za-z0-9._/-]+")  # a plain YAML scalar in a flow mapping as it stands
@@ -292,6 +327,8 @@ class Plan:
     # (alias, LiteLLM model) of sub-agents' own gateway aliases (`--from-spec` v2, CC2), served
     # after `chat` and `judge` and before the embedding alias.
     served: tuple[tuple[str, str], ...] = ()
+    # The provider's checked route values (`Provider.options`): Vertex's project and location.
+    options: dict[str, str] = field(default_factory=dict)
 
     def summary(self, dry_run: bool) -> dict:
         """The `--json` shape: what is (or would be) written, without file content."""
@@ -315,8 +352,8 @@ class Plan:
             "aliases": ["chat", "judge"]
             + [alias for alias, _ in self.served]
             + ([self.embedding[0]] if self.embedding else []),
-            "key": PROVIDERS[self.model].key,
-            "keys": list(PROVIDERS[self.model].keys),
+            "key": STARTERS[self.model].key,
+            "keys": list(STARTERS[self.model].keys),
             "review_by": self.review_by,
             "cases": list(self.cases) if self.cases is not None else [c["id"] for c in _cases()],
             "files": files,
@@ -330,6 +367,8 @@ class Plan:
             # Only for a runtime version AgentBreeder does not ship (#1083 F1), so the summary
             # of every other project is what it was.
             result["runtime_root_kind"] = self.runtime_root_kind
+        if self.options:  # only for a provider with route options (Vertex, #1025 V1)
+            result["options"] = dict(self.options)
         return result
 
 
@@ -350,8 +389,10 @@ def valid_name(name: object) -> bool:
     )
 
 
-def check_inputs(name: str, model: str) -> None:
-    """The name and `--model` checks (also used by `--stack-for`)."""
+def check_inputs(name: str, model: str, providers: dict | None = None) -> None:
+    """The name and `--model` checks (also used by `--stack-for` and `--from-spec`, which
+    offer `PROVIDERS`; the plain starter passes `STARTERS`)."""
+    providers = PROVIDERS if providers is None else providers
     if not valid_name(name):
         raise NewAgentError(
             "NAME_INVALID",
@@ -359,18 +400,47 @@ def check_inputs(name: str, model: str) -> None:
             "end with a letter or digit, be at most 31 characters, and not be a YAML word such "
             "as true, false, yes, no, on, off or null",
         )
-    if model not in PROVIDERS:
+    if model not in providers:
         raise NewAgentError(
             "MODEL_UNSUPPORTED",
-            f"--model must be one of: {', '.join(sorted(PROVIDERS))}",
+            f"--model must be one of: {', '.join(sorted(providers))}",
         )
+
+
+def options_for(model: str, options: dict[str, str] | None) -> dict[str, str]:
+    """The provider's route values, each checked against the gateway's own pattern for that
+    param (`gateway_providers`), so the generated config passes the review. A value is never
+    echoed in an error."""
+    from agentbreeder import gateway_providers
+
+    provider = STARTERS[model]
+    given = {param: value for param, value in (options or {}).items() if value is not None}
+    flags = dict(provider.options)
+    if set(given) - set(flags):
+        raise NewAgentError(
+            "MODEL_OPTION_UNSUPPORTED",
+            "--vertex-project and --vertex-location go with --model vertex",
+        )
+    missing = [flag for param, flag in provider.options if param not in given]
+    if missing:
+        raise NewAgentError(
+            "MODEL_OPTION_REQUIRED", f"--model {model} needs {' and '.join(missing)}"
+        )
+    checks = gateway_providers.PROVIDERS[model].required if provider.options else {}
+    for param, flag in provider.options:
+        if not checks[param].accepts(given[param]):
+            raise NewAgentError(
+                "MODEL_OPTION_INVALID",
+                f"{flag} is not a valid {param.replace('_', ' ')} (docs/commands/new.md)",
+            )
+    return given
 
 
 def model_id_for(model: str, model_id: str | None) -> str:
     """The LiteLLM model string for `--model` and `--model-id`: the provider's default, or the
     given id when it is `PROVIDER/…` in the gateway's alphabet with no empty segment. The id is
     never echoed in an error."""
-    provider = PROVIDERS[model]
+    provider = STARTERS[model]
     prefix = provider.prefix or model
     if model_id is None:
         if provider.model is None:
@@ -394,6 +464,21 @@ def model_id_for(model: str, model_id: str | None) -> str:
             f"--model-id must be {prefix}/{shape}: letters, digits and . _ : / -, at most 128 "
             "characters, no empty segment",
         )
+    if provider.options:
+        # The gateway takes only some model families from this provider (Vertex: Gemini and
+        # the embedding models), and `chat` and `judge` need a chat model; say so here, not
+        # as a failed config review or a starter whose aliases cannot chat.
+        from agentbreeder import gateway_providers
+
+        chat = model_id.startswith(f"{prefix}/gemini-") and not model_id.startswith(
+            f"{prefix}/gemini-embedding-"
+        )
+        if not chat or gateway_providers.PROVIDERS[model].model.fullmatch(model_id) is None:
+            raise NewAgentError(
+                "MODEL_ID_INVALID",
+                f"--model-id for {model} must be a Gemini chat model the gateway accepts: "
+                f"{prefix}/gemini-... (docs/services.md)",
+            )
     return model_id
 
 
@@ -409,14 +494,17 @@ def plan(
     today: date | None = None,
     model_id: str | None = None,
     runtime: str | None = None,
+    options: dict[str, str] | None = None,
 ) -> Plan:
     """Check the inputs and fill the templates; writes nothing. `runtime`: the runtime version
-    `agent.yaml` pins instead of the default (`--runtime`, #1083 F1)."""
-    check_inputs(name, model)
+    `agent.yaml` pins instead of the default (`--runtime`, #1083 F1). `options`: the provider's
+    route values by litellm param (Vertex: `vertex_project`, `vertex_location`)."""
+    check_inputs(name, model, STARTERS)
     resolved = model_id_for(model, model_id)
+    given = options_for(model, options)
     today = today or date.today()
     review_by = (today + timedelta(days=REVIEW_DAYS)).isoformat()
-    provider = PROVIDERS[model]
+    provider = STARTERS[model]
     values = {
         "name": name,
         "today": today.isoformat(),
@@ -424,7 +512,7 @@ def plan(
         "version": VERSION,
         "review_by": review_by,
         "model_yaml": model_yaml(resolved),
-        "route": provider.route(),
+        "route": provider.route(given),
         "reasoning": provider.reasoning,
         "start": start_lines(provider.keys),
         "gateway": provider.gateway,
@@ -449,7 +537,7 @@ def plan(
         raise NewAgentError(
             "DESTINATION_UNSAFE", "the destination path has control, bidi or invisible characters"
         )
-    plan = Plan(name, model, target, review_by, files, publishes, model_id=resolved)
+    plan = Plan(name, model, target, review_by, files, publishes, model_id=resolved, options=given)
     if runtime is None:
         return plan
     ref, root_kind, digest = check_runtime(values["runtime"], files["agent.yaml"])
@@ -704,7 +792,7 @@ def create(plan: Plan) -> Plan:
                 raise NewAgentError("TEMPLATE_INVALID", f"published {ref}, expected {expected}")
             published[str(ref)] = digest
         refs = _validate(
-            staging, plan.model_id, plan.embedding, PROVIDERS[plan.model].gateway, plan.served
+            staging, plan.model_id, plan.embedding, STARTERS[plan.model].gateway, plan.served
         )
         if not plan.lock_after_move:
             _lock(staging, refs)

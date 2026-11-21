@@ -67,11 +67,13 @@ TYPED_TOOLS = [
 ]
 
 
-@pytest.fixture
-def rules(monkeypatch):
+@pytest.fixture(params=["1.4.0", "1.5.0"])
+def rules(request, monkeypatch):
+    """The 1.4.0 filter, and 1.5.0's copy of it (#1025 V1 carries it byte for byte)."""
+    version = request.param
     return _load(
-        "agentbreeder_request_filter_140",
-        V14 / "files/agentbreeder_request_filter.py",
+        f"agentbreeder_request_filter_{version.replace('.', '')}",
+        registry.BUILTIN_ROOT / f"service/litellm/{version}/files/agentbreeder_request_filter.py",
         monkeypatch,
     )
 

@@ -1,6 +1,8 @@
 usage: agentbreeder new agent [-h]
-                              [--model {anthropic,gemini,ollama,openai,openrouter}]
-                              [--model-id ID] [--runtime REF] [--dir DIR |
+                              [--model {anthropic,gemini,ollama,openai,openrouter,vertex}]
+                              [--vertex-project PROJECT]
+                              [--vertex-location LOCATION] [--model-id ID]
+                              [--runtime REF] [--dir DIR |
                               --stack-for AGENT_YAML] [--from-spec FILE]
                               [--dry-run] [--expect-digest SHA256] [--json]
                               name
@@ -16,11 +18,19 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  --model {anthropic,gemini,ollama,openai,openrouter}
+  --model {anthropic,gemini,ollama,openai,openrouter,vertex}
                         Model provider, called through LiteLLM (required,
                         except with --from-spec); gemini, openai and
                         openrouter have been run end to end with their default
-                        models, anthropic is config-only
+                        models, anthropic and vertex are config-only; vertex
+                        makes the plain starter only, not --stack-for or
+                        --from-spec
+  --vertex-project PROJECT
+                        With --model vertex: the Google Cloud project id of
+                        the service-account key
+  --vertex-location LOCATION
+                        With --model vertex: the Vertex AI location, e.g. us-
+                        central1 or global
   --model-id ID         LiteLLM model id, PROVIDER/... (default: the
                         provider's own, e.g.
                         openrouter/google/gemini-3.8-flash; openrouter ids are

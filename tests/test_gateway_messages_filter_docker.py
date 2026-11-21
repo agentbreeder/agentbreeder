@@ -9,11 +9,12 @@ model on provider B. One key is minted the way `deploy` mints it for a
 `model_api: anthropic-messages` deployment (chat, embeddings and `/v1/messages`), one with the
 chat and embeddings routes only.
 
-On 1.4.0 a plain Messages request reaches its alias's provider, on the Anthropic route (`m`)
-and translated for the OpenAI model (`a`), which LiteLLM 1.106.2 sends to the provider's
-Responses API (`/v1/responses`), not to chat completions, so this test's providers also answer
-that path, plain and streamed (`PROVIDER`). Every request carrying a refused field, tool,
-header or content gets the filter's coded 400, and no provider sees it.
+On 1.4.0 (and 1.5.0, which carries its filter) a plain Messages request reaches its alias's
+provider, on the Anthropic route (`m`) and translated for the OpenAI model (`a`), which LiteLLM
+1.106.2 sends to the provider's Responses API (`/v1/responses`), not to chat completions, so
+this test's providers also answer that path, plain and streamed (`PROVIDER`). Every request
+carrying a refused field, tool, header or content gets the filter's coded 400, and no provider
+sees it.
 `service/litellm@1.3.0` is the control: the same plain request is refused there
 (`GATEWAY_ROUTE_REFUSED`). The test-only widening of the config review (`api_base`) is the
 1.3.0 test's.
@@ -140,7 +141,7 @@ def _stack(version: str) -> dict:
     }
 
 
-@pytest.fixture(params=["1.4.0", "1.3.0"])
+@pytest.fixture(params=["1.5.0", "1.4.0", "1.3.0"])
 def stack(request, tmp_path, monkeypatch):
     monkeypatch.delenv(registry.PATH_ENV, raising=False)
     monkeypatch.setenv(ROOT_ENV, str(tmp_path / "stacks"))

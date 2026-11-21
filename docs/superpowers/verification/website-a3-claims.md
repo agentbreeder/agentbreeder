@@ -93,7 +93,7 @@ description.
 | G3 | OpenAI, default `openai/gpt-5.6`; `text-embedding-3-small` knowledge | #917, #1080 | providers.md re-run | V (default model; a tool on openai not run) | not run |
 | G4 | Anthropic | #917 | providers.md: blocked, key not workspace-scoped | M: config-only, not verified | not run |
 | G5 | Ollama via `service/litellm@1.2.0`, `new agent --model ollama` | #1108 | ollama.md, PR body: `runtime/adk@1.3.0`, macOS only | V on `runtime/adk@1.3.0` only; Linux, kind and 1.4.0 not run | not run |
-| G6 | Vertex AI, Bedrock, Azure OpenAI | #1096 | review rules only; `up` refuses them (`GATEWAY_PROVIDER_UNSUPPORTED`) | M: config review only, not served | not run |
+| G6 | Vertex AI, Bedrock, Azure OpenAI | #1096; Vertex #1025 V1 | Bedrock, Azure: review rules only; `up` refuses them (`GATEWAY_PROVIDER_UNSUPPORTED`). Vertex: `service/litellm@1.5.0` accepts it, config-only | M: Bedrock and Azure config review only, not served; Vertex config only, not run against Vertex AI | not run |
 | G7 | Gateway config review: provider allow-list, `model_info` only `mode`, logging pinned off | #1035, #1038, #1096 | unit tests; M4 read the spend logs (no messages kept) | V (logging off), M (review rules) | not run |
 | G8 | Fallbacks must be granted (`GATEWAY_FALLBACK_UNGRANTED`); granted fallback served | #1046 | gateway-limits re-check; #1095 PR body (OpenRouter fallback served a Northwind turn) | V | not run |
 | G9 | Budget (`budget_usd`) refused once spent | (a2), #1066 | gateway-limits (refused); #1095/#1066 PR bodies: `MODEL_BUDGET_EXCEEDED` on `runtime/adk@1.3.0` | V | not run |
