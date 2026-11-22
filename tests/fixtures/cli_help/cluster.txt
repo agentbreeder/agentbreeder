@@ -1,12 +1,14 @@
-usage: agentbreeder cluster [-h] {up,status,down,policy,rbac} ...
+usage: agentbreeder cluster [-h] {up,status,down,connect,policy,rbac} ...
 
 positional arguments:
-  {up,status,down,policy,rbac}
+  {up,status,down,connect,policy,rbac}
     up                  Create the cluster and registry, and add them to the
                         stack's grant
     status              Show the cluster, the registry and the tools they need
     down                Delete the cluster and registry (refused while
                         something is deployed there)
+    connect             Check an existing cluster for AgentBreeder (preview;
+                        records nothing yet)
     policy              The admission policies a cluster namespace needs
                         (printed, not installed)
     rbac                The service accounts and Roles a cluster namespace

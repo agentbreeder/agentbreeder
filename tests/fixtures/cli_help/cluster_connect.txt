@@ -1,0 +1,9 @@
+usage: agentbreeder cluster connect [-h] {token} ...
+
+positional arguments:
+  {token}
+    token     Any conformant cluster, through short-lived service account
+              tokens
+
+options:
+  -h, --help  show this help message and exit

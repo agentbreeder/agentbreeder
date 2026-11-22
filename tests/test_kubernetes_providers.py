@@ -115,9 +115,9 @@ class Kube(Kubernetes):
         self.authorized: list[str | None] = []
         self.forwarded: list[str] = []
 
-    def authorize(self, context=None):
+    def authorize(self, context=None, environment=None):
         self.authorized.append(context)
-        super().authorize(context)
+        super().authorize(context, environment)
 
     def inspect(self, record):
         if self.running:
@@ -652,13 +652,13 @@ def test_the_session_is_entered_once_and_closed(store, fake_config, cluster):
     kube.select("dev")
     kube.authorize()
     provider = FakeProvider.built[-1]
-    kube.authorize(kube.context)  # the same binding: same provider, same session
+    kube.authorize(kube.context, "dev")  # the same binding: same provider, same session
     kube.command("get", "pods")
     assert FakeProvider.built[-1] is provider and (provider.opened, provider.closed) == (1, 0)
     service.close()
     assert provider.closed == 1
     with kube:
-        kube.authorize(kube.context)
+        kube.authorize(kube.context, "dev")
         assert provider.opened == 2
     assert provider.closed == 2
 

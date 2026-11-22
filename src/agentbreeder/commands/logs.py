@@ -321,7 +321,7 @@ def _prepare(args):
         runtime.bindings = bindings
     try:
         try:
-            runtime.authorize(record["context"])
+            runtime.authorize(record["context"], record.get("environment"))
         except DeploymentError as error:
             # Kubernetes messages name the recorded namespace: excerpt, as other state-derived
             # text.

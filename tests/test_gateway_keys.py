@@ -17,6 +17,7 @@ from agentbreeder.deployment import DeploymentService
 from agentbreeder.gate import GateDenied
 from agentbreeder.gateway_keys import GatewayError, LiteLLM
 from agentbreeder.manifest import Manifest
+from agentbreeder.store import DeploymentError
 
 MASTER = "master-for-tests"
 
@@ -550,3 +551,73 @@ def test_key_models_follow_fallbacks_in_a_stable_order():
     assert env.key_models(["a"]) == ["a", "c", "b", "d"]
     assert env.key_models(["d", "b"]) == ["d", "b"]
     assert env.key_models(["x"]) == ["x"]  # the gate refuses ungranted aliases, not this helper
+
+
+# -- #770 §4.3 item 5 (K1): the kill switch revokes the key in `finally` -----------------------
+
+
+def test_disable_revokes_the_key_when_the_workload_step_fails(minting, gateway, state, runtime):
+    """A failed authorize (an expired token, a failed mint, a refused binding) no longer skips
+    the revoke: the agent loses its model access while the gateway answers."""
+    from conftest import actor
+
+    running(runtime)
+    service = DeploymentService(state, runtime, minting.load())
+    result = service.deploy(manifest(), local=True)
+    runtime.authorize.side_effect = DeploymentError("[KUBERNETES_MINT_FAILED] minting failed")
+    disabled = service.disable("sample", actor("ops"))
+    assert disabled["state"] == "failed"
+    assert disabled["failed"] == [
+        {"id": result["id"], "error": "[KUBERNETES_MINT_FAILED] minting failed"}
+    ]
+    assert gateway_keys.alias(result["id"]) not in gateway.keys
+    assert state.get(result["id"])["state"] == "failed"
+
+
+def test_a_failed_revoke_is_reported_beside_the_original_error(minting, gateway, state, runtime):
+    from conftest import actor
+
+    running(runtime)
+    service = DeploymentService(state, runtime, minting.load())
+    result = service.deploy(manifest(), local=True)
+    runtime.authorize.side_effect = DeploymentError("[KUBERNETES_MINT_FAILED] minting failed")
+    gateway.down = True
+    disabled = service.disable("sample", actor("ops"))
+    (failure,) = disabled["failed"]
+    assert failure["error"] == (
+        "[KUBERNETES_MINT_FAILED] minting failed; the gateway key revoke also failed "
+        "(reconcile retries it)"
+    )
+    assert gateway_keys.alias(result["id"]) in gateway.keys
+    gateway.down = False
+    runtime.authorize.side_effect = None
+    runtime.inspect.side_effect = None
+    runtime.inspect.return_value = None
+    service.reconcile()
+    assert gateway_keys.alias(result["id"]) not in gateway.keys
+
+
+def test_an_unexpected_error_still_revokes_and_propagates(minting, gateway, state, runtime):
+    from conftest import actor
+
+    running(runtime)
+    service = DeploymentService(state, runtime, minting.load())
+    result = service.deploy(manifest(), local=True)
+    runtime.inspect.side_effect = RuntimeError("an unexpected failure")
+    with pytest.raises(RuntimeError, match="unexpected"):
+        service.disable("sample", actor("ops"))
+    assert gateway_keys.alias(result["id"]) not in gateway.keys
+
+
+def test_the_revoke_runs_once_when_disable_succeeds(minting, gateway, state, runtime, monkeypatch):
+    from conftest import actor
+
+    running(runtime)
+    service = DeploymentService(state, runtime, minting.load())
+    service.deploy(manifest(), local=True)
+    runtime.inspect.side_effect = [{"Id": "c", "State": {"Running": True}}, None]
+    calls = []
+    original = service._revoke_key
+    monkeypatch.setattr(service, "_revoke_key", lambda *a: calls.append(a) or original(*a))
+    assert service.disable("sample", actor("ops"))["state"] == "disabled"
+    assert len(calls) == 1

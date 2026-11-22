@@ -55,7 +55,7 @@ class FakeKube:
         self.calls = []
         self.process = None
 
-    def authorize(self, context=None):
+    def authorize(self, context=None, environment=None):
         self.calls.append(("authorize", context))
         if self.error:
             raise self.error

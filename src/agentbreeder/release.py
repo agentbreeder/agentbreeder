@@ -879,7 +879,7 @@ def capture_candidate(service, deployment_id: str) -> Capture:
             redaction.deployment_copies(state, deployment_id, found)
         capture.values, capture.problems = found.values, found.problems
         collected = True
-        service.runtime.authorize(record["context"])
+        service.runtime.authorize(record["context"], record.get("environment"))
         info = service.runtime.inspect(record)
         if info:
             text, _ = service.runtime.logs(info, TAIL_LINES)
@@ -1030,7 +1030,10 @@ def rollback(
         return Outcome(EXIT_APPROVAL, "The rollback deploy needs approval; production unchanged")
     with _ReleaseLock(service.store.directory):
         current = service.store.active(agent.name)
-        service.runtime.authorize(current["context"] if current else None)
+        service.runtime.authorize(
+            current["context"] if current else None,
+            current.get("environment") if current else None,
+        )
         if not service.runtime.image_present(manifest.image):
             # Checked before anything is removed: a pruned local image can't be pulled back.
             return Outcome(

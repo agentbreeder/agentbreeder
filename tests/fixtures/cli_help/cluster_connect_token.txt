@@ -1,0 +1,28 @@
+usage: agentbreeder cluster connect token [-h] --server URL --mint-kubeconfig
+                                          FILE --registry HOST/PATH --pod-cidr
+                                          CIDR --service-cidr CIDR
+                                          [--node-cidr CIDR]
+                                          [--namespace NAMESPACE]
+                                          [--environment ENV]
+                                          [--tls-server-name NAME]
+                                          [--token-minutes 10-60]
+                                          [--kubectl PATH] [--json]
+
+Check a cluster reached with short-lived service account tokens, minted with a
+dedicated mint kubeconfig. Until the admission policy check is wired in (#770)
+this runs every other check and then refuses, recording nothing.
+
+options:
+  -h, --help            show this help message and exit
+  --server URL          https://HOST[:PORT]
+  --mint-kubeconfig FILE
+  --registry HOST/PATH
+  --pod-cidr CIDR
+  --service-cidr CIDR
+  --node-cidr CIDR
+  --namespace NAMESPACE
+  --environment ENV
+  --tls-server-name NAME
+  --token-minutes 10-60
+  --kubectl PATH        kubectl to pin (default: from PATH)
+  --json

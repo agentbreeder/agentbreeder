@@ -516,7 +516,7 @@ def test_remove_routes_and_checks_the_flag(store, docker, cube, config):
         service.remove(deployed["id"], local=True)
     cube.inspect.side_effect = [{"Id": "x", "State": {"Running": True}}, None]
     assert service.remove(deployed["id"], local=False)["state"] == "removed"
-    cube.authorize.assert_called_with(cube.context)
+    cube.authorize.assert_called_with(cube.context, "dev")
     cube.remove.assert_called_once()
     docker.remove.assert_not_called()
 

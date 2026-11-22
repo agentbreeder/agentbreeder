@@ -27,7 +27,7 @@ def _forward(service: DeploymentService, args) -> int:
     record = service.store.get(args.id)
     if service.store.manifest(args.id).get("target") != "kubernetes" or record["state"] != "ready":
         raise DeploymentError("forward needs a ready Kubernetes deployment")
-    service.kubernetes.authorize(record["context"])
+    service.kubernetes.authorize(record["context"], record.get("environment"))
     with service.kubernetes.forward(record["endpoint"], args.port) as port:
         print(f"http://127.0.0.1:{port}  (unauthenticated; Ctrl-C to stop)", flush=True)
         try:
