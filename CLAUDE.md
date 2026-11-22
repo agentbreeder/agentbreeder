@@ -35,9 +35,9 @@ and only after a **deploy-time identity gate** confirms the agent in your identi
   env|down`, built-in postgres-pgvector, litellm and phoenix, project services built from source;
   see `docs/services.md`). Verified with `src/agentbreeder/examples/northwind` from scratch (61/61, 2026-11-08).
 
-**On `main`, not in a published preview (merged since `3.0.0a3`; coming in 3.0.0a4, not yet
-released).** macOS x86_64 + Docker Desktop only; see `docs/runtimes.md` and the verification
-records it links:
+**New in 3.0.0a4 (merged since `3.0.0a3`; version set on `main` by the prep PR for #1209, not yet
+published to PyPI or npm).** Run from a checkout or a local wheel, macOS x86_64 + Docker Desktop
+only; see `docs/runtimes.md` and the verification records it links:
 - Runtimes on the runtime kit (#1083): `runtime/langgraph@1.0.0` (verified for the starter and one
   tool with Gemini), `openai-agents@1.0.0`, `deepagents@1.0.0`, `crewai@1.0.0` (each Northwind
   61/61 on Docker and `kind`, not verified); `claude-agent-sdk@1.0.0` in the example's own
@@ -158,6 +158,15 @@ the Northwind README); the footer badge, `install.mdx` and `what-ships` change i
 after the public-registry run, and claim only what that run covered. Website: an a3 verification
 table in `install.mdx`. Cloud: no code change (no OSS version pin); its `CLAUDE.md` records the
 version.
+
+**3.0.0a4 release (#1209), per side.** OSS: PyPI `3.0.0a4`, npm `3.0.0-alpha.4`, cut from `main`
+after the docs sync (#1208). The prep PR changes only the version, the CHANGELOG (fragments folded),
+the pins frozen into the artifacts (`README.md`, `npm/README.md`, the Northwind README) and the
+"On `main`" headings in `README.md`, `ARCHITECTURE.md` and this file; the footer badge,
+`install.mdx`, `what-ships` and the "on main, coming in 3.0.0a4" labels in `docs/` and the website
+change in a follow-up PR after the public-registry run, and claim only what that run covered.
+Website: an a4 verification table in `install.mdx`. Cloud: no code change (no OSS version pin);
+its `CLAUDE.md` records the version.
 
 **Brand tokens (#817), per side.** OSS: `website/brand.css` gains a light `:root` palette and new
 tokens (`--text-muted`, `--control-border`, status colours), copied to `center/static/brand.css`

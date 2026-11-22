@@ -15,29 +15,29 @@ Deploys pass a **deploy-time identity gate**: the agent must already exist in yo
 
 ## Install the preview
 
-`3.0.0a3` is an alpha preview, on [PyPI](https://pypi.org/project/agentbreeder/3.0.0a3/) and
-[npm](https://www.npmjs.com/package/agentbreeder/v/3.0.0-alpha.3). Each command pins the exact
+`3.0.0a4` is an alpha preview, on [PyPI](https://pypi.org/project/agentbreeder/3.0.0a4/) and
+[npm](https://www.npmjs.com/package/agentbreeder/v/3.0.0-alpha.4). Each command pins the exact
 version. A bare `pip install agentbreeder` installs 2.x (see the notice above).
 
 ```sh
-pip install "agentbreeder[eval]==3.0.0a3"                               # in a virtual environment
-uvx --from "agentbreeder[eval]==3.0.0a3" agentbreeder quickstart --dry-run   # needs uv
-npx agentbreeder@3.0.0-alpha.3 quickstart --dry-run                       # needs Node 18+ and uv
+pip install "agentbreeder[eval]==3.0.0a4"                               # in a virtual environment
+uvx --from "agentbreeder[eval]==3.0.0a4" agentbreeder quickstart --dry-run   # needs uv
+npx agentbreeder@3.0.0-alpha.4 quickstart --dry-run                       # needs Node 18+ and uv
 ```
 
 The npm package is a launcher that runs the same PyPI release through `uvx`; see
 [npm/README.md](https://github.com/agentbreeder/agentbreeder/blob/main/npm/README.md).
 
 `npx` and `uvx` do not install an `agentbreeder` command, so repeat the prefix for each command
-(`npx agentbreeder@3.0.0-alpha.3 up`), or install the command with
-`uv tool install "agentbreeder[eval]==3.0.0a3"` (with `3.0.0a2`, run on macOS on 2026-11-11: `--version`, `doctor`,
-`quickstart`). If a bare `agentbreeder` fails with `No module named 'cli'` or is not `3.0.0a3`, an
+(`npx agentbreeder@3.0.0-alpha.4 up`), or install the command with
+`uv tool install "agentbreeder[eval]==3.0.0a4"` (with `3.0.0a2`, run on macOS on 2026-11-11: `--version`, `doctor`,
+`quickstart`). If a bare `agentbreeder` fails with `No module named 'cli'` or is not `3.0.0a4`, an
 older install comes first on your `PATH`: find it with `which -a agentbreeder` and see
 [removing an older install](https://www.agentbreeder.io/docs/install#an-older-agentbreeder-on-your-path).
 
-The [`v3.0.0a3` GitHub release](https://github.com/agentbreeder/agentbreeder/releases/tag/v3.0.0a3)
+The [`v3.0.0a4` GitHub release](https://github.com/agentbreeder/agentbreeder/releases/tag/v3.0.0a4)
 carries a hashed requirements file for `uv pip install --require-hashes -r
-requirements-3.0.0a3.txt` (or `pip install --require-hashes -r …`).
+requirements-3.0.0a4.txt` (or `pip install --require-hashes -r …`).
 
 What has been verified, installing `3.0.0a2` from the public registries on 2026-11-11, on macOS
 with Docker Desktop, in a clean sandbox (fresh `HOME` with `~/.docker` linked in for the Docker context, empty package caches, no checkout; Docker images on the host were not cleared):
@@ -61,7 +61,7 @@ macOS; on Linux only the install and `doctor` have been checked.
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install "agentbreeder[eval]==3.0.0a3"
+.venv/bin/python -m pip install "agentbreeder[eval]==3.0.0a4"
 .venv/bin/agentbreeder quickstart
 ```
 
@@ -135,11 +135,11 @@ Local-only preview: see [src/agentbreeder/examples/northwind](https://github.com
 
 `agentbreeder up` starts a web UI on `127.0.0.1` for one person. It onboards a project, starts its services after a grant review, runs the eval-gated release, and deploys that same image by digest to a local `kind` cluster. Every action runs the CLI, so the identity gate, policy, audit and eval gate still apply. Run `npx agentbreeder@3.0.0-alpha.2 up` or `uvx --from "agentbreeder[eval]==3.0.0a2" agentbreeder up`. From the published `3.0.0a2` on macOS on 2026-11-11, Northwind passed 61/61 on local Docker and 61/61 on `kind`, driven by a script through the command center's API, with no browser. It has not run on Linux, and no production cluster has been tested. See [docs/command-center.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/command-center.md).
 
-## On `main`, not in a published preview
+## New in `3.0.0a4`
 
-These have merged since `3.0.0a3` and are not in any published package yet. Each was run only
-where it says, on macOS x86_64 with Docker Desktop; nothing here has run on Linux, on arm64 or on
-a production cluster.
+These are new since `3.0.0a3`. Each item says what ran and what did not; every run was on macOS
+x86_64 with Docker Desktop, and nothing here has run on Linux, on arm64 or on a production
+cluster.
 
 - **Runtimes for other frameworks.** `runtime/langgraph@1.0.0`, `runtime/openai-agents@1.0.0`,
   `runtime/deepagents@1.0.0` and `runtime/crewai@1.0.0`, on a shared runtime kit with

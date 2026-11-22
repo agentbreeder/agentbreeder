@@ -8,6 +8,639 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+## [3.0.0a4] — 2026-11-22
+
+### Added
+
+- Console Try it: a reply's Turn details list the sub-agents called and the skills loaded
+  (`runtime/adk@1.5.0` replies), as plain text with each sub-agent's call and model-call counts
+  and each skill's reference files (#1193). Tested with a fake CLI only.
+
+- `runtime/adk@1.4.1` and `runtime/adk@1.5.1` (#1190):
+  `1.4.0` and `1.5.0` with a dependency update to opentelemetry 1.45.2 (CVE-2026-114603,
+  CVE-2026-126360) and google-adk 2.14.0, with ADK's legacy span schema pinned so the spans are
+  unchanged. Docker rerun on macOS x86_64 (conformance as the base versions, Northwind 61/61 on
+  1.5.1); not yet labelled run end to end, so Northwind, the `new agent` starter and the console
+  stay on their current versions. Earlier versions are unchanged.
+
+- `runtime/crewai@1.0.0` (#1090, #1083 F6), run end to end
+  on macOS x86_64 (Northwind 61/61 on local Docker and on `kind`; conformance 26 pass, 0 fail,
+  13 not run; arm64 not run), not verified. CrewAI is not a supported
+  framework. It runs on the shared runtime kit (kit 1.0.0, vendored byte for byte): one CrewAI
+  `Agent` per turn through `Agent.kickoff_async`, with the conversation as structured messages and
+  no `Crew`; memory, planning, reasoning, delegation, code execution, context summarising, the
+  tool-result cache and CrewAI's own rate-limit retries off; models only through the kit's
+  loopback proxy (a per-turn token through CrewAI's interceptor). CrewAI's task-output SQLite
+  store and its console output (panels with the backstory, tool arguments and answers, printed
+  whatever `verbose` says) are switched off and checked at start-up, so that no customer text is
+  kept outside `turns` or printed to the log (checked in the runtime tests with a scripted model,
+  and on the built image). Tool schemas become pydantic models (the runtime refuses
+  what it cannot express). Capabilities `knowledge` and `notes`; no MCP, sub-agents or skills.
+  `src/agentbreeder/examples/northwind-crewai/` is Northwind with `name` and `runtime` changed,
+  sharing Northwind's registry and stack (its `stack.yaml` names the new agent). New CI job
+  `runtime-crewai`; the Docker and `kind` acceptance is an opt-in test
+  (`docs/superpowers/verification/F6-crewai.md`). CrewAI's instrumentor writes no LLM span, so
+  the adapter writes one per model call from its `model_called` row (found by `conformance`). The image carries `chromadb` 1.5.9 (a `crewai`
+  dependency), which has four advisories in ChromaDB's HTTP server and no fixed version; the
+  runtime imports it as a library and never starts that server. They are a documented known
+  security exception, limited to this runtime's lock and re-checked when chromadb ships a fix.
+
+- `runtime/claude-agent-sdk@1.0.0` and Northwind on it (#1089, #1083 F7). **Run end to end on macOS 13 x86_64 (Northwind 61/61 through `/v1/messages`,
+  locally and on `kind`); not supported.** This runtime is not in the
+  built-in registry and AgentBreeder publishes no image of it (owner decision D8): it is the
+  port's own project registry, `examples/northwind-claude-agent-sdk/registry/`, and a
+  user's own build downloads the `claude-agent-sdk` wheel with the Claude Code CLI inside
+  (accepting Anthropic's terms). The CLI runs in a second container from the agent's image, as
+  uid 65533, with no secret mount and (on local Docker) no network: the **two-uid deploy
+  contract** (D15), declared by the new runtime manifest key `isolation: two-uid` and the deploy
+  manifest's optional `runtime.isolation`. The kit side and the CLI host talk over a shared
+  directory with kernel peer-credential checks; the CLI's environment is built from scratch, its
+  command line must keep every control (no built-in tools, verbatim prompts, only the kit's
+  in-process MCP server), and its process group and per-turn directory are removed at turn end.
+  The model proxy gains the Anthropic Messages route in this runtime (kit 1.0.0 unchanged); a
+  deployment with `runtime.model_api: anthropic-messages` gets `/v1/messages` on its gateway key
+  (D17) and is refused wherever guardrails apply (`RUNTIME_GUARDRAILS_UNSUPPORTED`). A
+  configurable concurrent-turn cap (D16): 2 turns and 3 leases, from a measurement of the CLI
+  container's memory.
+
+- Built-in `service/litellm@1.4.0` (#1089): 1.3.0 plus
+  LiteLLM's Anthropic Messages route (`/v1/messages`) through the request filter, for runtimes
+  that declare `model_api: anthropic-messages`. A Messages request gets 1.3.0's refusals and is
+  also refused (`GATEWAY_PARAM_REFUSED`) for `mcp_servers`, `container`, `service_tier`, `speed`,
+  `inference_geo`, `betas`/`anthropic_beta`, `compaction`, `safeguards`, typed (server,
+  Anthropic-defined, MCP, advisor) tools and `allowed_callers`, the `anthropic-beta` header or
+  any provider header but `anthropic-version`, and Files API or URL content sources.
+  `/v1/messages/count_tokens` stays reachable and unfiltered for a key allowed `/v1/messages`. Chat completions and embeddings are filtered as on 1.3.0. `gateway_keys.key_routes`
+  takes `model_api` and adds `/v1/messages` for `anthropic-messages`; deploy passes it for a
+  runtime that declares `anthropic-messages` (#1089 F7). Unit-tested; the opt-in Docker test passed
+  on 2026-11-20 against the real LiteLLM 1.106.2 image with stub providers (#1187). 1.0.0 to 1.3.0, starter stacks
+  and Northwind are unchanged.
+
+- `runtime/deepagents@1.0.0` (#1083 F5, #1088), built and
+  **run end to end on macOS x86_64, not verified**. Deep Agents is not a supported framework. The second runtime on the
+  runtime kit (kit 1.0.0, vendored byte for byte, unchanged): `create_deep_agent` with the state
+  backend only, so Deep Agents' file tools (`ls`, `read_file`, `write_file`, `edit_file`,
+  `delete`, `glob`, `grep`) act on the turn's in-memory state, never on a disk, and there is no
+  `execute` tool; those names and `task` are reserved tool names. The built-in `task` sub-agent is
+  kept (owner decision D10): its model calls go through the kit's proxy and count against the
+  turn's `max_model_calls`, its calls to the agent's tools are audited as the agent's, and a cap
+  reached inside it fails the turn `MODEL_STEP_LIMIT`. The runtime registers the main loop's
+  system prompt and tool set with the proxy each turn, so `model_called` rows say
+  `main_loop: false` for the sub-agent's calls. Capabilities `knowledge` and `notes`; no MCP,
+  sub-agents or skills. `src/agentbreeder/examples/northwind-deepagents/` is Northwind with `name`
+  and `runtime` changed, sharing Northwind's registry and stack (its `stack.yaml` names the new
+  agent). What ran (macOS x86_64, real Gemini): Northwind 61/61 on local Docker and on `kind`,
+  conformance 26 pass, 0 fail, 13 not run, the `task` sub-agent counted against the cap, the file
+  tools confined to the turn's state, and default-deny egress, which also stops the unused vendor
+  SDKs in the image. Not run: arm64 (`docs/superpowers/verification/F5-deepagents.md`). Its
+  lock adds packages (among them `anthropic`, `deepagents`, `filetype`, `wcmatch`) whose import
+  names are now refused as tool module names on every runtime.
+
+- The console's **Build an agent** form has a **Framework** group (#1085 S1). It lists every `runtime/` version from `agentbreeder registry runtimes
+  --json` (`GET /api/builder/parts` gains `runtimes`, read by a CLI child and allow-listed): one
+  radio per framework with its ref, status and note, a Version select, and a line for each
+  runtime the CLI cannot use. When this landed only `runtime/adk` existed, so it showed Google ADK
+  and its versions; the kit runtimes below were added later. The form sends a version 2 spec with
+  `runtime`; the server refuses a ref that is not listed and usable (`SPEC_UNSUPPORTED`). A pick
+  that does not fit the chosen version (an MCP server on `runtime/adk@1.0.4` to `1.0.6`, a tool
+  past the runtime's limit, a reserved tool name) stays on the form with its reason and a Remove
+  control instead of being dropped. Create stays on only for combinations run end to end, which
+  all ran on `runtime/adk@1.4.0`; its reason and the preview now name the framework and version.
+
+- The console shows the framework an agent runs (#1085 S2).
+  A neutral text badge (the framework's own name, no logo) sits under each agent's name on the
+  Agents list, with its ref beside it, or "Not recorded"; the agent's Overview gains Framework,
+  Protocol and Capabilities rows; Try it's turn details gain Runtime and Framework rows. The names
+  come from a new `GET /api/runtimes`, which reads `agentbreeder registry runtimes --json`. The
+  Agents list has a framework filter kept in the address (`#/agents?framework=adk`), with a count
+  and an empty state. Try it explains `MODEL_STEP_LIMIT`, and its "Not measured" cost text no
+  longer names `runtime/adk` versions. When this landed, other frameworks were shown only from a
+  scripted answer in tests; the later LangGraph run drove the console
+  (`docs/superpowers/verification/verify-langgraph-adk150.md`).
+
+- Registry ▸ Runtimes in the console lists every runtime version with its framework, protocol, kit
+  and status, and a runtime version's detail shows its manifest facts, the packages its
+  `requirements.in` names, its newest conformance report (failing groups open) and **Run
+  conformance**, a job on the project's own built image (#1085 S3). New CLI read: `agentbreeder
+  registry conformance REF [--json]` prints that newest report whole. A report whose result is
+  `incomplete` now reads "Conformance incomplete", not "Conformance failed", on Build too. The
+  reports in its tests are scripted. Registry ▸ Code and the guided-path Conformance step
+  wait for code mode (F8).
+
+- Default-deny egress for deployments whose manifest says `runtime.profile: kit` (#1083 F1b,
+  multi-framework spec §13.4). Unit-tested with a
+  scripted Docker and kubectl; the opt-in real-engine tests
+  (`tests/test_kit_egress_docker.py`) passed on 2026-11-19 (3 on local Docker Desktop, 1 on a local
+  `kind` cluster; `docs/superpowers/verification/kind-optin-2026-11-19.md`). The four kit
+  runtimes in this release have `profile: kit`; every `runtime/adk` deployment is unchanged. On local Docker the agent joins
+  only internal networks (its own and the environment's), and a forwarding sidecar in the
+  phase-4 boundary's pattern publishes its port on loopback and forwards one port to a gateway
+  at `http://host.docker.internal`; deploy and `reconcile` verify the boundary
+  (`RUNTIME_BOUNDARY_UNVERIFIED`), and what such a deployment cannot reach is refused first
+  (`KIT_EGRESS_UNSUPPORTED`). On `kind` the NetworkPolicy allows cluster DNS and the new
+  optional operator key `kubernetes.agents_cidrs` only, which `cluster up` now records
+  (`KUBERNETES_KIT_EGRESS_UNCONFIGURED` without it). `invoke` checks the sidecar's port for
+  such a deployment. See `docs/local-deployment.md`.
+
+- Agent protocol v1 is written down and has a first conformance kit (#758, #759, #1083 F2a). `docs/agent-protocol.md` describes what `runtime/adk@1.3.0`
+  serves (`GET /health`, `POST /invoke`, the reply fields, the statuses and the coded model
+  errors). `agentbreeder conformance IMAGE [--project DIR] [--json]` runs black-box checks
+  against a built image on local Docker, with a scripted fake gateway, a span collector and a
+  throwaway Postgres on an internal network, and writes a report to
+  `~/.agentbreeder/conformance/<runtime>/<version>/<digest>.json`; `registry runtimes --json`
+  shows the newest one as `conformance`. 26 of the 39 checks are built: the fixture agent
+  (knowledge, tools, notes), the audit-row read, the kit-profile checks and the network log are
+  not, so every report is `incomplete` at best and no runtime is called conformant. The checks
+  are unit-tested against a stub agent and the Docker steps against a fake runner; the ADK
+  baseline (`docs/superpowers/verification/F2a-adk-baseline.md`) ran on Docker Desktop (macOS
+  x86_64) on 2026-11-19: `fail` on `runtime/adk` 1.3.0 and 1.5.0 (22 pass, 4 fail, 8 not run,
+  5 not applicable). `list --json`
+  and `list --all --json` gain `runtime` per deployment (the manifest's `runtime`, else the
+  project's build record or linked package for the same image, else `null`; the image label is
+  not read).
+
+- The runtime kit and `runtime/langgraph@1.0.0` (#1083 F2b and F3, #1087). LangGraph is not a supported framework yet.
+  The kit (`src/agentbreeder/runtime_kit/`, vendored byte for byte as each kit runtime's
+  `runtime/kit/`) serves agent protocol v1 with the `kit` profile (`/health` 503 until the
+  agent is built, 409 at once for a busy session, a SIGTERM drain, `MODEL_STEP_LIMIT`), runs the
+  turn as `runtime/adk@1.3.0` does (pre-model knowledge, notes, events, the `turns` row) and puts
+  every model call through a loopback model proxy in the agent's process. The proxy holds the
+  gateway key and gives the framework a per-turn token; it rebuilds each request from an
+  allow-list of fields and forwards no inbound header, refuses any other path, model alias or
+  token, owns 1.3.0's retries, cost tally and coded model errors (parity tests against 1.3.0's
+  own functions), and enforces the step cap without trusting the provider: the last allowed call
+  goes with `tool_choice: none`, and an answer that still calls a tool is withheld and the turn
+  fails `MODEL_STEP_LIMIT` (#1111). `runtime/langgraph@1.0.0` binds LangChain's `create_agent`
+  to it (capabilities `knowledge` and `notes`; no MCP, sub-agents or skills).
+  `src/agentbreeder/examples/northwind-langgraph/` is Northwind with `name` and `runtime`
+  changed, sharing Northwind's registry and stack (its `stack.yaml` names the new agent). The
+  real-stack acceptance ran on macOS x86_64 with Docker and `kind` (61/61 locally and on `kind`,
+  conformance 26 pass and 13 not run of 39, the step cap on Gemini, coded budget and access
+  errors; `docs/superpowers/verification/F3-langgraph.md`); arm64 was not run, and LangGraph is
+  not verified. Northwind's `commerce.sql` grants the agent role SELECT on six columns of
+  `turns`, which the kit reads for history; an existing Northwind stack needs
+  `services up --update`. The `dev` extra gains `h11`, `httpx` and `opentelemetry-sdk`
+  for the kit's tests, and `scripts/runtime_modules.py` skips installed names that cannot be
+  imported (`*-stubs`, `*.libs`).
+
+- `runtime/openai-agents@1.0.0` (#1083 F4, #1086), run
+  end to end on macOS x86_64 and **not verified**: the OpenAI Agents SDK (`openai-agents` 0.24.0) on the runtime kit, the
+  second kit runtime after LangGraph. The SDK's `Agent` runs over Chat Completions at the kit's
+  loopback model proxy, with one `FunctionTool` per declared function and none of the SDK's
+  built-in tools, handoffs or MCP servers. Every `OPENAI_*` variable is removed before the SDK is
+  imported, and the OpenInference instrumentor replaces the SDK's own trace exporter to OpenAI.
+  Capabilities `knowledge` and `notes`; no MCP, sub-agents or skills.
+  `src/agentbreeder/examples/northwind-openai-agents/` is Northwind with `name` and `runtime`
+  changed, sharing Northwind's registry and stack (its `stack.yaml` names the new agent). The
+  real-stack acceptance (`tests/test_northwind_openai_agents_docker.py`) ran on 2026-11-20 on
+  macOS x86_64: `release` 61/61 on local Docker and on `kind`, conformance 26 pass, 0 fail and
+  13 not run of 39; arm64 not run (`docs/superpowers/verification/F4-openai-agents.md`).
+
+- `runtime/langgraph@1.0.0` is verified on macOS x86_64 for what ran: from a wheel in a clean sandbox, `new agent --runtime runtime/langgraph@1.0.0`
+  with Gemini and a `--from-spec` agent with one tool each passed `services up`, `build`,
+  `release`, `invoke` and `eval` with Gemini, and an agent was built, released and chatted with in
+  the console (`agentbreeder up`, Playwright in Chrome). `registry runtimes` labels it run end to
+  end, and `new agent` and the console's builder call the starter and one tool with `gemini` on
+  its default model verified. arm64, other providers, knowledge, notes and more tools were not
+  run on it.
+
+- Console: **Build an agent** can add one knowledge version (#1069), picked from the roots a new
+  project resolves, for a provider with an embedding model (gemini or openai); the preview shows
+  its embedding model, alias and dimensions, and Create follows the verified combinations. A path
+  is not imported from the form.
+
+- `runtime/adk@1.5.0` loads an agent's `skills:` when they have no scripts (#1059). `build` checks each skill again, refuses one with scripts
+  (`RUNTIME_NO_SKILL_SCRIPTS`), places it without `scripts/` and records the hash of the placed
+  files; the runtime checks that hash at start (`SKILL_TAMPERED`). The model gets each skill's
+  name and description and two tools, `load_skill` and `load_skill_resource`, capped at 3 calls
+  each per turn (`SKILL_LOAD_LIMIT`). The reply gains `skills[]`; events and spans carry a
+  skill's name, version and hash, never its text. Checked by the runtime's tests and stub-builder
+  build tests, and run on Docker Desktop (macOS x86_64) with Gemini on 2026-11-19 (items 1 to 5,
+  one provider, one sample per question; `docs/superpowers/verification/1059-skills-a.md`).
+  Script skills are not built.
+
+- Console: **Registry ▸ Skills** (#1059 UI-R) lists `skill/` versions with a Code column
+  (instructions, scripts, or unknown and treated as code) and shows a version's description
+  first ("sent on every model call"), its `SKILL.md` and references through a new safe subset
+  Markdown renderer with a Formatted / Source toggle, and its scripts as code; Import and Fork
+  review a skill's description and decide the code question from its files. `registry list
+  --json` gains `code` on skill rows and `registry diff --json` gains `skill:
+  {description_changed, scripts_changed}` for skill diffs.
+
+- Sub-agents and skills instruction packs are verified combinations for `new agent --from-spec`
+  and the console's builder (#1058, #1059): a spec that pins
+  `runtime/adk@1.5.0` with `gemini` and up to two sub-agents (at most one tool among every agent),
+  or up to two skills, now has `combination.verified: true`. Each was run once end to end on
+  Docker Desktop with Gemini (`services up`, `release`, `invoke`): sub-agent routing, the audit
+  row naming the sub-agent, Phoenix spans, per-sub-agent cost equal to LiteLLM's spend rows, a
+  wrong-routing eval failing `release` and an ungranted sub-agent alias denied; and a skill loaded
+  only when needed, a refused front matter and a tampered image failing start.
+
+- `runtime/adk@1.5.0` runs an agent's `subagents:` (#1058).
+  The agent calls each sub-agent as a tool, `ask_<name>(request)`; a sub-agent sees only its
+  prompt and that request, and acts as the turn's customer. Model calls are capped per agent and
+  per turn (`limits.turn_model_calls`), the reply gains `subagents[]` with each one's calls, tools
+  and gateway cost, `model_called` and tool events gain `agent` and `subagent`, spans gain
+  `agentbreeder.subagent`, and each agent's model requests carry an `agentbreeder-subagent:<name>`
+  tag for the gateway's spend log. A callback that cannot find its turn now fails instead of
+  being skipped. Checked by the runtime's tests (a scripted model and a fake gateway), and run on
+  Docker Desktop (macOS x86_64) with Gemini on 2026-11-19, all eight acceptance items, one
+  provider and one sample per question (`docs/superpowers/verification/1058-subagents.md`);
+  Northwind moved to 1.5.0 later (see Changed). Tool
+  separation between agents is not a security boundary.
+
+- `new agent --from-spec` reads spec `schema_version` 2 (#1058 SP). Version 2 adds `runtime`, `subagents`, `skills`, `limits`, case `tags` and the sub-agent
+  and skill eval checks; it writes each sub-agent's prompt as `prompt/NAME-SUB-prompt@0.1.0`, gives
+  a sub-agent on another model its own gateway alias with its provider's key, and refuses a runtime
+  without the capability a part needs with the code `build` would give. Version 2 specs may be
+  512 KiB; version 1 keeps 256 KiB, refuses the new fields (`SPEC_INVALID`) and writes the same
+  files as before. No built-in runtime runs sub-agents or skills yet, and no combination with them
+  is marked verified. The console's builder server accepts version 2 bodies and checks the
+  answer's `spec_version`; its form still sends version 1.
+
+- `agentbreeder cost --by subagent` splits each deployment key's LLM cost by sub-agent (#1058 EV). It reads the request tag `agentbreeder-subagent:<name>`
+  (`agentbreeder-subagent:-` for the parent) from LiteLLM's spend rows (`request_tags`), and
+  `cost --json` gains a `subagents` list on a key with tagged calls; a key without one, `total` and
+  `models` are unchanged. A tag is the caller's claim, so it only splits the spend of the key that
+  sent it; a call with no price is shown as `unknown`, never zero. `eval` and `release` print one
+  line per case tag with its pass rate, only for a tagged eval set. `cost --by subagent` matched LiteLLM's
+  spend rows exactly on a real `runtime/adk@1.5.0` run (`1058-subagents.md`, item 4); the per-tag
+  eval line is tested on fixture reports only.
+
+- Vertex AI through the model gateway, config-only (#1025 V1). **Not run against Vertex AI**: no model call has been made. The pinned-image checks
+  (redirects, client-side parameters, credential readback, logs, metadata services) ran on
+  Docker Desktop (macOS) with a throwaway key and scripted Google endpoints, on 1.5.0.
+  - New built-in `service/litellm@1.5.0`: 1.4.0 (#1089) plus an optional gateway-only import,
+    `VERTEX_SERVICE_ACCOUNT_JSON` (a service-account key on one line). The launcher accepts only
+    a `service_account` key with Google's own token endpoint, passes LiteLLM a re-serialised
+    copy with seven known fields, and stops unless every `vertex_ai/` entry reads that key and
+    names the key's own project, with a valid `vertex_location` and only the parameters the
+    host review allows (so no `api_base`, `api_key` or `custom_llm_provider`). 1.0.0 to 1.4.0 are unchanged and still refuse Vertex entries.
+  - When an alias uses Vertex, `services up` refuses a value that is not such a key before
+    any container starts (`VERTEX_KEY_INVALID`). Behaviour change for a gateway that imports
+    the key: the check now covers the whole key (type, token endpoint, universe, required
+    fields, one line), not only `type` and `project_id`. No built-in gateway imported the key
+    before 1.5.0.
+  - `new agent NAME --model vertex --vertex-project PROJECT --vertex-location LOCATION` writes a
+    starter on 1.5.0 (`verified: false`; plain starter only, not `--stack-for`, `--from-spec` or
+    the console). `--json` gains `options` for this provider only.
+  - Behaviour change in log redaction, for every stack (`services logs`, `logs`, a failed
+    candidate's saved tail): a stored service-account key's `private_key` and `private_key_id`
+    are redacted on their own, and so are a PEM private-key block, a JWT and a bearer token
+    (the token after `Bearer `, and `ya29.…`) whatever the stored values. A line with `Bearer `
+    followed by 16 or more token characters loses that word even when it was not a token.
+
+- Git registry sources (#829 slice 1b). Run only against
+  git's own `git http-backend` on loopback HTTPS in the test suite (macOS); not yet against a
+  hosted git server, over ssh or behind a proxy.
+  - `agent.yaml` gains optional `registries:` (git URL, full commit SHA, optional `path`). `build`
+    looks for refs in `./registry`, `AGENTBREEDER_REGISTRY_PATH`, each source in order, then the
+    built-in registry; a ref with different content in two places is `REF_CONFLICT`. Sources
+    provide `prompt`, `eval`, `knowledge` and `tool` versions only (`REMOTE_KIND_REFUSED`).
+  - With `registries:`, `agent.lock` is version 2 (a `sources` table with each pin and
+    `remote:<name>` entries); without it, the lock is version 1 byte for byte as before.
+    `build.json` gains `sources` only when `registries:` is declared.
+  - Fetches reach only sources you trusted: `registry trust URL [--whole-host] [--private]
+    [--yes]`, `--list`, `--remove` keep `~/.agentbreeder/sources.yaml`; CI can set
+    `AGENTBREEDER_REGISTRY_TRUST` (prefix entries only). Private addresses need `--private`.
+  - The hardened git fetcher: one commit into a fresh private bare repository per build, no
+    checkout, hooks, submodules, LFS, redirects or transports other than https and ssh; an
+    allow-listed environment; 120 s and 200 MB limits. Symlinks, submodules and LFS files in a
+    version are `ENTRY_UNSAFE`.
+  - A cache of extracted versions (`~/.agentbreeder/cache`, mode 0700) serves refs already in
+    `agent.lock` (checked against the lock); a first lock is always fetched. `build --offline`
+    never uses the network.
+  - `release` reads an eval set locked from a source the same way. `package.json` and the
+    package's `agent.lock` copy accept lock version 2, and the console reads lock version 2 with
+    the lock's own rules.
+  - New: `docs/agent-lock.schema.json`.
+
+- Console notifications (#827, M11 console half): a bell in the top bar counts the project's
+  conditions (`agentbreeder next`'s) and unread stored events (`agentbreeder events`), opens a
+  panel with "Needs attention" and "Recent events" (mark read; a gate failure's report path and a
+  summary of its failed cases), and new failures appear as toasts.
+
+- Console sign-in pages (#818, M2): first-run setup, an email and password sign-in page that
+  returns to the screen you were on, and Settings (change password with the current one, session
+  length of 1, 4, 8 or 24 hours, sign out everywhere, theme, recent security events). A session
+  that ends while a page is open opens a sign-in dialog over it, so the route and anything typed
+  stay; unsaved registry edits are also kept in the tab and restored only once it has signed in. A
+  console state from an earlier version (projects, no password) goes to setup with its projects
+  kept.
+
+- Console sign-in, server and terminal (#818, M2): one user, `admin@localhost`, with a password
+  set on first run from a session of the one-time terminal link (`POST /api/setup`) or with
+  `agentbreeder up --set-password`, then `POST /api/session {email, password}`, which mints the
+  tab's header token (no cookie). `up --reset-password` replaces a forgotten password and ends every
+  open session, also in a running console. Passwords: at least 12 characters, not on a
+  common-password list, read without echo on a terminal or as one stdin line, never from argv;
+  stored as scrypt (`n=2**15, r=8, p=1`, kept per row) in `center.sqlite3`, which moves to schema 4
+  and gains a `security_events` table (time, event, outcome, source; no secrets). After five wrong
+  passwords in a row the console waits 30 s, doubling, never more than 5 minutes, before checking
+  another; the terminal link is not affected. Once a password exists `up` prints no link unless
+  asked (`up --link`, or Enter), and a link goes only to a terminal, otherwise to the 0600
+  `login.html`. `localhost:PORT` redirects to `127.0.0.1:PORT` for pages.
+
+- `agentbreeder services render --cluster --environment ENV --out DIR` writes a Helm 3 chart
+  for a stack's services from the locked stack (#772 K3). Not installed or run on any cluster, and `helm lint`/`helm template` have not been
+  run on it. Files and file params become ConfigMaps, Secrets are referenced by name only, every
+  pod gets the `restricted` hardening, `init`/`bootstrap` steps are Jobs outside the release, and
+  render refuses a chart that contains a known secret value (`CHART_SECRET_LEAK`). `service.yaml`
+  gains an optional `resources` field (requests and limits; used only by this command), so a
+  service that sets it does not load on an older AgentBreeder.
+
+- A second cluster provider, `token`, for a cluster AgentBreeder has no cloud API for (#771 K1,
+  #770 §4.2): the operator config's `kubernetes` block accepts `provider: token` with a `token:`
+  block (API server, pinned CA bundle and hash, a dedicated mint kubeconfig by path and hash, an
+  exec plugin's hash, four service accounts, `token_minutes` 10 to 60) and `tools:` (kubectl by
+  absolute path and hash). Each operation mints a short-lived service account token with a hashed
+  copy of the mint kubeconfig, in a 0700 session directory removed in `finally` and on
+  SIGTERM/SIGHUP, with allowlisted environments; kubectl gets `--server`,
+  `--certificate-authority` and `--tls-server-name` on argv and is re-hashed before each run;
+  directories older than 70 minutes are swept and `doctor` reports leftovers. New `agentbreeder
+  cluster connect token` checks a cluster (CA against the served chain, public CAs refused,
+  Kubernetes 1.30 or later, namespace labels, quota) and computes `blocked_cidrs` (§6.4), then
+  refuses with `KUBERNETES_POLICY_UNCHECKED` and records nothing, because the admission policy
+  check is not wired in yet (K2 built the policies, not this check); deploys and `promote` to a
+  `token` cluster are refused with the same code. A by-reference cluster binding must now belong
+  to the deployment's environment (`KUBERNETES_BINDING_CHANGED`), and `disable` revokes a deployment's gateway key even when its
+  workload step fails, reporting a failed revoke beside the original error. Unit-tested with a
+  fake kubectl and a local TLS server; the `kind` check passed once on
+  2026-11-21 after the #1205 mint fix (macOS, kubectl 1.31.4, stub policy check).
+
+- Restricted accounts and admission policies for the Kubernetes target (#771, #773; #770 K2):
+  `agentbreeder cluster policy print --namespace N` prints six `ValidatingAdmissionPolicy`
+  objects (Kubernetes 1.30 or later) that hold the deployer's and the canary's objects to
+  AgentBreeder's own shapes, with a digest; `cluster rbac print --namespace N` prints the four
+  service accounts and their Roles; `cluster up --restricted` installs them on the local `kind`
+  cluster, writes `ab-grants` and records an `ab-deployer` kubeconfig. The agent name `ab-probe`
+  is reserved on Kubernetes (`AGENT_NAME_RESERVED`). Unit-tested with the policies' CEL
+  evaluated in-process. The opt-in `kind` test passed 80/80 on Kubernetes 1.37 after #1204's fix.
+
+### Changed
+
+- Console Settings ▸ Security events show the source of an HTTP event as "Console (HTTP)" instead
+  of "Browser" (#1180): the server cannot tell a browser from `curl` or a local container. The
+  stored value is unchanged.
+
+- Design system v2 tokens, step T (#1119, epic #1112):
+  `website/brand.css` gets the light-first monochrome palette (neutral greys, a near-black or
+  near-white primary, a blue focus ring, green only for the gate line and success), new tokens
+  (`--brand`, `--border-strong`, `--destructive-subtle`, tints, glass, `--elev-1…4`, `--scrim`,
+  code and syntax colours), the `.glass`/`.glass-strong` utilities with opaque fallbacks, and
+  `@theme` mappings. The local console's palette follows (its token copy must match). It lands
+  together with the website's v2 switch (#1115). `tests/test_brand_tokens.py` checks the glass
+  copy, name collisions and WCAG AA on glass, status and syntax colours.
+
+- The local console on design system v2 (#1116, epic #1112); it lands together with the website's v2 switch (#1115). It has a System / Light / Dark
+  toggle in the top bar, set before first paint by `theme.js`. Actions are monochrome, and the
+  gate line (a green ring around a check, with the word) marks passed and healthy states. The
+  sticky top bar, the user menu and confirm dialogs are glass, with opaque fallbacks. Links are
+  underlined. `tests/test_center_style.py` checks control borders, the use of `--primary` and the
+  glass surfaces.
+
+- Website on design system v2, step W (#1115, epic #1112):
+  light by default with a dark theme that follows the system or a System/Light/Dark toggle (in
+  the nav, the mobile menu and the docs sidebar), with no flash of the wrong theme; monochrome
+  components on the shared tokens (no colour literals, checked by `tests/test_website_tokens.py`);
+  a glass nav, docs top bar and home sheet; the gate line as the one green device; docs code in a
+  token-based Shiki theme; reduced-motion-safe home animations that pause off-screen; Bricolage
+  Grotesque dropped (no Google Fonts download); a new dark OG image, a theme-aware favicon and
+  `theme-color`. The Cloud waitlist no longer names a launch quarter (#492).
+
+- The engine reads framework facts from the runtime version instead of holding them as ADK
+  constants (#1083 F1, "engine data-driven"). A
+  `runtime/` manifest may declare `protocol`, `profile`, `kit`, `framework`, `display_name`,
+  `capabilities`, `limits`, `reserved_tool_names`, `model_api`, `notes` and `docs`, and must
+  then ship a generated `runtime/modules.json` (`scripts/runtime_modules.py`). A manifest
+  without `protocol` (every `runtime/adk` version so far) gets the engine's one legacy profile,
+  `LEGACY_ADK`, so Northwind and the `new agent` starter build byte-identically on
+  `runtime/adk` 1.2.0, 1.3.0 and 1.4.0 with the refusals they gave before (a golden test).
+  New: `agentbreeder registry runtimes [--json]`, `agentbreeder new agent --runtime REF` (ADK
+  stays the default), an optional `runtime: {ref, profile}` field in the deploy manifest and
+  its JSON Schema (written only for a runtime with `profile: kit`, which none had when this landed; digests and
+  revisions of manifests without it are unchanged), and the build refusals
+  `RUNTIME_NO_KNOWLEDGE`, `RUNTIME_NO_NOTES`, `RUNTIME_LIMIT`, `TOOL_NAME_RESERVED`,
+  `TOOL_MODULE_SHADOWS` and `PROTOCOL_UNSUPPORTED`. Changed: `agent.yaml` allows up to 5
+  `knowledge:` entries and `build` refuses more than the runtime takes (`RUNTIME_LIMIT`; still
+  one on `runtime/adk`), where the file's own check refused a second one (`AGENT_INVALID`), so
+  `validate` no longer refuses it; `MCP_RUNTIME_UNSUPPORTED`'s message names the missing `mcp`
+  capability. No framework other than ADK has a runtime yet.
+
+- Northwind pins `runtime/adk@1.5.0` (was `1.3.0`), after it
+  released 61/61 on it from a wheel of `main` with a byte-identical `agent.config.json` (#1058).
+
+- `registry runtimes` labels `runtime/adk@1.5.0` run end to end, after a fresh run from a wheel in a clean sandbox (sub-agents and skills, Gemini,
+  through the CLI and the console). The console's Build an agent form now starts on the starter's
+  runtime version, `runtime/adk@1.4.0`, rather than the newest version labelled run end to end,
+  so a plain form stays a verified combination that Create accepts.
+
+- Groundwork for remote registry sources (#829 slice 1a):
+  - Behaviour change: `build --locked`, `services up --locked` and `release`'s eval set read
+    each locked ref only from the root its lock entry names, with no cross-root check, and
+    that root must be configured now (`registry`, an `AGENTBREEDER_REGISTRY_PATH` entry or
+    `builtin`); any other locked `source` is `LOCK_STALE`.
+  - `agent.lock` and `stack.lock` are read strictly: unknown keys, malformed hashes and empty
+    sources are `LOCK_INVALID`, and a newer `lock_version` says to upgrade.
+  - `agent.lock` version 2 (a `sources` table, `remote:<name>` entries, per-entry `pin`) can be
+    read and written; nothing writes it yet, and every existing lock stays version 1 byte for
+    byte. Remote entries give `SOURCE_OFFLINE` (no fetcher yet).
+  - `registry publish`, `import`, `fork` and `edit` refuse an empty directory in a version, and
+    `registry verify` reports one (`ENTRY_UNSAFE`).
+
+- The Kubernetes target runs through a cluster provider interface (`kubernetes_providers.py`:
+  `session()`, `check(session)`, `registry()`, `blocked_cidrs()`), with `kind` the only provider
+  and its behaviour unchanged (#771 K0 = #908 G0). The operator config's `kubernetes` block gains
+  an optional `provider` (only `kind`; omitted means `kind`). State schema v5 adds a
+  `cluster_bindings` table and rewrites each Kubernetes deployment's recorded binding from
+  `<context>|<uid>|<namespace>|<kubeconfig>` to `kind|…` (shown in `status --json`'s `context`);
+  `remove`, `disable`, `reconcile`, `logs`, `forward` and `watch` rebuild the binding from the
+  record. A by-reference binding (`<provider>|<id>`, for later providers) is refused with
+  `KUBERNETES_BINDING_CHANGED` when its row no longer matches the digest in the deployment's audit
+  event (a consistency check within the state file, not tamper-evidence). Unit-tested; the `kind`
+  lifecycle regression is written and not yet run.
+
+- A Kubernetes deployment's Secret is now created after its Deployment and owned by it
+  (`blockOwnerDeletion`), mounted through one projected volume, and deleted by the garbage
+  collector: `remove`, `disable` and `reconcile` delete with `--cascade=foreground` and never
+  list or delete Secrets (#771, #770 K2). Service and container ports state `protocol: TCP`.
+  `cluster up` deletes Secrets that deployments created before this change leave behind. Not yet
+  run on `kind`.
+
+### Internal
+
+- The website's lint tooling uses `typescript-eslint` 8.73.0 (was 8.72.1), which depends on
+  `minimatch` 11 and clears Dependabot alert #277 (#1168). Development dependency only.
+
+- Website: the postbuild check now fails the build if any prerendered page nests a link inside a
+  link, the cause of the docs hydration error #418 that #1138 fixed (#1129).
+
+- Website docs attribute each claim to the run that made it (#1114, after the 3.0.0a3
+  public-registry check): the docs index, the console page and the shorter path in "Your own
+  agent" separate what ran from a checkout or 3.0.0a2 from what the published 3.0.0a3 ran, and
+  the claims inventory gains an a3 public-registry column.
+
+- Website docs for 3.0.0a3 (#1114, part of #1112): every page under `website/content/docs/`
+  rechecked against what ran, new pages for the console, models and gateway, guardrails, cost,
+  traces, registries, MCP tools, evals and release, sub-agents and skills, and Kubernetes on
+  `kind`, and a claims inventory in `docs/superpowers/verification/website-a3-claims.md`.
+
+- Design system v2 spec (#1113, epic #1112): a light-first monochrome token set with glass
+  surfaces, a dark theme chosen by the system or a toggle with no flash, motion and performance
+  rules, and the rollout across the website, the local console and Cloud. Design only; nothing is built.
+
+- The multi-framework agents spec (#1084) takes in the F0 probe record (#1110): the model proxy
+  enforces the step cap itself because Gemini ignores `tool_choice: none` (#1111), the Claude
+  runtime requires `verbatim_prompts` and an `env -i` wrapper, CrewAI's task-output store must be
+  off or per turn, and D8, D15 and D16 are restated for the owner. Design only; nothing is built.
+
+- #1083 F2a: the ADK conformance baseline ran on a real Docker engine against Northwind's
+  `runtime/adk@1.3.0` and `1.5.0` images: 22 pass, 4 fail (`sessions.busy`, `traces.llm_span`,
+  `model_errors.text_logs`, `model_errors.text_spans`), 8 not run and 5 not applicable of 39 on
+  both; the record is `docs/superpowers/verification/F2a-adk-baseline.md`.
+
+- #1058 S0: a probe on a live LiteLLM 1.106.2 found that request tags reach the spend logs
+  (`request_tags`) and are billed to the sending key, on `service/litellm@1.0.0` and `@1.3.0`; the
+  record is in `docs/superpowers/verification/1058-S0-litellm-tags.md`.
+
+- #1048: a live Docker run confirmed that `services down` leaves no stack networks after an `up`,
+  and that `down --purge` leaves none after a failed `up`; the record is in
+  `docs/superpowers/verification/1048-network-live-assert.md`.
+
+- #1020: a third Anthropic run with a new key is still refused, because the key is not
+  scoped to a workspace; the record is in `docs/superpowers/verification/providers.md`.
+
+- #1019: an opt-in Docker test (`AGENTBREEDER_DOCKER_TEST=1`) checks the gateway's budget, rate
+  limit, model grant and fallback on `service/litellm@1.3.0`, and
+  `docs/superpowers/verification/gateway-limits.md` records a re-check after #1034 and #1039.
+
+- The changelog fold test accepts the `### <Type>` headings a fold adds to an empty
+  `[Unreleased]` section, so `main` is green again after the 3.0.0a3 fold (#893).
+
+- Website: the install page, the footer badge and "what works today" describe the published
+  `3.0.0a3` (#836), with a verification table limited to what ran from the public registries on
+  2026-11-16.
+
+- UI tests: the log viewer tests pick the Lines select by its exact accessible name instead of a
+  substring label match (#821). Once the logs had loaded,
+  "Lines" also matched the "Show lines" group, the Level select, "Wrap lines", the Copy button
+  and the "Log lines" region, so `test_read_again_keeps_focus_and_a_single_match_scrolls_back`
+  failed in strict mode whenever the read finished first (CI on #1170, #1172 and #1173).
+
+- #818: console sign-in verified from a wheel built from `main` in a clean sandbox: the S-02 check
+  from inside a Northwind container and from the default bridge, a Chrome click-through (Playwright)
+  of setup, sign-in, Settings, the re-auth dialog after `up --reset-password` with a draft kept and
+  the notifications bell, and the upgrade from a 3.0.0a2 console. The record is in
+  `docs/superpowers/verification/M2.md`.
+
+- Design spec for component owners and approval states (#764): `approved`, `deprecated` and
+  `revoked` per component version, set by a verified human approver of the owning team named in
+  the operator config, and recorded in the audit log.
+  Design only; nothing is built.
+
+- Agent packages (#763, M13 slice 4a): a library module
+  that builds a package's OCI artifact (`application/vnd.agentbreeder.agent.v1`, one
+  deterministic `tar+gzip` layer) and pushes it to a registry at `127.0.0.1` only, with the tag
+  read back and compared. No command uses it yet; `deploy agent/<name>@X.Y.Z --cluster` still
+  refuses.
+
+- Docs synced with `main` since 3.0.0a3, ahead of 3.0.0a4: a new `docs/runtimes.md` (runtimes,
+  the runtime kit, conformance, with each run's record), `ARCHITECTURE.md`, the README's "On
+  `main`, not in a published preview" section ("New in `3.0.0a4`" since the release), stale lines in `docs/cost.md`, `docs/evals.md`,
+  `docs/registry.md` and `docs/command-center.md`, and the website docs and `what-ships` rows,
+  each new capability labelled "on main, coming in 3.0.0a4". Install pins and the footer badge
+  are unchanged.
+
+### Fixed
+
+- The `token` provider's mint no longer runs `kubectl create token --duration Nm -- <sa>`, which
+  kubectl 1.31 rejects client-side ("exactly one NAME is required, got 0") (#1205). The service
+  account name is a positional, re-checked as a DNS-1123 label where it goes on kubectl's argv
+  (`KUBERNETES_TOKEN_INVALID`), and `KUBERNETES_MINT_FAILED` shows one line of kubectl's stderr
+  with the mint's credentials, tokens, CA data and home paths replaced (none of it when the mint
+  uses an exec plugin). The docs note `Install Certificates.command` or `SSL_CERT_FILE` for
+  python.org Pythons on macOS (`KUBERNETES_TRUST_STORE_EMPTY`). Unit-tested, and
+  `tests/test_kubernetes_token_kind.py` passed once against a local `kind` cluster (macOS, kubectl
+  1.31.4, 2026-11-21), with a stub policy check; no other cluster has been run.
+
+- `cluster up --restricted` now installs all its admission policies on a real API server; on
+  `main` before this, three of them (`ab-deployments`, `ab-networkpolicies`, `ab-pods`) were
+  refused and their bindings failed open (#1204). The generated CEL wraps mixed-type list and map
+  values in `dyn()`, which Kubernetes' homogeneous-literal check accepts; equality still refuses
+  any extra, missing or different key. The install fails closed. It writes `ab-grants` first,
+  because a binding whose parameters are missing denies every write in the namespace, the
+  admin's included; `ab-deny-other` now excludes that one ConfigMap by name, and a new
+  parameter-free policy, `ab-grants-guard`, refuses every write the deployer or the canary makes
+  to it. It then applies each policy alone and reads it back before its binding, and installs
+  the Roles last. On any failure
+  it creates no further binding, deletes the bindings that run created, and raises.
+  `CLUSTER_FAILED` now carries kubectl's stderr, scrubbed of tokens, CA data, certificates, keys
+  and home paths. The `initContainer` and service-account-token Secret probes are now valid
+  objects, so the named policy refuses them, and the kind test's RBAC probes check subresources
+  correctly. The opt-in kind test passed on Kubernetes 1.37 (kind, macOS).
+
+- Console: a view whose read got a 401 is read again after the re-auth dialog signs in, so Build's
+  Framework list and a registry version card no longer stay loading (#1188); views that already
+  had their answer keep it.
+
+- Website builds reject stale homepage CSS, compile production styles without the restored
+  Turbopack filesystem cache, and verify Vercel adapter output in addition to local builds.
+  The homepage recording stays readable until playback is requested, and docs logo links no
+  longer nest anchors (#1137).
+
+- Website: pages no longer download and run the docs search dialog (Orama and an HTML and a
+  Markdown parser) on load; it loads when search is first opened (#1130). `/docs/install` transfers 99,694 fewer bytes on load (Lighthouse total byte
+  weight 626,248 to 526,554). No content change.
+
+- `runtime/adk@1.5.0`: a turn a gateway guardrail blocked (`MODEL_BLOCKED`) no longer keeps its
+  text in the `turns` row or in trace spans (#1106). The
+  row's message is `[blocked by a gateway guardrail]` with empty `sources` and `evidence`; its
+  `error`, the `turn_failed` event and the log line are `MODEL_BLOCKED: ENTITY by guardrail
+  NAME`; and the turn's spans are exported with ids, times, kinds and counts only. A 400 that names
+  a guardrail block behind another prefix keeps its code but is stored the same way. Every turn's
+  spans are now sent when the turn ends. The ADK session and the audit rows of earlier tool
+  calls still hold what they held. Checked by the runtime's tests and by one live run on Docker
+  Desktop (macOS) with Presidio and Phoenix, with `1.4.0` as the control.
+
+- Gateway hardening against request-side provider routing (#1105):
+  - Behaviour change: deploy and `eval` mint every key with `allowed_routes` limited to chat
+    completions and embeddings (`/v1/chat/completions`, `/chat/completions`, `/v1/embeddings`,
+    `/embeddings`), on any gateway, not only keys under a guardrails floor. LiteLLM's file, batch
+    and pass-through routes are closed to them. A key minted earlier keeps its routes until the
+    deployment is deployed again, which mints a new key.
+  - New built-in `service/litellm@1.3.0` refuses provider-routing, endpoint and credential
+    parameters (a listed set) at the top level of a request, in `extra_body` and in request
+    fallbacks (`GATEWAY_PARAM_REFUSED`), and call types other than chat completions and
+    embeddings (`GATEWAY_ROUTE_REFUSED`). On 1.0.0 to 1.2.0, which are unchanged, LiteLLM still
+    honours a request's `custom_llm_provider`; move a stack to 1.3.0 to get the filter.
+
+- The console's **Build an agent** form starts each framework on its newest version that has run
+  end to end, not on an unverified newer one (#1085 S1).
+  Google ADK now starts on `runtime/adk@1.4.0`; `1.5.0` stays one pick away in the Version select;
+  it has been labelled run end to end since its fresh-wheel run (#1058).
+
+- `agentbreeder conformance` no longer reports `fail` for an image built with `traces: none` (the
+  starter's default): the checks that read spans are
+  `not_run`, with the reason, when the project's `agent.yaml` (the one the build hashed) turns
+  traces off. Build with `traces: otlp` to run them.
+
+- Console: a deployment whose identity nothing has checked since it was deployed says "not
+  checked since deploy" on Agents, the agent page and Deployments, and the agent page says why
+  `agentbreeder status` can report `compliant` for it (a deploy records no result; `status` and
+  `reconcile` do) with a link to Re-verify. Deployments now words the identity check as the
+  Agents list does (`noncompliant: CODE`, `unbound (no principal)`) (#1078).
+
+- Console: signing in no longer waits for the first `doctor --json` read (partial fix for
+  #1047). The shell and Home appear as soon as the
+  projects are read; the version and Home's doctor card follow when doctor answers, and only the
+  newest overview read is shown. Before, a slow first CLI child (a loaded machine, a slow Docker)
+  held the page on "Loading the console…" for up to 30 seconds. A rarer stall in the UI tests,
+  where the page never boots, is not reproduced; the tests' sign-in now reports what failed to
+  load.
+
+- Console: the "Session ended" page also names a password changed in another tab or reset with
+  `agentbreeder up --reset-password` as a cause (#879, found in the M2 run).
+
 ## [3.0.0a3] — 2026-11-16
 
 ### Added
