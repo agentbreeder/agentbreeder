@@ -159,10 +159,11 @@ a production cluster.
   local `git http-backend`.
 - **Console.** Password sign-in, notifications, Registry ▸ Runtimes and Skills, a framework badge
   and filters, and the design system v2 theme.
-- **Kubernetes building blocks, unit-tested only and not run on any cluster from `main`:** a cluster provider interface, a
-  `token` provider whose `cluster connect token` checks a cluster and then refuses, restricted
-  accounts and admission policies (`cluster up --restricted`, local `kind`), and `services render
-  --cluster` (a Helm chart, never installed).
+- **Kubernetes building blocks, not run on a real (non-`kind`) cluster:** a cluster provider
+  interface; a `token` provider whose `cluster connect token` checks a cluster and then refuses
+  (its checks ran once on a local `kind` cluster); restricted accounts and seven admission
+  policies (`cluster up --restricted`, run on local `kind` with Kubernetes 1.37 only); and
+  `services render --cluster` (a Helm chart, never installed).
 
 ## Develop
 

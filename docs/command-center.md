@@ -2071,6 +2071,10 @@ no services. The first attempt found the `ab-grants` ordering problem described 
 fix, all seven policies and their bindings, `ab-grants` and the accounts and Roles existed, with no
 type-checking warnings. No other Kubernetes version and no real (non-`kind`) cluster has been run.
 
+A cluster set up with `--restricted` before #1204 has six policies and no `ab-grants-guard`; to get
+the current set, run `cluster down` and then `cluster up --restricted` again. That upgrade path has
+not been run.
+
 - **A deployment's Secret is owned by its Deployment.** `deploy --cluster` creates the Service,
   NetworkPolicy and Deployment, reads the Deployment's UID, then creates the Secret with an
   `ownerReferences` entry (`blockOwnerDeletion: true`). The Secret is mounted through one
@@ -2197,7 +2201,8 @@ Kubernetes. `kind` remains the only provider that deploys.
   the admission policy check it needs is not wired in yet; deploys and `promote` to a `token`
   environment are refused with the same code. `disable` revokes the deployment's gateway key even
   when the cluster call fails. Unit-tested with a fake `kubectl` and a local TLS server; the opt-in `kind` check,
-  `tests/test_kubernetes_token_kind.py`, is written and has not run from `main`. See [`cluster`](commands/cluster.md).
+  `tests/test_kubernetes_token_kind.py`, passed once on a local `kind` cluster (Kubernetes 1.37,
+  kubectl 1.31.4, 2026-11-21, #1206); see [`cluster`](commands/cluster.md) for what it covered.
 - **`agentbreeder services render --cluster`** (#772 K3) writes a Helm chart for a stack's
   services from the same plan `services up` uses, with every pod hardened for the `restricted`
   Pod Security level, and refuses to write a chart that contains a stored or imported secret

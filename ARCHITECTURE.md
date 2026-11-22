@@ -55,7 +55,9 @@ On `main`, not in a published preview (since `3.0.0a3`):
   `cluster_token.py` (the `token` provider; `cluster connect token` checks a cluster and then
   refuses until the admission policy check is wired in), `kubernetes_admission.py` (restricted
   service accounts and admission policies, `cluster up --restricted`) and `services/chart.py`
-  (`services render --cluster`, a Helm chart). None of these has run on a production cluster.
+  (`services render --cluster`, a Helm chart). The `token` checks and the restricted install
+  ran on a local `kind` cluster (Kubernetes 1.37) only; none of these has run on a production
+  cluster.
 
 ## Next implementation
 

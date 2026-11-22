@@ -57,17 +57,21 @@ Not in a published package, and **none of it has run on a production or managed 
 - **Kit runtimes on `kind`.** The LangGraph, OpenAI Agents SDK, Deep Agents and CrewAI runtimes
   get a default-deny NetworkPolicy (cluster DNS and the stack's agents network only). Northwind on
   each passed 61/61 on `kind` ([Frameworks and runtimes](/docs/runtimes)).
-- **Restricted accounts and admission policies** (written and unit-tested; not yet run on
-  `kind` from `main`). `cluster up --restricted` (local `kind` only) is built to install separate
-  service accounts with narrow Roles, and `ValidatingAdmissionPolicy` objects meant to admit only
-  the objects AgentBreeder writes; deploys then use a restricted deployer account. `cluster policy
-  print` and `cluster rbac print` show them without changing anything.
-- **A provider interface and the `token` provider** (unit-tested; not yet run on `kind` from
-  `main`). Each cluster deployment records which
+- **Restricted accounts and admission policies** (local `kind` only). `cluster up --restricted`
+  writes the `ab-grants` ConfigMap first, then installs separate service accounts with narrow
+  Roles and seven `ValidatingAdmissionPolicy` objects with their bindings, which admit only the
+  objects AgentBreeder writes; one, `ab-grants-guard`, stops the restricted accounts changing
+  `ab-grants`. Deploys then use a restricted deployer account. The opt-in `kind` test passed 80/80,
+  and `cluster up --restricted` installed all seven policies, on Kubernetes 1.37 only (macOS,
+  2026-11-21). A cluster set up with an older `main` needs `cluster down` and `cluster up
+  --restricted` again; that has not been run. `cluster policy print` and `cluster rbac print`
+  show the objects without changing anything.
+- **A provider interface and the `token` provider.** Each cluster deployment records which
   provider and cluster it was made on. `cluster connect token` checks an existing cluster reached
   with short-lived service account tokens, then refuses (`KUBERNETES_POLICY_UNCHECKED`) and
   records nothing, because the admission policy check it needs is not wired in yet. Deploying to
-  such a cluster is refused the same way.
+  such a cluster is refused the same way. Its checks ran once against a local `kind` cluster
+  (Kubernetes 1.37, kubectl 1.31.4, macOS, 2026-11-21); no other cluster or kubectl version.
 - **`services render --cluster`** writes a Helm chart for the stack's services, hardened for the
   `restricted` Pod Security level, and refuses a chart that would contain a secret value. It has
   never been installed, and `helm lint` has not been run on its output.

@@ -47,7 +47,8 @@ records it links:
   only), `@1.5.0` (Vertex, config-only); git registry sources and `agent.lock` v2 (loopback git
   only); console sign-in and notifications; design system v2.
 - Kubernetes K0 to K3 (provider interface, `token` provider that refuses after its checks,
-  `cluster up --restricted`, `services render --cluster`): unit-tested; no production cluster.
+  `cluster up --restricted` with seven policies, `services render --cluster`): K1's checks and K2
+  ran on local `kind` (Kubernetes 1.37); K0 and K3 unit-tested only; no production cluster.
 
 **Not shipped:** cloud/production deploy targets, a multi-user control center or versioned API, authenticated
 invocation, a final 3.0.0. 2.x (PyPI ≤ 2.7.3) is unmaintained and has known functional and
@@ -433,8 +434,10 @@ coming in 3.0.0a4". Cloud: a `CLAUDE.md` note only; it has no code that reads th
 --restricted` (local `kind`), `cluster policy print` and `cluster rbac print`,
 `kubernetes_admission.py` (service accounts, Roles and `ValidatingAdmissionPolicy` objects),
 `services up` writing the `ab-grants` ConfigMap, a deployment's Secret owned by its Deployment,
-and `AGENT_NAME_RESERVED` for `ab-probe`. A fail-open install bug on a real API server (#1204)
-is fixed in #1207, open at the time of writing. No manifest, JSON Schema or `agent.lock` change.
+and `AGENT_NAME_RESERVED` for `ab-probe`. Since #1207 (#1204): well-typed CEL, `ab-grants`
+written first, a seventh policy `ab-grants-guard`, and a fail-closed install; the `kind` test
+passed 80/80 and `cluster up --restricted` installed 7 policies and 7 bindings, on Kubernetes 1.37
+only. A cluster from an older `main` needs `cluster down` + `cluster up --restricted` (not run). No manifest, JSON Schema or `agent.lock` change.
 Website: `kubernetes.mdx` labels it "on main, coming in 3.0.0a4". Cloud: a `CLAUDE.md` note
 only; it has no code that reads the operator config or the cluster's objects.
 
