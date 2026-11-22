@@ -95,6 +95,22 @@ def _skip_flags(argv: list[str]) -> list[str]:
     return rest[index:]
 
 
+def _create_token_names(rest: list[str]) -> list[str]:
+    """The NAME positionals of `kubectl create token`, parsed as kubectl 1.31 does: everything
+    after a bare `--` is dropped (cobra hands it to no NAME, so kubectl reports "got 0"), and a
+    flag's value is not a NAME."""
+    if "--" in rest:
+        rest = rest[: rest.index("--")]
+    names, index = [], 0
+    while index < len(rest):
+        if rest[index].startswith("-"):
+            index += 1 if "=" in rest[index] else 2
+        else:
+            names.append(rest[index])
+            index += 1
+    return names
+
+
 class FakeKubectl:
     """`subprocess.run` for the pinned kubectl: mints tokens and answers reads."""
 
@@ -105,6 +121,7 @@ class FakeKubectl:
         self.minted: list[str] = []
         self.configs: list[str] = []
         self.mint_fail = False
+        self.mint_stderr = f"error: Unauthorized as {OPERATOR_SECRET}\nsecret stderr\n".encode()
         self.lifetime = 30
         self.mint_output: str | None = None  # None: a token naming the account
         self.uid = UID
@@ -141,9 +158,14 @@ class FakeKubectl:
         if verb[:2] == ["create", "token"]:
             config = argv[argv.index("--kubeconfig") + 1]
             self.configs.append(Path(config).read_text())
-            account = verb[-1]
+            names = _create_token_names(verb[2:])
+            if len(names) != 1:  # as kubectl 1.31 answers, before it sends any request (#1205)
+                error = f"error: exactly one NAME is required, got {len(names)}\n"
+                return SimpleNamespace(returncode=1, stdout=b"", stderr=error.encode())
+            account = names[0]
             self.minted.append(account)
-            code = 1 if self.mint_fail else 0
+            if self.mint_fail:
+                return SimpleNamespace(returncode=1, stdout=b"", stderr=self.mint_stderr)
             output = (
                 self.mint_output
                 if self.mint_output is not None
@@ -430,7 +452,8 @@ def test_a_session_mints_on_a_copy_and_keeps_the_token_off_argv(mint, tool, sess
     assert not directory.exists()
     mint_argv = run.calls[0]
     assert mint_argv[0] == str(tool)
-    assert _skip_flags(mint_argv) == ["create", "token", "--duration", "30m", "--", "ab-deployer"]
+    assert _skip_flags(mint_argv) == ["create", "token", "ab-deployer", "--duration", "30m"]
+    assert "--" not in mint_argv  # kubectl 1.31 rejects `create token -- NAME` (#1205)
     copy = mint_argv[mint_argv.index("--kubeconfig") + 1]
     assert copy == str(directory / "mint") and copy != str(mint)
     assert mint_argv[mint_argv.index("--context") + 1] == "operator@c"
@@ -478,6 +501,129 @@ def test_a_failed_mint_leaves_nothing(mint, tool, sessions, break_it, code):
     assert "secret stderr" not in str(raised.value) and OPERATOR_SECRET not in str(raised.value)
     assert list(sessions.iterdir()) == []
     assert run.minted == ([] if code != "KUBERNETES_MINT_FAILED" else ["ab-deployer"])
+
+
+def test_the_fake_kubectl_rejects_the_dash_dash_form_as_kubectl_does():
+    """The fake must fail the argv real kubectl 1.31.4 rejected (#1205), so a regression to
+    `create token -- NAME` fails the unit suite."""
+    run = FakeKubectl()
+    base = ["/k", "--kubeconfig", "/dev/null", "--namespace", "n", "create", "token"]
+    result = run([*base, "--duration", "30m", "--", "ab-deployer"])
+    assert result.returncode == 1
+    assert result.stderr == b"error: exactly one NAME is required, got 0\n"
+    assert run([*base, "a", "b", "--duration", "30m"]).returncode == 1
+    assert run([*base, "ab-deployer", "--duration", "30m"]).returncode == 0
+    assert run([*base, "--duration=30m", "ab-deployer"]).returncode == 0
+    assert run.minted == ["ab-deployer", "ab-deployer"]
+
+
+@pytest.mark.parametrize(
+    "name", ["-x", "--as=system:admin", "--", "-", "AB", "a_b", "a" * 64, "a-", "", None, 3]
+)
+def test_a_service_account_name_is_checked_at_the_argv_boundary(mint, tool, sessions, name):
+    """The name is a positional on kubectl's argv, so `_mint` re-checks it whatever validated
+    the binding: nothing starting with `-` (or otherwise not a DNS-1123 label) reaches kubectl."""
+    run = FakeKubectl()
+    provider = provider_for(mint, tool, run)
+    provider.accounts["deployer"] = name  # past the binding's own validation
+    with pytest.raises(DeploymentError, match="KUBERNETES_TOKEN_INVALID"):
+        with provider.session():
+            pass
+    assert run.calls == [] and list(sessions.iterdir()) == []
+    assert kubernetes_token.account_name("ab-deployer") == "ab-deployer"
+    assert kubernetes_token.account_name("a" * 63) == "a" * 63
+
+
+def test_a_failed_mint_shows_kubectls_first_stderr_line_scrubbed(mint, tool, sessions):
+    """KUBERNETES_MINT_FAILED carries kubectl's first stderr line, without the mint's credential,
+    a token, CA data, a certificate or a home path; later lines are dropped."""
+    home = str(Path.home())
+    ca_data = base64.b64encode(CA_PEM.encode()).decode()
+    run = FakeKubectl()
+    run.mint_fail = True
+    run.mint_stderr = (
+        f'error: failed to create token: Post "{SERVER}/api/v1/namespaces/agentbreeder/'
+        f'serviceaccounts/ab-deployer/token": user {OPERATOR_SECRET} token {MINTED} '
+        f"Bearer abcdefghijklmnopqrstuvwxyz0123 ca {ca_data} at {home}/.kube/x /home/op/y\x1b\n"
+        "second line with secret stderr\n"
+    ).encode()
+    with pytest.raises(DeploymentError, match="KUBERNETES_MINT_FAILED") as raised:
+        with provider_for(mint, tool, run).session():
+            pass
+    message = str(raised.value)
+    assert "(kubectl: error: failed to create token: Post" in message
+    assert "serviceaccounts/ab-deployer/token" in message  # the useful part survives
+    for leaked in (OPERATOR_SECRET, MINTED, ca_data, "abcdefghijklmnopqrstuvwxyz0123", home,
+                   "/home/op", "\x1b", "second line", "secret stderr"):  # fmt: skip
+        assert leaked not in message
+    assert "~/.kube/x" in message and "[redacted]" in message
+    assert list(sessions.iterdir()) == []
+
+
+def test_an_exec_plugin_mints_stderr_is_never_shown(tmp_path, tool, sessions, monkeypatch):
+    """An exec plugin's stderr reaches kubectl's and may hold a credential in no known shape."""
+    plugin = tmp_path / "plugin"
+    plugin.write_bytes(b"#!/bin/sh\n")
+    monkeypatch.setattr(kubernetes_token, "writable_by_user", lambda path: False)
+    mint = write_private(
+        tmp_path / "exec-mint.yaml", mint_config(user={"exec": {"command": str(plugin)}})
+    )
+    run = FakeKubectl()
+    run.mint_fail = True
+    run.mint_stderr = b"error: plugin printed PLUGIN-VALUE-0042\n"
+    provider = provider_for(mint, tool, run, mint_exec_sha256=sha(plugin.read_bytes()))
+    with pytest.raises(DeploymentError, match="KUBERNETES_MINT_FAILED") as raised:
+        with provider.session():
+            pass
+    assert "PLUGIN-VALUE" not in str(raised.value) and "plugin printed" not in str(raised.value)
+    assert "not shown when the mint uses an exec plugin" in str(raised.value)
+    assert list(sessions.iterdir()) == []
+
+
+def test_scrub_stderr_is_bounded_and_drops_mint_secrets():
+    data = yaml.safe_dump(
+        mint_config(
+            user={
+                "client-certificate-data": base64.b64encode(b"CERT-PEM-BODY-1234").decode(),
+                "client-key-data": base64.b64encode(b"KEY-PEM-BODY-5678").decode(),
+            }
+        )
+    ).encode()
+    values = kubernetes_token.mint_secrets(data, CA_PEM)
+    line = "error: CERT-PEM-BODY-1234 KEY-PEM-BODY-5678 " + "x" * 1000
+    out = kubernetes_token.scrub_stderr(line.encode(), values)
+    assert "PEM-BODY" not in out
+    assert len(out) <= kubernetes_token.STDERR_LIMIT + 2 and out.endswith(" …")
+    # a value straddling the cut is replaced before the cut, so no prefix of it is left
+    value = "straddling-fixture-value"
+    at_cut = "error: " + "y" * (kubernetes_token.STDERR_LIMIT - 15) + " " + value
+    assert "straddl" not in kubernetes_token.scrub_stderr(at_cut, [value])
+    # str stderr; a control character inside a value cannot split it past the matcher
+    assert "FIXTURE" not in kubernetes_token.scrub_stderr(
+        "error: FIX\x1bTURE-VALUE-9876\n", ["FIXTURE-VALUE-9876"]
+    )
+    assert kubernetes_token.scrub_stderr("error: a\tb\x00c", []) == "error: a bc"
+    # client-go warnings first: the error line is the one shown
+    warned = "W1121 17:07 memcache.go:265] couldn't get resource list\nerror: the real cause\n"
+    assert kubernetes_token.scrub_stderr(warned, []) == "error: the real cause"
+    assert kubernetes_token.scrub_stderr("Error from server (Forbidden): no", []).startswith(
+        "Error from server"
+    )
+    # a home directory whose name has a space
+    spaced = "error: open /Users/Jane Doe/.kube/c and /home/op x/y: denied"
+    assert kubernetes_token.scrub_stderr(spaced, []) == "error: open ~/.kube/c and ~/y: denied"
+    assert kubernetes_token.scrub_stderr(b"", values) == ""
+    assert kubernetes_token.scrub_stderr(None, values) == ""
+    assert kubernetes_token.scrub_stderr("\n \nsecond\n", []) == "second"
+    assert kubernetes_token.scrub_stderr(b"\xff error", []) == "� error"
+    # a hex digest and a plain long word are kept; mixed-case base64 is not
+    digest = "a" * 64
+    assert kubernetes_token.scrub_stderr(f"sha {digest}", []) == f"sha {digest}"
+    assert kubernetes_token.mint_secrets(b": not yaml: [", CA_PEM) == [CA_PEM]
+    assert kubernetes_token.mint_secrets(b"- a list", CA_PEM) == [CA_PEM]
+    # a -data field that is not base64 is still a value, kept as stored
+    odd = yaml.safe_dump(mint_config(user={"client-key-data": "not base64!"})).encode()
+    assert "not base64!" in kubernetes_token.mint_secrets(odd, CA_PEM)
 
 
 def test_the_session_is_removed_when_the_operation_fails(mint, tool, sessions):
