@@ -50,6 +50,28 @@ object and revoked the gateway key, and the kill switch stopped both targets.
 - `kubectl port-forward` is the only way in. There is no public endpoint.
 - One `kind` cluster per machine.
 
+## On main, coming in 3.0.0a4
+
+Not in a published package, and **none of it has run on a production or managed cluster**.
+
+- **Kit runtimes on `kind`.** The LangGraph, OpenAI Agents SDK, Deep Agents and CrewAI runtimes
+  get a default-deny NetworkPolicy (cluster DNS and the stack's agents network only). Northwind on
+  each passed 61/61 on `kind` ([Frameworks and runtimes](/docs/runtimes)).
+- **Restricted accounts and admission policies** (written and unit-tested; not yet run on
+  `kind` from `main`). `cluster up --restricted` (local `kind` only) is built to install separate
+  service accounts with narrow Roles, and `ValidatingAdmissionPolicy` objects meant to admit only
+  the objects AgentBreeder writes; deploys then use a restricted deployer account. `cluster policy
+  print` and `cluster rbac print` show them without changing anything.
+- **A provider interface and the `token` provider** (unit-tested; not yet run on `kind` from
+  `main`). Each cluster deployment records which
+  provider and cluster it was made on. `cluster connect token` checks an existing cluster reached
+  with short-lived service account tokens, then refuses (`KUBERNETES_POLICY_UNCHECKED`) and
+  records nothing, because the admission policy check it needs is not wired in yet. Deploying to
+  such a cluster is refused the same way.
+- **`services render --cluster`** writes a Helm chart for the stack's services, hardened for the
+  `restricted` Pod Security level, and refuses a chart that would contain a secret value. It has
+  never been installed, and `helm lint` has not been run on its output.
+
 This shows the deployer working; it is not a production design. Helm, external secret stores and
 real-cluster certification are tracked in
 [#770](https://github.com/agentbreeder/agentbreeder/issues/770). In the

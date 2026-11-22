@@ -16,7 +16,7 @@ and only after a **deploy-time identity gate** confirms the agent in your identi
 
 **Tagline (site):** Know the agent. Gate the deploy. Audit every attempt.
 
-**What ships today (`3.0.0a2` preview on PyPI, `3.0.0-alpha.2` on npm; a bare `pip install agentbreeder` still gets 2.7.3; verified end to end on macOS + Docker Desktop). From the public registries on macOS, `quickstart` ran on pip/uvx/npx (a1 and a2), Northwind 61/61 from pip (a1), and `up` with Northwind 61/61 on local Docker and `kind` through npx (a2); on Linux only install, `--version` and `doctor` ran (a1):**
+**What ships today (`3.0.0a3` preview on PyPI, `3.0.0-alpha.3` on npm; a bare `pip install agentbreeder` still gets 2.7.3; verified end to end on macOS + Docker Desktop). From the public registries on macOS, `quickstart` ran on pip/uvx/npx (a1, a2 and a3), Northwind 61/61 from pip (a1 and a3), `up` with Northwind 61/61 on local Docker and `kind` through npx (a2), and `up` starting through npx (a3); on Linux only install, `--version` and `doctor` ran (a1 and a3):**
 - `validate` and `doctor`; a local Docker `deploy`/`status`/`remove` lifecycle with SQLite history
 - The identity gate (Entra, Keycloak, Okta (experimental), AWS, static file; only the static
   adapter is live-verified), Cedar/OPA/AuthZEN policy, second-person approval, a kill switch,
@@ -34,6 +34,20 @@ and only after a **deploy-time identity gate** confirms the agent in your identi
 - Local-only preview: backing services from `stack.yaml` (`agentbreeder services up|status|logs|
   env|down`, built-in postgres-pgvector, litellm and phoenix, project services built from source;
   see `docs/services.md`). Verified with `src/agentbreeder/examples/northwind` from scratch (61/61, 2026-11-08).
+
+**On `main`, not in a published preview (merged since `3.0.0a3`; coming in 3.0.0a4, not yet
+released).** macOS x86_64 + Docker Desktop only; see `docs/runtimes.md` and the verification
+records it links:
+- Runtimes on the runtime kit (#1083): `runtime/langgraph@1.0.0` (verified for the starter and one
+  tool with Gemini), `openai-agents@1.0.0`, `deepagents@1.0.0`, `crewai@1.0.0` (each Northwind
+  61/61 on Docker and `kind`, not verified); `claude-agent-sdk@1.0.0` in the example's own
+  registry, not shipped; `runtime/adk@1.5.0` (sub-agents, skills), `1.4.1`, `1.5.1`; agent
+  protocol v1 and `agentbreeder conformance` (26 of 39 checks built, no runtime conformant).
+- Gateway `service/litellm@1.3.0` (request filter), `@1.4.0` (Messages route, stub providers
+  only), `@1.5.0` (Vertex, config-only); git registry sources and `agent.lock` v2 (loopback git
+  only); console sign-in and notifications; design system v2.
+- Kubernetes K0 to K3 (provider interface, `token` provider that refuses after its checks,
+  `cluster up --restricted`, `services render --cluster`): unit-tested; no production cluster.
 
 **Not shipped:** cloud/production deploy targets, a multi-user control center or versioned API, authenticated
 invocation, a final 3.0.0. 2.x (PyPI ≤ 2.7.3) is unmaintained and has known functional and
@@ -279,9 +293,10 @@ deploys through these paths.
 **Agent protocol and conformance, #1083 F2a (multi-framework), per side.** OSS (on `main`):
 `docs/agent-protocol.md` (protocol v1, what `runtime/adk@1.3.0` serves) and `agentbreeder
 conformance IMAGE` (`conformance/`: 26 of 39 checks built, reports under
-`~/.agentbreeder/conformance/`). **Never run on a real Docker engine**: the ADK baseline
-(`docs/superpowers/verification/F2a-adk-baseline.md`) is recorded as not run, and a report is
-`incomplete` at best, so no runtime is called conformant. `registry runtimes --json` gains
+`~/.agentbreeder/conformance/`). Run on Docker Desktop (macOS x86_64): the ADK baseline
+(`docs/superpowers/verification/F2a-adk-baseline.md`, 2026-11-19) is `fail` on `runtime/adk`
+1.3.0 and 1.5.0 (22 pass, 4 fail, 8 not run, 5 n/a), and the kit runtimes are `incomplete`
+(26 pass, 13 not run). A report is `incomplete` at best, so no runtime is called conformant. `registry runtimes --json` gains
 `conformance`, and `list --json` and `list --all --json` gain `runtime` per deployment (additive;
 `schema_version` stays 1). No manifest, JSON Schema, `agent.yaml` or `agent.lock` change.
 Website: no change until a framework passes its acceptance. Cloud: a `CLAUDE.md` note only; it
@@ -402,6 +417,38 @@ by-reference binding must belong to the deployment's environment; `disable` revo
 key in `finally`; `doctor` reports leftover session directories. No manifest, JSON Schema or
 `agent.lock` change. Website: no change until K9's run. Cloud: a `CLAUDE.md` note only; it has
 no code that reads the operator config's `kubernetes` block.
+
+**Cluster provider interface, #771 K0 (#908 G0), per side.** OSS (on `main`):
+`kubernetes_providers.py` (`session`, `check`, `registry`, `blocked_cidrs`; `kind` is the code
+that already ran, moved), the operator config's optional `kubernetes.provider` (omitted means
+`kind`), tagged bindings (`kind|…` inline, other providers by reference in a new
+`cluster_bindings` table, `KUBERNETES_BINDING_CHANGED`) and store schema v5 (`migrate`).
+`status --json` shows the tagged `context`. No manifest, JSON Schema or `agent.lock` change.
+Unit-tested; nothing run on a real cluster. Website: `kubernetes.mdx` labels it "on main,
+coming in 3.0.0a4". Cloud: a `CLAUDE.md` note only; it has no code that reads the store or
+`status --json`'s `context`.
+
+**Restricted accounts and admission policies, #770 K2, per side.** OSS (on `main`): `cluster up
+--restricted` (local `kind`), `cluster policy print` and `cluster rbac print`,
+`kubernetes_admission.py` (service accounts, Roles and `ValidatingAdmissionPolicy` objects),
+`services up` writing the `ab-grants` ConfigMap, a deployment's Secret owned by its Deployment,
+and `AGENT_NAME_RESERVED` for `ab-probe`. A fail-open install bug on a real API server (#1204)
+is fixed in #1207, open at the time of writing. No manifest, JSON Schema or `agent.lock` change.
+Website: `kubernetes.mdx` labels it "on main, coming in 3.0.0a4". Cloud: a `CLAUDE.md` note
+only; it has no code that reads the operator config or the cluster's objects.
+
+**Services Helm chart, #772 K3, per side.** OSS (on `main`): `services render DIR --cluster
+--environment ENV --out CHART` (`services/chart.py`, from the same plan as `services up`,
+`restricted` Pod Security fields on every pod, `CHART_SECRET_LEAK`) and an optional
+`resources:` in `service.yaml`. Unit-tested only; never installed, `helm lint` not run. No
+manifest, JSON Schema or `agent.lock` change. Website: `services.mdx` labels it "on main, coming
+in 3.0.0a4". Cloud: a `CLAUDE.md` note only; it has no code that reads `service.yaml` or a chart.
+
+**Docs sync before 3.0.0a4, per side.** OSS: `docs/runtimes.md` (runtimes, the kit,
+conformance), `ARCHITECTURE.md`, `README.md` ("On `main`, not in a published preview") and this
+file's "What ships today". Website: each capability merged since `3.0.0a3` is labelled "on main,
+coming in 3.0.0a4" (`what-ships.tsx`, the docs pages); install pins and the footer badge are
+unchanged until the release. Cloud: no change.
 
 ## 🎯 When Adding a New Feature
 

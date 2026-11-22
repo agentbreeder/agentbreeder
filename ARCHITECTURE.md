@@ -32,13 +32,38 @@
   clusters only; `cluster.py` manages a local `kind` cluster; `promote.py` deploys an audited
   release to it by digest. See `docs/command-center.md`.
 
+On `main`, not in a published preview (since `3.0.0a3`):
+
+- Multi-framework runtimes (#1083): `runtime_profile.py` reads every framework fact from the
+  pinned runtime version's `manifest.yaml` (protocol, profile, capabilities, limits, reserved tool
+  names) and its generated `runtime/modules.json`, so the engine never branches on a framework's
+  name. `runtime_kit/` is the shared protocol v1 server and loopback model proxy that the
+  LangGraph, OpenAI Agents SDK, Deep Agents and CrewAI runtimes vendor; `egress/kit.py` and
+  `egress/forwarder.py` give kit deployments default-deny egress; `conformance/` checks a built
+  image against `docs/agent-protocol.md`. Two-uid deploys (`isolation: two-uid`) run a framework's
+  CLI in a second, secret-less container. See `docs/runtimes.md`.
+- `agentspec.py` (spec v2: runtime, sub-agents, skills, limits), `skill_check.py`, and cost
+  grouped by sub-agent (`llmcost.py`).
+- Registry sources (#829): `lock.py` reads and writes `agent.lock` v2; `sources/` fetches pinned
+  commits from git registry sources (`git.py`), checks the trust list (`trust.py`) and caches them
+  (`cache.py`). `package_artifact.py` pushes an agent package as an OCI artifact to a loopback
+  registry (library only). See `docs/registry.md`.
+- Console sign-in (#818): `center/` stores scrypt password hashes and security events in
+  `center.sqlite3`; `up --set-password|--reset-password|--link`. See `docs/command-center.md`.
+- Kubernetes providers (#770, #771, #772): `kubernetes_providers.py` (the provider interface and
+  tagged binding; `kind` is the only provider that deploys), `kubernetes_token.py` and
+  `cluster_token.py` (the `token` provider; `cluster connect token` checks a cluster and then
+  refuses until the admission policy check is wired in), `kubernetes_admission.py` (restricted
+  service accounts and admission policies, `cluster up --restricted`) and `services/chart.py`
+  (`services render --cluster`, a Helm chart). None of these has run on a production cluster.
+
 ## Next implementation
 
 CLI and a minimal UI will call one deployment API. A durable worker will perform real deployment and recovery, backed by persistent job and audit state. It will validate permissions and exact-revision approvals before infrastructure changes. Only the executor receives production deployment credentials.
 
 Local Docker plus one certified production target is the intended first scope. The Kubernetes runtime is verified on a local `kind` cluster only; certifying a real cluster is #770. The initial UI will cover Agents, Agent detail, Approvals and Settings.
 
-Deploy takes an image: the v2 manifest stays image-in, and any existing image can be deployed. Separately, `agentbreeder build` can produce that image from an `agent.yaml` for Google ADK. It uses the shipped runtime plus registry entries (prompts, knowledge, tool packages, eval sets), so the agent author writes no runtime code. Custom logic lives in tool packages. Other frameworks are not supported yet. Builds run with the local Docker; server-side builds are out of scope.
+Deploy takes an image: the v2 manifest stays image-in, and any existing image can be deployed. Separately, `agentbreeder build` can produce that image from an `agent.yaml` from the shipped runtimes plus registry entries (prompts, knowledge, tool packages, eval sets), so the agent author writes no runtime code. Custom logic lives in tool packages. Google ADK is the runtime of the published previews; on `main`, LangGraph is also verified for the starter and one tool with Gemini, and the OpenAI Agents SDK, Deep Agents and CrewAI runtimes have run end to end (Northwind 61/61) but are not verified, all on macOS x86_64 only (`docs/runtimes.md`). Builds run with the local Docker; server-side builds are out of scope.
 
 A synchronous local lifecycle service uses SQLite transactions and a process lock, with ownership-checked Docker operations. No background/distributed worker, production adapter or server-side executor exists in this baseline; the UI is local and single-user. Optional runtime tool enforcement (`runtime_enforcement.mode: mcp_http`) runs a per-deployment sidecar on a Docker internal network plus a host decision service (`src/agentbreeder/egress/`). The identity gate runs inside the local service, so it protects against mistakes and policy drift, not against a local Docker or state administrator. Add them as tested vertical slices rather than restoring legacy placeholder paths.
 

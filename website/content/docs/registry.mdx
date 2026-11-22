@@ -7,7 +7,8 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 <Callout type="warn" title="Preview">
   The commands below ran on macOS with Docker Desktop against Northwind and starter projects, from
-  a wheel built from `main`. Skills are on `main` for authoring only; no runtime loads them yet.
+  a wheel built from `main`. Skills, git registry sources and `agent.lock` v2 are on `main`,
+  coming in 3.0.0a4, and are labelled where they appear.
 </Callout>
 
 A registry is a directory of immutable, versioned building blocks, referenced as
@@ -26,7 +27,7 @@ two places is an error, never a silent shadow. `agent.lock` records each ref's h
 | `service` | a backing service for `stack.yaml` (code) |
 | `runtime` | the agent runtime, such as `runtime/adk@1.4.0` (code) |
 | `agent` | a released agent package, written only by `release` |
-| `skill` | instructions or scripts for a later runtime; see [Sub-agents and skills](/docs/subagents-skills) |
+| `skill` | an instruction pack `runtime/adk@1.5.0` loads (on `main`, coming in 3.0.0a4); scripts are not run. See [Sub-agents and skills](/docs/subagents-skills) |
 
 ## Read
 
@@ -58,6 +59,41 @@ shown. A tool version is checked before it is written (`TOOL_INVALID`): only its
 every function a parsable top-level `def`. Kinds marked code above run inside agents, and the
 CLI and console say so before importing or forking one.
 
+## Git registry sources (on main, coming in 3.0.0a4)
+
+Tested only against git's own `git http-backend` on loopback HTTPS on macOS; not run against
+GitHub or any other hosted git server, over ssh or behind a proxy, and not in a published
+package yet.
+
+```yaml
+# agent.yaml
+registries:
+  - name: acme
+    git: https://github.com/acme/agent-registry.git
+    commit: 3f2a9c1d0b7e4a5f6c8d9e0f1a2b3c4d5e6f7a8b   # a full SHA; branches and tags are refused
+```
+
+```sh
+agentbreeder registry trust https://github.com/acme/     # once, into ~/.agentbreeder/sources.yaml
+agentbreeder build agent.yaml --stack . --environment dev   # fetches the pinned version, writes agent.lock v2
+agentbreeder build agent.yaml --stack . --environment dev --locked --offline   # from the cache only
+```
+
+A source may provide prompts, eval sets, knowledge and tools, never runtimes, services, skills or
+MCP servers (`REMOTE_KIND_REFUSED`). A build contacts only hosts you trusted, and the lock records
+each source and its pin, so `--locked` refuses a changed source. Without `registries:`,
+`agent.lock` stays v1, byte for byte. See
+[registry.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/registry.md#remote-registry-sources-git-on-main-not-in-a-published-preview).
+
+## Runtimes (on main, coming in 3.0.0a4)
+
+```sh
+agentbreeder registry runtimes            # framework, capabilities, limits, run end to end or not
+agentbreeder registry conformance runtime/langgraph@1.0.0
+```
+
+See [Frameworks and runtimes](/docs/runtimes).
+
 ## Inspect a running agent's parts
 
 ```sh
@@ -71,7 +107,9 @@ tool calls are not in it.
 ## In the console
 
 Registry lists prompts, eval sets, tools, knowledge, MCP servers, services and runtimes, with
-versions, diffs and used-by (not skills or agent packages yet). Project prompts, eval cases, tool
+versions, diffs and used-by (not agent packages yet). On `main`, coming in 3.0.0a4: **Registry ▸
+Skills** renders a skill's `SKILL.md` with a safe Markdown renderer, and **Registry ▸ Runtimes**
+shows each runtime's framework, capabilities and newest conformance report. Project prompts, eval cases, tool
 code and knowledge documents open in editors that save a new version after a review, then offer
 **Move agent to this version** and **Build and update agent.lock**. Import and fork ask the
 "this code runs in agents" confirm for code kinds. Tool pages and their editor are tested in CI

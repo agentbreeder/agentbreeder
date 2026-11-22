@@ -47,9 +47,12 @@ correctness at least 0.7. The release threshold is the share of cases that must 
 the starters use 1.0).
 Fixtures SQL runs against the eval database, so treat eval sets as trusted code.
 
-On `main` but not run end to end: an unknown `expect` key is refused when the set loads
-(`EVAL_INVALID`), cases can carry `tags` with a per-tag `evals.tag_threshold`, and a regex check
-stops after 5 seconds and fails its case.
+On `main`, coming in 3.0.0a4: cases can carry `tags`, and `eval` and `release` print a pass
+rate per tag (run end to end in the sub-agents and skills acceptance runs, macOS, Gemini), and
+cases can check which sub-agents a reply called and which skills it loaded
+([Sub-agents and skills](/docs/subagents-skills)). Tested but not run end to end: a per-tag
+`evals.tag_threshold`, an unknown `expect` key refused when the set loads (`EVAL_INVALID`), and a
+regex check that stops after 5 seconds and fails its case.
 
 ## Agent packages
 

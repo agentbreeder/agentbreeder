@@ -60,12 +60,34 @@ CI), the Docker-down notice, and how Try it shows `runtime/adk@1.3.0` and `1.4.0
 codes, fallbacks and cached tokens (tested with a fake CLI). No screen has been clicked through
 on Linux.
 
+## On main, coming in 3.0.0a4
+
+Not in a published package yet. Each item says what ran; all runs were on macOS with Docker
+Desktop.
+
+- **Password sign-in** (from a wheel built from `main`). First-run setup, sign-in, Settings, sign out everywhere, and a re-auth
+  dialog that keeps an unsaved draft. `up --set-password` and `up --reset-password` work from the
+  terminal, and `up --link` prints a one-time link. Clicked through in Chrome (Playwright) on
+  2026-11-20, including a `3.0.0a2` console's state upgraded with its project kept.
+- **Notifications.** A bell, a panel and failure toasts; in the same run the bell showed a
+  stopped service and then cleared.
+- **Frameworks.** A framework group in the Build form, a framework badge and filter on Agents,
+  **Registry ▸ Runtimes** with conformance reports, and **Registry ▸ Skills**. Building an agent
+  on LangGraph, releasing it and chatting with it in Try it was clicked through (Playwright,
+  2026-11-19, on a wheel with the change that marks LangGraph verified); the Runtimes and Skills
+  pages are tested in CI only.
+- **Try it** lists the sub-agents a reply called and the skills it loaded; the Build form can add
+  one knowledge version. These are tested in CI, not clicked through on a live stack.
+- **Design system v2.** A System / Light / Dark theme toggle; the first visit follows the system.
+
 ## Limits
 
 - Whoever controls local Docker has full control; the gate prevents mistakes and policy drift,
   not a local admin.
 - Try it calls an unauthenticated endpoint and costs real model calls.
 - Sessions live in memory: a console restart ends them.
+- With password sign-in (on `main`), the console is still one user on one machine; it is not a
+  multi-user server.
 
 Canonical reference:
 [command-center.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/command-center.md).

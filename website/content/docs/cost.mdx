@@ -30,6 +30,10 @@ operator config and never prints it.
 - **Only AgentBreeder's keys are counted**, including eval judge keys (`eval run <run>`).
 - **Ollama calls have no price** and show `no price (local model)`, never $0.00.
 - `CACHED IN` shows prompt tokens the provider read from its cache (`runtime/adk@1.4.0`).
+- **Per sub-agent** (on `main`, coming in 3.0.0a4): `cost --by subagent` splits each key's spend
+  by sub-agent, from the tag `runtime/adk@1.5.0` puts on each model call. In the one recorded run
+  (macOS, Gemini, two sub-agents) it matched LiteLLM's spend rows exactly. See
+  [Sub-agents and skills](/docs/subagents-skills).
 
 ## Cost per turn
 

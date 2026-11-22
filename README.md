@@ -135,6 +135,35 @@ Local-only preview: see [src/agentbreeder/examples/northwind](https://github.com
 
 `agentbreeder up` starts a web UI on `127.0.0.1` for one person. It onboards a project, starts its services after a grant review, runs the eval-gated release, and deploys that same image by digest to a local `kind` cluster. Every action runs the CLI, so the identity gate, policy, audit and eval gate still apply. Run `npx agentbreeder@3.0.0-alpha.2 up` or `uvx --from "agentbreeder[eval]==3.0.0a2" agentbreeder up`. From the published `3.0.0a2` on macOS on 2026-11-11, Northwind passed 61/61 on local Docker and 61/61 on `kind`, driven by a script through the command center's API, with no browser. It has not run on Linux, and no production cluster has been tested. See [docs/command-center.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/command-center.md).
 
+## On `main`, not in a published preview
+
+These have merged since `3.0.0a3` and are not in any published package yet. Each was run only
+where it says, on macOS x86_64 with Docker Desktop; nothing here has run on Linux, on arm64 or on
+a production cluster.
+
+- **Runtimes for other frameworks.** `runtime/langgraph@1.0.0`, `runtime/openai-agents@1.0.0`,
+  `runtime/deepagents@1.0.0` and `runtime/crewai@1.0.0`, on a shared runtime kit with
+  default-deny egress. Northwind passed 61/61 on each, on local Docker and on `kind`. Only
+  LangGraph is verified, for the `new agent` starter and one tool with Gemini, from a wheel in a
+  clean sandbox. A Claude Agent SDK runtime also passed Northwind 61/61 (on a stack pinned to
+  `service/litellm@1.4.0`) but is not shipped or supported.
+  Agent protocol v1 and `agentbreeder conformance` check a built image; 26 of 39 checks are
+  built, so no runtime is called conformant. See
+  [docs/runtimes.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/runtimes.md).
+- **Sub-agents and skills** (instruction packs) in `agent.yaml` on `runtime/adk@1.5.0`, run with
+  Gemini; `cost --by subagent` and per-tag eval rates.
+- **Gateway.** `service/litellm@1.3.0` and later refuse request-side provider routing, and every
+  deployment key is limited to chat and embeddings (Docker test, no real provider); `@1.4.0` adds the Anthropic Messages route (Docker test
+  against stub providers only); `@1.5.0` adds Vertex AI, config-only and never called.
+- **Registry.** Git registry sources with a trust list and `agent.lock` v2, tested only against a
+  local `git http-backend`.
+- **Console.** Password sign-in, notifications, Registry ▸ Runtimes and Skills, a framework badge
+  and filters, and the design system v2 theme.
+- **Kubernetes building blocks, unit-tested only and not run on any cluster from `main`:** a cluster provider interface, a
+  `token` provider whose `cluster connect token` checks a cluster and then refuses, restricted
+  accounts and admission policies (`cluster up --restricted`, local `kind`), and `services render
+  --cluster` (a Helm chart, never installed).
+
 ## Develop
 
 From a checkout of this repository:

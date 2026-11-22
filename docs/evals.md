@@ -25,9 +25,14 @@ viewer").
 On `main`, not in a published preview (#1058, #1059). The rules a case may use
 (`subagents_include`, `subagents_exclude`, `subagent_tools_include`, `skills_loaded`,
 `skills_not_loaded`), case `tags` and `evals.tag_threshold` are described under "Eval and
-release" in [`agent-yaml.md`](agent-yaml.md#eval-and-release). They were tested on fixture
-replies: no runtime sends the reply fields `subagents` and `skills` yet, and until one does a case
-using those rules fails, never passes.
+release" in [`agent-yaml.md`](agent-yaml.md#eval-and-release). `runtime/adk@1.5.0` sends
+the reply fields `subagents` and `skills` they read; on a runtime that does not, a case using
+those rules fails, never passes. In the acceptance runs (macOS x86_64, Docker Desktop, Gemini,
+2026-11-19), `release` passed sets using `subagents_include`, `subagents_exclude`,
+`subagent_tools_include`, `skills_loaded` and `skills_not_loaded`, a deliberately wrong routing
+case failed the gate, and per-tag rates were printed
+([sub-agents](superpowers/verification/1058-subagents.md),
+[skills](superpowers/verification/1059-skills-a.md)).
 
 For an eval set with tagged cases, the saved report file has a top-level `tags` object,
 `{tag: {cases, passed, pass_rate}}`, and each tagged case has its `tags` list. A report of an

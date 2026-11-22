@@ -2050,9 +2050,11 @@ Local clusters only. `kind` is the verified path.
   no service account token. Secrets are mounted read-only and go to `kubectl` on stdin. Images are
   referenced by digest.
 - Refused rather than weakened: `mcp_access` and runtime enforcement.
-- A manifest with `runtime: {profile: kit}` (none is built today) gets a default-deny
-  NetworkPolicy: cluster DNS and the stack's agents network (`kubernetes.agents_cidrs`, which
-  `cluster up` records) only. Written and unit-tested, not yet run on a cluster; see
+- A manifest with `runtime: {profile: kit}` (the LangGraph, OpenAI Agents SDK, Deep Agents and
+  CrewAI runtimes) gets a default-deny NetworkPolicy: cluster DNS and the stack's agents network
+  (`kubernetes.agents_cidrs`, which `cluster up` records) only. Its opt-in `kind` test passed once
+  ([the record](superpowers/verification/kind-optin-2026-11-19.md)), and each of those runtimes'
+  Northwind ports passed 61/61 on `kind` ([runtimes.md](runtimes.md)); see
   [Kit egress](local-deployment.md#kit-egress) (#1083 F1b, on `main`, not in a published
   preview).
 
@@ -2150,3 +2152,27 @@ server and kubelet ports to agents on that network; both require credentials. Th
 `127.0.0.1:5001` is unauthenticated. Secrets are unencrypted in `kind`'s etcd. `kubectl port-forward`
 is the only way in: there is no public endpoint. This shows the deployer working, it is not a
 production design. Helm, external secret stores and real-cluster certification are tracked in #770.
+
+### Other cluster providers and the services chart (#771 K1, #772 K3): on `main`, not in a published preview
+
+Nothing in this section has run against a production cluster, on GKE or on any managed
+Kubernetes. `kind` remains the only provider that deploys.
+
+- **The `token` provider** (`kubernetes.provider: token`, #771 K1). The operator config names an
+  existing cluster's API server, a pinned CA bundle, a dedicated mint kubeconfig (by path and
+  hash), four service accounts and a pinned `kubectl`. Each command mints short-lived service
+  account tokens (10 to 60 minutes) into a private session directory that is removed when the
+  command ends; `doctor` reports any a killed command left behind. `agentbreeder cluster connect
+  token` checks such a cluster (CA, Kubernetes 1.30 or later, namespace labels, `ResourceQuota`,
+  `blocked_cidrs`) and then refuses with `KUBERNETES_POLICY_UNCHECKED`, recording nothing, because
+  the admission policy check it needs is not wired in yet; deploys and `promote` to a `token`
+  environment are refused with the same code. `disable` revokes the deployment's gateway key even
+  when the cluster call fails. Unit-tested with a fake `kubectl` and a local TLS server; the opt-in `kind` check,
+  `tests/test_kubernetes_token_kind.py`, is written and has not run from `main`. See [`cluster`](commands/cluster.md).
+- **`agentbreeder services render --cluster`** (#772 K3) writes a Helm chart for a stack's
+  services from the same plan `services up` uses, with every pod hardened for the `restricted`
+  Pod Security level, and refuses to write a chart that contains a stored or imported secret
+  value (`CHART_SECRET_LEAK`). It needs no cluster. Unit-tested only: the chart has not been
+  installed anywhere, and `helm lint` and `helm template` have not been run on its output (the
+  opt-in test, `AGENTBREEDER_HELM_TEST=1 pytest tests/test_services_chart.py -k real_helm`, is
+  written and not run). See [services.md](services.md).

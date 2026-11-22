@@ -440,8 +440,8 @@ files and your git history if you commit them.
 A `runtime/` version is the agent server: a fixed `Dockerfile`, a `runtime/` directory with a
 hash-locked `requirements.lock`, and a `manifest.yaml`. Since #1083 F1 that manifest and one
 generated file are the only place `build`, `new agent` and the registry commands take framework
-facts from. Nothing in the engine branches on a framework's name. Five runtimes ship:
-`runtime/adk`, `runtime/langgraph@1.0.0` (#1083 F3, the first on the runtime kit; run end
+facts from. Nothing in the engine branches on a framework's name. Five runtimes ship
+(overview: [runtimes.md](runtimes.md)): `runtime/adk`, `runtime/langgraph@1.0.0` (#1083 F3, the first on the runtime kit; run end
 to end and verified on macOS x86_64 only, for the starter and one tool with Gemini, see
 [runtimes/langgraph.md](runtimes/langgraph.md)), `runtime/openai-agents@1.0.0` (#1083 F4, on
 the kit; built and run end to end on macOS x86_64, **not verified**, see
@@ -449,7 +449,9 @@ the kit; built and run end to end on macOS x86_64, **not verified**, see
 F5, on the same kit; built and run end to end on macOS x86_64, **not verified**, see
 [runtimes/deepagents.md](runtimes/deepagents.md)). `runtime/crewai@1.0.0` (#1090, F6, on the
 same kit) is built and run end to end on macOS x86_64, **not verified**, see
-[runtimes/crewai.md](runtimes/crewai.md).
+[runtimes/crewai.md](runtimes/crewai.md). A sixth, `runtime/claude-agent-sdk@1.0.0` (#1089 F7),
+is not shipped: it lives in the Northwind port's own project registry, see
+[runtimes/claude-agent-sdk.md](runtimes/claude-agent-sdk.md).
 
 **Manifest keys** (beside `port`, `health_path`, `secrets` and `environment`):
 
@@ -555,8 +557,8 @@ so a reader such as the local console needs no knowledge of profiles:
   (`REF_CONFLICT`). Each version is hashed as `build` would copy it before its manifest is
   read, so nothing is read from outside the version.
 - Versions run end to end come first, then by name, newest version first.
-- The conformance result the console design mentions is not part of this output; there is no
-  `agentbreeder conformance` command yet.
+- A version with a conformance report also has `conformance: {passed, result, digest, date}`
+  (#1083 F2a); see [`conformance`](commands/conformance.md) and [runtimes.md](runtimes.md).
 
 ## Skills (on `main`, not in a published preview)
 

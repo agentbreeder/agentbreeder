@@ -35,8 +35,21 @@ operator environment grants. The key is mounted as a file and revoked on remove.
 JSON-schema output) and `invoke`, with the default model. Another `--model-id` uses the same
 path, but only the default has been run. Bedrock and Azure OpenAI have config review rules, but
 no gateway version serves them yet: `services up` refuses them
-(`GATEWAY_PROVIDER_UNSUPPORTED`). Vertex AI is config only on `main` (`service/litellm@1.5.0`,
-not in a published preview): it has not been run against Vertex AI.
+(`GATEWAY_PROVIDER_UNSUPPORTED`).
+
+## On main, coming in 3.0.0a4
+
+Not in a published package yet. Run on macOS with Docker Desktop against stub providers only;
+no real provider was called in these runs.
+
+| Gateway version | Adds | What ran |
+|---|---|---|
+| `service/litellm@1.3.0` | A request filter: a request may not pick its own provider, endpoint or credentials (top level, `extra_body` or fallbacks; `GATEWAY_PARAM_REFUSED`), and other call types are refused (`GATEWAY_ROUTE_REFUSED`). Every deployment and eval key is limited to chat and embeddings, on any gateway version | Opt-in Docker test, stub providers (2026-11-16) |
+| `service/litellm@1.4.0` | The Anthropic Messages route (`/v1/messages`) through the same filter, for runtimes that speak it ([Frameworks and runtimes](/docs/runtimes)) | Opt-in Docker test, stub providers (2026-11-20) |
+| `service/litellm@1.5.0` | Vertex AI with a service-account key; `new agent NAME --model vertex --vertex-project P --vertex-location L` writes a plain starter | **Config only.** Docker tests with stub providers; never run against Vertex AI |
+
+Versions 1.0.0 to 1.2.0 are unchanged, so a stack pinned to them keeps the gap described under
+Limits.
 
 ### Ollama on your machine
 
@@ -92,9 +105,10 @@ turn (never on Northwind's own prompt), and OpenRouter never.
 ## Limits
 
 - Calls that don't go through the gateway are not limited or counted.
-- A request can name LiteLLM's `custom_llm_provider` and reach another provider with the key the
-  gateway holds for it. This is a known gap, tracked in
-  [#1105](https://github.com/agentbreeder/agentbreeder/issues/1105).
+- On `service/litellm@1.0.0` to `1.2.0` (every published preview), a request can name LiteLLM's
+  `custom_llm_provider` and reach another provider with the key the gateway holds for it. The
+  request filter in `1.3.0` and later refuses it; that version is on `main`, coming in 3.0.0a4
+  ([#1105](https://github.com/agentbreeder/agentbreeder/issues/1105)).
 - Amounts are LiteLLM's estimates from its price list, not a bill.
 
 Canonical reference:

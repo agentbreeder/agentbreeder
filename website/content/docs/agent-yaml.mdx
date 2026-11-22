@@ -51,8 +51,11 @@ evals: {ref: eval/northwind-golden@1.0.1, threshold: 1.0, retries: 1}
 ```
 
 Optional fields: `mcp:` ([MCP tools](/docs/mcp)), `guardrails:`
-([Guardrails](/docs/guardrails)), and on `main` without a runtime yet, `subagents:`, `limits:`
-and `skills:` ([Sub-agents and skills](/docs/subagents-skills)).
+([Guardrails](/docs/guardrails)), and, on `main`, coming in 3.0.0a4, `subagents:`, `limits:` and
+`skills:` on `runtime/adk@1.5.0` ([Sub-agents and skills](/docs/subagents-skills)). Also on
+`main`, coming in 3.0.0a4: `runtime:` can pin a runtime for another framework (LangGraph, the
+OpenAI Agents SDK, Deep Agents, CrewAI; see [Frameworks and runtimes](/docs/runtimes)), and
+`registries:` names git repositories that hold registry versions ([Registry](/docs/registry)).
 
 ## Starting points
 
@@ -62,6 +65,8 @@ and `skills:` ([Sub-agents and skills](/docs/subagents-skills)).
 | `new agent NAME --from-spec FILE` | a project from the console's builder spec, with tools, knowledge and MCP servers |
 | `new agent NAME --model PROVIDER --stack-for DIR/agent.yaml` | only `stack.yaml` and the gateway config beside an existing `agent.yaml` |
 | `example northwind` | the Northwind example |
+| `new agent NAME --runtime runtime/langgraph@1.0.0` | on `main`, coming in 3.0.0a4: the starter on another runtime; with Gemini on LangGraph it is verified (macOS), other runtimes are not ([Frameworks and runtimes](/docs/runtimes)) |
+| `new agent NAME --model vertex --vertex-project P --vertex-location L` | on `main`, coming in 3.0.0a4: a plain starter for Vertex AI, config only, never run against Vertex ([Models and gateway](/docs/models)) |
 
 `--from-spec` has run end to end with Gemini (prompt and evals, one knowledge version, one tool,
 and both), OpenAI (with one knowledge version) and OpenRouter (prompt and evals). Two or more

@@ -14,4 +14,11 @@ The admission policy check it needs next is not wired in yet (K2 built the polic
 
 Token sessions live in `~/.agentbreeder/kube-sessions/` for one command; `doctor` reports any a killed command left behind.
 
+```text
+agentbreeder cluster connect token --server https://HOST[:PORT] --mint-kubeconfig FILE \
+    --registry HOST/PATH --pod-cidr CIDR --service-cidr CIDR [--node-cidr CIDR] \
+    [--namespace NAMESPACE] [--environment ENV] [--tls-server-name NAME] \
+    [--token-minutes 10-60] [--kubectl PATH] [--json]
+```
+
 Flags: `agentbreeder cluster --help`.

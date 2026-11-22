@@ -1,18 +1,20 @@
 ---
 title: Sub-agents and skills
-description: "agent.yaml can declare sub-agents and skills and the registry stores skill versions, but no runtime runs them yet, so build refuses them. Schema and build only."
+description: "agent.yaml can declare sub-agents and instruction-pack skills. On main, coming in 3.0.0a4: runtime/adk@1.5.0 runs them, run end to end with Gemini on macOS."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-<Callout type="warn" title="On main, schema and build only">
-  No runtime runs sub-agents or loads skills yet. `validate`, the registry and the lock accept
-  them, and `build` refuses an agent that uses them (`RUNTIME_NO_SUBAGENTS`,
-  `RUNTIME_NO_SKILLS`) before any image is built. Nothing on this page has run end to end. A
-  later `runtime/adk` version will add them.
+<Callout type="warn" title="On main, coming in 3.0.0a4">
+  Not in a published package yet. `runtime/adk@1.5.0` runs sub-agents and loads instruction-pack
+  skills. Run end to end on macOS with Docker Desktop and Gemini on 2026-11-19: one agent with two
+  sub-agents (one with a tool), and one with two skills, each released through the eval gate, plus
+  Northwind 61/61 on the same runtime. Script skills are not built, and no other runtime, provider
+  or Linux has been run. On older runtimes `build` refuses both (`RUNTIME_NO_SUBAGENTS`,
+  `RUNTIME_NO_SKILLS`).
 </Callout>
 
-Sub-agents are specialist agents the main agent calls as tools; skills are instruction packs it would load when needed. Today you can declare and lock both, not run them.
+Sub-agents are specialist agents the main agent calls as tools; skills are instruction packs it loads when needed. Pin `runtime: runtime/adk@1.5.0` to run them.
 
 ## Sub-agents
 
@@ -57,14 +59,24 @@ skills: [{ref: skill/refund-policy@1.0.0}]    # at most 10
 
 A skill version holds `manifest.yaml`, a `SKILL.md` with strict front matter, optional
 `references/` and, for a script skill, declared `scripts/`. A version with scripts is code, and
-the CLI and console say so before importing it. Today you can author, publish, verify, show,
-diff, lock and find skills; nothing runs a script.
+the CLI and console say so before importing it. `runtime/adk@1.5.0` lists each skill's
+description in every turn and loads its `SKILL.md` when the model asks (`load_skill`); the
+agent's own event log records each load with the skill's hash. A skill with scripts is refused
+(`RUNTIME_NO_SKILL_SCRIPTS`): no runtime runs a script.
 
 ## Evals for both
 
 Eval cases accept `subagents_include`, `subagents_exclude`, `subagent_tools_include`,
-`skills_loaded` and `skills_not_loaded`. Until a runtime reports them, a case using them fails,
-never passes.
+`skills_loaded` and `skills_not_loaded`, read from the reply `runtime/adk@1.5.0` sends; on another
+runtime a case using them fails, never passes. Cases can carry `tags`, and `eval` and `release`
+print a pass rate per tag. In the recorded run, a deliberately wrong routing case failed the gate.
+
+## Cost and the console
+
+`agentbreeder cost --by subagent` splits each deployment's LLM cost by sub-agent, from the tag
+the runtime puts on each model call. In the recorded run it matched LiteLLM's spend rows
+exactly. In the [console](/docs/command-center), Try it shows which sub-agents and skills a
+reply used.
 
 Canonical reference:
 [agent-yaml.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/agent-yaml.md#sub-agents-on-main-not-in-a-published-preview)

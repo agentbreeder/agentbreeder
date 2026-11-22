@@ -1,3 +1,5 @@
 # Focused rebuild reference
 
 Active source: `src/agentbreeder/`; CLI commands: `src/agentbreeder/commands/<name>.py`, wired up by `src/agentbreeder/cli.py`. Tests: `tests/` (golden `--help` output for every command: `tests/fixtures/cli_help/`). Sample: `src/agentbreeder/examples/http-agent/`. Architecture: `ARCHITECTURE.md`. Legacy directories were removed in the focused rebuild; private local planning and historical root roadmap remain.
+
+Built-in registry versions (runtimes, services, MCP servers) live in `src/agentbreeder/builtin_registry/<kind>/<name>/<X.Y.Z>/` and are append-only. The runtime kit is `src/agentbreeder/runtime_kit/` (vendored into each kit runtime as `runtime/kit/`), the conformance checks are `src/agentbreeder/conformance/`, git registry sources are `src/agentbreeder/sources/`, and the local console is `src/agentbreeder/center/`. Examples, including the Northwind ports to other frameworks (`northwind-langgraph`, `northwind-openai-agents`, `northwind-deepagents`, `northwind-crewai`, `northwind-claude-agent-sdk`), are in `src/agentbreeder/examples/`. Runtimes: `docs/runtimes.md`.
