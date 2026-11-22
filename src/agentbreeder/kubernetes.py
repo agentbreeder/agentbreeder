@@ -41,7 +41,44 @@ CLI_UID = 65533
 CLI_SHARED_DIR = "/run/agentbreeder-cli"
 SCHEME = "kubernetes://"
 ROLLOUT_TIMEOUT = 180
-_KINDS = "deployment,service,networkpolicy,secret"
+# A deployment's own Secret is owned by its Deployment and goes with it through the garbage
+# collector (#770 §4.3, K2): the deployer never lists, reads or deletes Secrets.
+_KINDS = "deployment,service,networkpolicy"
+# The fixed shapes `_objects` writes. The admission policies (`kubernetes_admission`, #770 §7.2)
+# admit exactly these, so both read them from here.
+POD_SECURITY_CONTEXT = {
+    "runAsNonRoot": True,
+    "runAsUser": 65532,
+    "runAsGroup": 65532,
+    "fsGroup": 65532,
+    "seccompProfile": {"type": "RuntimeDefault"},
+}
+CONTAINER_SECURITY_CONTEXT = {
+    "allowPrivilegeEscalation": False,
+    "readOnlyRootFilesystem": True,
+    "capabilities": {"drop": ["ALL"]},
+}
+CLI_SECURITY_CONTEXT = {
+    "runAsUser": CLI_UID,
+    "runAsGroup": CLI_UID,
+    "allowPrivilegeEscalation": False,
+    "readOnlyRootFilesystem": True,
+    "capabilities": {"drop": ["ALL"]},
+}
+RESOURCES = {
+    "requests": {"cpu": "100m", "memory": "128Mi"},
+    "limits": {"cpu": "1", "memory": "512Mi"},
+}
+READINESS = {"periodSeconds": 2, "failureThreshold": 30}
+SECRET_MODE = 0o440
+TMP_VOLUME = {"name": "tmp", "emptyDir": {"medium": "Memory", "sizeLimit": "64Mi"}}
+CLI_TMP_VOLUME = {"name": "cli-tmp", "emptyDir": {"medium": "Memory", "sizeLimit": "64Mi"}}
+CLI_SHARED_VOLUME = {"name": "cli-shared", "emptyDir": {"medium": "Memory", "sizeLimit": "1Mi"}}
+DNS_PEER = {
+    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},
+    "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}},
+}
+DNS_PORTS = [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}]
 _FAILED_REASONS = {
     "ErrImagePull",
     "ImagePullBackOff",
@@ -292,14 +329,33 @@ class Kubernetes:
                 allowed=kit_destinations(self.allowed, self.blocked) if kit else None,
             ),
         }
+        # Read the secret files before anything exists on the cluster, so an unreadable file
+        # cannot leave a workload behind.
+        data = _secret_data(mounts)
         self._delete(record["id"])  # a previous attempt may have left objects behind
         try:
             self._namespaced(
                 "create", "-f", "-", timeout=60, stdin=json.dumps(document).encode("utf-8")
             )
-        except DeploymentError:
-            self._delete(record["id"])  # a partial apply must not leave a Secret behind
-            raise
+            if mounts:
+                # The Secret comes second, owned by the Deployment it is mounted into, so the
+                # garbage collector deletes it with the Deployment (#770 §4.3). The pod waits
+                # on its volume until then.
+                owner = self._namespaced(
+                    "get", "deployment", record["container"], "-o", "jsonpath={.metadata.uid}"
+                )
+                if not _UID.fullmatch(owner):
+                    raise DeploymentError("Cannot read the new Deployment's UID")
+                secret = _secret(record, manifest, self.namespace, data, owner)
+                self._namespaced(
+                    "create", "-f", "-", timeout=60, stdin=json.dumps(secret).encode("utf-8")
+                )
+        except DeploymentError as error:
+            self._delete(record["id"])  # a partial create must not leave a workload behind
+            raise DeploymentError(
+                f"{error}. Under AgentBreeder's admission policies (`cluster up --restricted`) "
+                "the agent must also be named in the stack's environment (ab-grants)"
+            ) from error
 
     def start(self, info: dict) -> None:
         """Pods start on apply; this waits for the rollout and reports why it failed."""
@@ -472,9 +528,13 @@ class Kubernetes:
 
     def _delete(self, identifier: str) -> None:
         selector = f"{DEPLOYMENT_LABEL}={identifier}"
+        # Foreground: the Deployment stays until the garbage collector has deleted what it owns
+        # (its pods' ReplicaSet and its Secret), so an empty poll means the Secret is gone too.
+        # The admission policy refuses any other propagation from the deployer (#770 §7.2).
         self._namespaced(
-            "delete", _KINDS, "-l", selector, "--ignore-not-found", "--wait=true", timeout=120
-        )
+            "delete", _KINDS, "-l", selector, "--ignore-not-found", "--wait=true",
+            "--cascade=foreground", timeout=120,
+        )  # fmt: skip
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
             left = self._namespaced("get", f"pods,{_KINDS}", "-l", selector, "-o", "name")
@@ -555,6 +615,7 @@ class Kubernetes:
             return False
 
 
+_UID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 _POD_NAME = re.compile(r"[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?")
 _WORD = re.compile(r"[A-Za-z]{1,64}")
 # What the kubelet sends instead of log lines, with kubectl exiting 0 (kind, node v1.37,
@@ -646,39 +707,76 @@ def kit_destinations(allowed, blocked) -> list[dict]:
     return result
 
 
+def _labels(record, manifest) -> dict:
+    return {
+        MANAGED_BY: "agentbreeder",
+        DEPLOYMENT_LABEL: record["id"],
+        "io.agentbreeder/name": manifest.name,
+    }
+
+
+def _secret_data(mounts) -> dict[str, str]:
+    try:
+        return {
+            mount.name: base64.b64encode(Path(mount.source).read_bytes()).decode("ascii")
+            for mount in mounts
+        }
+    except OSError as error:
+        raise DeploymentError("Cannot read a secret file for the deployment") from error
+
+
+def _secret(record, manifest, namespace, data: dict[str, str], owner_uid: str) -> dict:
+    """The deployment's own Secret, owned by its Deployment (`blockOwnerDeletion`, so the name
+    is not free again until the garbage collector has deleted it; #770 §4.3)."""
+    name = record["container"]
+    return {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {
+            "name": name,
+            "namespace": namespace,
+            "labels": _labels(record, manifest),
+            "ownerReferences": [
+                {
+                    "apiVersion": "apps/v1",
+                    "kind": "Deployment",
+                    "name": name,
+                    "uid": owner_uid,
+                    "blockOwnerDeletion": True,
+                }
+            ],
+        },
+        "type": "Opaque",
+        "immutable": True,
+        "data": dict(data),
+    }
+
+
 def _objects(
     record, manifest, namespace, environment, mounts, blocked, allowed=None
 ) -> list[dict]:
+    """The Service, NetworkPolicy and Deployment of a deployment, in the one shape the admission
+    policies admit (#770 §7.2). Its Secret (`_secret`) is created after the Deployment."""
     identifier, name = record["id"], record["container"]
-    labels = {
-        MANAGED_BY: "agentbreeder",
-        DEPLOYMENT_LABEL: identifier,
-        "io.agentbreeder/name": manifest.name,
-    }
+    labels = _labels(record, manifest)
     selector = {DEPLOYMENT_LABEL: identifier}
     metadata = {"name": name, "namespace": namespace, "labels": labels}
     variables = dict(environment or {})
     for mount in mounts:
         for env in mount.envs:
             variables[f"{env}_FILE"] = mount.target
-    volumes: list[dict] = [{"name": "tmp", "emptyDir": {"medium": "Memory", "sizeLimit": "64Mi"}}]
+    volumes: list[dict] = [_copy(TMP_VOLUME)]
     volume_mounts: list[dict] = [{"name": "tmp", "mountPath": "/tmp"}]
     objects: list[dict] = []
     if mounts:
-        objects.append(
+        # One projected volume at MOUNT_ROOT, so environment bindings by reference (K5) join
+        # the own Secret's files as further sources instead of nesting mounts.
+        volumes.append(
             {
-                "apiVersion": "v1",
-                "kind": "Secret",
-                "metadata": metadata,
-                "type": "Opaque",
-                "immutable": True,
-                "data": {
-                    mount.name: base64.b64encode(Path(mount.source).read_bytes()).decode("ascii")
-                    for mount in mounts
-                },
+                "name": "secrets",
+                "projected": {"defaultMode": SECRET_MODE, "sources": [{"secret": {"name": name}}]},
             }
         )
-        volumes.append({"name": "secrets", "secret": {"secretName": name, "defaultMode": 0o440}})
         volume_mounts.append({"name": "secrets", "mountPath": MOUNT_ROOT, "readOnly": True})
     cli: list[dict] = []
     if manifest.runtime is not None and manifest.runtime.isolation == "two-uid":
@@ -687,10 +785,7 @@ def _objects(
         # environment but its role. The two share only a small memory-backed directory; the
         # runtime checks every peer's kernel credentials over it. In a pod both containers
         # share the network namespace (on local Docker the CLI container has none).
-        volumes += [
-            {"name": "cli-tmp", "emptyDir": {"medium": "Memory", "sizeLimit": "64Mi"}},
-            {"name": "cli-shared", "emptyDir": {"medium": "Memory", "sizeLimit": "1Mi"}},
-        ]
+        volumes += [_copy(CLI_TMP_VOLUME), _copy(CLI_SHARED_VOLUME)]
         volume_mounts.append({"name": "cli-shared", "mountPath": CLI_SHARED_DIR})
         cli.append(
             {
@@ -698,17 +793,8 @@ def _objects(
                 "image": manifest.image,
                 "imagePullPolicy": "IfNotPresent",
                 "env": [{"name": "AGENTBREEDER_ROLE", "value": "cli-host"}],
-                "securityContext": {
-                    "runAsUser": CLI_UID,
-                    "runAsGroup": CLI_UID,
-                    "allowPrivilegeEscalation": False,
-                    "readOnlyRootFilesystem": True,
-                    "capabilities": {"drop": ["ALL"]},
-                },
-                "resources": {
-                    "requests": {"cpu": "100m", "memory": "128Mi"},
-                    "limits": {"cpu": "1", "memory": "512Mi"},
-                },
+                "securityContext": _copy(CLI_SECURITY_CONTEXT),
+                "resources": _copy(RESOURCES),
                 # Read-only: the CLI only connects to the kit's sockets. The emptyDir itself
                 # is world-writable, so a writable mount would let the CLI's uid replace them.
                 "volumeMounts": [
@@ -725,7 +811,7 @@ def _objects(
             "spec": {
                 "type": "ClusterIP",
                 "selector": selector,
-                "ports": [{"port": manifest.port, "targetPort": manifest.port}],
+                "ports": [{"port": manifest.port, "targetPort": manifest.port, "protocol": "TCP"}],
             },
         }
     )
@@ -739,20 +825,7 @@ def _objects(
                 "policyTypes": ["Ingress", "Egress"],
                 "ingress": [],
                 "egress": [
-                    {
-                        "to": [
-                            {
-                                "namespaceSelector": {
-                                    "matchLabels": {"kubernetes.io/metadata.name": "kube-system"}
-                                },
-                                "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}},
-                            }
-                        ],
-                        "ports": [
-                            {"protocol": "UDP", "port": 53},
-                            {"protocol": "TCP", "port": 53},
-                        ],
-                    },
+                    {"to": [_copy(DNS_PEER)], "ports": _copy(DNS_PORTS)},
                     {"to": [{"ipBlock": {"cidr": "0.0.0.0/0", "except": list(blocked)}}]}
                     if allowed is None
                     else {"to": list(allowed)},
@@ -779,39 +852,25 @@ def _objects(
                     "spec": {
                         "automountServiceAccountToken": False,
                         "enableServiceLinks": False,
-                        "securityContext": {
-                            "runAsNonRoot": True,
-                            "runAsUser": 65532,
-                            "runAsGroup": 65532,
-                            "fsGroup": 65532,
-                            "seccompProfile": {"type": "RuntimeDefault"},
-                        },
+                        "securityContext": _copy(POD_SECURITY_CONTEXT),
                         "containers": [
                             {
                                 "name": "agent",
                                 "image": manifest.image,
                                 "imagePullPolicy": "IfNotPresent",
-                                "ports": [{"containerPort": manifest.port}],
+                                "ports": [{"containerPort": manifest.port, "protocol": "TCP"}],
                                 "env": [
                                     {"name": key, "value": value}
                                     for key, value in sorted(variables.items())
                                 ],
-                                "securityContext": {
-                                    "allowPrivilegeEscalation": False,
-                                    "readOnlyRootFilesystem": True,
-                                    "capabilities": {"drop": ["ALL"]},
-                                },
-                                "resources": {
-                                    "requests": {"cpu": "100m", "memory": "128Mi"},
-                                    "limits": {"cpu": "1", "memory": "512Mi"},
-                                },
+                                "securityContext": _copy(CONTAINER_SECURITY_CONTEXT),
+                                "resources": _copy(RESOURCES),
                                 "readinessProbe": {
                                     "httpGet": {
                                         "path": manifest.health_path,
                                         "port": manifest.port,
                                     },
-                                    "periodSeconds": 2,
-                                    "failureThreshold": 30,
+                                    **READINESS,
                                 },
                                 "volumeMounts": volume_mounts,
                             },
@@ -824,3 +883,7 @@ def _objects(
         }
     )
     return objects
+
+
+def _copy(value):
+    return json.loads(json.dumps(value))

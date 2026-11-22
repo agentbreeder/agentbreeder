@@ -722,8 +722,8 @@ def test_deploys_to_a_token_cluster_are_refused_until_the_policy_check(token_env
     )
     assert service._kubernetes_requirements(manifest, "dev") == (
         "KUBERNETES_POLICY_UNCHECKED",
-        "Deploys to a token cluster need the admission policy check, which is not built yet "
-        "(#770 K2)",
+        "Deploys to a token cluster need the admission policy check, which is not wired in "
+        "yet (#770; K2 built the policies, not this check)",
     )
     store.close()
 

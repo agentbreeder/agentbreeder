@@ -1,0 +1,396 @@
+# AgentBreeder rbac objects for namespace agentbreeder (#770 §7).
+# The operator Role gains its Secret names when the chart lock has some.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ab-deployer
+  namespace: agentbreeder
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ab-deployer
+  namespace: agentbreeder
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+rules:
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ''
+  resources:
+  - secrets
+  verbs:
+  - create
+- apiGroups:
+  - apps
+  resources:
+  - replicasets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - pods/log
+  verbs:
+  - get
+- apiGroups:
+  - ''
+  resources:
+  - pods/portforward
+  verbs:
+  - create
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  verbs:
+  - get
+  resourceNames:
+  - ab-chart-lock
+  - ab-grants
+- apiGroups:
+  - secrets-store.csi.x-k8s.io
+  resources:
+  - secretproviderclasses
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - ''
+  resources:
+  - resourcequotas
+  - limitranges
+  verbs:
+  - get
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ab-deployer
+  namespace: agentbreeder
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ab-deployer
+subjects:
+- kind: ServiceAccount
+  name: ab-deployer
+  namespace: agentbreeder
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: agentbreeder:agentbreeder:ab-deployer
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - namespaces
+  verbs:
+  - get
+  resourceNames:
+  - kube-system
+  - agentbreeder
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - validatingadmissionpolicies
+  - validatingadmissionpolicybindings
+  verbs:
+  - get
+  resourceNames:
+  - ab-deployments
+  - ab-services
+  - ab-networkpolicies
+  - ab-secrets
+  - ab-pods
+  - ab-deny-other
+- apiGroups:
+  - ''
+  resources:
+  - nodes
+  verbs:
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: agentbreeder:agentbreeder:ab-deployer
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: agentbreeder:agentbreeder:ab-deployer
+subjects:
+- kind: ServiceAccount
+  name: ab-deployer
+  namespace: agentbreeder
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ab-installer
+  namespace: agentbreeder
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ab-installer
+  namespace: agentbreeder
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+rules:
+- apiGroups:
+  - apps
+  - ''
+  - networking.k8s.io
+  - batch
+  resources:
+  - deployments
+  - statefulsets
+  - services
+  - networkpolicies
+  - configmaps
+  - serviceaccounts
+  - persistentvolumeclaims
+  - jobs
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - patch
+  - update
+  - delete
+- apiGroups:
+  - ''
+  resources:
+  - secrets
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - patch
+  - update
+  - delete
+- apiGroups:
+  - ''
+  - apps
+  resources:
+  - pods
+  - replicasets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - pods/log
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ab-installer
+  namespace: agentbreeder
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ab-installer
+subjects:
+- kind: ServiceAccount
+  name: ab-installer
+  namespace: agentbreeder
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: agentbreeder:agentbreeder:ab-installer
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - nodes
+  verbs:
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: agentbreeder:agentbreeder:ab-installer
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: agentbreeder:agentbreeder:ab-installer
+subjects:
+- kind: ServiceAccount
+  name: ab-installer
+  namespace: agentbreeder
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ab-operator
+  namespace: agentbreeder
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ab-operator
+  namespace: agentbreeder
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods/portforward
+  verbs:
+  - create
+- apiGroups:
+  - ''
+  resources:
+  - services
+  - pods
+  verbs:
+  - get
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ab-operator
+  namespace: agentbreeder
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ab-operator
+subjects:
+- kind: ServiceAccount
+  name: ab-operator
+  namespace: agentbreeder
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ab-canary
+  namespace: agentbreeder
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ab-canary
+  namespace: agentbreeder
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ab-canary
+  namespace: agentbreeder
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ab-canary
+subjects:
+- kind: ServiceAccount
+  name: ab-canary
+  namespace: agentbreeder

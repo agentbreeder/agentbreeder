@@ -1180,9 +1180,11 @@ def test_invoke_is_unchanged_for_other_deployments(tmp_path):
 
 IMAGE = "registry.example.com/a@sha256:" + "a" * 64
 BLOCKED = ("10.244.0.0/16", "172.31.0.6/32")
-# sha256 of json.dumps(_objects(...), sort_keys=True) for the input below, taken from `main` at
-# 3f13edb4, before F1b: a manifest without `runtime` gets byte-identical objects.
-OBJECTS_GOLDEN = "8e3af3c307ff80914a7e931c3fb08eb5d82be199f8ba0c27110dee876972319a"
+# sha256 of json.dumps(_objects(...), sort_keys=True) for the input below. Taken from `main` at
+# 3f13edb4 (before F1b), then changed once by #770 K2, whose only difference for this input is
+# the explicit `protocol: TCP` on the Service port and the container port (the API server's
+# default, written so the admission policy compares the same object).
+OBJECTS_GOLDEN = "412ba78e61526f6e2fe64a86696a918e47695eb13895eed3279234f6f2214714"
 
 
 def _cluster_manifest(**overrides) -> Manifest:

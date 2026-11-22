@@ -648,8 +648,8 @@ class TokenProvider:
             return None
         return (
             "KUBERNETES_POLICY_UNCHECKED",
-            "Deploys to a token cluster need the admission policy check, which is not built yet "
-            "(#770 K2)",
+            "Deploys to a token cluster need the admission policy check, which is not wired in "
+            "yet (#770; K2 built the policies, not this check)",
         )
 
     def registry(self):
@@ -678,6 +678,7 @@ def admission_policy(session, namespace: str, *, run: Callable = subprocess.run)
     recorded, so no `token` binding is ever recorded without the policy."""
     raise _error(
         "KUBERNETES_POLICY_UNCHECKED",
-        "Checking the cluster's admission policies is not built yet (#770 K2); a token cluster "
-        "cannot be connected until it is. Nothing was recorded",
+        "Checking the cluster's admission policies is not wired in yet (#770; K2 built the "
+        "policies, not this check); a token cluster cannot be connected until it is. Nothing was "
+        "recorded",
     )

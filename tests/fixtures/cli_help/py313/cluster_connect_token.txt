@@ -10,7 +10,7 @@ usage: agentbreeder cluster connect token [-h] --server URL
                                           [--kubectl PATH] [--json]
 
 Check a cluster reached with short-lived service account tokens, minted with a
-dedicated mint kubeconfig. Until the admission policy check is built (#770 K2)
+dedicated mint kubeconfig. Until the admission policy check is wired in (#770)
 this runs every other check and then refuses, recording nothing.
 
 options:

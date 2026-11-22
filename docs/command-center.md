@@ -2056,6 +2056,77 @@ Local clusters only. `kind` is the verified path.
   [Kit egress](local-deployment.md#kit-egress) (#1083 F1b, on `main`, not in a published
   preview).
 
+### Restricted accounts and admission policies (#770 K2, preview, not yet run)
+
+On `main`, not in a published preview. Unit-tested, with the policies' CEL evaluated in-process by
+`cel-python` against objects defaulted the way the API server is documented to default them. The
+opt-in `kind` test (`tests/test_kind_admission_docker.py`) is written and **has not run**, so
+nothing below is verified on a real API server.
+
+- **A deployment's Secret is owned by its Deployment.** `deploy --cluster` creates the Service,
+  NetworkPolicy and Deployment, reads the Deployment's UID, then creates the Secret with an
+  `ownerReferences` entry (`blockOwnerDeletion: true`). The Secret is mounted through one
+  `projected` volume at `/run/secrets`. `remove`, `disable` and `reconcile` delete
+  `deployment,service,networkpolicy` with `--cascade=foreground`, so the garbage collector deletes
+  the Secret before the Deployment is gone; AgentBreeder never lists, reads or deletes Secrets.
+  The Service and container ports now state `protocol: TCP` (the API server's default).
+- **Secrets left by older deployments.** A deployment created before this change has a Secret
+  with no owner; removing it now leaves that Secret behind. `cluster up` deletes such Secrets
+  (AgentBreeder's name and labels, no owner, no Deployment of that name) with the admin
+  kubeconfig.
+- **`agentbreeder cluster rbac print --namespace N`** prints the four service accounts
+  (`ab-deployer`, `ab-installer`, `ab-operator`, `ab-canary`) and their Roles and ClusterRoles
+  (#770 §7.1). The deployer can create Secrets but not read, list or delete them, and cannot
+  create Pods or ReplicaSets.
+- **`agentbreeder cluster policy print --namespace N`** prints six `ValidatingAdmissionPolicy`
+  objects (`ab-deployments`, `ab-services`, `ab-networkpolicies`, `ab-secrets`, `ab-pods`,
+  `ab-deny-other`) and their bindings, with a digest of their normalised specs (#770 §7.2). They
+  need Kubernetes 1.30 or later and apply only to `ab-deployer` and `ab-canary`. Each fails
+  closed, reads its parameters from the `ab-grants` ConfigMap (missing: denied), and admits only
+  the one shape AgentBreeder writes: its Deployment (including the two-uid `cli` container and a
+  kit runtime's agents-network egress), Service, NetworkPolicy and Secret, and the canary's pods
+  and policies. Updates are refused, a Deployment is deleted only with foreground propagation,
+  and only AgentBreeder's own objects can be deleted. What a deployer token can still do is
+  listed in the design (§7.2, "residual").
+- **`agentbreeder cluster up --restricted`** (local `kind` only) installs those accounts, Roles
+  and policies and records a kubeconfig for `ab-deployer` (a bound token valid for 30 days; run
+  `cluster up --restricted` again to renew; an expired token shows as a refused operation)
+  instead of the admin one. `services up` writes `ab-grants` (the registry, the blocked ranges,
+  the exact egress peers a kit runtime may use, and an empty grant per agent the stack's
+  environments name) and rewrites it when they change; until then the policies refuse every
+  deploy. An agent the operator config does not name is refused by the cluster. Switching
+  `--restricted` on or off is refused (`CLUSTER_IN_USE`) while cluster deployments are active,
+  because each deployment records its kubeconfig. Without `--restricted`, `cluster up` behaves
+  as before.
+- **Limits, beyond the design's residual.** The policy names are cluster-wide, so one
+  AgentBreeder namespace per cluster. The two-uid `cli` container is admitted for any granted
+  agent, in its one fixed shape (CEL cannot see the runtime). A Service's `clusterIP` is admitted
+  when it is an IPv4 address, since validation cannot tell an allocated address from a requested
+  one. The kit egress rule (the agents network minus every blocked range inside it) has no port
+  restriction and is admitted for any granted agent's policy. The CEL's cost and the API server's
+  defaulted fields are unmeasured until the `kind` run.
+- **The agent name `ab-probe`** is reserved on the Kubernetes target (`AGENT_NAME_RESERVED`): the
+  policy probes run under it.
+
+#### What each kubectl call needs (verb audit, from the code)
+
+Derived by reading every kubectl call in `kubernetes.py`; the `kind` run is meant to confirm it
+from the API server's audit log.
+
+| Used by | kubectl call | Identity | Verbs it needs |
+|---|---|---|---|
+| every lifecycle command (`authorize`) | `get namespace kube-system`, `get namespace <ns>` | deployer | `get namespaces` (named) |
+| `deploy` | `create -f -` (Service, NetworkPolicy, Deployment) | deployer | `create` services, networkpolicies, deployments |
+| `deploy` | `get deployment <name> -o jsonpath={.metadata.uid}` | deployer | `get deployments` |
+| `deploy` | `create -f -` (the owned Secret) | deployer | `create secrets`; `update deployments/finalizers` where `OwnerReferencesPermissionEnforcement` is on |
+| `deploy` (rollout) | `get deployment`, `get pods -l` | deployer | `get deployments`, `list pods` |
+| `status`, `reconcile`, `remove` (`inspect`) | `get deployment <name> --ignore-not-found` | deployer | `get deployments` |
+| `logs` | `get replicasets -l`, `get pods -l`, `logs pod/<p> -c agent` (`--follow`) | deployer | `list replicasets`, `list pods`, `get pods/log` |
+| `remove`, `disable`, `reconcile`, deploy retries | `delete deployment,service,networkpolicy -l … --wait --cascade=foreground` | deployer | `list`, `delete`, `get`, `watch` on the three kinds |
+| the same (poll) | `get pods,deployment,service,networkpolicy -l … -o name` | deployer | `list` on the four kinds |
+| `forward`, `invoke`, health checks | `port-forward service/<name>` | deployer | `get services`, `list pods`, `create pods/portforward` |
+| `cluster up`, `cluster down`, `services up` (`ab-grants`) | namespace, RBAC, policies, `ab-grants`, `create token`, the legacy Secret sweep | `kind` admin | not a restricted account |
+
 ### Measured on the 2026-11-10 run
 
 | Check | Result |

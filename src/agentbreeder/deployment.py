@@ -674,6 +674,9 @@ class DeploymentService:
             )
         if manifest.mcp_access is not None:
             return "KUBERNETES_MCP_UNSUPPORTED", "mcp_access is not supported on Kubernetes yet"
+        if getattr(manifest, "name", None) == "ab-probe":
+            # The admission policy's probes run under this name (#770 §7.2).
+            return "AGENT_NAME_RESERVED", "The agent name ab-probe is reserved on Kubernetes"
         providers = (
             self.kubernetes.providers
             if isinstance(self.kubernetes, Kubernetes)

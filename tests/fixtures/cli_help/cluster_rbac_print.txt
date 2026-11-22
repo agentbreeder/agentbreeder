@@ -1,0 +1,5 @@
+usage: agentbreeder cluster rbac print [-h] --namespace NAMESPACE
+
+options:
+  -h, --help            show this help message and exit
+  --namespace NAMESPACE

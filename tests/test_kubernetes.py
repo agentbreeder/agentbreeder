@@ -26,6 +26,7 @@ UID = "11111111-2222-3333-4444-555555555555"
 IMAGE = "localhost:5001/agentbreeder/sample@sha256:" + "b" * 64
 RECORD = {"id": "c" * 32, "digest": "d" * 64, "container": "agentbreeder-" + "c" * 32}
 SECRET_VALUE = "super-secret-value"
+DEPLOYMENT_UID = "99999999-8888-7777-6666-555555555555"
 
 
 def kubeconfig_data(server="https://127.0.0.1:6443", user=None) -> dict:
@@ -50,6 +51,7 @@ class FakeCluster:
         self.env: dict = {}
         self.waiting: str | None = None
         self.left = ""
+        self.deployment_uid = DEPLOYMENT_UID
 
     def run(self, argv, capture_output, input, timeout, check, env):
         self.calls.append(argv)
@@ -64,6 +66,8 @@ class FakeCluster:
             output = self.uid
         elif verb[:2] == ["get", "namespace"]:
             output = json.dumps({"metadata": {"labels": self.labels}})
+        elif "jsonpath={.metadata.uid}" in verb and "deployment" in verb:
+            output = self.deployment_uid
         elif "deployment" in verb and "get" in verb:
             output = json.dumps(self.deployment) if self.deployment else ""
         elif "pods" in verb and "get" in verb:
@@ -223,20 +227,43 @@ def test_create_passes_the_deployment_id_variable(kube, cluster):
 def test_create_sends_hardened_objects_over_stdin(kube, cluster, tmp_path):
     kube.create(RECORD, manifest(), environment={"A": "1"}, mounts=[_mount(tmp_path)])
     assert all(SECRET_VALUE not in " ".join(argv) for argv in cluster.calls)
-    assert "create" in cluster.calls[-1] and "apply" not in cluster.calls[-1]
-    objects = _created(cluster)
-    assert set(objects) == {"Secret", "Service", "NetworkPolicy", "Deployment"}
-    secret = objects["Secret"]
+    creates = [argv for argv in cluster.calls if "create" in argv]
+    assert len(creates) == 2 and not any("apply" in argv for argv in cluster.calls)
+    objects = {item["kind"]: item for item in json.loads(cluster.stdin[0])["items"]}
+    assert set(objects) == {"Service", "NetworkPolicy", "Deployment"}
+    # The Secret is created second, owned by the Deployment it is mounted into (#770 §4.3).
+    secret = json.loads(cluster.stdin[1])
+    assert secret["kind"] == "Secret" and secret["metadata"]["name"] == RECORD["container"]
+    assert secret["metadata"]["ownerReferences"] == [
+        {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": RECORD["container"],
+            "uid": DEPLOYMENT_UID,
+            "blockOwnerDeletion": True,
+        }
+    ]
+    assert "annotations" not in secret["metadata"]
     assert base64.b64decode(secret["data"]["database-url"]).decode() == SECRET_VALUE
-    assert secret["immutable"] is True
+    assert secret["immutable"] is True and secret["type"] == "Opaque"
     deployment = objects["Deployment"]
     pod = deployment["spec"]["template"]["spec"]
     assert SECRET_VALUE not in json.dumps(deployment)
     assert pod["automountServiceAccountToken"] is False
     assert pod["securityContext"]["runAsUser"] == 65532
     assert pod["securityContext"]["seccompProfile"] == {"type": "RuntimeDefault"}
+    # One projected volume at MOUNT_ROOT holding the own Secret (bindings join it in K5).
+    volumes = {v["name"]: v for v in pod["volumes"]}
+    assert volumes["secrets"] == {
+        "name": "secrets",
+        "projected": {
+            "defaultMode": 0o440,
+            "sources": [{"secret": {"name": RECORD["container"]}}],
+        },
+    }
     container = pod["containers"][0]
     assert container["image"] == IMAGE
+    assert container["ports"] == [{"containerPort": 8080, "protocol": "TCP"}]
     assert container["securityContext"] == {
         "allowPrivilegeEscalation": False,
         "readOnlyRootFilesystem": True,
@@ -244,15 +271,46 @@ def test_create_sends_hardened_objects_over_stdin(kube, cluster, tmp_path):
     }
     assert {"name": "DATABASE_URL_FILE", "value": "/run/secrets/database-url"} in container["env"]
     assert objects["Service"]["spec"]["type"] == "ClusterIP"
+    assert objects["Service"]["spec"]["ports"] == [
+        {"port": 8080, "targetPort": 8080, "protocol": "TCP"}
+    ]
     policy = objects["NetworkPolicy"]["spec"]
     assert policy["ingress"] == []
     assert policy["egress"][1]["to"][0]["ipBlock"]["except"] == ["10.244.0.0/16"]
-    assert deployment["metadata"]["annotations"][IMAGE_ANNOTATION] == IMAGE
+    assert deployment["metadata"]["annotations"] == {
+        SPEC_ANNOTATION: RECORD["digest"],
+        IMAGE_ANNOTATION: IMAGE,
+    }
+
+
+def test_a_secret_that_cannot_be_created_removes_the_deployment(kube, cluster, tmp_path):
+    cluster.deployment_uid = "not-a-uid"
+    with pytest.raises(DeploymentError, match="UID"):
+        kube.create(RECORD, manifest(), mounts=[_mount(tmp_path)])
+    deletes = [argv for argv in cluster.calls if "delete" in argv]
+    assert len(deletes) == 2  # the retry sweep before, and the cleanup after
+    assert len(cluster.stdin) == 1  # the Secret was never sent
+
+
+def test_an_unreadable_secret_file_is_refused_before_anything_is_created(kube, cluster, tmp_path):
+    mount = _mount(tmp_path)
+    mount.source.unlink()
+    with pytest.raises(DeploymentError, match="secret file"):
+        kube.create(RECORD, manifest(), mounts=[mount])
+    assert cluster.stdin == []
+
+
+def test_a_refusal_names_the_grant_hint(kube, cluster):
+    cluster.fail = "create"
+    with pytest.raises(DeploymentError, match="ab-grants"):
+        kube.create(RECORD, manifest())
 
 
 def test_create_without_secrets_has_no_secret_object(kube, cluster):
     kube.create(RECORD, manifest())
     assert "Secret" not in _created(cluster)
+    assert len(cluster.stdin) == 1
+    assert not any("jsonpath={.metadata.uid}" in argv for argv in cluster.calls)
 
 
 def test_create_refuses_a_runtime_boundary_and_missing_cidrs(kube, cluster):
@@ -307,6 +365,9 @@ def test_remove_verifies_nothing_is_left(kube, cluster, monkeypatch):
     kube.remove({"deployment": RECORD["id"]})
     delete = next(argv for argv in cluster.calls if "delete" in argv)
     assert f"{DEPLOYMENT_LABEL}={RECORD['id']}" in delete
+    # Foreground, and never Secrets: the garbage collector deletes the owned Secret (#770 §4.3).
+    assert "--cascade=foreground" in delete and "deployment,service,networkpolicy" in delete
+    assert not any("secret" in part for argv in cluster.calls for part in argv)
     cluster.left = "pod/x"
     ticks = iter([0, 1, 1000])
     monkeypatch.setattr(kubernetes.time, "monotonic", lambda: next(ticks))
@@ -440,6 +501,12 @@ def test_mcp_access_is_refused_on_the_cluster(store, docker, cube, config):
     service.enforcing = True
     problem = service._kubernetes_requirements(SimpleNamespace(mcp_access=None), "dev")
     assert problem[0] == "KUBERNETES_ENFORCEMENT_UNSUPPORTED"
+
+
+def test_the_probe_agent_name_is_reserved_on_the_cluster(store, docker, cube, config):
+    service = DeploymentService(store, docker, config, kubernetes=cube)
+    probe = SimpleNamespace(mcp_access=None, name="ab-probe", runtime=None)
+    assert service._kubernetes_requirements(probe, "dev")[0] == "AGENT_NAME_RESERVED"
 
 
 def test_remove_routes_and_checks_the_flag(store, docker, cube, config):

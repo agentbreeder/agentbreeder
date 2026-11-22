@@ -10,8 +10,9 @@ tools by absolute path and hash, then, with tokens it mints for the named servic
 2. computes `blocked_cidrs` as the **installer** (§6.4): the operator's pod, service and node
    ranges, cross-checked against what the cluster shows, every address the API server's name
    resolves to, the metadata address and the private ranges;
-3. checks the §7.2 admission policies (`kubernetes_token.admission_policy`). That check is K2's:
-   in K1 it refuses, so this command runs every other check and then records nothing.
+3. checks the §7.2 admission policies (`kubernetes_token.admission_policy`). That check is not
+   wired in yet (K2 built the policies, not this check): it refuses, so this command runs every
+   other check and then records nothing.
 
 What it does not do yet (later slices of #770): mirror the `echo` image, write `ab-baseline` and
 `ab-grants`, the paired policy probes, the RBAC probes (K2), the canary (K6), registry
