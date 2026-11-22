@@ -6,11 +6,11 @@ psycopg==3.3.6
     # via agentbreeder (pyproject.toml)
 psycopg-binary==3.3.6 ; implementation_name != 'pypy'
     # via psycopg
-pydantic==2.14.3
+pydantic==2.14.4
     # via agentbreeder (pyproject.toml)
-pydantic-core==2.50.4
+pydantic-core==2.50.5
     # via pydantic
-pyyaml==6.0.3
+pyyaml==6.0.4
     # via agentbreeder (pyproject.toml)
 typing-extensions==4.16.0
     # via
