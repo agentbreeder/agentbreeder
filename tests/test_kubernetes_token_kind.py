@@ -13,7 +13,13 @@ real one), its block is put in an operator config, and the runtime authorizes th
 session. The cluster is deleted in `finally`; no image is removed.
 
 Needs `docker`, `kind` (0.33 or later) and `kubectl` on PATH, and a host IPv4 address that is
-not loopback (a LAN address).
+not loopback (a LAN address). The API server is reachable on that LAN address while the test
+runs.
+
+Python needs a system CA store: `connect` refuses a server it cannot check against public CAs
+(`KUBERNETES_TRUST_STORE_EMPTY`). A python.org Python on macOS has none until its
+`Install Certificates.command` is run; without changing that Python, point it at a bundle for
+the run instead, for example `SSL_CERT_FILE="$(python -m certifi)"` with certifi installed.
 """
 
 from __future__ import annotations

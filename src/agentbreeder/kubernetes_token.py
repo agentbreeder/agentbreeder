@@ -23,7 +23,8 @@ service account tokens that the operator's own credentials mint for one operatio
 
 The token is not revocable on its own; the incident step is deleting and recreating the service
 account (#770 T1). Nothing here writes a token, the mint file or its exec plugin's output
-anywhere but the session directory, and kubectl's stderr is never copied into an error.
+anywhere but the session directory. A failed mint's error carries only the first line of
+kubectl's stderr, scrubbed (`scrub_stderr`: no token, credential, CA data or home path).
 
 This module must not import `kubernetes_providers` at import time: that module registers this
 provider at its end.
@@ -68,6 +69,12 @@ RENEW_MARGIN = 5 * 60  # a session is reopened this long before its token expire
 MINT_TIMEOUT = 60
 _TOKEN = re.compile(r"[A-Za-z0-9_-]{1,4096}\.[A-Za-z0-9_-]{1,8192}\.[A-Za-z0-9_-]{1,4096}")
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@/-]{0,252}")
+_ACCOUNT = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")  # a DNS-1123 label
+STDERR_READ = 64 * 1024  # bytes of kubectl's stderr read for the error
+STDERR_LIMIT = 300  # characters of its scrubbed first line kept
+_BASE64_RUN = re.compile(r"(?<![A-Za-z0-9+/_-])[A-Za-z0-9+/_-]{40,}={0,2}")
+# A home directory's name may hold spaces: up to the next `/`, quote, colon or line end.
+_HOME_PATH = re.compile(r"(?:/Users|/home)/[^/\n'\":]+|/root(?=[/\s'\":]|$)")
 _PREFIX = "s-"
 _MINT_TOP = {
     "apiVersion",
@@ -98,6 +105,83 @@ _NO_KUBERC = {"KUBECTL_KUBERC": "false", "KUBERC": "off"}
 
 def _error(code: str, message: str) -> DeploymentError:
     return DeploymentError(f"[{code}] {message}")
+
+
+def account_name(name: object) -> str:
+    """A service account name, checked where it goes on kubectl's argv as a positional (#1205):
+    a DNS-1123 label, so it can never start with `-` and be read as a flag."""
+    if not isinstance(name, str) or not _ACCOUNT.fullmatch(name):
+        raise _error("KUBERNETES_TOKEN_INVALID", "A service account name is not a DNS-1123 label")
+    return name
+
+
+# -- kubectl's stderr in an error -----------------------------------------------------------------
+
+
+def mint_secrets(data: bytes, ca_pem: str) -> list[str]:
+    """What the mint's stderr must never show: the mint kubeconfig's credential and CA fields
+    (as stored and base64-decoded) and the binding's CA. `redaction.redact` also replaces their
+    base64, URL-quoted and JSON forms. (With an exec plugin no stderr is shown at all.)"""
+    found = [ca_pem]
+    try:
+        config = parse_yaml(data, "The mint kubeconfig")
+    except OperatorConfigError:
+        return found
+    if not isinstance(config, dict):
+        return found
+    entries = []
+    for section, key in (("clusters", "cluster"), ("users", "user")):
+        items = config.get(section)
+        for item in items if isinstance(items, list) else []:
+            if isinstance(item, dict) and isinstance(item.get(key), dict):
+                entries.append(item[key])
+    for entry in entries:
+        for field in ("token", "client-certificate-data", "client-key-data",
+                      "certificate-authority-data"):  # fmt: skip
+            value = entry.get(field)
+            if not isinstance(value, str):
+                continue
+            found.append(value)
+            if field.endswith("-data"):
+                try:
+                    found.append(base64.b64decode(value, validate=True).decode("utf-8"))
+                except (binascii.Error, ValueError):
+                    pass
+    return found
+
+
+def scrub_stderr(stderr: bytes | str | None, secrets: list[str]) -> str:
+    """One line of kubectl's stderr, safe to put in an error (#1205): control characters
+    deleted first (so none can split a secret past the matcher), the mint's secrets and every
+    token, PEM block and bearer shape replaced (`redaction.redact`), any long base64 run (CA
+    data, a certificate) replaced, home paths shown as `~`. The line is the first `error:` or
+    `Error from server` line (client-go may warn first), else the first non-blank one, cut to
+    `STDERR_LIMIT` characters. Empty when nothing is left."""
+    from agentbreeder.redaction import MARK, redact
+
+    if not stderr:
+        return ""
+    raw = stderr[:STDERR_READ]
+    text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
+    text = "".join(c if c.isprintable() or c == "\n" else " " if c == "\t" else "" for c in text)
+    text = redact(text, secrets)
+    text = _BASE64_RUN.sub(lambda match: MARK if _encoded(match[0]) else match[0], text)
+    home = str(Path.home())
+    if len(home) > 1:
+        text = text.replace(home, "~")
+    text = _HOME_PATH.sub("~", text)
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    lines = [line for line in lines if line]
+    line = next(
+        (line for line in lines if line.startswith(("error:", "Error from server"))),
+        lines[0] if lines else "",
+    )
+    return line[:STDERR_LIMIT] + (" …" if len(line) > STDERR_LIMIT else "")
+
+
+def _encoded(run: str) -> bool:
+    """A run mixing upper case, lower case and digits: encoded data, not a word, path or hex."""
+    return all(any(test(c) for c in run) for test in (str.isupper, str.islower, str.isdigit))
 
 
 # -- files and tools -----------------------------------------------------------------------------
@@ -564,6 +648,10 @@ class TokenProvider:
         tool_dirs = [os.path.dirname(kubectl)]
         if mint.exec_command:
             tool_dirs.append(os.path.dirname(mint.exec_command))
+        # kubectl rejects `create token -- NAME` client-side ("exactly one NAME is required",
+        # #1205), so the name is a positional right after the verb. That is safe only because
+        # it is checked here, at the argv boundary, whatever validated the binding before.
+        account = account_name(self.accounts[identity])
         argv = [
             kubectl,
             "--kubeconfig",
@@ -576,10 +664,9 @@ class TokenProvider:
             self.namespace,
             "create",
             "token",
+            account,
             "--duration",
             f"{int(self.token['token_minutes'])}m",
-            "--",
-            str(self.accounts[identity]),
         ]
         try:
             result = self.run(
@@ -593,10 +680,17 @@ class TokenProvider:
         except (OSError, subprocess.TimeoutExpired):
             raise _error("KUBERNETES_MINT_FAILED", "Minting a token failed or timed out") from None
         if result.returncode:
+            # An exec plugin's own stderr reaches kubectl's, and it may print a credential in
+            # no shape the scrub knows: with a plugin, none of it is shown.
+            if mint.exec_command:
+                note = " (kubectl's output is not shown when the mint uses an exec plugin)"
+            else:
+                cause = scrub_stderr(result.stderr, mint_secrets(data, self.token["ca_pem"]))
+                note = f" (kubectl: {cause})" if cause else ""
             raise _error(
                 "KUBERNETES_MINT_FAILED",
                 f"Minting a token for {identity} failed; check the mint kubeconfig's credentials "
-                "and its create serviceaccounts/token right",
+                f"and its create serviceaccounts/token right{note}",
             )
         output = result.stdout
         token = (
