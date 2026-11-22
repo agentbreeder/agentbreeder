@@ -158,6 +158,7 @@ rules:
   - ab-secrets
   - ab-pods
   - ab-deny-other
+  - ab-grants-guard
 - apiGroups:
   - ''
   resources:

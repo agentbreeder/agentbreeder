@@ -10,4 +10,4 @@ options:
   --yes                 Confirm the changed grant
   --expect-grant SHA256
   --restricted          Deploy as restricted service accounts under the
-                        admission policies (preview, not yet run on kind)
+                        admission policies (preview, local kind only)

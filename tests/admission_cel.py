@@ -93,9 +93,10 @@ def review(
     for condition in spec.get("matchConditions") or []:
         if not bool(evaluate(condition["expression"], base)):
             return Result(True, False, [])
-    if params is None:  # parameterNotFoundAction: Deny
-        return Result(False, True, ["ab-grants is missing"])
-    base["params"] = celpy.json_to_cel({"data": params})
+    if "paramKind" in spec:  # a policy without parameters reads none (#1204)
+        if params is None:  # parameterNotFoundAction: Deny
+            return Result(False, True, ["ab-grants is missing"])
+        base["params"] = celpy.json_to_cel({"data": params})
     variables: dict = {}
     for item in spec.get("variables") or []:
         activation = {**base, "variables": celtypes.MapType(variables)}

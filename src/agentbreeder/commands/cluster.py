@@ -34,7 +34,7 @@ def register(commands) -> None:
                 "--restricted",
                 action="store_true",
                 help="Deploy as restricted service accounts under the admission policies "
-                "(preview, not yet run on kind)",
+                "(preview, local kind only)",
             )
     connect = cluster_commands.add_parser(
         "connect", help="Check an existing cluster for AgentBreeder (preview; records nothing yet)"

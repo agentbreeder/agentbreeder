@@ -403,22 +403,50 @@ def roles(namespace: str, operator_secrets: Iterable[str] = ()) -> list[dict]:
 
 
 def cel(value: Any) -> str:
-    """A CEL literal for a JSON value."""
+    """A CEL literal for a JSON value, well typed under Kubernetes' CEL (#1204).
+
+    Kubernetes validates aggregate literals as homogeneous: every element of a list literal,
+    and every value of a map literal, must have the same type as the first. When the elements
+    of one literal differ in type, each of them is wrapped in `dyn(...)`, which changes the
+    static type only: CEL equality still compares every key and value, so a map literal still
+    refuses an extra key, a missing key or a different value."""
+    return _literal(value)[0]
+
+
+def _literal(value: Any) -> tuple[str, str]:
+    """`(text, static type)`. An empty aggregate gets a type no sibling shares (`?`), so its
+    siblings are always wrapped."""
     if value is None:
-        return "null"
-    if value is True:
-        return "true"
-    if value is False:
-        return "false"
+        return "null", "null"
+    if value is True or value is False:
+        return ("true" if value else "false"), "bool"
     if isinstance(value, int):
-        return str(value)
+        return str(value), "int"
     if isinstance(value, str):
-        return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+        return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'", "string"
     if isinstance(value, list):
-        return "[" + ", ".join(cel(item) for item in value) + "]"
+        texts, element = _homogeneous([_literal(item) for item in value])
+        return "[" + ", ".join(texts) + "]", f"list({element})"
     if isinstance(value, dict):
-        return "{" + ", ".join(f"{cel(k)}: {cel(v)}" for k, v in value.items()) + "}"
+        if any(not isinstance(key, str) for key in value):
+            raise TypeError("map keys must be strings")
+        texts, element = _homogeneous([_literal(item) for item in value.values()])
+        entries = ", ".join(
+            f"{_literal(k)[0]}: {text}" for k, text in zip(value, texts, strict=True)
+        )
+        return "{" + entries + "}", f"map(string, {element})"
     raise TypeError(type(value))
+
+
+def _homogeneous(items: list[tuple[str, str]]) -> tuple[list[str], str]:
+    """The elements' texts and their common type, wrapping each in `dyn()` unless every element
+    has one and the same fully known type."""
+    if not items:
+        return [], "?"
+    types = {kind for _, kind in items}
+    if len(items) == 1 or (len(types) == 1 and "?" not in next(iter(types))):
+        return [text for text, _ in items], items[0][1]
+    return [f"dyn({text})" for text, _ in items], "dyn"
 
 
 def _shape(expr: str, fixed: Mapping, defaults: Mapping = {}, free: Iterable[str] = ()) -> str:  # noqa: B006
@@ -462,6 +490,13 @@ class Policy:
     validations: tuple[Validation, ...]
     variables: tuple[tuple[str, str], ...] = ()
     exclude: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    # (apiGroup, resources, resourceNames): objects of those names this policy never matches.
+    exclude_named: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = ()
+    # (apiGroup, resources, resourceNames): only these named objects are matched (with
+    # `resources` empty).
+    named: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = ()
+    # False: no `paramKind` or `paramRef`, so the policy works while `ab-grants` is missing.
+    params: bool = True
 
 
 def _identity_variables(namespace: str) -> list[tuple[str, str]]:
@@ -845,9 +880,11 @@ def _egress_rule_ok() -> str:
     """One deployer egress rule: DNS, node-local DNS, a granted chart service, the open
     `0.0.0.0/0 except ⊇ blocked` rule, or (kit, #1083 F1b) the stack's agents network."""
     dns = f"r == {cel({'to': [DNS_PEER], 'ports': DNS_PORTS})}"
+    # Each value is wrapped in dyn(): Kubernetes refuses a map literal whose values differ in
+    # type (#1204), and the equality still compares every key and value.
     nodedns = (
-        "(params.data.nodedns != '' && r == {'to': [{'ipBlock': {'cidr': params.data.nodedns + "
-        f"'/32'}}}}], 'ports': {cel(DNS_PORTS)}}})"
+        "(params.data.nodedns != '' && r == {'to': dyn([{'ipBlock': {'cidr': "
+        f"params.data.nodedns + '/32'}}}}]), 'ports': dyn({cel(DNS_PORTS)})}})"
     )
     service = (
         "(r.all(k, k in ['to', 'ports']) && size(r.to) == 1 && r.to[0].all(k, "
@@ -1044,7 +1081,7 @@ def _pods(namespace: str) -> Policy:
             f"{role} in {cel(list(CANARY_ROLES))} && "
             f"object.metadata.name == 'ab-canary-' + {role} && "
             "object.metadata.labels == {"
-            + f"{cel(MANAGED_BY)}: 'agentbreeder', {cel(CANARY_LABEL)}: {role}"
+            + f"{cel(MANAGED_BY)}: dyn('agentbreeder'), {cel(CANARY_LABEL)}: dyn({role})"
             + "} && "
             + " && ".join(
                 _absent_or_empty("object.metadata", key)
@@ -1122,13 +1159,41 @@ def _deny_other(namespace: str) -> Policy:
         name="ab-deny-other",
         resources=(("*", ("*/*",)),),
         exclude=TYPED,
+        # The admin writes `ab-grants` (#1204). Kubernetes resolves a binding's parameters
+        # before its matchConditions, so while `ab-grants` is missing every binding denies every
+        # write in the namespace, the admin's included, and `ab-grants` could never be created.
+        # Excluding that one name by `resourceNames` lets it be written first. The deployer and
+        # the canary have no RBAC verb that writes a ConfigMap, and `ab-grants-guard` (which has
+        # no parameters, so it cannot lock anyone out) still refuses their writes to it.
+        exclude_named=(("", ("configmaps",), (GRANTS,)),),
         validations=(
             Validation("false", "the deployer and the canary may write no other kind of object"),
         ),
     )
 
 
-BUILDERS = (_deployments, _services, _networkpolicies, _secrets, _pods, _deny_other)
+def _grants_guard(namespace: str) -> Policy:
+    """`ab-grants` is the input of every other policy; `ab-deny-other` excludes it so the admin
+    can write it first (#1204). This policy keeps a second layer behind RBAC: the deployer and
+    the canary never create, change or delete it. It reads no parameters."""
+    return Policy(
+        name="ab-grants-guard",
+        resources=(),
+        named=(("", ("configmaps",), (GRANTS,)),),
+        params=False,
+        validations=(Validation("false", "the deployer and the canary may not write ab-grants"),),
+    )
+
+
+BUILDERS = (
+    _deployments,
+    _services,
+    _networkpolicies,
+    _secrets,
+    _pods,
+    _deny_other,
+    _grants_guard,
+)
 POLICY_NAMES = (
     "ab-deployments",
     "ab-services",
@@ -1136,7 +1201,16 @@ POLICY_NAMES = (
     "ab-secrets",
     "ab-pods",
     "ab-deny-other",
+    "ab-grants-guard",
 )
+
+
+def _named_rules(named) -> list[dict]:
+    return [
+        {**rule, "resourceNames": list(names)}
+        for group, resources, names in named
+        for rule in _rules(((group, resources),))
+    ]
 
 
 def _rules(resources) -> list[dict]:
@@ -1162,7 +1236,8 @@ def policy_objects(namespace: str) -> list[Policy]:
 
 
 def policies(namespace: str) -> list[dict]:
-    """The six `ValidatingAdmissionPolicy` objects and their bindings for `namespace` (§7.2)."""
+    """The seven `ValidatingAdmissionPolicy` objects and their bindings for `namespace` (§7.2,
+    #1204)."""
     rendered: list[dict] = []
     users = [username(namespace, "deployer"), username(namespace, "canary")]
     for policy in policy_objects(namespace):
@@ -1170,10 +1245,12 @@ def policies(namespace: str) -> list[dict]:
             "matchPolicy": "Equivalent",
             "namespaceSelector": _namespace_selector(namespace),
             "objectSelector": {},
-            "resourceRules": _rules(policy.resources),
+            "resourceRules": _rules(policy.resources) + _named_rules(policy.named),
         }
-        if policy.exclude:
-            constraints["excludeResourceRules"] = _rules(policy.exclude)
+        if policy.exclude or policy.exclude_named:
+            constraints["excludeResourceRules"] = _rules(policy.exclude) + _named_rules(
+                policy.exclude_named
+            )
         spec = {
             "failurePolicy": "Fail",
             "paramKind": {"apiVersion": "v1", "kind": "ConfigMap"},
@@ -1190,6 +1267,24 @@ def policies(namespace: str) -> list[dict]:
         }
         if not spec["variables"]:
             del spec["variables"]
+        if not policy.params:
+            del spec["paramKind"]
+        binding = {
+            "policyName": policy.name,
+            "paramRef": {
+                "name": GRANTS,
+                "namespace": namespace,
+                "parameterNotFoundAction": "Deny",
+            },
+            "validationActions": ["Deny"],
+            "matchResources": {
+                "matchPolicy": "Equivalent",
+                "namespaceSelector": _namespace_selector(namespace),
+                "objectSelector": {},
+            },
+        }
+        if not policy.params:
+            del binding["paramRef"]
         rendered.append(
             {
                 "apiVersion": "admissionregistration.k8s.io/v1",
@@ -1203,20 +1298,7 @@ def policies(namespace: str) -> list[dict]:
                 "apiVersion": "admissionregistration.k8s.io/v1",
                 "kind": "ValidatingAdmissionPolicyBinding",
                 "metadata": {"name": policy.name, "labels": {MANAGED_BY: "agentbreeder"}},
-                "spec": {
-                    "policyName": policy.name,
-                    "paramRef": {
-                        "name": GRANTS,
-                        "namespace": namespace,
-                        "parameterNotFoundAction": "Deny",
-                    },
-                    "validationActions": ["Deny"],
-                    "matchResources": {
-                        "matchPolicy": "Equivalent",
-                        "namespaceSelector": _namespace_selector(namespace),
-                        "objectSelector": {},
-                    },
-                },
+                "spec": binding,
             }
         )
     return rendered
@@ -1392,6 +1474,15 @@ def probe_objects(namespace: str, grants: Grants, identifier: str = PROBE_ID) ->
     return objects
 
 
+def _init_container(deployment: Mapping) -> dict:
+    """The agent container as an init container that core validation accepts."""
+    container = copy.deepcopy(deployment["spec"]["template"]["spec"]["containers"][0])
+    container["name"] = "init"
+    for key in ("readinessProbe", "ports"):
+        container.pop(key, None)
+    return container
+
+
 def _variant(base: Mapping, change) -> dict:
     item = copy.deepcopy(dict(base))
     change(item)
@@ -1480,7 +1571,9 @@ def probes(namespace: str, grants: Grants) -> list[Probe]:
                 {"name": "B", "valueFrom": {"secretKeyRef": {"name": "x", "key": "y"}}}
             ),
         ),
-        ("initContainer", None, lambda d: pod(d).update(initContainers=[copy.deepcopy(agent(d))])),
+        # Valid for core validation (a name of its own; no probe or port on an init
+        # container), so the refusal is ab-deployments' (#1204).
+        ("initContainer", None, lambda d: pod(d).update(initContainers=[_init_container(d)])),
         ("command", None, lambda d: agent(d).update(command=["/bin/sh"])),
         (
             "livenessProbe",
@@ -1612,8 +1705,15 @@ def probes(namespace: str, grants: Grants) -> list[Probe]:
         )
     for name, change in (
         (
+            # Core validation requires the account annotation on this type (#1204), so the
+            # refusal is ab-secrets' (its type and its annotation).
             "service-account-token Secret",
-            lambda s: s.update(type="kubernetes.io/service-account-token"),
+            lambda s: (
+                s.update(type="kubernetes.io/service-account-token"),
+                s["metadata"].update(
+                    annotations={"kubernetes.io/service-account.name": "ab-installer"}
+                ),
+            ),
         ),
         ("Secret named like ab-svc-*", lambda s: s["metadata"].update(name="ab-svc-postgres")),
         ("Secret without its owner", lambda s: s["metadata"].pop("ownerReferences")),

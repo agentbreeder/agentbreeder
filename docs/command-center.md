@@ -2056,12 +2056,18 @@ Local clusters only. `kind` is the verified path.
   [Kit egress](local-deployment.md#kit-egress) (#1083 F1b, on `main`, not in a published
   preview).
 
-### Restricted accounts and admission policies (#770 K2, preview, not yet run)
+### Restricted accounts and admission policies (#770 K2, preview, local kind)
 
 On `main`, not in a published preview. Unit-tested, with the policies' CEL evaluated in-process by
 `cel-python` against objects defaulted the way the API server is documented to default them. The
-opt-in `kind` test (`tests/test_kind_admission_docker.py`) is written and **has not run**, so
-nothing below is verified on a real API server.
+opt-in `kind` test (`tests/test_kind_admission_docker.py`) first ran on 2026-11-21 and failed
+(#1204). After the fix it passed, 80 of 80, on 2026-11-21: kind 0.33.0, node
+`kindest/node:v1.37.0`, macOS + Docker Desktop. That covers every probe pair, AgentBreeder's own
+create path as the deployer, the delete rules, removal through the garbage collector, and the RBAC
+probes. `cluster up --restricted` was run on that node version with a stack's agents network and
+no services. The first attempt found the `ab-grants` ordering problem described below. After the
+fix, all seven policies and their bindings, `ab-grants` and the accounts and Roles existed, with no
+type-checking warnings. No other Kubernetes version and no real (non-`kind`) cluster has been run.
 
 - **A deployment's Secret is owned by its Deployment.** `deploy --cluster` creates the Service,
   NetworkPolicy and Deployment, reads the Deployment's UID, then creates the Secret with an
@@ -2078,33 +2084,56 @@ nothing below is verified on a real API server.
   (`ab-deployer`, `ab-installer`, `ab-operator`, `ab-canary`) and their Roles and ClusterRoles
   (#770 §7.1). The deployer can create Secrets but not read, list or delete them, and cannot
   create Pods or ReplicaSets.
-- **`agentbreeder cluster policy print --namespace N`** prints six `ValidatingAdmissionPolicy`
+- **`agentbreeder cluster policy print --namespace N`** prints seven `ValidatingAdmissionPolicy`
   objects (`ab-deployments`, `ab-services`, `ab-networkpolicies`, `ab-secrets`, `ab-pods`,
-  `ab-deny-other`) and their bindings, with a digest of their normalised specs (#770 §7.2). They
-  need Kubernetes 1.30 or later and apply only to `ab-deployer` and `ab-canary`. Each fails
-  closed, reads its parameters from the `ab-grants` ConfigMap (missing: denied), and admits only
+  `ab-deny-other`, and since #1204 `ab-grants-guard`) and their bindings, with a digest of their
+  normalised specs (#770 §7.2). They need Kubernetes 1.30 or later and apply only to
+  `ab-deployer` and `ab-canary`. `ab-grants-guard` refuses every write those two make to the
+  `ab-grants` ConfigMap and reads no parameters. Every other policy fails closed, reads its
+  parameters from `ab-grants` (missing: denied), and admits only
   the one shape AgentBreeder writes: its Deployment (including the two-uid `cli` container and a
   kit runtime's agents-network egress), Service, NetworkPolicy and Secret, and the canary's pods
   and policies. Updates are refused, a Deployment is deleted only with foreground propagation,
   and only AgentBreeder's own objects can be deleted. What a deployer token can still do is
   listed in the design (§7.2, "residual").
-- **`agentbreeder cluster up --restricted`** (local `kind` only) installs those accounts, Roles
-  and policies and records a kubeconfig for `ab-deployer` (a bound token valid for 30 days; run
-  `cluster up --restricted` again to renew; an expired token shows as a refused operation)
-  instead of the admin one. `services up` writes `ab-grants` (the registry, the blocked ranges,
-  the exact egress peers a kit runtime may use, and an empty grant per agent the stack's
-  environments name) and rewrites it when they change; until then the policies refuse every
-  deploy. An agent the operator config does not name is refused by the cluster. Switching
-  `--restricted` on or off is refused (`CLUSTER_IN_USE`) while cluster deployments are active,
-  because each deployment records its kubeconfig. Without `--restricted`, `cluster up` behaves
-  as before.
+- **The generated CEL is well typed for Kubernetes (#1204).** The API server refuses a list or
+  map literal whose elements differ in type, which `cel-python` accepts; on `main` before #1204
+  this made a real API server refuse `ab-deployments`, `ab-networkpolicies` and `ab-pods`. Mixed
+  literals are now wrapped in `dyn()` (equality still refuses an extra, missing or different
+  key), and a unit test checks every generated expression for mixed literals, more strictly than
+  the API server does.
+- **`agentbreeder cluster up --restricted`** (local `kind` only) installs in a fixed order
+  (#1204). First it writes `ab-grants` with the agents the operator config names so far. Then it
+  writes the policies, then those accounts and Roles. Each policy is applied on its own and read
+  back before its binding is created, because a binding whose policy is missing is ignored (fails
+  open). The parameters come first because a binding resolves them before anything else: while
+  `ab-grants` is missing, every binding that reads it denies every write in the namespace, the
+  admin's included (measured on 1.37). On any failure no further binding is created, the
+  bindings this run created are deleted (an earlier run's are kept), and the command fails with
+  `CLUSTER_FAILED`. The error carries kubectl's stderr, scrubbed of tokens, CA data,
+  certificates, keys and home paths. It then records a kubeconfig for `ab-deployer` instead of
+  the admin one: a bound token valid for 30 days. Run `cluster up --restricted` again to renew;
+  an expired token shows as a refused operation.
+- **`ab-grants`.** `services up` rewrites it (the registry, the blocked ranges, the exact egress
+  peers a kit runtime may use, and an empty grant per agent the stack's environments name) when
+  they change. `ab-deny-other` excludes that one ConfigMap by name, so the admin can create and
+  rewrite it under the policies. The deployer and the canary have no RBAC verb that writes a
+  ConfigMap. `ab-grants-guard` refuses their writes to it even when RBAC allows them (measured on
+  1.37 with a temporary Role). If `ab-grants` is deleted, writes in the namespace stay refused
+  until it is written again. An agent the operator config does not name is refused by the
+  cluster. Switching `--restricted` on or off is refused (`CLUSTER_IN_USE`) while cluster
+  deployments are active, because each deployment records its kubeconfig. Without
+  `--restricted`, `cluster up` behaves as before.
 - **Limits, beyond the design's residual.** The policy names are cluster-wide, so one
   AgentBreeder namespace per cluster. The two-uid `cli` container is admitted for any granted
   agent, in its one fixed shape (CEL cannot see the runtime). A Service's `clusterIP` is admitted
   when it is an IPv4 address, since validation cannot tell an allocated address from a requested
   one. The kit egress rule (the agents network minus every blocked range inside it) has no port
-  restriction and is admitted for any granted agent's policy. The CEL's cost and the API server's
-  defaulted fields are unmeasured until the `kind` run.
+  restriction and is admitted for any granted agent's policy. On 1.37 the API server's defaulted
+  fields match the ones the policies admit (#1204). All seven policies are accepted at create under
+  the default strict cost enforcement, which refuses a policy whose estimated cost is over budget.
+  No admitted probe hit a runtime cost limit. Per-policy cost figures are not exposed and were not
+  recorded.
 - **The agent name `ab-probe`** is reserved on the Kubernetes target (`AGENT_NAME_RESERVED`): the
   policy probes run under it.
 
