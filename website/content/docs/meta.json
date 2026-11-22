@@ -10,6 +10,7 @@
     "registry",
     "evals",
     "subagents-skills",
+    "runtimes",
     "---Run---",
     "services",
     "models",

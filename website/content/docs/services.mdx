@@ -103,6 +103,7 @@ Origin checks). Agents join a separate network that reaches only the ports decla
 | `service/litellm@1.0.0` | the LiteLLM proxy as the [model gateway](/docs/models) | its URL; a master key only AgentBreeder uses |
 | `service/litellm@1.1.0` | as 1.0.0, plus Presidio [guardrails](/docs/guardrails) | as 1.0.0 |
 | `service/litellm@1.2.0` | as 1.1.0, plus Ollama on the host, and LiteLLM gets only an allow-list of variables | as 1.0.0 |
+| `service/litellm@1.3.0` to `@1.5.0` | on `main`, coming in 3.0.0a4: a request filter, the Anthropic Messages route and Vertex AI (config only); see [Models and gateway](/docs/models) | as 1.0.0 |
 | `service/presidio-analyzer@1.0.0`, `service/presidio-anonymizer@1.0.0` | Microsoft Presidio, internal only | a URL for the gateway |
 | `service/phoenix@1.1.0` | Arize Phoenix with auth on, data in Postgres | its URL; an ingest key for services and a read-only key for [`traces`](/docs/traces) |
 
@@ -116,6 +117,17 @@ from source with a strict Dockerfile subset.
 
 Each `mcp:` entry in `stack.yaml` runs behind its own relay, which holds the credential and
 forwards only granted, pinned tools. See [MCP tools](/docs/mcp).
+
+### A Helm chart (on main, coming in 3.0.0a4, not run)
+
+```sh
+agentbreeder services render . --cluster --environment dev --out ./chart
+```
+
+Writes a Helm 3 chart for the stack's services from the same plan as `services up`, with every
+pod hardened for the `restricted` Pod Security level, and refuses to write a secret value into
+it (`CHART_SECRET_LEAK`). Nothing installs it, it has never been installed on a cluster, and
+`helm lint` has not been run on its output. See [Kubernetes on kind](/docs/kubernetes).
 
 ## Limits
 

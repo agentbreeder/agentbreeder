@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { CheckIcon, CircleIcon } from './icons';
 
 // Every "works" row was exercised end to end against main (macOS, Docker Desktop) on
-// 2026-11-07, unless the row says otherwise. Keep this list in step with
+// 2026-11-07, unless the row says otherwise. Rows titled "On main, coming in 3.0.0a4" are not in
+// a published package; the release lane relabels them after the public-registry run. Keep this list in step with
 // content/docs/index.mdx and ARCHITECTURE.md: claim nothing here that a test run hasn't shown.
 const WORKS: { title: string; detail: string }[] = [
   {
@@ -63,6 +64,21 @@ const WORKS: { title: string; detail: string }[] = [
       'promote deploys an audited release by digest to a local kind cluster. Northwind passed 61/61 there from a checkout on 2026-11-10, under the restricted Pod Security level, with network policy measured, and 61/61 again from 3.0.0a2 on 2026-11-11. No production cluster has been tested.',
   },
   {
+    title: 'On main, coming in 3.0.0a4: more frameworks',
+    detail:
+      'Runtimes for LangGraph, the OpenAI Agents SDK, Deep Agents and CrewAI, with default-deny egress. Northwind passed 61/61 on each, on local Docker and kind, on macOS (2026-11-19 and 20). Only the LangGraph starter (and one tool, with Gemini) is verified; a conformance check runs 26 of 39 checks, so no runtime is called conformant. Not in a published package yet.',
+  },
+  {
+    title: 'On main, coming in 3.0.0a4: sub-agents and skills',
+    detail:
+      'runtime/adk@1.5.0 runs sub-agents and instruction-pack skills, with per-sub-agent cost and per-tag eval rates. Run end to end once each on macOS with Gemini (2026-11-19). Not in a published package yet.',
+  },
+  {
+    title: 'On main, coming in 3.0.0a4: console sign-in',
+    detail:
+      'Password sign-in, Settings, re-auth and notifications in the local console, clicked through in Chrome via Playwright on macOS (2026-11-20). Still one user on one machine. Not in a published package yet.',
+  },
+  {
     title: 'MCP egress sidecar (opt-in)',
     detail:
       'Policy on every MCP Streamable HTTP tool call, with credential injection and held calls. STDIO and in-process tools are never mediated.',
@@ -70,7 +86,7 @@ const WORKS: { title: string; detail: string }[] = [
 ];
 
 const NOT_YET: string[] = [
-  'Cloud or production deploy targets (AWS, GCP, Azure, a real Kubernetes cluster)',
+  'Cloud or production deploy targets (AWS, GCP, Azure, a real Kubernetes cluster). On main, the token cluster provider, admission policies and a services Helm chart exist but have not run on a real cluster',
   'A multi-user control center or a versioned management API',
   'Authenticated invocation of deployed agents',
   'A final 3.0.0: 3.0.0a3 is an alpha, with no stability promise',

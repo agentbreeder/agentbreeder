@@ -1,0 +1,71 @@
+---
+title: Frameworks and runtimes
+description: "On main, coming in 3.0.0a4: runtimes for LangGraph, the OpenAI Agents SDK, Deep Agents and CrewAI beside Google ADK, an agent protocol and a conformance check. What has run, and where."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="On main, coming in 3.0.0a4">
+  Everything here except `runtime/adk` 1.3.0 and 1.4.0 is on `main` and not in a published
+  package yet. Every run was on macOS (x86_64) with Docker Desktop and, where it says so, a local
+  `kind` cluster. No runtime has been run on arm64, on Linux or on a production cluster.
+</Callout>
+
+A runtime is the agent server `agentbreeder build` puts in your image. `agent.yaml` pins one with
+`runtime:`, and you write no server code. The engine reads what a runtime supports (capabilities,
+limits, reserved tool names) from the runtime version itself, never from the framework's name.
+
+```sh
+agentbreeder registry runtimes                                   # what each runtime supports
+agentbreeder new agent hello --model gemini --runtime runtime/langgraph@1.0.0
+```
+
+## What has run
+
+"Run end to end" means the Northwind example (or its port) passed its 61-case eval gate through
+`release` against a real model. "Verified" is narrower: a `new agent` combination run from a
+fresh install the way a new user would.
+
+| Runtime | Framework | Status |
+|---|---|---|
+| `runtime/adk@1.4.0` | Google ADK | In the published `3.0.0a3`; the starter is verified |
+| `runtime/adk@1.5.0` | Google ADK | Sub-agents and skills; Northwind 61/61 |
+| `runtime/langgraph@1.0.0` | LangGraph | Northwind 61/61 on Docker and `kind`. **Verified** for the starter and the starter plus one tool, with Gemini |
+| `runtime/openai-agents@1.0.0` | OpenAI Agents SDK | Northwind 61/61 on Docker and `kind`. Not verified |
+| `runtime/deepagents@1.0.0` | Deep Agents | Northwind 61/61 on Docker and `kind`. Not verified |
+| `runtime/crewai@1.0.0` | CrewAI | Northwind 61/61 on Docker and `kind`. Not verified |
+| `runtime/claude-agent-sdk@1.0.0` | Claude Agent SDK | Northwind 61/61 on Docker and `kind`, in the example's own registry. Not shipped and not supported |
+
+## How the other frameworks run
+
+LangGraph, the OpenAI Agents SDK, Deep Agents and CrewAI share one runtime kit: the same HTTP
+server, turn handling and tool audit rows, and a loopback proxy between the framework and the
+gateway. The gateway key never reaches the framework, model errors get the same codes as on ADK,
+and the step cap holds even when a model keeps calling tools (`MODEL_STEP_LIMIT`).
+
+Kit runtimes deploy with **default-deny egress**: on Docker, internal networks and a forwarding
+sidecar; on `kind`, a NetworkPolicy. In the LangGraph run, the agent could reach the gateway and
+Postgres and nothing else.
+
+The Claude Agent SDK runtime runs the framework's CLI in a second container with no secrets
+(two-uid deploys), and talks to the gateway's Anthropic Messages route
+([Models and gateway](/docs/models)).
+
+## Agent protocol and conformance
+
+Every runtime is built to serve agent protocol v1 (`/health`, `/invoke`, coded errors,
+traces); the table at the end of this section says how far each has been checked.
+`agentbreeder conformance IMAGE` starts a built image on local Docker and checks it. 26 of its 39
+checks are built, so the best result today is `incomplete`, and **no runtime is called
+conformant**.
+
+| Runtime | Conformance |
+|---|---|
+| LangGraph, OpenAI Agents SDK, Deep Agents, CrewAI | 26 pass, 0 fail, 13 not run |
+| ADK 1.3.0 and 1.5.0 | 22 pass, 4 fail: three known protocol gaps, and one (`traces.llm_span`) that disagrees with what Phoenix showed and is not yet explained |
+| Claude Agent SDK | cannot be checked yet |
+
+Canonical reference:
+[runtimes.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/runtimes.md),
+with a link to each run's record, and
+[agent-protocol.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/agent-protocol.md).

@@ -92,10 +92,12 @@ replaced and the counts and USD right-aligned (USD to 6 decimals in the table, 8
 
 ### Per sub-agent (`--by subagent`)
 
-On `main`, not in a published preview (#1058). **Tested on fixture spend rows only**: no runtime
-sends the tag yet, so this has not been run against a real agent with sub-agents. The
-`runtime/adk` version that runs sub-agents is a later slice, and so is the run that compares these
-numbers with the reply's per-sub-agent cost.
+On `main`, not in a published preview (#1058). `runtime/adk@1.5.0` sends the tag. In the
+sub-agents acceptance run (macOS x86_64, Docker Desktop, Gemini, 2026-11-19), the reply's
+per-sub-agent cost equalled LiteLLM's spend rows grouped by this tag exactly, and `cost --by
+subagent` printed the same split
+([record](superpowers/verification/1058-subagents.md), item 4). One agent with two sub-agents
+ran; nothing else has.
 
 A runtime that runs sub-agents is to tag each model call with `agentbreeder-subagent:<name>`, and
 the parent's own calls with `agentbreeder-subagent:-` (sub-agents spec §10.2). LiteLLM keeps a

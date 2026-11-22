@@ -68,6 +68,9 @@ than the runtime takes (`RUNTIME_LIMIT`), `knowledge:` on a runtime without `kno
 (`RUNTIME_NO_KNOWLEDGE`) and `memory.notes: true` on one without `notes` (`RUNTIME_NO_NOTES`).
 Every `runtime/adk` version takes one knowledge set, so a second entry is still refused, now by
 `build` instead of by the file's own check. Builds on `runtime/adk` are otherwise unchanged.
+`runtime:` can also pin a runtime for another framework (LangGraph, the OpenAI Agents SDK, Deep
+Agents, CrewAI); which of them has run end to end, and which `new agent` combinations are
+verified, is in [runtimes.md](runtimes.md).
 
 What happens at run time:
 - **Relay unreachable when the tools are listed:** the turn runs without that server's tools,
