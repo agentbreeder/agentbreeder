@@ -307,13 +307,124 @@ def test_blocked_cidrs_without_an_agents_address(tools):
     assert "172.31.0.6/32" not in cluster.blocked_cidrs("not-attached")
 
 
-def test_real_run_never_echoes_output(monkeypatch):
+def test_real_run_never_echoes_stdout_or_a_token(monkeypatch):
     monkeypatch.undo()
-    result = SimpleNamespace(returncode=3, stdout=b"", stderr=b"token=abc")
+    result = SimpleNamespace(returncode=3, stdout=b"stdout-secret", stderr=b"token=abc")
     monkeypatch.setattr(cluster.subprocess, "run", lambda *a, **k: result)
     with pytest.raises(ServiceError) as error:
         cluster._run(["x"], what="doing x")
-    assert "abc" not in str(error.value)
+    assert "abc" not in str(error.value) and "stdout-secret" not in str(error.value)
+    assert "doing x failed (exit 3)" in str(error.value)
+
+
+# #1204: the API server's reason reaches CLUSTER_FAILED, with nothing secret or local in it.
+CA = (
+    "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUMvakNDQWVhZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFR"
+    "c0ZBREFWTVJNd0VRWURWUVFERXdwcmRXSmwK"
+)
+JWT = ".".join(
+    [
+        "eyJhbGciOiJSUzI1NiIsImtpZCI6IngifQ",
+        "eyJzdWIiOiJzeXN0ZW06c2VydmljZWFjY291bnQifQ",
+        "c2lnbmF0dXJlLXBhcnQ",
+    ]
+)
+_DASHES = "-" * 5
+PEM = (
+    f"{_DASHES}BEGIN RSA PRIVATE KEY{_DASHES}\nMIIEowIBAAKCAQEAx\n"
+    f"{_DASHES}END RSA PRIVATE KEY{_DASHES}"
+)
+
+
+def test_real_run_surfaces_the_api_servers_reason(monkeypatch):
+    monkeypatch.undo()
+    stderr = (
+        'The ValidatingAdmissionPolicy "ab-pods" is invalid: spec.validations[2].expression: '
+        "Invalid value: compilation failed: ERROR: <input>:1:5: expected type 'string' but "
+        "found 'dyn'\n"
+    )
+    result = SimpleNamespace(returncode=1, stdout=b"", stderr=stderr.encode())
+    monkeypatch.setattr(cluster.subprocess, "run", lambda *a, **k: result)
+    with pytest.raises(ServiceError) as error:
+        cluster._run(["kubectl", "apply"], what="kubectl apply")
+    message = str(error.value)
+    assert message.startswith("[CLUSTER_FAILED] kubectl apply failed (exit 1): ")
+    assert '"ab-pods" is invalid' in message and "expected type 'string'" in message
+    assert "\n" not in message
+
+
+@pytest.mark.parametrize(
+    "secret, stderr",
+    [
+        (JWT, f"error: You must be logged in (token {JWT})"),
+        (JWT, f"Authorization: Bearer {JWT}"),
+        ("c2VjcmV0LXRva2VuLXZhbHVl", 'users: [{"token": "c2VjcmV0LXRva2VuLXZhbHVl"}]'),
+        ("Q0E9", "certificate-authority-data: Q0E9"),
+        ("a2V5LWRhdGE", 'client-key-data: "a2V5LWRhdGE"'),
+        (CA, f"unable to load root certificates: {CA}"),
+        ("MIIEowIBAAKCAQEAx", PEM),
+        ("alice", "error loading config file /Users/alice/.kube/config: no such file"),
+        ("bob", "open /home/bob/.agentbreeder/stacks/x/kubeconfig: permission denied"),
+        ("hunter2", "dial https://admin:hunter2@127.0.0.1:6443: refused"),
+    ],
+)
+def test_scrub_removes_credentials_ca_data_and_home_paths(secret, stderr):
+    scrubbed = cluster.scrub(stderr)
+    assert secret not in scrubbed
+    assert "[redacted]" in scrubbed or "~" in scrubbed
+
+
+def test_scrub_replaces_this_users_home_and_keeps_digests_and_paths(monkeypatch):
+    monkeypatch.setattr(cluster.Path, "home", classmethod(lambda cls: cluster.Path("/opt/me")))
+    digest = "sha256:" + "a" * 64
+    path = "/apis/apps/v1/namespaces/agentbreeder/deployments"
+    scrubbed = cluster.scrub(f"/opt/me/x failed; image {digest}; POST {path}")
+    assert scrubbed.startswith("~/x failed")
+    assert digest in scrubbed and path in scrubbed
+
+
+@pytest.mark.parametrize(
+    "text, kept",
+    [
+        ("failed to request token: Unauthorized", "token: Unauthorized"),
+        ("the service-account-token Secret is refused", "service-account-token Secret"),
+        (
+            "POST /api/v1/namespaces/agentbreeder/serviceaccounts/ab-deployer/token: Forbidden",
+            "/api/v1/namespaces/agentbreeder/serviceaccounts/ab-deployer/token",
+        ),
+    ],
+)
+def test_scrub_keeps_a_readable_reason(text, kept):
+    assert kept in cluster.scrub(text)
+
+
+@pytest.mark.parametrize(
+    "secret, stderr",
+    [
+        ("abc", "token=abc"),
+        ("abc123def", "kubectl --token abc123def get pods"),
+        ("s3cr3t-value", "password: s3cr3t-value"),
+        ("x", '{"token": "x"}'),
+        ("0123456789abcdef" * 3, "secret " + "0123456789abcdef" * 3),  # hex, not a digest
+    ],
+)
+def test_scrub_removes_explicit_credential_fields(secret, stderr):
+    assert secret not in cluster.scrub(stderr).replace("[redacted]", "")
+
+
+def test_scrub_is_bounded():
+    scrubbed = cluster.scrub("x " * 5000)
+    assert len(scrubbed) <= cluster.STDERR_LIMIT + 2 and scrubbed.endswith("…")
+    assert cluster.scrub("") == ""
+
+
+def test_real_run_without_stderr_keeps_the_short_message(monkeypatch):
+    monkeypatch.undo()
+    result = SimpleNamespace(returncode=2, stdout=b"", stderr=b"")
+    monkeypatch.setattr(cluster.subprocess, "run", lambda *a, **k: result)
+    with pytest.raises(ServiceError) as error:
+        cluster._run(["x"], what="x")
+    assert str(error.value) == "[CLUSTER_FAILED] x failed (exit 2)"
 
 
 def test_real_run_handles_a_missing_binary(monkeypatch):

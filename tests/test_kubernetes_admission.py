@@ -299,14 +299,44 @@ def test_every_other_namespaced_write_is_refused(params):
     rules = spec["matchConstraints"]
     assert rules["resourceRules"][0]["resources"] == ["*/*"]
     assert rules["resourceRules"][0]["scope"] == "Namespaced"  # never SelfSubjectAccessReviews
-    excluded = {r for rule in rules["excludeResourceRules"] for r in rule["resources"]}
+    unnamed = [rule for rule in rules["excludeResourceRules"] if "resourceNames" not in rule]
+    excluded = {r for rule in unnamed for r in rule["resources"]}
     assert excluded == {
         "deployments", "deployments/scale", "services", "networkpolicies", "secrets", "pods",
         "pods/ephemeralcontainers",
     }  # fmt: skip
-    configmap = admission.grants_configmap(NS, admission.probe_grants(REGISTRY, BLOCKED, ECHO))
-    result = ac.review(NS, "ab-deny-other", "UPDATE", obj=configmap, old=configmap, params=params)
+    # #1204: the one named exclusion is ab-grants, so the admin can write the parameters before
+    # (and while) the policies exist; nothing else of any kind is excluded by name.
+    named = [rule for rule in rules["excludeResourceRules"] if "resourceNames" in rule]
+    assert named == [
+        {
+            "apiGroups": [""],
+            "apiVersions": ["*"],
+            "resources": ["configmaps"],
+            "operations": ["CREATE", "UPDATE", "DELETE"],
+            "scope": "Namespaced",
+            "resourceNames": [admission.GRANTS],
+        }
+    ]
+    other = admission.grants_configmap(NS, admission.probe_grants(REGISTRY, BLOCKED, ECHO))
+    other["metadata"]["name"] = "other"
+    result = ac.review(NS, "ab-deny-other", "UPDATE", obj=other, old=other, params=params)
     assert not result.allowed
+
+
+def test_the_restricted_accounts_cannot_write_the_excluded_grants():
+    """Excluding ab-grants from ab-deny-other gives the deployer and canary nothing: no RBAC
+    rule of theirs writes a ConfigMap (the deployer only reads ab-grants by name)."""
+    write = {"create", "update", "patch", "delete", "deletecollection", "*"}
+    for name, rules in admission.role_rules(NS).items():
+        if name not in ("deployer", "canary"):
+            continue
+        for rule in rules:
+            if {"configmaps", "*"} & set(rule["resources"]):
+                assert not write & set(rule["verbs"]), (name, rule)
+    for name, rules in admission.cluster_rules(NS).items():
+        for rule in rules:
+            assert not {"configmaps", "*"} & set(rule["resources"]), (name, rule)
 
 
 # -- grants ---------------------------------------------------------------------------------------
@@ -492,12 +522,48 @@ def test_every_policy_fails_closed():
             for r in spec["matchConstraints"]["resourceRules"]
         )
     for binding in bindings:
+        if binding["metadata"]["name"] == "ab-grants-guard":
+            continue  # no parameters (#1204), checked below
         assert binding["spec"]["paramRef"] == {
             "name": "ab-grants",
             "namespace": NS,
             "parameterNotFoundAction": "Deny",
         }
         assert binding["spec"]["validationActions"] == ["Deny"]
+
+
+def test_the_grants_guard_refuses_every_write_to_ab_grants_and_needs_no_parameters(params):
+    """#1204: ab-deny-other excludes ab-grants so the admin can write it first; the guard keeps
+    the deployer and the canary from writing it, and has no parameters, so it applies while
+    ab-grants is missing and can never lock the admin out."""
+    rendered = {(o["kind"], o["metadata"]["name"]): o for o in admission.policies(NS)}
+    policy = rendered[("ValidatingAdmissionPolicy", "ab-grants-guard")]["spec"]
+    binding = rendered[("ValidatingAdmissionPolicyBinding", "ab-grants-guard")]["spec"]
+    assert "paramKind" not in policy and "paramRef" not in binding
+    assert binding["validationActions"] == ["Deny"]
+    assert policy["matchConstraints"]["resourceRules"] == [
+        {
+            "apiGroups": [""],
+            "apiVersions": ["*"],
+            "resources": ["configmaps"],
+            "operations": ["CREATE", "UPDATE", "DELETE"],
+            "scope": "Namespaced",
+            "resourceNames": [admission.GRANTS],
+        }
+    ]
+    configmap = admission.grants_configmap(NS, admission.probe_grants(REGISTRY, BLOCKED, ECHO))
+    for identity in ("deployer", "canary"):
+        for operation in ("CREATE", "UPDATE", "DELETE"):
+            result = ac.review(
+                NS, "ab-grants-guard", operation, obj=configmap, old=configmap,
+                identity=identity, params=None if operation == "CREATE" else params,
+            )  # fmt: skip
+            assert not result.allowed and result.matched
+    admin = ac.review(
+        NS, "ab-grants-guard", "UPDATE", obj=configmap, old=configmap, params=params,
+        user="kubernetes-admin",
+    )  # fmt: skip
+    assert admin.allowed and not admin.matched
 
 
 def _as_served(item: dict) -> dict:
@@ -555,9 +621,163 @@ def test_print_refuses_an_invalid_namespace(capsys):
 
 
 def test_cel_literals():
-    assert admission.cel({"a": [1, True, None, "it's"]}) == "{'a': [1, true, null, 'it\\'s']}"
+    # Mixed elements are wrapped in dyn() (#1204); a single or uniform one is not.
+    assert admission.cel({"a": [1, True, None, "it's"]}) == (
+        "{'a': [dyn(1), dyn(true), dyn(null), dyn('it\\'s')]}"
+    )
+    assert admission.cel(["a", "b"]) == "['a', 'b']"
+    assert admission.cel({"a": 1, "b": 2}) == "{'a': 1, 'b': 2}"
+    assert admission.cel({"a": {"x": 1}, "b": {"x": "y"}}) == (
+        "{'a': dyn({'x': 1}), 'b': dyn({'x': 'y'})}"
+    )
+    assert admission.cel([[], []]) == "[dyn([]), dyn([])]"
+    assert admission.cel([[]]) == "[[]]"
     with pytest.raises(TypeError):
         admission.cel(1.5)
+    with pytest.raises(TypeError):
+        admission.cel({1: "a"})
+
+
+# -- #1204: every expression is well typed under Kubernetes' CEL ---------------------------------
+
+import cel_literals  # noqa: E402
+
+EXPRESSIONS = [
+    (where, expression)
+    for item in admission.policies(NS)
+    if item["kind"] == "ValidatingAdmissionPolicy"
+    for where, expression in cel_literals.policy_expressions(item)
+]
+
+
+def test_every_policy_expression_is_checked():
+    assert {where.split()[0] for where, _ in EXPRESSIONS} == set(admission.POLICY_NAMES)
+    assert len(EXPRESSIONS) > 100
+
+
+@pytest.mark.parametrize(("where", "expression"), EXPRESSIONS, ids=[w for w, _ in EXPRESSIONS])
+def test_no_policy_expression_holds_a_heterogeneous_literal(where, expression):
+    """Kubernetes refuses a list or map literal whose elements differ in type; cel-python does
+    not, so this checks the generated source itself (strictly; see `cel_literals`)."""
+    assert cel_literals.heterogeneous_literals(expression) == [], where
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "x == {'runAsNonRoot': true, 'runAsUser': 65532}",  # bool, int: ab-deployments [11]
+        "x == [{'port': 53}, {'protocol': 'UDP'}]",  # map(string,int) vs map(string,string)
+        "x == {'a': 'agentbreeder', 'b': object.metadata.labels['c']}",  # string vs dyn: ab-pods
+        "x == [[], []]",
+        "x == {'a': dyn(1), 'b': 2}",
+        "f(['a', 1])",
+        "x.all(k, k in ['a', 1])",
+    ],
+)
+def test_the_literal_check_refuses_what_kubernetes_refuses(expression):
+    assert cel_literals.heterogeneous_literals(expression)
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "x == {'a': dyn(true), 'b': dyn(1)}",
+        "['a', 'b'] + [1]",
+        "[[1], [2]]",
+        "{'a': [1], 'b': [2]}",
+        "x in [y]",
+        "[]",
+    ],
+)
+def test_the_literal_check_accepts_homogeneous_literals(expression):
+    assert cel_literals.heterogeneous_literals(expression) == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        admission.POD_SECURITY_CONTEXT,
+        admission.CONTAINER_SECURITY_CONTEXT,
+        admission.RESOURCES,
+        admission.CANARY_POD_DEFAULTS,
+        {"to": [admission.DNS_PEER], "ports": admission.DNS_PORTS},
+    ],
+)
+def test_a_dyn_literal_is_as_strict_as_before(value):
+    """dyn() changes only the static type: equality still refuses an extra key, a missing key
+    or a different value, at every depth."""
+    literal = admission.cel(value)
+    assert cel_literals.heterogeneous_literals(literal) == []
+
+    def equal(other) -> bool:
+        return bool(ac.evaluate(f"x == {literal}", {"x": celpy.json_to_cel(other)}))
+
+    def changed(item):
+        """A different value of the same type, so the comparison is a real inequality."""
+        if isinstance(item, bool):
+            return not item
+        if isinstance(item, int):
+            return item + 1
+        if isinstance(item, str):
+            return item + "-different"
+        if isinstance(item, list):
+            return [*item, copy.deepcopy(item[0])] if item else ["extra"]
+        return {**item, "extra": "x"}
+
+    assert equal(value)
+    variants = [{**value, "extra": "x"}]
+    for key, item in value.items():
+        variants.append({k: v for k, v in value.items() if k != key})
+        variants.append({**value, key: changed(item)})
+        if isinstance(item, dict):  # one level down: a nested key changed
+            for inner, nested in item.items():
+                variants.append({**value, key: {**item, inner: changed(nested)}})
+    for variant in variants:
+        assert not equal(variant), variant
+
+
+def test_main_s_refused_validations_are_flagged_by_the_check():
+    """The expressions the API server refused on 1.37 (#1204, 0-indexed: ab-deployments 7, 11,
+    15, 16, 21, 22; ab-networkpolicies 8; ab-pods 2, 3, 4) are flagged when rendered the old way,
+    i.e. without dyn(); so the check finds what the server found."""
+
+    def old_cel(value):
+        if isinstance(value, list):
+            return "[" + ", ".join(old_cel(item) for item in value) + "]"
+        if isinstance(value, dict):
+            return "{" + ", ".join(f"{old_cel(k)}: {old_cel(v)}" for k, v in value.items()) + "}"
+        return admission.cel(value)
+
+    assert cel_literals.heterogeneous_literals(f"x == {old_cel(admission.POD_SECURITY_CONTEXT)}")
+    assert cel_literals.heterogeneous_literals(
+        f"x == {old_cel({'to': [admission.DNS_PEER], 'ports': admission.DNS_PORTS})}"
+    )
+
+
+# -- #1204: each refused probe reaches its policy (core validation accepts it) --------------------
+
+
+def _probe(grants, name):
+    return next(probe for probe in admission.probes(NS, grants) if probe.name == name)
+
+
+def test_the_init_container_probe_is_valid_for_core_validation(grants, params):
+    refused = _probe(grants, "initContainer").refused
+    spec = refused["spec"]["template"]["spec"]
+    (init,) = spec["initContainers"]
+    names = [c["name"] for c in spec["containers"]] + [init["name"]]
+    assert len(names) == len(set(names))  # no Duplicate value
+    assert not {"readinessProbe", "livenessProbe", "startupProbe", "lifecycle"} & set(init)
+    result = ac.create(NS, refused, params)
+    assert "a pod field outside AgentBreeder's template is refused" in result.messages
+
+
+def test_the_service_account_token_probe_is_valid_for_core_validation(grants, params):
+    refused = _probe(grants, "service-account-token Secret").refused
+    assert refused["type"] == "kubernetes.io/service-account-token"
+    assert refused["metadata"]["annotations"]["kubernetes.io/service-account.name"]
+    result = ac.create(NS, refused, params)
+    assert "only an Opaque Secret of data is accepted" in result.messages
 
 
 def test_canary_roles_and_policy_names_are_checked():
