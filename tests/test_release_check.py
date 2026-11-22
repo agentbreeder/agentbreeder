@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tarfile
@@ -178,8 +179,11 @@ def test_requirements_must_match_the_npm_constraints(tmp_path, monkeypatch):
     wheel, sdist = _artifacts(tmp_path)
     monkeypatch.setattr(release_check.shutil, "which", lambda name: "/stub/uv")
 
+    # Drift whatever pyyaml version the constraints pin, so the test survives a re-resolve.
+    stdout, drifts = re.subn(r"(?m)^pyyaml==\S+", "pyyaml==0.0.1", HASHED)
+    assert drifts == 1
+
     def drifted(argv, **kwargs):
-        stdout = HASHED.replace("pyyaml==6.0.3", "pyyaml==6.0.2")
         return subprocess.CompletedProcess(argv, 0, stdout=stdout)
 
     with pytest.raises(release_check.CheckFailed, match="npm/constraints.txt"):
