@@ -32,7 +32,7 @@
   clusters only; `cluster.py` manages a local `kind` cluster; `promote.py` deploys an audited
   release to it by digest. See `docs/command-center.md`.
 
-On `main`, not in a published preview (since `3.0.0a3`):
+New in `3.0.0a4` (since `3.0.0a3`):
 
 - Multi-framework runtimes (#1083): `runtime_profile.py` reads every framework fact from the
   pinned runtime version's `manifest.yaml` (protocol, profile, capabilities, limits, reserved tool
