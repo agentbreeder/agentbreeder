@@ -408,7 +408,8 @@ acceptance. Cloud: a `CLAUDE.md` note only; it has no code that reads a runtime 
 reply's `framework`/`runtime` or the deploy manifest's `runtime`.
 
 **Token cluster provider, #771 K1 (epic #770), per side.** OSS (on `main`; unit-tested with a fake
-kubectl and a local TLS server, the `kind` check written and not run; nothing run against a real
+kubectl and a local TLS server; the opt-in `kind` check passed once after the #1205 mint fix, on
+macOS with kubectl 1.31.4 on 2026-11-21, with a stub policy check and no `--node-cidr`; no other
 cluster): `kubernetes_token.py` and `cluster_token.py`; the operator config's `kubernetes` block
 accepts `provider: token` with `token:` and `tools:` (and `kubeconfig` becomes `kind`-only);
 `cluster connect token` checks a cluster and then refuses with `KUBERNETES_POLICY_UNCHECKED`

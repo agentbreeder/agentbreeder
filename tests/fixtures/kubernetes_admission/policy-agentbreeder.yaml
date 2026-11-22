@@ -1,5 +1,5 @@
 # AgentBreeder policy objects for namespace agentbreeder (#770 §7).
-# Digest: sha256:aaabc6d43525d6d6582b58ed7efee20bc8770c4d45d8dbf0b216edef53da23b3
+# Digest: sha256:fe04b59625796b206086812de82aa4f80321fbbee028cb2281b8cef92c66ff99
 # Needs Kubernetes 1.30 or later and the ab-grants ConfigMap in the namespace.
 # The policy names are cluster-wide: one AgentBreeder namespace per cluster.
 apiVersion: admissionregistration.k8s.io/v1
@@ -94,8 +94,8 @@ spec:
   - expression: 'request.operation != ''CREATE'' || ((object.spec.all(k, k in [''replicas'', ''strategy'',
       ''revisionHistoryLimit'', ''progressDeadlineSeconds'', ''selector'', ''template''])) && (''replicas''
       in object.spec && object.spec[''replicas''] == 1) && ((!(''strategy'' in object.spec) || object.spec[''strategy'']
-      == {''type'': ''RollingUpdate'', ''rollingUpdate'': {''maxUnavailable'': ''25%'', ''maxSurge'':
-      ''25%''}})) && ((!(''revisionHistoryLimit'' in object.spec) || object.spec[''revisionHistoryLimit'']
+      == {''type'': dyn(''RollingUpdate''), ''rollingUpdate'': dyn({''maxUnavailable'': ''25%'', ''maxSurge'':
+      ''25%''})})) && ((!(''revisionHistoryLimit'' in object.spec) || object.spec[''revisionHistoryLimit'']
       == 10)) && ((!(''progressDeadlineSeconds'' in object.spec) || object.spec[''progressDeadlineSeconds'']
       == 600)))'
     message: spec may hold only replicas 1, the selector and the template
@@ -114,8 +114,8 @@ spec:
   - expression: 'request.operation != ''CREATE'' || (''automountServiceAccountToken'' in variables.pod
       && variables.pod.automountServiceAccountToken == false && ''enableServiceLinks'' in variables.pod
       && variables.pod.enableServiceLinks == false && ''securityContext'' in variables.pod && variables.pod.securityContext
-      == {''runAsNonRoot'': true, ''runAsUser'': 65532, ''runAsGroup'': 65532, ''fsGroup'': 65532, ''seccompProfile'':
-      {''type'': ''RuntimeDefault''}})'
+      == {''runAsNonRoot'': dyn(true), ''runAsUser'': dyn(65532), ''runAsGroup'': dyn(65532), ''fsGroup'':
+      dyn(65532), ''seccompProfile'': dyn({''type'': ''RuntimeDefault''})})'
     message: the pod security context must be AgentBreeder's
   - expression: request.operation != 'CREATE' || ((!('restartPolicy' in variables.pod) || variables.pod['restartPolicy']
       == 'Always') && (!('dnsPolicy' in variables.pod) || variables.pod['dnsPolicy'] == 'ClusterFirst')
@@ -137,16 +137,16 @@ spec:
       && (''imagePullPolicy'' in variables.pod.containers[1] && variables.pod.containers[1][''imagePullPolicy'']
       == ''IfNotPresent'') && (''env'' in variables.pod.containers[1] && variables.pod.containers[1][''env'']
       == [{''name'': ''AGENTBREEDER_ROLE'', ''value'': ''cli-host''}]) && (''securityContext'' in variables.pod.containers[1]
-      && variables.pod.containers[1][''securityContext''] == {''runAsUser'': 65533, ''runAsGroup'': 65533,
-      ''allowPrivilegeEscalation'': false, ''readOnlyRootFilesystem'': true, ''capabilities'': {''drop'':
-      [''ALL'']}}) && (''resources'' in variables.pod.containers[1] && variables.pod.containers[1][''resources'']
+      && variables.pod.containers[1][''securityContext''] == {''runAsUser'': dyn(65533), ''runAsGroup'':
+      dyn(65533), ''allowPrivilegeEscalation'': dyn(false), ''readOnlyRootFilesystem'': dyn(true), ''capabilities'':
+      dyn({''drop'': [''ALL'']})}) && (''resources'' in variables.pod.containers[1] && variables.pod.containers[1][''resources'']
       == {''requests'': {''cpu'': ''100m'', ''memory'': ''128Mi''}, ''limits'': {''cpu'': ''1'', ''memory'':
       ''512Mi''}}) && (''volumeMounts'' in variables.pod.containers[1] && variables.pod.containers[1][''volumeMounts'']
-      == [{''name'': ''cli-tmp'', ''mountPath'': ''/tmp''}, {''name'': ''cli-shared'', ''mountPath'':
-      ''/run/agentbreeder-cli'', ''readOnly'': true}]) && ((!(''terminationMessagePath'' in variables.pod.containers[1])
-      || variables.pod.containers[1][''terminationMessagePath''] == ''/dev/termination-log'')) && ((!(''terminationMessagePolicy''
-      in variables.pod.containers[1]) || variables.pod.containers[1][''terminationMessagePolicy''] ==
-      ''File'')) && variables.pod.containers[1].image == variables.pod.containers[0].image))) && variables.pod.containers[0].name
+      == [dyn({''name'': ''cli-tmp'', ''mountPath'': ''/tmp''}), dyn({''name'': dyn(''cli-shared''), ''mountPath'':
+      dyn(''/run/agentbreeder-cli''), ''readOnly'': dyn(true)})]) && ((!(''terminationMessagePath'' in
+      variables.pod.containers[1]) || variables.pod.containers[1][''terminationMessagePath''] == ''/dev/termination-log''))
+      && ((!(''terminationMessagePolicy'' in variables.pod.containers[1]) || variables.pod.containers[1][''terminationMessagePolicy'']
+      == ''File'')) && variables.pod.containers[1].image == variables.pod.containers[0].image))) && variables.pod.containers[0].name
       == ''agent'')'
     message: the pod holds the agent container (and, for two-uid runtimes, the cli container) only
   - expression: 'request.operation != ''CREATE'' || (variables.pod.containers[0].all(k, k in [''name'',
@@ -154,8 +154,8 @@ spec:
       ''volumeMounts'', ''terminationMessagePath'', ''terminationMessagePolicy'']) && ''imagePullPolicy''
       in variables.pod.containers[0] && variables.pod.containers[0].imagePullPolicy == ''IfNotPresent''
       && ''securityContext'' in variables.pod.containers[0] && variables.pod.containers[0].securityContext
-      == {''allowPrivilegeEscalation'': false, ''readOnlyRootFilesystem'': true, ''capabilities'': {''drop'':
-      [''ALL'']}} && ''resources'' in variables.pod.containers[0] && variables.pod.containers[0].resources
+      == {''allowPrivilegeEscalation'': dyn(false), ''readOnlyRootFilesystem'': dyn(true), ''capabilities'':
+      dyn({''drop'': [''ALL'']})} && ''resources'' in variables.pod.containers[0] && variables.pod.containers[0].resources
       == {''requests'': {''cpu'': ''100m'', ''memory'': ''128Mi''}, ''limits'': {''cpu'': ''1'', ''memory'':
       ''512Mi''}} && (!(''terminationMessagePath'' in variables.pod.containers[0]) || variables.pod.containers[0][''terminationMessagePath'']
       == ''/dev/termination-log'') && (!(''terminationMessagePolicy'' in variables.pod.containers[0])
@@ -184,16 +184,16 @@ spec:
     message: environment variables are literal values only (no valueFrom)
   - expression: 'request.operation != ''CREATE'' || (variables.pod.containers[0].volumeMounts.all(m, m.all(k,
       k in [''name'', ''mountPath'', ''readOnly'']) && (m == {''name'': ''tmp'', ''mountPath'': ''/tmp''}
-      || m == {''name'': ''secrets'', ''mountPath'': ''/run/secrets'', ''readOnly'': true} || m == {''name'':
-      ''cli-shared'', ''mountPath'': ''/run/agentbreeder-cli''} || (m.name.startsWith(''store-'') && ''readOnly''
-      in m && m.readOnly == true && m.mountPath == ''/run/secret-store/'' + m.name.substring(6)))))'
+      || m == {''name'': dyn(''secrets''), ''mountPath'': dyn(''/run/secrets''), ''readOnly'': dyn(true)}
+      || m == {''name'': ''cli-shared'', ''mountPath'': ''/run/agentbreeder-cli''} || (m.name.startsWith(''store-'')
+      && ''readOnly'' in m && m.readOnly == true && m.mountPath == ''/run/secret-store/'' + m.name.substring(6)))))'
     message: a volume mount outside AgentBreeder's template is refused
-  - expression: 'request.operation != ''CREATE'' || (variables.pod.volumes.all(v, v == {''name'': ''tmp'',
-      ''emptyDir'': {''medium'': ''Memory'', ''sizeLimit'': ''64Mi''}} || v == {''name'': ''cli-tmp'',
-      ''emptyDir'': {''medium'': ''Memory'', ''sizeLimit'': ''64Mi''}} || v == {''name'': ''cli-shared'',
-      ''emptyDir'': {''medium'': ''Memory'', ''sizeLimit'': ''1Mi''}} || (v.name == ''secrets'' && v.all(k,
-      k in [''name'', ''projected'']) && (v.projected.all(k, k in [''defaultMode'', ''sources''])) &&
-      (''defaultMode'' in v.projected && v.projected[''defaultMode''] == 288) && v.projected.sources.all(s,
+  - expression: 'request.operation != ''CREATE'' || (variables.pod.volumes.all(v, v == {''name'': dyn(''tmp''),
+      ''emptyDir'': dyn({''medium'': ''Memory'', ''sizeLimit'': ''64Mi''})} || v == {''name'': dyn(''cli-tmp''),
+      ''emptyDir'': dyn({''medium'': ''Memory'', ''sizeLimit'': ''64Mi''})} || v == {''name'': dyn(''cli-shared''),
+      ''emptyDir'': dyn({''medium'': ''Memory'', ''sizeLimit'': ''1Mi''})} || (v.name == ''secrets'' &&
+      v.all(k, k in [''name'', ''projected'']) && (v.projected.all(k, k in [''defaultMode'', ''sources'']))
+      && (''defaultMode'' in v.projected && v.projected[''defaultMode''] == 288) && v.projected.sources.all(s,
       size(s) == 1 && ((''secret'' in s && s.secret == {''name'': object.metadata.name}) || (''secret''
       in s && s.secret.all(k, k in [''name'', ''items'']) && s.secret.name in variables.bindings && (!(''items''
       in s.secret) || s.secret.items.all(i, i.all(k, k in [''key'', ''path''])))) || (''downwardAPI''
@@ -462,22 +462,22 @@ spec:
       == 0))'
     message: the policy selects its own deployment, both directions, with no ingress
   - expression: '!variables.isDeployer || request.operation != ''CREATE'' || (''egress'' in object.spec
-      && object.spec.egress.all(r, r == {''to'': [{''namespaceSelector'': {''matchLabels'': {''kubernetes.io/metadata.name'':
-      ''kube-system''}}, ''podSelector'': {''matchLabels'': {''k8s-app'': ''kube-dns''}}}], ''ports'':
-      [{''protocol'': ''UDP'', ''port'': 53}, {''protocol'': ''TCP'', ''port'': 53}]} || (params.data.nodedns
-      != '''' && r == {''to'': [{''ipBlock'': {''cidr'': params.data.nodedns + ''/32''}}], ''ports'':
-      [{''protocol'': ''UDP'', ''port'': 53}, {''protocol'': ''TCP'', ''port'': 53}]}) || (r.all(k, k
-      in [''to'', ''ports'']) && size(r.to) == 1 && r.to[0].all(k, k == ''podSelector'') && r.to[0].podSelector.all(k,
-      k == ''matchLabels'') && size(r.to[0].podSelector.matchLabels) == 1 && ''io.agentbreeder/chart-service''
-      in r.to[0].podSelector.matchLabels && size(r.ports) == 1 && r.ports[0].all(k, k in [''protocol'',
-      ''port'']) && r.ports[0].protocol == ''TCP'' && type(r.ports[0].port) == int && (r.to[0].podSelector.matchLabels[''io.agentbreeder/chart-service'']
-      + '':'' + string(r.ports[0].port)) in variables.uses) || (r.all(k, k == ''to'') && size(r.to) ==
-      1 && r.to[0].all(k, k == ''ipBlock'') && r.to[0].ipBlock.all(k, k in [''cidr'', ''except'']) &&
-      r.to[0].ipBlock.cidr == ''0.0.0.0/0'' && size(variables.blocked) > 0 && ''except'' in r.to[0].ipBlock
-      && variables.blocked.all(b, b in r.to[0].ipBlock.except)) || (r.all(k, k == ''to'') && size(r.to)
-      >= 1 && size(variables.kit) > 0 && r.to.all(p, p.all(k, k == ''ipBlock'') && p.ipBlock.all(k, k
-      in [''cidr'', ''except'']) && (p.ipBlock.cidr + ''|'' + (''except'' in p.ipBlock ? p.ipBlock.except.join('','')
-      : '''')) in variables.kit))))'
+      && object.spec.egress.all(r, r == {''to'': dyn([{''namespaceSelector'': {''matchLabels'': {''kubernetes.io/metadata.name'':
+      ''kube-system''}}, ''podSelector'': {''matchLabels'': {''k8s-app'': ''kube-dns''}}}]), ''ports'':
+      dyn([{''protocol'': dyn(''UDP''), ''port'': dyn(53)}, {''protocol'': dyn(''TCP''), ''port'': dyn(53)}])}
+      || (params.data.nodedns != '''' && r == {''to'': dyn([{''ipBlock'': {''cidr'': params.data.nodedns
+      + ''/32''}}]), ''ports'': dyn([{''protocol'': dyn(''UDP''), ''port'': dyn(53)}, {''protocol'': dyn(''TCP''),
+      ''port'': dyn(53)}])}) || (r.all(k, k in [''to'', ''ports'']) && size(r.to) == 1 && r.to[0].all(k,
+      k == ''podSelector'') && r.to[0].podSelector.all(k, k == ''matchLabels'') && size(r.to[0].podSelector.matchLabels)
+      == 1 && ''io.agentbreeder/chart-service'' in r.to[0].podSelector.matchLabels && size(r.ports) ==
+      1 && r.ports[0].all(k, k in [''protocol'', ''port'']) && r.ports[0].protocol == ''TCP'' && type(r.ports[0].port)
+      == int && (r.to[0].podSelector.matchLabels[''io.agentbreeder/chart-service''] + '':'' + string(r.ports[0].port))
+      in variables.uses) || (r.all(k, k == ''to'') && size(r.to) == 1 && r.to[0].all(k, k == ''ipBlock'')
+      && r.to[0].ipBlock.all(k, k in [''cidr'', ''except'']) && r.to[0].ipBlock.cidr == ''0.0.0.0/0''
+      && size(variables.blocked) > 0 && ''except'' in r.to[0].ipBlock && variables.blocked.all(b, b in
+      r.to[0].ipBlock.except)) || (r.all(k, k == ''to'') && size(r.to) >= 1 && size(variables.kit) > 0
+      && r.to.all(p, p.all(k, k == ''ipBlock'') && p.ipBlock.all(k, k in [''cidr'', ''except'']) && (p.ipBlock.cidr
+      + ''|'' + (''except'' in p.ipBlock ? p.ipBlock.except.join('','') : '''')) in variables.kit))))'
     message: an egress rule outside AgentBreeder's fixed shapes is refused
   - expression: '!variables.isDeployer || request.operation != ''DELETE'' || (has(oldObject.metadata.labels)
       && ''app.kubernetes.io/managed-by'' in oldObject.metadata.labels && oldObject.metadata.labels[''app.kubernetes.io/managed-by'']
@@ -702,31 +702,31 @@ spec:
   - expression: 'request.operation != ''CREATE'' || (has(object.metadata.labels) && ''io.agentbreeder/canary''
       in object.metadata.labels && object.metadata.labels[''io.agentbreeder/canary''] in [''server'',
       ''target'', ''client''] && object.metadata.name == ''ab-canary-'' + object.metadata.labels[''io.agentbreeder/canary'']
-      && object.metadata.labels == {''app.kubernetes.io/managed-by'': ''agentbreeder'', ''io.agentbreeder/canary'':
-      object.metadata.labels[''io.agentbreeder/canary'']} && (!has(object.metadata.annotations) || size(object.metadata.annotations)
-      == 0) && (!has(object.metadata.finalizers) || size(object.metadata.finalizers) == 0) && (!has(object.metadata.ownerReferences)
-      || size(object.metadata.ownerReferences) == 0))'
+      && object.metadata.labels == {''app.kubernetes.io/managed-by'': dyn(''agentbreeder''), ''io.agentbreeder/canary'':
+      dyn(object.metadata.labels[''io.agentbreeder/canary''])} && (!has(object.metadata.annotations) ||
+      size(object.metadata.annotations) == 0) && (!has(object.metadata.finalizers) || size(object.metadata.finalizers)
+      == 0) && (!has(object.metadata.ownerReferences) || size(object.metadata.ownerReferences) == 0))'
     message: a canary pod is ab-canary-<role> with the canary labels only
   - expression: 'request.operation != ''CREATE'' || ((object.spec.all(k, k in [''automountServiceAccountToken'',
       ''securityContext'', ''volumes'', ''dnsPolicy'', ''schedulerName'', ''terminationGracePeriodSeconds'',
       ''serviceAccountName'', ''serviceAccount'', ''priority'', ''preemptionPolicy'', ''enableServiceLinks'',
       ''tolerations'', ''containers'', ''restartPolicy''])) && (''automountServiceAccountToken'' in object.spec
       && object.spec[''automountServiceAccountToken''] == false) && (''securityContext'' in object.spec
-      && object.spec[''securityContext''] == {''runAsNonRoot'': true, ''runAsUser'': 65532, ''runAsGroup'':
-      65532, ''fsGroup'': 65532, ''seccompProfile'': {''type'': ''RuntimeDefault''}}) && (''volumes''
-      in object.spec && object.spec[''volumes''] == [{''name'': ''tmp'', ''emptyDir'': {''medium'': ''Memory'',
-      ''sizeLimit'': ''64Mi''}}]) && ((!(''dnsPolicy'' in object.spec) || object.spec[''dnsPolicy''] ==
-      ''ClusterFirst'')) && ((!(''schedulerName'' in object.spec) || object.spec[''schedulerName''] ==
-      ''default-scheduler'')) && ((!(''terminationGracePeriodSeconds'' in object.spec) || object.spec[''terminationGracePeriodSeconds'']
+      && object.spec[''securityContext''] == {''runAsNonRoot'': dyn(true), ''runAsUser'': dyn(65532),
+      ''runAsGroup'': dyn(65532), ''fsGroup'': dyn(65532), ''seccompProfile'': dyn({''type'': ''RuntimeDefault''})})
+      && (''volumes'' in object.spec && object.spec[''volumes''] == [{''name'': dyn(''tmp''), ''emptyDir'':
+      dyn({''medium'': ''Memory'', ''sizeLimit'': ''64Mi''})}]) && ((!(''dnsPolicy'' in object.spec) ||
+      object.spec[''dnsPolicy''] == ''ClusterFirst'')) && ((!(''schedulerName'' in object.spec) || object.spec[''schedulerName'']
+      == ''default-scheduler'')) && ((!(''terminationGracePeriodSeconds'' in object.spec) || object.spec[''terminationGracePeriodSeconds'']
       == 30)) && ((!(''serviceAccountName'' in object.spec) || object.spec[''serviceAccountName''] ==
       ''default'')) && ((!(''serviceAccount'' in object.spec) || object.spec[''serviceAccount''] == ''default''))
       && ((!(''priority'' in object.spec) || object.spec[''priority''] == 0)) && ((!(''preemptionPolicy''
       in object.spec) || object.spec[''preemptionPolicy''] == ''PreemptLowerPriority'')) && ((!(''enableServiceLinks''
       in object.spec) || object.spec[''enableServiceLinks''] == true)) && ((!(''tolerations'' in object.spec)
-      || object.spec[''tolerations''] == [{''key'': ''node.kubernetes.io/not-ready'', ''operator'': ''Exists'',
-      ''effect'': ''NoExecute'', ''tolerationSeconds'': 300}, {''key'': ''node.kubernetes.io/unreachable'',
-      ''operator'': ''Exists'', ''effect'': ''NoExecute'', ''tolerationSeconds'': 300}])) && ''restartPolicy''
-      in object.spec && object.spec.restartPolicy == (object.metadata.labels[''io.agentbreeder/canary'']
+      || object.spec[''tolerations''] == [{''key'': dyn(''node.kubernetes.io/not-ready''), ''operator'':
+      dyn(''Exists''), ''effect'': dyn(''NoExecute''), ''tolerationSeconds'': dyn(300)}, {''key'': dyn(''node.kubernetes.io/unreachable''),
+      ''operator'': dyn(''Exists''), ''effect'': dyn(''NoExecute''), ''tolerationSeconds'': dyn(300)}]))
+      && ''restartPolicy'' in object.spec && object.spec.restartPolicy == (object.metadata.labels[''io.agentbreeder/canary'']
       == ''client'' ? ''Never'' : ''Always''))'
     message: a canary pod field outside the canary template is refused
   - expression: 'request.operation != ''CREATE'' || (size(object.spec.containers) == 1 && (object.spec.containers[0].all(k,
@@ -735,14 +735,14 @@ spec:
       object.spec.containers[0][''name''] == ''echo'') && (''imagePullPolicy'' in object.spec.containers[0]
       && object.spec.containers[0][''imagePullPolicy''] == ''IfNotPresent'') && (''securityContext'' in
       object.spec.containers[0] && object.spec.containers[0][''securityContext''] == {''allowPrivilegeEscalation'':
-      false, ''readOnlyRootFilesystem'': true, ''capabilities'': {''drop'': [''ALL'']}}) && (''resources''
-      in object.spec.containers[0] && object.spec.containers[0][''resources''] == {''requests'': {''cpu'':
-      ''100m'', ''memory'': ''128Mi''}, ''limits'': {''cpu'': ''1'', ''memory'': ''512Mi''}}) && (''volumeMounts''
-      in object.spec.containers[0] && object.spec.containers[0][''volumeMounts''] == [{''name'': ''tmp'',
-      ''mountPath'': ''/tmp''}]) && ((!(''terminationMessagePath'' in object.spec.containers[0]) || object.spec.containers[0][''terminationMessagePath'']
-      == ''/dev/termination-log'')) && ((!(''terminationMessagePolicy'' in object.spec.containers[0])
-      || object.spec.containers[0][''terminationMessagePolicy''] == ''File'')) && params.data.echo !=
-      '''' && object.spec.containers[0].image == params.data.echo && (((object.metadata.labels[''io.agentbreeder/canary'']
+      dyn(false), ''readOnlyRootFilesystem'': dyn(true), ''capabilities'': dyn({''drop'': [''ALL'']})})
+      && (''resources'' in object.spec.containers[0] && object.spec.containers[0][''resources''] == {''requests'':
+      {''cpu'': ''100m'', ''memory'': ''128Mi''}, ''limits'': {''cpu'': ''1'', ''memory'': ''512Mi''}})
+      && (''volumeMounts'' in object.spec.containers[0] && object.spec.containers[0][''volumeMounts'']
+      == [{''name'': ''tmp'', ''mountPath'': ''/tmp''}]) && ((!(''terminationMessagePath'' in object.spec.containers[0])
+      || object.spec.containers[0][''terminationMessagePath''] == ''/dev/termination-log'')) && ((!(''terminationMessagePolicy''
+      in object.spec.containers[0]) || object.spec.containers[0][''terminationMessagePolicy''] == ''File''))
+      && params.data.echo != '''' && object.spec.containers[0].image == params.data.echo && (((object.metadata.labels[''io.agentbreeder/canary'']
       == ''server'' || object.metadata.labels[''io.agentbreeder/canary''] == ''target'') && object.spec.containers[0].args
       == [''serve'', ''8080'', ''8081'']) || (object.metadata.labels[''io.agentbreeder/canary''] == ''client''
       && size(object.spec.containers[0].args) >= 3 && size(object.spec.containers[0].args) <= 13 && size(object.spec.containers[0].args)
@@ -862,6 +862,19 @@ spec:
       - UPDATE
       - DELETE
       scope: Namespaced
+    - apiGroups:
+      - ''
+      apiVersions:
+      - '*'
+      resources:
+      - configmaps
+      operations:
+      - CREATE
+      - UPDATE
+      - DELETE
+      scope: Namespaced
+      resourceNames:
+      - ab-grants
   matchConditions:
   - name: agentbreeder-identities
     expression: request.userInfo.username in ['system:serviceaccount:agentbreeder:ab-deployer', 'system:serviceaccount:agentbreeder:ab-canary']
@@ -881,6 +894,58 @@ spec:
     name: ab-grants
     namespace: agentbreeder
     parameterNotFoundAction: Deny
+  validationActions:
+  - Deny
+  matchResources:
+    matchPolicy: Equivalent
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: agentbreeder
+    objectSelector: {}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ab-grants-guard
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    matchPolicy: Equivalent
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: agentbreeder
+    objectSelector: {}
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - '*'
+      resources:
+      - configmaps
+      operations:
+      - CREATE
+      - UPDATE
+      - DELETE
+      scope: Namespaced
+      resourceNames:
+      - ab-grants
+  matchConditions:
+  - name: agentbreeder-identities
+    expression: request.userInfo.username in ['system:serviceaccount:agentbreeder:ab-deployer', 'system:serviceaccount:agentbreeder:ab-canary']
+  validations:
+  - expression: 'false'
+    message: the deployer and the canary may not write ab-grants
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ab-grants-guard
+  labels:
+    app.kubernetes.io/managed-by: agentbreeder
+spec:
+  policyName: ab-grants-guard
   validationActions:
   - Deny
   matchResources:

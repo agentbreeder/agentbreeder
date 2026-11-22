@@ -6,10 +6,11 @@ agents network, so pods reach the stack's services under the same names a local 
 It only ever touches resources with those names. Services still run in Docker: this demonstrates
 the deployer, it is not a production topology.
 
-With `--restricted` (#770 K2, preview, not yet run on kind) it also installs the service accounts
-and Roles of #770 §7.1, the admission policies of §7.2 and their `ab-grants` parameters, and
-records a kubeconfig for the `ab-deployer` service account instead of the admin one, so deploys on
-the laptop meet the same RBAC and policies as on a cluster.
+With `--restricted` (#770 K2, preview, local kind; run on Kubernetes 1.37, #1204) it also writes
+the `ab-grants` parameters, then installs the admission policies of #770 §7.2, then the service
+accounts and Roles of §7.1, and records a kubeconfig for the `ab-deployer` service account
+instead of the admin one, so deploys on the laptop meet the same RBAC and policies as on a
+cluster.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import re
 import shutil
 import stat
 import subprocess
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -75,14 +77,67 @@ INSTALL = {
 }
 
 
+STDERR_LIMIT = 2000  # characters of a tool's scrubbed stderr kept in CLUSTER_FAILED
+# A kubeconfig field or flag that holds a credential or CA data, in YAML, JSON or argv form.
+_CREDENTIAL_FIELD = re.compile(
+    r"""(?i)(?<![A-Za-z0-9_])(--)?(["']?)(certificate-authority-data|client-certificate-data|"""
+    r"""client-key-data|token|password|client-secret|id-token|refresh-token)\2"""
+    r"""(\s*[:=]\s*|\s+)("[^"\n]*"|'[^'\n]*'|[^\s,;)}\]]+)"""
+)
+_CREDENTIAL_SHAPE = re.compile(r"[A-Za-z0-9._~+/=-]{8,}")
+# Base64 of 40 or more characters (CA data, a certificate, a key). Kept: a sha256 hex digest
+# (64 characters) and a lower-case API path (`/apis/apps/v1/...`).
+_BASE64_RUN = re.compile(r"(?<![A-Za-z0-9+/_-])[A-Za-z0-9+/_-]{40,}={0,2}")
+_READABLE_RUN = re.compile(r"[0-9a-f]{64}|/[a-z0-9/_-]+")
+_HOME_PATH = re.compile(r"(?:/Users|/home)/[^/\s'\":]+|/root(?=[/\s'\":]|$)")
+
+
+def _credential(match: re.Match) -> str:
+    """Redact a field's value. Every kubeconfig data, password or secret field is redacted. The
+    word `token` alone, bare in prose (`token: X` or `token X`), is redacted only when X looks
+    like a credential (8+ token characters, not only letters), so a reason such as
+    `token: Unauthorized` stays readable; `token=X`, `--token X` and quoted forms always are."""
+    from agentbreeder.redaction import MARK
+
+    flag, quote, name, separator, value = match.groups()
+    explicit = name.lower() != "token" or flag or quote or "=" in separator or value[0] in "\"'"
+    if not explicit and not (_CREDENTIAL_SHAPE.fullmatch(value) and not value.isalpha()):
+        return match[0]
+    return f"{flag or ''}{quote}{name}{quote}{separator}{MARK}"
+
+
+def scrub(text: str) -> str:
+    """A tool's stderr made safe to show in an error (#1204): no PEM block, JWT or bearer token
+    (`redaction`), no credential or CA field of a kubeconfig, no long base64, no home path, at
+    most `STDERR_LIMIT` characters."""
+    from agentbreeder.redaction import MARK, redact
+
+    text = redact(text, ())
+    text = _CREDENTIAL_FIELD.sub(_credential, text)
+    text = _BASE64_RUN.sub(lambda m: m[0] if _READABLE_RUN.fullmatch(m[0]) else MARK, text)
+    home = str(Path.home())
+    if len(home) > 1:
+        text = text.replace(home, "~")
+    text = _HOME_PATH.sub("~", text)
+    text = " ".join(text.split())
+    if len(text) > STDERR_LIMIT:
+        text = text[:STDERR_LIMIT] + " …"
+    return text
+
+
 def _run(argv: list[str], *, stdin: bytes | None = None, timeout: int = 120, what: str) -> str:
-    """Run a tool. Its output is not echoed on failure: it can carry local details."""
+    """Run a tool. On failure its stderr, scrubbed (`scrub`), is the error's cause; its stdout
+    (a kubeconfig or a token) is never echoed. Stderr can quote the object kubectl was given:
+    nothing passed through `_run` on stdin holds a secret (policies, bindings, Roles, the
+    namespace, `ab-grants`); a caller that applies a Secret must not rely on `scrub`."""
     try:
         result = subprocess.run(argv, capture_output=True, input=stdin, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired):
         raise ServiceError("CLUSTER_FAILED", f"{what} failed or timed out") from None
     if result.returncode:
-        raise ServiceError("CLUSTER_FAILED", f"{what} failed (exit {result.returncode})")
+        cause = scrub((result.stderr or b"").decode("utf-8", "replace"))
+        message = f"{what} failed (exit {result.returncode})"
+        raise ServiceError("CLUSTER_FAILED", f"{message}: {cause}" if cause else message)
     return result.stdout.decode("utf-8", "replace").strip()
 
 
@@ -247,10 +302,11 @@ def write_kubeconfig(path: Path) -> None:
     write_private(path, config.encode())
 
 
-def kubectl(path: Path, *arguments: str, stdin: bytes | None = None) -> str:
+def kubectl(path: Path, *arguments: str, stdin: bytes | None = None, timeout: int = 120) -> str:
     return _run(
         ["kubectl", "--kubeconfig", str(path), "--context", CONTEXT, *arguments],
         stdin=stdin,
+        timeout=timeout,
         what=f"kubectl {arguments[0]}",
     )
 
@@ -321,7 +377,12 @@ def block_for(state, agents_network: str, *, restricted: bool = False) -> dict:
         "agents_cidrs": agents_cidrs(agents_network),
     }
     if restricted:
-        block["kubeconfig"] = str(install_restricted(path, state.directory / DEPLOYER_KUBECONFIG))
+        try:
+            grants = grants_for(state, block)
+        except admission.AdmissionError as error:
+            raise ServiceError("CLUSTER_FAILED", str(error)) from None
+        deployer = install_restricted(path, state.directory / DEPLOYER_KUBECONFIG, grants=grants)
+        block["kubeconfig"] = str(deployer)
     return block
 
 
@@ -363,19 +424,155 @@ def server_version(path: Path) -> tuple[int, int]:
         raise ServiceError("CLUSTER_FAILED", "Cannot read the cluster's version") from error
 
 
-def install_restricted(admin: Path, deployer: Path) -> Path:
-    """Install the §7.1 accounts and Roles and the §7.2 policies with the admin kubeconfig, then
-    write `deployer`: a private kubeconfig for `ab-deployer` with a bound token. The token goes
-    from kubectl's stdout into the file, never to argv or the log."""
+POLICY_WAIT = 30  # seconds to wait for an applied policy to read back
+POLICY = "validatingadmissionpolicy"
+POLICY_BINDING = "validatingadmissionpolicybinding"
+
+
+def _apply(path: Path, item: dict) -> None:
+    kubectl(path, "apply", "-f", "-", stdin=json.dumps(item).encode())
+
+
+def _bindings(path: Path) -> set[str]:
+    """The names of the bindings that exist now (before this run changes anything)."""
+    listed = kubectl(path, "get", POLICY_BINDING + "s", "-o", "name")
+    return {line.rpartition("/")[2] for line in listed.split() if line}
+
+
+POLICY_FIELDS = ("failurePolicy", "paramKind", "matchConditions", "variables", "validations")
+
+
+def _held(policy: dict) -> dict:
+    """What a policy must hold as the API server returns it: the fields AgentBreeder sets that
+    decide what is refused, and the rules it matches (the server adds only defaults)."""
+    spec = policy.get("spec") or {}
+    constraints = spec.get("matchConstraints") or {}
+    held = {key: spec.get(key) for key in POLICY_FIELDS}
+    held["validations"] = [
+        {"expression": v.get("expression"), "message": v.get("message")}
+        for v in spec.get("validations") or []
+        if isinstance(v, dict)
+    ]
+    held["match"] = {
+        key: [
+            {k: rule.get(k) for k in ("apiGroups", "resources", "operations", "resourceNames")}
+            for rule in rules
+        ]
+        for key in ("resourceRules", "excludeResourceRules")
+        if (rules := constraints.get(key))
+    }
+    held["namespaceSelector"] = constraints.get("namespaceSelector")
+    return held
+
+
+def _wait_for_policy(path: Path, policy: dict, sleep=None) -> None:
+    """Wait until the API server returns `policy` as applied (`_held`). Each read is bounded;
+    the last read's error is the cause if it never matches."""
+    sleep = sleep or time.sleep
+    name = policy["metadata"]["name"]
+    deadline = time.monotonic() + POLICY_WAIT
+    cause = "it differs from what was applied"
+    while True:
+        try:
+            live = json.loads(kubectl(path, "get", POLICY, name, "-o", "json", timeout=15))
+        except ServiceError as error:
+            live, cause = None, str(error)
+        except ValueError:
+            live, cause = None, "kubectl returned no JSON"
+        if isinstance(live, dict) and (live.get("metadata") or {}).get("name") == name:
+            if _held(live) == _held(policy):
+                return
+            cause = "it differs from what was applied"
+        if time.monotonic() >= deadline:
+            raise ServiceError(
+                "CLUSTER_FAILED", f"admission policy {name} did not read back: {cause}"
+            )
+        sleep(1)
+
+
+def install_policies(admin: Path, *, sleep=None) -> None:
+    """Install the §7.2 policies so that none fails open (#1204). A binding whose policy is
+    missing is ignored by the API server, so each policy is applied alone and read back before
+    its binding is created. On any failure no further binding is created, the bindings this run
+    created are deleted, and the error is raised."""
+    rendered = admission.policies(NAMESPACE)
+    if len(rendered) % 2:
+        raise ServiceError("CLUSTER_FAILED", "the admission policies are not policy/binding pairs")
+    pairs = list(zip(rendered[0::2], rendered[1::2], strict=True))
+    if not all(
+        p["kind"] == "ValidatingAdmissionPolicy"
+        and b["kind"] == "ValidatingAdmissionPolicyBinding"
+        and b["spec"]["policyName"] == p["metadata"]["name"]
+        for p, b in pairs
+    ):
+        raise ServiceError("CLUSTER_FAILED", "the admission policies are not policy/binding pairs")
+    existing = _bindings(admin)
+    created: list[str] = []
+    try:
+        for policy, binding in pairs:
+            name = policy["metadata"]["name"]
+            _apply(admin, policy)
+            _wait_for_policy(admin, policy, sleep)
+            if name not in existing:
+                created.append(name)  # before the call: a failed apply may still have created it
+            _apply(admin, binding)
+    except ServiceError as error:
+        left = []
+        for name in reversed(created):
+            try:
+                kubectl(admin, "delete", POLICY_BINDING, name, "--ignore-not-found")
+            except ServiceError:
+                left.append(name)
+        message = str(error).removeprefix(f"[{error.code}] ")
+        if left:
+            message += "; could not delete the binding(s) " + ", ".join(sorted(left))
+        raise ServiceError(error.code, f"installing the admission policies: {message}") from None
+
+
+def write_grants_configmap(admin: Path, grants: admission.Grants) -> None:
+    try:
+        configmap = admission.grants_configmap(NAMESPACE, grants)
+    except admission.AdmissionError as error:
+        raise ServiceError("CLUSTER_FAILED", str(error)) from None
+    _apply(admin, configmap)
+
+
+def _require_grants(admin: Path) -> None:
+    """The policies' parameters must exist before the policies (#1204): a binding whose
+    `ab-grants` is missing denies every write in the namespace, the admin's included."""
+    found = kubectl(
+        admin, "get", "configmap", admission.GRANTS, "--namespace", NAMESPACE,
+        "--ignore-not-found", "-o", "name",
+    )  # fmt: skip
+    if not found.strip():
+        raise ServiceError(
+            "CLUSTER_FAILED",
+            f"{admission.GRANTS} must exist in {NAMESPACE} before the admission policies",
+        )
+
+
+def install_restricted(
+    admin: Path, deployer: Path, *, grants: admission.Grants | None = None, sleep=None
+) -> Path:
+    """Write `ab-grants` (when `grants` is given; it must exist either way), install the §7.2
+    policies (fail closed, `install_policies`), then the §7.1 accounts and Roles, with the admin
+    kubeconfig, then write `deployer`: a private kubeconfig for `ab-deployer` with a bound token.
+    The order is the point (#1204): a binding whose `ab-grants` is missing denies every write in
+    the namespace, the admin's included, so the parameters come first; and the Roles come last,
+    so a failed install never leaves the restricted accounts with rights the policies do not
+    hold yet. The token goes from kubectl's stdout into the file, never to argv or the log."""
     version = server_version(admin)
     if version < admission.MINIMUM_VERSION:
         raise ServiceError(
             "CLUSTER_VERSION_OLD",
             "the restricted accounts need Kubernetes 1.30 or later (ValidatingAdmissionPolicy)",
         )
-    for objects in (admission.roles(NAMESPACE), admission.policies(NAMESPACE)):
-        document = {"apiVersion": "v1", "kind": "List", "items": objects}
-        kubectl(admin, "apply", "-f", "-", stdin=json.dumps(document).encode())
+    if grants is not None:
+        write_grants_configmap(admin, grants)
+    _require_grants(admin)
+    install_policies(admin, sleep=sleep)
+    roles = {"apiVersion": "v1", "kind": "List", "items": admission.roles(NAMESPACE)}
+    _apply(admin, roles)
     token = kubectl(
         admin, "create", "token", admission.account("deployer"), "--namespace", NAMESPACE,
         "--duration", TOKEN_DURATION,
@@ -427,12 +624,10 @@ def write_grants(state) -> None:
     if not block or state.get(RESTRICTED) != "1":
         return
     try:
-        configmap = admission.grants_configmap(NAMESPACE, grants_for(state, block))
+        grants = grants_for(state, block)
     except admission.AdmissionError as error:
         raise ServiceError("CLUSTER_FAILED", str(error)) from None
-    kubectl(
-        state.directory / "kubeconfig", "apply", "-f", "-", stdin=json.dumps(configmap).encode()
-    )
+    write_grants_configmap(state.directory / "kubeconfig", grants)
 
 
 LOCK_NAME = "cluster.lock"

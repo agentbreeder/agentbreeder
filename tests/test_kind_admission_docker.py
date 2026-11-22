@@ -1,5 +1,6 @@
-"""The §7.1 Roles and the §7.2 admission policies on a real API server (#770 K2). **Written, not
-run**: it needs Docker, `kind` (≥ 0.33) and `kubectl`, so it is opt-in:
+"""The §7.1 Roles and the §7.2 admission policies on a real API server (#770 K2, #1204). It
+needs Docker, `kind` (≥ 0.33) and `kubectl`, so it is opt-in (the runs are recorded in the PRs
+that changed it):
 
     AGENTBREEDER_DOCKER_TEST=1 AGENTBREEDER_KIND_TEST=1 \\
       python -m pytest -q tests/test_kind_admission_docker.py
@@ -8,8 +9,9 @@ It creates its own kind cluster, `ab-k2-admission`, from `cluster.NODE_IMAGE` (K
 ≥ 1.30), never the machine-wide `agentbreeder` cluster, and deletes it at the end even when a
 test fails. Steps, in file order:
 
-1. `cluster.install_restricted` installs the accounts, Roles and policies and writes the
-   deployer kubeconfig; `ab-grants` is the probe fixture (`kubernetes_admission.probe_grants`).
+1. `cluster.install_restricted` writes `ab-grants` (the probe fixture,
+   `kubernetes_admission.probe_grants`), installs the policies one by one, then the accounts and
+   Roles, and writes the deployer kubeconfig.
 2. Every CREATE probe pair as a server-side dry-run under its identity: the admitted request is
    admitted, the refused one is refused by the named policy (the message names it).
 3. AgentBreeder's own create path (`Kubernetes.create` with a secret mount) under the deployer
@@ -86,12 +88,11 @@ def kind_cluster(tmp_path_factory):
         }  # fmt: skip
         ok(kubectl(admin, "apply", "-f", "-", stdin=json.dumps(namespace).encode()))
         grants = admission.probe_grants(REGISTRY, BLOCKED, ECHO)
-        configmap = admission.grants_configmap(NS, grants)
-        ok(kubectl(admin, "apply", "-f", "-", stdin=json.dumps(configmap).encode()))
         original = (cluster.CONTEXT, cluster.NAMESPACE)
         cluster.CONTEXT, cluster.NAMESPACE = CONTEXT, NS
         try:
-            deployer = cluster.install_restricted(admin, directory / "deployer")
+            # As `cluster up --restricted`: ab-grants, then the policies, then the Roles (#1204).
+            deployer = cluster.install_restricted(admin, directory / "deployer", grants=grants)
         finally:
             cluster.CONTEXT, cluster.NAMESPACE = original
         STATE.update(admin=admin, deployer=deployer, grants=grants, directory=directory)
@@ -132,6 +133,72 @@ def _wait_for_policies(deployer: Path, grants) -> None:
             return
         time.sleep(3)
     pytest.fail("the admission policies were not enforced within 120 s")
+
+
+def test_every_policy_and_its_binding_exist_and_compile():
+    """#1204: all six policies were created (so they compiled, cost limits included, since the
+    API server refuses a policy whose CEL exceeds its cost budget at create), each binding names
+    an existing policy, and the type checker reports no warning once it has run."""
+    policies = json.loads(ok(kubectl(STATE["admin"], "get", "validatingadmissionpolicies",
+                                     "-o", "json")))["items"]  # fmt: skip
+    bindings = json.loads(ok(kubectl(STATE["admin"], "get", "validatingadmissionpolicybindings",
+                                     "-o", "json")))["items"]  # fmt: skip
+    names = {item["metadata"]["name"] for item in policies}
+    assert set(admission.POLICY_NAMES) <= names
+    ours = [b for b in bindings if b["metadata"]["name"] in admission.POLICY_NAMES]
+    assert {b["metadata"]["name"] for b in ours} == set(admission.POLICY_NAMES)
+    assert all(b["spec"]["policyName"] in names for b in ours)
+    for item in policies:
+        if item["metadata"]["name"] in admission.POLICY_NAMES:
+            warnings = ((item.get("status") or {}).get("typeChecking") or {}).get(
+                "expressionWarnings"
+            ) or []
+            assert warnings == [], (item["metadata"]["name"], warnings)
+
+
+def test_the_admin_rewrites_ab_grants_under_the_policies():
+    """#1204: `services up` rewrites ab-grants as admin while the policies are bound; the named
+    exclusion admits it, and another ConfigMap stays out of reach of the
+    deployer (RBAC refuses it)."""
+    configmap = admission.grants_configmap(NS, STATE["grants"])
+    ok(kubectl(STATE["admin"], "apply", "-f", "-", stdin=json.dumps(configmap).encode()))
+    other = {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "x", "namespace": NS}}
+    result = _dry_run(STATE["deployer"], other)
+    assert result.returncode != 0
+
+
+def test_the_grants_guard_refuses_the_deployer_even_with_rbac():
+    """#1204: ab-grants-guard is a second layer behind RBAC. Grant the deployer update on
+    ab-grants for this test only; admission must still refuse the write."""
+    role = {
+        "apiVersion": "rbac.authorization.k8s.io/v1", "kind": "Role",
+        "metadata": {"name": "ab-test-grants-writer", "namespace": NS},
+        "rules": [{"apiGroups": [""], "resources": ["configmaps"],
+                   "resourceNames": [admission.GRANTS], "verbs": ["get", "update", "patch"]}],
+    }  # fmt: skip
+    binding = {
+        "apiVersion": "rbac.authorization.k8s.io/v1", "kind": "RoleBinding",
+        "metadata": {"name": "ab-test-grants-writer", "namespace": NS},
+        "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role",
+                    "name": "ab-test-grants-writer"},
+        "subjects": [{"kind": "ServiceAccount", "name": admission.account("deployer"),
+                      "namespace": NS}],
+    }  # fmt: skip
+    for item in (role, binding):
+        ok(kubectl(STATE["admin"], "apply", "-f", "-", stdin=json.dumps(item).encode()))
+    try:
+        deadline = time.monotonic() + 60
+        while True:  # RBAC changes reach the authorizer within seconds
+            result = kubectl(STATE["deployer"], "--namespace", NS, "label", "configmap",
+                             admission.GRANTS, "probe=1", "--dry-run=server")  # fmt: skip
+            if "ab-grants-guard" in result.stderr.decode() or time.monotonic() > deadline:
+                break
+            time.sleep(2)
+        assert result.returncode != 0
+        assert "ValidatingAdmissionPolicy 'ab-grants-guard'" in result.stderr.decode()
+    finally:
+        kubectl(STATE["admin"], "--namespace", NS, "delete", "rolebinding,role",
+                "ab-test-grants-writer", "--ignore-not-found")  # fmt: skip
 
 
 def _identity(name: str) -> Path:
@@ -256,5 +323,10 @@ def test_remove_deletes_the_owned_secret_through_the_garbage_collector():
     ],
 )
 def test_rbac_probes(identity, verb, resource, allowed):
-    result = kubectl(_identity(identity), "--namespace", NS, "auth", "can-i", verb, resource)
+    # `can-i VERB pods/log` means the pod named `log`; a subresource needs --subresource (#1204).
+    resource, _, subresource = resource.partition("/")
+    extra = [f"--subresource={subresource}"] if subresource else []
+    result = kubectl(
+        _identity(identity), "--namespace", NS, "auth", "can-i", verb, resource, *extra
+    )
     assert (result.stdout.decode().strip() == "yes") is allowed
